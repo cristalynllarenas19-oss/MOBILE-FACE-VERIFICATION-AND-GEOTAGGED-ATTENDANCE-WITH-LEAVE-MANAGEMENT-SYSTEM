@@ -1,0 +1,50 @@
+{
+  "name": "backend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "start": "nest start",
+    "start:dev": "nest start --watch",
+    "build": "nest build",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:seed": "tsx prisma/seed.ts",
+    "lint": "eslint \"src/**/*.ts\""
+  },
+  "dependencies": {
+    "@inquirer/figures": "^1.0.15",
+    "@nestjs/common": "^11.1.26",
+    "@nestjs/config": "^4.0.2",
+    "@nestjs/core": "^11.1.26",
+    "@nestjs/jwt": "^11.0.0",
+    "@nestjs/passport": "^11.0.5",
+    "@nestjs/platform-express": "^11.1.26",
+    "@phc/format": "^1.0.0",
+    "@prisma/client": "^6.19.3",
+    "@prisma/config": "^6.19.3",
+    "argon2": "^0.41.1",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.4",
+    "fast-uri": "^3.1.2",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.3",
+    "load-esm": "^1.0.3",
+    "passport": "^0.7.0",
+    "passport-jwt": "^4.0.1",
+    "readdirp": "^4.1.2",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "yoctocolors-cjs": "^2.1.3"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.7",
+    "@nestjs/schematics": "^11.0.5",
+    "@nestjs/testing": "^11.1.26",
+    "@types/node": "^22.10.2",
+    "@types/passport-jwt": "^4.0.1",
+    "ansis": "^4.2.0",
+    "prisma": "^6.19.3",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

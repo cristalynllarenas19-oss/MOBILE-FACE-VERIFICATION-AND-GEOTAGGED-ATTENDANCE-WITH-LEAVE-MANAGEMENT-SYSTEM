@@ -1,0 +1,27 @@
+{
+  "name": "employee-mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./index.js",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "tsc": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@expo/vector-icons": "^14.0.4",
+    "expo": "^52.0.21",
+    "expo-camera": "~16.0.9",
+    "expo-location": "~18.0.4",
+    "expo-secure-store": "~14.0.1",
+    "expo-status-bar": "~2.0.0",
+    "react": "18.3.1",
+    "react-native": "0.76.5"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.14",
+    "typescript": "^5.7.2"
+  }
+}

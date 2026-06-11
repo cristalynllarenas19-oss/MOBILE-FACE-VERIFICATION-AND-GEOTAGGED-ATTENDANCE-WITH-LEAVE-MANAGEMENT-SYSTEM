@@ -1,0 +1,328 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  LOCKED
+}
+
+enum RoleCode {
+  ADMIN
+  SUPERVISOR
+  EMPLOYEE
+}
+
+enum EmploymentStatus {
+  REGULAR
+  PROBATIONARY
+  CONTRACTUAL
+  SEPARATED
+}
+
+enum AttendanceStatus {
+  PRESENT
+  LATE
+  ABSENT
+  ON_LEAVE
+  PENDING_REVIEW
+}
+
+enum AttendanceLogType {
+  TIME_IN
+  TIME_OUT
+  FAILED_ATTEMPT
+}
+
+enum VerificationStatus {
+  APPROVED
+  REJECTED
+  PENDING_REVIEW
+}
+
+enum LeaveStatus {
+  PENDING
+  SUPERVISOR_APPROVED
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum FaceEnrollmentStatus {
+  PENDING
+  ACTIVE
+  REJECTED
+}
+
+model User {
+  id           String      @id @default(uuid())
+  email        String      @unique
+  passwordHash String      @map("password_hash")
+  status       UserStatus  @default(ACTIVE)
+  lastLoginAt  DateTime?   @map("last_login_at")
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+  employee     Employee?
+  userRoles    UserRole[]
+  auditLogs    AuditLog[]
+  notifications Notification[]
+
+  @@map("users")
+}
+
+model Role {
+  id          String           @id @default(uuid())
+  code        RoleCode         @unique
+  name        String
+  description String?
+  userRoles   UserRole[]
+  permissions RolePermission[]
+
+  @@map("roles")
+}
+
+model Permission {
+  id          String           @id @default(uuid())
+  code        String           @unique
+  module      String
+  description String?
+  roles       RolePermission[]
+
+  @@map("permissions")
+}
+
+model UserRole {
+  userId String @map("user_id")
+  roleId String @map("role_id")
+  user   User   @relation(fields: [userId], references: [id])
+  role   Role   @relation(fields: [roleId], references: [id])
+
+  @@id([userId, roleId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  roleId       String     @map("role_id")
+  permissionId String     @map("permission_id")
+  role         Role       @relation(fields: [roleId], references: [id])
+  permission   Permission @relation(fields: [permissionId], references: [id])
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model Department {
+  id        String     @id @default(uuid())
+  name      String     @unique
+  employees Employee[]
+
+  @@map("departments")
+}
+
+model Position {
+  id        String     @id @default(uuid())
+  title     String
+  employees Employee[]
+
+  @@map("positions")
+}
+
+model Employee {
+  id               String             @id @default(uuid())
+  userId           String             @unique @map("user_id")
+  employeeNo       String             @unique @map("employee_no")
+  firstName        String             @map("first_name")
+  lastName         String             @map("last_name")
+  departmentId     String             @map("department_id")
+  positionId       String             @map("position_id")
+  employmentStatus EmploymentStatus   @default(REGULAR) @map("employment_status")
+  hireDate         DateTime           @map("hire_date")
+  supervisorId     String?            @map("supervisor_id")
+  user             User               @relation(fields: [userId], references: [id])
+  department       Department         @relation(fields: [departmentId], references: [id])
+  position         Position           @relation(fields: [positionId], references: [id])
+  supervisor       Employee?          @relation("SupervisorTeam", fields: [supervisorId], references: [id])
+  teamMembers      Employee[]         @relation("SupervisorTeam")
+  attendanceRecords AttendanceRecord[]
+  attendanceLogs   AttendanceLog[]
+  faceProfiles     FaceProfile[]
+  leaveRequests    LeaveRequest[]
+  leaveBalances    LeaveBalance[]
+  schedules        EmployeeSchedule[]
+
+  @@index([departmentId])
+  @@index([supervisorId])
+  @@map("employees")
+}
+
+model WorkLocation {
+  id                    String   @id @default(uuid())
+  name                  String
+  latitude              Decimal
+  longitude             Decimal
+  radiusMeters          Decimal  @map("radius_meters")
+  allowedAccuracyMeters Decimal  @map("allowed_accuracy_meters")
+  isActive              Boolean  @default(true) @map("is_active")
+
+  @@map("work_locations")
+}
+
+model AttendanceRecord {
+  id               String             @id @default(uuid())
+  employeeId       String             @map("employee_id")
+  attendanceDate   DateTime           @map("attendance_date")
+  timeInAt         DateTime?          @map("time_in_at")
+  timeOutAt        DateTime?          @map("time_out_at")
+  status           AttendanceStatus   @default(PENDING_REVIEW)
+  totalMinutes     Int                @default(0) @map("total_minutes")
+  lateMinutes      Int                @default(0) @map("late_minutes")
+  undertimeMinutes Int                @default(0) @map("undertime_minutes")
+  employee         Employee           @relation(fields: [employeeId], references: [id])
+  logs             AttendanceLog[]
+
+  @@unique([employeeId, attendanceDate])
+  @@index([attendanceDate])
+  @@map("attendance_records")
+}
+
+model AttendanceLog {
+  id                      String             @id @default(uuid())
+  attendanceRecordId      String?            @map("attendance_record_id")
+  employeeId              String             @map("employee_id")
+  logType                 AttendanceLogType  @map("log_type")
+  capturedAt              DateTime           @default(now()) @map("captured_at")
+  latitude                Decimal
+  longitude               Decimal
+  gpsAccuracyMeters       Decimal            @map("gps_accuracy_meters")
+  distanceFromSiteMeters  Decimal            @map("distance_from_site_meters")
+  faceLivenessScore       Decimal?           @map("face_liveness_score")
+  faceSimilarityScore     Decimal?           @map("face_similarity_score")
+  verificationStatus      VerificationStatus @map("verification_status")
+  deviceId                String             @map("device_id")
+  failureReason           String?            @map("failure_reason")
+  attendanceRecord        AttendanceRecord?  @relation(fields: [attendanceRecordId], references: [id])
+  employee                Employee           @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId, capturedAt])
+  @@index([verificationStatus])
+  @@map("attendance_logs")
+}
+
+model FaceProfile {
+  id                 String               @id @default(uuid())
+  employeeId         String               @map("employee_id")
+  provider           String               @default("aws_rekognition")
+  providerFaceId     String?              @map("provider_face_id")
+  referenceImagePath String?              @map("reference_image_path")
+  enrollmentStatus   FaceEnrollmentStatus @default(PENDING) @map("enrollment_status")
+  enrolledAt         DateTime?            @map("enrolled_at")
+  employee           Employee             @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId])
+  @@map("face_profiles")
+}
+
+model LeaveType {
+  id              String          @id @default(uuid())
+  name            String          @unique
+  defaultDays     Decimal         @map("default_days")
+  requiresDocument Boolean        @default(false) @map("requires_document")
+  leaveRequests   LeaveRequest[]
+  leaveBalances   LeaveBalance[]
+
+  @@map("leave_types")
+}
+
+model LeaveRequest {
+  id          String      @id @default(uuid())
+  employeeId  String      @map("employee_id")
+  leaveTypeId String      @map("leave_type_id")
+  startDate   DateTime    @map("start_date")
+  endDate     DateTime    @map("end_date")
+  totalDays   Decimal     @map("total_days")
+  reason      String
+  status      LeaveStatus @default(PENDING)
+  reviewedBy  String?     @map("reviewed_by")
+  reviewedAt  DateTime?   @map("reviewed_at")
+  attachmentPath String?  @map("attachment_path")
+  employee    Employee    @relation(fields: [employeeId], references: [id])
+  leaveType   LeaveType   @relation(fields: [leaveTypeId], references: [id])
+
+  @@index([employeeId, status])
+  @@index([startDate])
+  @@map("leave_requests")
+}
+
+model LeaveBalance {
+  id          String    @id @default(uuid())
+  employeeId  String    @map("employee_id")
+  leaveTypeId String    @map("leave_type_id")
+  year        Int
+  earnedDays  Decimal   @map("earned_days")
+  usedDays    Decimal   @default(0) @map("used_days")
+  employee    Employee  @relation(fields: [employeeId], references: [id])
+  leaveType   LeaveType @relation(fields: [leaveTypeId], references: [id])
+
+  @@unique([employeeId, leaveTypeId, year])
+  @@map("leave_balances")
+}
+
+model Shift {
+  id                  String             @id @default(uuid())
+  name                String
+  startTime           String             @map("start_time")
+  endTime             String             @map("end_time")
+  gracePeriodMinutes  Int                @default(0) @map("grace_period_minutes")
+  schedules           EmployeeSchedule[]
+
+  @@map("shifts")
+}
+
+model EmployeeSchedule {
+  id         String   @id @default(uuid())
+  employeeId String   @map("employee_id")
+  shiftId    String   @map("shift_id")
+  startsOn   DateTime @map("starts_on")
+  endsOn     DateTime? @map("ends_on")
+  employee   Employee @relation(fields: [employeeId], references: [id])
+  shift      Shift    @relation(fields: [shiftId], references: [id])
+
+  @@index([employeeId])
+  @@map("employee_schedules")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  title     String
+  message   String
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, readAt])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  actorUserId String?  @map("actor_user_id")
+  action      String
+  entityType  String   @map("entity_type")
+  entityId    String?  @map("entity_id")
+  oldValues   Json?    @map("old_values")
+  newValues   Json?    @map("new_values")
+  ipAddress   String?  @map("ip_address")
+  createdAt   DateTime @default(now()) @map("created_at")
+  actor       User?    @relation(fields: [actorUserId], references: [id])
+
+  @@index([actorUserId])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}

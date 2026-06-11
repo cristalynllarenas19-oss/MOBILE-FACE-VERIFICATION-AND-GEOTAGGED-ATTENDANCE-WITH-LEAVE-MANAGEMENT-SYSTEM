@@ -1,0 +1,35 @@
+{
+  "name": "universal-leaf-attendance-system",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "backend",
+    "shared"
+  ],
+  "scripts": {
+    "dev:admin": "npm run dev -w apps/admin-web",
+    "dev:mobile": "npm run start -w apps/employee-mobile",
+    "dev:api": "npm run start:dev -w backend",
+    "build:admin": "npm run build -w apps/admin-web",
+    "build:api": "npm run build -w backend",
+    "prisma:generate": "npm run prisma:generate -w backend",
+    "prisma:migrate": "npm run prisma:migrate -w backend",
+    "prisma:seed": "npm run prisma:seed -w backend"
+  },
+  "dependencies": {
+    "@urql/core": "^6.0.1",
+    "effect": "^3.21.3",
+    "fdir": "^6.5.0",
+    "js-tokens": "^10.0.0",
+    "json5": "^2.2.3",
+    "onetime": "^8.0.0",
+    "perfect-debounce": "^2.1.0",
+    "react-icons": "^5.6.0",
+    "rollup": "^4.61.1",
+    "wonka": "^6.3.6"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

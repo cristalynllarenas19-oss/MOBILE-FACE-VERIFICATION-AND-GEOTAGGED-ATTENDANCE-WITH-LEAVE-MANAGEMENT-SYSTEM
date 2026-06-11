@@ -1,0 +1,20 @@
+{
+  "expo": {
+    "name": "Universal Leaf Attendance",
+    "slug": "universal-leaf-attendance",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "ulattendance",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Camera access is required for face verification attendance.",
+        "NSLocationWhenInUseUsageDescription": "Location access is required for geotagged attendance."
+      }
+    },
+    "android": {
+      "permissions": ["CAMERA", "ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"]
+    }
+  }
+}
