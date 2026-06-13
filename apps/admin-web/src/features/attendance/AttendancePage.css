@@ -1,0 +1,13 @@
+.attendance-page {
+  width: 100%;
+}
+
+@media (max-width: 768px) {
+  .table-card {
+    overflow-x: auto;
+  }
+
+  table {
+    min-width: 650px;
+  }
+}

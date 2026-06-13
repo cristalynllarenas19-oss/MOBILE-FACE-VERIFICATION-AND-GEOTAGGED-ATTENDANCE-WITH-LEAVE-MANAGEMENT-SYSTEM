@@ -1,0 +1,31 @@
+.table-card {
+  background: white;
+  border-radius: 16px;
+  overflow-x: auto;
+  box-shadow: var(--shadow);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 700px;
+}
+
+th {
+  background: #f8fafc;
+  text-align: left;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+th,
+td {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.filter-tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+}

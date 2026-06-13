@@ -7,7 +7,7 @@ import {
 } from "react-icons/fi";
 import { AuthUser, login } from "../../lib/api";
 import logo from "../../assets/unileaf-logo.png";
-import "../../styles/LoginPage.css";
+import "./LoginPage.css";
 
 export function LoginPage({
   onLogin,

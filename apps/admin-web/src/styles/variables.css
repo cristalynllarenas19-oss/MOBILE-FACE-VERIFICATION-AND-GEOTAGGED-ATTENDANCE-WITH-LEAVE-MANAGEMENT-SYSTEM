@@ -1,0 +1,19 @@
+:root {
+  --navy: #244c7a;
+  --navy-dark: #062b59;
+
+  --page: #f5f7fb;
+  --panel: #ffffff;
+
+  --line: #dbe5ef;
+  --muted: #6d7890;
+
+  --active: #d6f2ff;
+  --active-border: #91d7f7;
+
+  --shadow: 0 8px 24px rgba(23, 50, 82, 0.08);
+
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+}

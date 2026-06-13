@@ -1,0 +1,226 @@
+* {
+  box-sizing: border-box;
+}
+
+:root {
+  --navy: #1a3a5c;
+  --navy-dark: #132d47;
+  --line: #dbe5f0;
+  --active: #e8f0fe;
+  --active-border: #c5d8f5;
+  --text: #193d69;
+  --muted: #7b8794;
+  --sub: #41536b;
+}
+
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 1fr 180px;
+  gap: 12px;
+}
+
+.calendar-card {
+  min-height: 320px;
+}
+
+
+.card-heading h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+
+.calendar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 14px 0 10px;
+}
+
+.calendar-header strong {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.calendar-header button {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 5px;
+  background: var(--navy);
+  color: white;
+  cursor: pointer;
+  font-size: 14px;
+  display: grid;
+  place-items: center;
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+
+.calendar-grid span {
+  text-align: center;
+  font-size: 9px;
+  font-weight: 700;
+  color: #8a95ad;
+  padding-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.calendar-grid button {
+  height: 36px;
+  border: 1px solid var(--line);
+  background: white;
+  text-align: left;
+  padding-left: 5px;
+  font-size: 11px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.calendar-grid button.selected {
+  background: #dbe8ff;
+  border: 2px solid var(--navy);
+}
+
+.calendar-grid button.muted {
+  color: #c2cad7;
+}
+
+
+.side-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.side-stack h3 {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 10px 0;
+}
+
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid #edf2f7;
+  font-size: 11px;
+  color: var(--sub);
+}
+
+.summary-row:last-child {
+  border-bottom: none;
+}
+
+.summary-row strong {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.warning-text {
+  color: #f59e0b;
+}
+
+
+.card {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 14px;
+}
+
+
+.stat-card {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  min-height: 74px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.stat-card p {
+  margin: 0;
+  font-size: 9px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.stat-card strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1;
+}
+
+.stat-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 36px;
+}
+
+.stat-icon.blue { background: #e8f4fd; color: #1a6faf; }
+.stat-icon.green { background: #e8f8f0; color: #1a8a4a; }
+.stat-icon.yellow { background: #fef9e7; color: #c09000; }
+.stat-icon.red { background: #fdecea; color: #c0392b; }
+.stat-icon.pink { background: #fce8f0; color: #b0306a; }
+.stat-icon.cyan { background: #e3f7fb; color: #1a90aa; }
+
+
+
+@media (max-width: 1100px) {
+  .stats-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .calendar-grid {
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 480px) {
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+}

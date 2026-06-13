@@ -11,7 +11,7 @@ import { AppLayout } from "../components/layout/AppLayout";
 import { PermissionCode } from "../types/rbac";
 import { AuthUser, getStoredUser, logout } from "../lib/api";
 
-export function App() {
+export default function App() {
   const [authUser, setAuthUser] = useState<AuthUser | null>(() => getStoredUser());
   const [page, setPage] = useState("dashboard");
 

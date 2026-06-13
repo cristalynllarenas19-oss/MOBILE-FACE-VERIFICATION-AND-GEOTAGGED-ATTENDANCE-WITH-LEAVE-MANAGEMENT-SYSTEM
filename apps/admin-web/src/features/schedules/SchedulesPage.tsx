@@ -1,4 +1,5 @@
 import { Card } from "../../components/ui/Card";
+import "./SchedulesPage.css";
 
 export function SchedulesPage() {
   return (

@@ -1,0 +1,15 @@
+.report-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit,minmax(260px,1fr));
+  gap: 20px;
+}
+
+.report-grid .card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.report-grid button {
+  margin-top: auto;
+}

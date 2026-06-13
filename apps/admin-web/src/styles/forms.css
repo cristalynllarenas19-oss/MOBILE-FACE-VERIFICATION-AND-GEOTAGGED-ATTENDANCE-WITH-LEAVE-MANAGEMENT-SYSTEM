@@ -1,0 +1,275 @@
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.login-panel {
+  width: 100%;
+  max-width: 430px;
+  background: white;
+  border-radius: 16px;
+  padding: 30px;
+  box-shadow: var(--shadow);
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.login-form input {
+  height: 46px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0 12px;
+}
+
+.form-error {
+  color: red;
+}
+
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap");
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: #f8fafc;
+  padding: 24px;
+  font-family: "Poppins", sans-serif;
+}
+
+/* RESTORED: Sizing matches your original 700px box specifications */
+.login-card {
+  width: 100%;
+  max-width: 700px;
+  background: #fff;
+  border-radius: 24px;
+  padding: 24px 50px;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.06);
+}
+
+.login-header {
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+/* RESTORED: Sizing matches your original 400x140px banner specifications */
+.logo-wrapper {
+  width: 400px;
+  height: 140px;
+  margin: 0 auto 8px;
+}
+
+.login-logo {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.login-header h1 {
+  font-size: 24px;
+  font-weight: 600;
+  color: #062b59;
+  margin-bottom: 4px;
+}
+
+.login-subtitle {
+  color: #64748b;
+  font-size: 13px;
+}
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+}
+
+.input-group {
+  margin-bottom: 18px;
+}
+
+.input-group label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+}
+
+/* ==========================================
+   INPUT FIELDS TEXT & ICON OVERLAP FIX
+   ========================================== */
+.input-wrapper,
+.password-wrapper {
+  position: relative;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  border: 1px solid #dbe5ef;
+  border-radius: 12px;
+  background: #fff;
+  height: 52px;
+  transition: all 0.2s ease;
+}
+
+/* Focus alignment border behavior rule */
+.input-wrapper:focus-within,
+.password-wrapper:focus-within {
+  outline: none;
+  border-color: #062b59;
+  box-shadow: 0 0 0 3px rgba(6, 43, 89, 0.08);
+}
+
+/* Structural left side icon positioning block */
+.input-icon {
+  margin-left: 16px;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  color: #64748b;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Inner field reset targeting */
+.input-wrapper input,
+.password-wrapper input {
+  width: 100%;
+  height: 100%;
+  border: none !important;
+  background: transparent !important;
+  font-size: 14px;
+  font-family: inherit;
+  color: #0f172a;
+  outline: none !important;
+  
+  /* FIX: Text flow naturally initializes safely past your email/lock icons */
+  padding-left: 12px; 
+  padding-right: 16px;
+}
+
+/* Safe cushion buffer space before colliding with password visibility eyes */
+.password-wrapper input {
+  padding-right: 48px;
+}
+
+/* Right side password visibility toggle widget container */
+.toggle-password {
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  color: #64748b;
+  background: transparent;
+  user-select: none;
+}
+
+.toggle-password:hover {
+  color: #475569;
+}
+
+/* ==========================================
+   BUTTONS & GENERAL FORMATTING ITEMS
+   ========================================== */
+.form-error {
+  text-align: center;
+  color: #dc2626;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 12px;
+}
+
+.signin-btn {
+  width: 100%;
+  height: 52px;
+  border: none;
+  border-radius: 12px;
+  background: #062b59;
+  color: white;
+  font-size: 15px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.signin-btn:hover {
+  background: #0b3d78;
+}
+
+.signin-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.forgot-password {
+  text-align: center;
+  margin-top: 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #94a3b8;
+  cursor: pointer;
+}
+
+.forgot-password:hover {
+  color: #062b59;
+}
+
+.divider {
+  height: 1px;
+  background: #e2e8f0;
+  margin: 24px 0;
+}
+
+.signup-text {
+  text-align: center;
+  font-size: 14px;
+  color: #94a3b8;
+}
+
+.signup-text span {
+  color: #062b59;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.signup-text span:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 640px) {
+  .login-card {
+    padding: 28px 24px;
+    border-radius: 20px;
+  }
+
+  .logo-wrapper {
+    width: 100px;
+    height: 100px;
+  }
+
+  .input-wrapper input,
+  .password-wrapper input,
+  .signin-btn {
+    height: 48px;
+  }
+}
