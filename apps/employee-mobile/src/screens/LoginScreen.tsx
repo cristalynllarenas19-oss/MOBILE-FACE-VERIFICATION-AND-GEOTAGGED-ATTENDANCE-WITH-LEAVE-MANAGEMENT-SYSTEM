@@ -7,8 +7,16 @@ import {
   Pressable,
   StyleSheet,
   Image,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  TouchableWithoutFeedback,
+  Keyboard,
+  Dimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+
+const { width } = Dimensions.get("window");
 
 type Props = {
   email: string;
@@ -32,106 +40,157 @@ export default function LoginScreen({
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.content}>
-        <Image
-          source={require("../assets/unileaf-logo.png")}
-          style={styles.logo}
-          resizeMode="contain"
-        />
-
-        <Text style={styles.title}>
-          Welcome Back!
-        </Text>
-
-        <Text style={styles.subtitle}>
-          Attendance & Leave Management System
-        </Text>
-
-        <Text style={styles.label}>
-          Email Address
-        </Text>
-
-        <View style={styles.inputContainer}>
-          <Ionicons
-            name="mail-outline"
-            size={20}
-            color="#64748B"
-          />
-
-          <TextInput
-            style={styles.input}
-            placeholder="Enter your email address"
-            placeholderTextColor="#94A3B8"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-          />
-        </View>
-
-        <Text style={styles.label}>
-          Password
-        </Text>
-
-        <View style={styles.inputContainer}>
-          <Ionicons
-            name="lock-closed-outline"
-            size={20}
-            color="#64748B"
-          />
-
-          <TextInput
-            style={styles.input}
-            placeholder="Enter your password"
-            placeholderTextColor="#94A3B8"
-            secureTextEntry={!showPassword}
-            value={password}
-            onChangeText={setPassword}
-          />
-
-          <Pressable
-            onPress={() =>
-              setShowPassword(!showPassword)
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={
+          Platform.OS === "ios"
+            ? "padding"
+            : undefined
+        }
+      >
+        <TouchableWithoutFeedback
+          onPress={Keyboard.dismiss}
+        >
+          <ScrollView
+            contentContainerStyle={
+              styles.content
+            }
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={
+              false
             }
           >
-            <Ionicons
-              name={
-                showPassword
-                  ? "eye-off-outline"
-                  : "eye-outline"
-              }
-              size={20}
-              color="#64748B"
+            <Image
+              source={require("../assets/unileaf-logo.png")}
+              style={styles.logo}
+              resizeMode="contain"
             />
-          </Pressable>
-        </View>
 
-        <Pressable
-          style={styles.loginButton}
-          onPress={onLogin}
-          disabled={isLoading}
-        >
-          <Text style={styles.loginButtonText}>
-            {isLoading
-              ? "Logging In..."
-              : "Log In"}
-          </Text>
-        </Pressable>
+            <Text style={styles.title}>
+              Welcome Back!
+            </Text>
 
-        <Text style={styles.forgotPassword}>
-          Forgot your password?
-        </Text>
+            <Text style={styles.subtitle}>
+              Attendance & Leave Management
+              System
+            </Text>
 
-        <View style={styles.divider} />
+            <Text style={styles.label}>
+              Email Address
+            </Text>
 
-        <Text style={styles.signupText}>
-          Don't have an account?
-          <Text style={styles.signupLink}>
-            {" "}
-            Sign Up
-          </Text>
-        </Text>
-      </View>
+            <View
+              style={styles.inputContainer}
+            >
+              <Ionicons
+                name="mail-outline"
+                size={20}
+                color="#64748B"
+              />
+
+              <TextInput
+                style={styles.input}
+                placeholder="Enter your email address"
+                placeholderTextColor="#94A3B8"
+                value={email}
+                onChangeText={setEmail}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+            </View>
+
+            <Text style={styles.label}>
+              Password
+            </Text>
+
+            <View
+              style={styles.inputContainer}
+            >
+              <Ionicons
+                name="lock-closed-outline"
+                size={20}
+                color="#64748B"
+              />
+
+              <TextInput
+                style={styles.input}
+                placeholder="Enter your password"
+                placeholderTextColor="#94A3B8"
+                secureTextEntry={
+                  !showPassword
+                }
+                value={password}
+                onChangeText={
+                  setPassword
+                }
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+
+              <Pressable
+                onPress={() =>
+                  setShowPassword(
+                    !showPassword
+                  )
+                }
+              >
+                <Ionicons
+                  name={
+                    showPassword
+                      ? "eye-off-outline"
+                      : "eye-outline"
+                  }
+                  size={20}
+                  color="#64748B"
+                />
+              </Pressable>
+            </View>
+
+            <Pressable
+              style={
+                styles.loginButton
+              }
+              onPress={onLogin}
+              disabled={isLoading}
+            >
+              <Text
+                style={
+                  styles.loginButtonText
+                }
+              >
+                {isLoading
+                  ? "Logging In..."
+                  : "Log In"}
+              </Text>
+            </Pressable>
+
+            <Text
+              style={
+                styles.forgotPassword
+              }
+            >
+              Forgot your password?
+            </Text>
+
+            <View style={styles.divider} />
+
+            <Text
+              style={styles.signupText}
+            >
+              Don't have an account?
+              <Text
+                style={
+                  styles.signupLink
+                }
+              >
+                {" "}
+                Sign Up
+              </Text>
+            </Text>
+          </ScrollView>
+        </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -143,20 +202,21 @@ const styles = StyleSheet.create({
   },
 
   content: {
-    flex: 1,
+    flexGrow: 1,
     justifyContent: "center",
-    paddingHorizontal: 30,
+    paddingHorizontal: 24,
+    paddingVertical: 40,
   },
 
   logo: {
-    width: 500,
-    height: 160,
+    width: Math.min(width * 0.8, 320),
+    height: 140,
     alignSelf: "center",
-    marginBottom: 10,
+    marginBottom: 15,
   },
 
   title: {
-    fontSize: 42,
+    fontSize: width > 768 ? 48 : 42,
     fontWeight: "700",
     color: "#062B59",
     textAlign: "center",
@@ -167,7 +227,7 @@ const styles = StyleSheet.create({
     color: "#64748B",
     marginTop: 8,
     marginBottom: 40,
-    fontSize: 13,
+    fontSize: 14,
   },
 
   label: {
@@ -181,29 +241,47 @@ const styles = StyleSheet.create({
   inputContainer: {
     flexDirection: "row",
     alignItems: "center",
-    height: 58,
+    height: 60,
     borderWidth: 1,
-    borderColor: "#DBE5EF",
-    borderRadius: 14,
+    borderColor: "#D9E2EC",
+    borderRadius: 16,
     backgroundColor: "#FFFFFF",
-    paddingHorizontal: 16,
+    paddingHorizontal: 18,
     marginBottom: 18,
+
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 2,
   },
 
   input: {
     flex: 1,
-    marginLeft: 10,
-    fontSize: 15,
+    marginLeft: 12,
+    fontSize: 16,
     color: "#0F172A",
   },
 
   loginButton: {
-    height: 58,
-    borderRadius: 14,
+    height: 60,
+    borderRadius: 16,
     backgroundColor: "#062B59",
     justifyContent: "center",
     alignItems: "center",
-    marginTop: 12,
+    marginTop: 14,
+
+    shadowColor: "#062B59",
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
   },
 
   loginButtonText: {
@@ -215,7 +293,7 @@ const styles = StyleSheet.create({
   forgotPassword: {
     textAlign: "center",
     color: "#94A3B8",
-    marginTop: 24,
+    marginTop: 22,
     fontSize: 15,
   },
 
@@ -223,21 +301,16 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: "#E2E8F0",
     marginVertical: 28,
-    marginTop: 29,
-
   },
 
   signupText: {
     textAlign: "center",
     color: "#94A3B8",
     fontSize: 15,
-    marginTop: 24,
-
   },
 
   signupLink: {
     color: "#062B59",
     fontWeight: "700",
-
   },
 });

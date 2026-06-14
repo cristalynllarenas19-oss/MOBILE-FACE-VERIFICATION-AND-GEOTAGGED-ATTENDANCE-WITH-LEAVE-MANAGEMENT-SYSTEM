@@ -43,11 +43,12 @@ export default function MainScreen({
         }}
       >
         {tab === "attendance" && (
-          <AttendanceScreen
-            isLoading={isLoading}
-            onTimeIn={onTimeIn}
-            onTimeOut={onTimeOut}
-          />
+      <AttendanceScreen
+          user={user}
+          isLoading={isLoading}
+          onTimeIn={onTimeIn}
+          onTimeOut={onTimeOut}
+      />
         )}
 
         {tab === "leave" && (

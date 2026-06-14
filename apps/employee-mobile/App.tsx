@@ -13,12 +13,9 @@ import {
 } from "./src/api";
 
 export default function App() {
-  const [email, setEmail] = useState(
-    "employee@universal-leaf.com"
-  );
-
-  const [password, setPassword] =
-    useState("password123");
+  // Empty by default
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
 
   const [user, setUser] =
     useState<MobileUser | null>(null);
@@ -27,6 +24,14 @@ export default function App() {
     useState(false);
 
   async function handleLogin() {
+    if (!email.trim() || !password.trim()) {
+      Alert.alert(
+        "Missing Information",
+        "Please enter your email and password."
+      );
+      return;
+    }
+
     setIsLoading(true);
 
     try {
@@ -37,7 +42,7 @@ export default function App() {
     } catch {
       Alert.alert(
         "Login Failed",
-        "Start the API and use a seeded account."
+        "Invalid email or password."
       );
     } finally {
       setIsLoading(false);
@@ -47,6 +52,10 @@ export default function App() {
   async function handleLogout() {
     await logout();
     setUser(null);
+
+    // Clear fields after logout
+    setEmail("");
+    setPassword("");
   }
 
   async function submitAttendance(
@@ -92,22 +101,16 @@ export default function App() {
           body: JSON.stringify({
             employeeId:
               user.employeeId,
-
             logType,
-
             latitude:
               location.coords.latitude,
-
             longitude:
               location.coords.longitude,
-
             accuracyMeters:
               location.coords.accuracy ??
               999,
-
             livenessScore: 98,
             similarityScore: 97,
-
             deviceId:
               "expo-demo-device",
           }),
@@ -117,7 +120,6 @@ export default function App() {
         result.approved
           ? "Attendance Approved"
           : "Needs Review",
-
         result.geoResult.reason ??
           result.verificationStatus
       );

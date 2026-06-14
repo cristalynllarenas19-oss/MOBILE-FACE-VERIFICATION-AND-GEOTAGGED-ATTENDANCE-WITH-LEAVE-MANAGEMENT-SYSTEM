@@ -9,6 +9,11 @@ export type MobileUser = {
   employeeId?: string;
   displayName: string;
 };
+export type TodayAttendance = {
+  status: string;
+  timeInAt: string | null;
+  timeOutAt: string | null;
+};
 
 export async function apiRequest<T>(path: string, options: RequestInit = {}) {
   console.log("REQUEST:", `${API_BASE_URL}${path}`);
@@ -42,4 +47,12 @@ export async function login(email: string, password: string) {
 export async function logout() {
   await SecureStore.deleteItemAsync("accessToken");
   await SecureStore.deleteItemAsync("refreshToken");
+}
+
+export async function getTodayAttendance(
+  employeeId: string,
+) {
+  return apiRequest<TodayAttendance>(
+    `/attendance/today/${employeeId}`,
+  );
 }
