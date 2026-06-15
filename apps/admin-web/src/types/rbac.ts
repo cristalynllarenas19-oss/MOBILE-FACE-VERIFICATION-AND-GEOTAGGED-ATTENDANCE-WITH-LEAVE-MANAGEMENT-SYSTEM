@@ -7,6 +7,7 @@ export const roles = {
 export const permissions = {
   dashboardView: "dashboard:view",
   usersRead: "users:read",
+  usersWrite: "users:write",
   employeesRead: "employees:read",
   attendanceRead: "attendance:read",
   leaveRead: "leave:read",

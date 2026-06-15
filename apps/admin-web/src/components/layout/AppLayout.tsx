@@ -8,6 +8,7 @@ import {
   LogOut,
   Users,
   UserSquare2,
+  ScanFace,
   Menu,
 } from "lucide-react";
 import { ReactNode, useState } from "react";
@@ -24,6 +25,7 @@ type User = {
 const navItems = [
   { id: "dashboard",  label: "Dashboard",            icon: LayoutDashboard, permission: permissions.dashboardView },
   { id: "users",      label: "User Management",       icon: Users,           permission: permissions.usersRead },
+  { id: "face-registration", label: "Face Registration", icon: ScanFace,      permission: permissions.usersWrite },
   { id: "employees",  label: "Employee Management",   icon: UserSquare2,     permission: permissions.employeesRead },
   { id: "attendance", label: "Attendance Management", icon: CheckSquare,     permission: permissions.attendanceRead },
   { id: "leave",      label: "Leave Management",      icon: ClipboardList,   permission: permissions.leaveRead },

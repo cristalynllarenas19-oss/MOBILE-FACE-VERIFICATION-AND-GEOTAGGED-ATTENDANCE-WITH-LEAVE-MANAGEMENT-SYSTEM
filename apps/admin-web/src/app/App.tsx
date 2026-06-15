@@ -7,6 +7,7 @@ import { LoginPage } from "../features/login/LoginPage";
 import { ReportsPage } from "../features/reports/ReportsPage";
 import { SchedulesPage } from "../features/schedules/SchedulesPage";
 import { UsersPage } from "../features/users/UsersPage";
+import { FaceRegistrationPage } from "../features/face-registration/FaceRegistrationPage";
 import { AppLayout } from "../components/layout/AppLayout";
 import { PermissionCode } from "../types/rbac";
 import { AuthUser, getStoredUser, logout } from "../lib/api";
@@ -40,6 +41,7 @@ export default function App() {
     >
       {page === "dashboard" && <DashboardPage />}
       {page === "users" && <UsersPage />}
+      {page === "face-registration" && <FaceRegistrationPage />}
       {page === "employees" && <EmployeesPage />}
       {page === "attendance" && <AttendancePage />}
       {page === "leave" && <LeavePage />}
