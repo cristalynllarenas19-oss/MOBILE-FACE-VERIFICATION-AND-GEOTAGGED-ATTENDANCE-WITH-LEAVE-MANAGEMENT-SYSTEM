@@ -67,13 +67,13 @@ export function EmployeesPage() {
 
   return (
     <>
-      <div className="page-header">
-        <div className="header-content">
+      <div className="employees-header">
+        <div className="employees-header-content">
           <h2>Employee Management</h2>
           <p>Manage employee records and information</p>
         </div>
         <button
-          className="primary-button add-btn"
+          className="btn-add-employee"
           onClick={() => setShowAddModal(true)}
         >
           <Plus size={18} />
@@ -118,7 +118,7 @@ export function EmployeesPage() {
                   </Badge>
                 </td>
                 <td>
-                  <button className="outline-button">Edit</button>
+                  <button className="btn-edit">Edit</button>
                 </td>
               </tr>
             ))}
@@ -234,12 +234,12 @@ export function EmployeesPage() {
               <div className="modal-footer">
                 <button
                   type="button"
-                  className="secondary-button"
+                  className="btn-secondary"
                   onClick={() => setShowAddModal(false)}
                 >
                   Cancel
                 </button>
-                <button type="submit" className="primary-button">
+                <button type="submit" className="btn-primary">
                   Add Employee
                 </button>
               </div>
