@@ -1,287 +1,340 @@
-/* ── Toolbar ── */
-.employees-toolbar {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: space-between !important;
-  gap: 14px !important;
-  margin-bottom: 16px !important;
+/* ========================================
+   PAGE HEADER WITH ADD BUTTON
+   ======================================== */
+.page-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 24px;
+  padding: 0 0 16px 0;
 }
 
-.employees-toolbar .filter-tabs {
-  display: flex !important;
-  gap: 8px !important;
-  flex-wrap: wrap !important;
-  margin-bottom: 0 !important;
-  align-items: center !important;
+.header-content {
+  flex: 1;
 }
 
-.employees-toolbar .filter-tabs button {
-  border: 1.5px solid #d1d5db !important;
-  background: #ffffff !important;
-  color: #41536b !important;
-  padding: 8px 18px !important;
-  border-radius: 999px !important;
-  font-size: 12px !important;
-  font-weight: 600 !important;
-  cursor: pointer !important;
-  transition: all 0.15s ease !important;
+.page-header h2 {
+  font-size: 28px;
+  font-weight: 700;
+  color: #193d69;
+  margin: 0 0 6px 0;
+  background: linear-gradient(135deg, #1e3a8a 0%, #2d6aa3 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
-.employees-toolbar .filter-tabs button:hover {
-  border-color: #93c5fd !important;
-  color: #1a3a5c !important;
+.page-header p {
+  font-size: 14px;
+  color: #7b8794;
+  margin: 0;
+  font-weight: 500;
 }
 
-.employees-toolbar .filter-tabs button.active {
-  background: #dbeafe !important;
-  border-color: #1a3a5c !important;
-  color: #1a3a5c !important;
+.add-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
-/* ── Department Dropdown ── */
-.department-select {
-  appearance: none !important;
-  -webkit-appearance: none !important;
-  background-color: #ffffff !important;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2341536b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") !important;
-  background-repeat: no-repeat !important;
-  background-position: right 12px center !important;
-  border: 1.5px solid #d1d5db !important;
-  color: #41536b !important;
-  padding: 8px 36px 8px 14px !important;
-  border-radius: 999px !important;
-  font-size: 12px !important;
-  font-weight: 600 !important;
-  cursor: pointer !important;
-  transition: border-color 0.15s ease !important;
-  min-width: 160px !important;
+/* ========================================
+   FILTER TABS
+   ======================================== */
+.filter-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
 }
 
-.department-select:hover {
-  border-color: #93c5fd !important;
+.filter-tabs button {
+  padding: 8px 16px;
+  border: 1px solid #dbe5f0;
+  background: #fff;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #41536b;
+  cursor: pointer;
+  transition: all 0.2s ease;
 }
 
-.department-select:focus {
-  outline: none !important;
-  border-color: #93c5fd !important;
-  box-shadow: 0 0 0 3px rgba(147, 197, 253, 0.25) !important;
+.filter-tabs button:hover {
+  background: #f0f4f8;
+  border-color: #c5d8f5;
 }
 
-/* ── Add Button ── */
-.btn-add {
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 6px !important;
-  background: #1a3a5c !important;
-  color: #ffffff !important;
-  border: none !important;
-  padding: 10px 18px !important;
-  border-radius: 8px !important;
-  font-size: 13px !important;
-  font-weight: 600 !important;
-  cursor: pointer !important;
-  white-space: nowrap !important;
-  transition: background 0.15s ease !important;
+.filter-tabs button.active {
+  background: #dbeafe;
+  border-color: #93c5fd;
+  color: #1e40af;
 }
 
-.btn-add:hover {
-  background: #15304e !important;
+/* ========================================
+   TABLE CARD
+   ======================================== */
+.table-card {
+  background: #fff;
+  border: 1px solid #dbe5f0;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
-/* ── Table Card ── */
-.employees-table-card {
-  background: #ffffff !important;
-  border-radius: 14px !important;
-  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.07) !important;
-  overflow: hidden !important;
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
 }
 
-.employees-table-card table {
-  width: 100% !important;
-  border-collapse: collapse !important;
+thead {
+  background: #f8fafc;
+  border-bottom: 1px solid #dbe5f0;
 }
 
-.employees-table-card thead {
-  background: #ffffff !important;
-  border-bottom: 1.5px solid #e5eaf1 !important;
+th {
+  padding: 14px;
+  text-align: left;
+  font-weight: 700;
+  color: #193d69;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
 }
 
-.employees-table-card th {
-  padding: 14px 20px !important;
-  font-size: 11px !important;
-  font-weight: 700 !important;
-  letter-spacing: 0.07em !important;
-  text-transform: uppercase !important;
-  color: #1a3a5c !important;
-  text-align: center !important;
+td {
+  padding: 14px;
+  border-bottom: 1px solid #f0f4f8;
+  color: #41536b;
 }
 
-.employees-table-card tbody tr {
-  border-bottom: 1px solid #f0f4f8 !important;
-  transition: background 0.12s !important;
+tbody tr:hover {
+  background: #f8fafc;
 }
 
-.employees-table-card tbody tr:last-child {
-  border-bottom: none !important;
+tbody tr:last-child td {
+  border-bottom: none;
 }
 
-.employees-table-card tbody tr:hover {
-  background: #f8fafc !important;
+/* ========================================
+   MODAL STYLES
+   ======================================== */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
 }
 
-.employees-table-card td {
-  padding: 16px 20px !important;
-  font-size: 13px !important;
-  color: #2d4a6a !important;
-  text-align: center !important;
-  border: none !important;
+.modal-content {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+  width: 100%;
+  max-width: 600px;
+  max-height: 90vh;
+  overflow-y: auto;
 }
 
-/* ── Status Badge ── */
-.employee-status-cell {
-  text-align: center !important;
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px;
+  border-bottom: 1px solid #dbe5f0;
 }
 
-.status-badge {
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  padding: 4px 14px !important;
-  border-radius: 999px !important;
-  font-size: 11px !important;
-  font-weight: 700 !important;
-  letter-spacing: 0.04em !important;
-  min-width: 90px !important;
+.modal-header h3 {
+  font-size: 20px;
+  font-weight: 700;
+  color: #193d69;
+  margin: 0;
 }
 
-.status-badge.active {
-  background: #dcfce7 !important;
-  color: #15803d !important;
+.modal-close {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  font-size: 28px;
+  color: #7b8794;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s;
 }
 
-.status-badge.inactive {
-  background: #fee2e2 !important;
-  color: #b91c1c !important;
+.modal-close:hover {
+  color: #193d69;
 }
 
-/* ── Action Cell ── */
-.action-cell {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
+.modal-form {
+  padding: 24px;
 }
 
-.btn-action {
-  padding: 7px 24px !important;
-  border-radius: 8px !important;
-  font-size: 12px !important;
-  font-weight: 600 !important;
-  cursor: pointer !important;
-  transition: all 0.15s ease !important;
+.form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
 }
 
-.btn-view {
-  background: #ffffff !important;
-  color: #1a3a5c !important;
-  border: 1.5px solid #d1d5db !important;
+.form-group {
+  display: flex;
+  flex-direction: column;
 }
 
-.btn-view:hover {
-  border-color: #93c5fd !important;
-  background: #f0f7ff !important;
+.form-group label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #193d69;
+  margin-bottom: 8px;
 }
 
-/* ── Empty State ── */
-.empty-state {
-  text-align: center !important;
-  padding: 40px 20px !important;
-  color: #7b8794 !important;
-  font-size: 13px !important;
+.form-group input,
+.form-group select {
+  padding: 10px 12px;
+  border: 1px solid #dbe5f0;
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  color: #193d69;
+  background: #fff;
+  transition: border-color 0.2s;
 }
 
-/* ── Mobile ── */
-@media (max-width: 640px) {
-  .employees-toolbar {
-    flex-direction: column !important;
-    align-items: stretch !important;
+.form-group input:focus,
+.form-group select:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.form-group input::placeholder {
+  color: #94a3b8;
+}
+
+.modal-footer {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  padding: 16px 24px;
+  border-top: 1px solid #dbe5f0;
+}
+
+.modal-footer button {
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+/* ========================================
+   BUTTON STYLES
+   ======================================== */
+.primary-button {
+  background: #1a3a5c;
+  color: #fff;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.primary-button:hover {
+  background: #132d47;
+}
+
+.primary-button:disabled {
+  background: #94a3b8;
+  cursor: not-allowed;
+}
+
+.secondary-button {
+  background: transparent;
+  color: #41536b;
+  border: 1px solid #dbe5f0;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.secondary-button:hover {
+  background: #f8fafc;
+  border-color: #c5d8f5;
+}
+
+.outline-button {
+  background: transparent;
+  color: #3b82f6;
+  border: 1px solid #93c5fd;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.outline-button:hover {
+  background: #dbeafe;
+  border-color: #60a5fa;
+}
+
+/* ========================================
+   RESPONSIVE
+   ======================================== */
+@media (max-width: 768px) {
+  .page-header {
+    flex-direction: column;
+    align-items: stretch;
   }
 
-  .employees-toolbar .filter-tabs {
-    overflow-x: auto !important;
-    padding-bottom: 2px !important;
-    flex-wrap: nowrap !important;
+  .add-btn {
+    justify-content: center;
   }
 
-  .department-select {
-    width: 100% !important;
+  .form-row {
+    grid-template-columns: 1fr;
   }
 
-  .btn-add {
-    justify-content: center !important;
+  .filter-tabs {
+    flex-direction: column;
   }
 
-  .employees-table-card {
-    background: transparent !important;
-    box-shadow: none !important;
-    overflow: visible !important;
+  .filter-tabs button {
+    width: 100%;
   }
 
-  .employees-table-card table,
-  .employees-table-card thead,
-  .employees-table-card tbody,
-  .employees-table-card tr,
-  .employees-table-card th,
-  .employees-table-card td {
-    display: block !important;
-    width: 100% !important;
+  .table-card {
+    overflow-x: auto;
   }
 
-  .employees-table-card thead {
-    display: none !important;
+  table {
+    min-width: 650px;
   }
 
-  .employees-table-card tbody {
-    display: grid !important;
-    gap: 12px !important;
-  }
-
-  .employees-table-card tr {
-    background: #ffffff !important;
-    border: 1px solid #dbe5ef !important;
-    border-radius: 12px !important;
-    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06) !important;
-    overflow: hidden !important;
-  }
-
-  .employees-table-card td {
-    min-height: 46px !important;
-    display: grid !important;
-    grid-template-columns: 120px 1fr !important;
-    align-items: center !important;
-    gap: 12px !important;
-    text-align: right !important;
-    border-bottom: 1px solid #edf2f7 !important;
-    padding: 11px 14px !important;
-  }
-
-  .employees-table-card td::before {
-    content: attr(data-label) !important;
-    color: #7b8794 !important;
-    font-size: 11px !important;
-    font-weight: 700 !important;
-    text-align: left !important;
-    text-transform: uppercase !important;
-  }
-
-  .employees-table-card td:last-child {
-    border-bottom: none !important;
-  }
-
-  .employee-status-cell .status-badge {
-    justify-self: end !important;
-  }
-
-  .action-cell {
-    justify-content: flex-end !important;
+  .modal-content {
+    max-width: 90vw;
   }
 }
