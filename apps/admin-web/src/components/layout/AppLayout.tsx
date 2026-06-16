@@ -136,9 +136,6 @@ export function AppLayout({
           </div>
 
           <div className="topbar-actions">
-            {activePage === "users" && (
-              <button className="header-button">Add User</button>
-            )}
             <button className="bell-button" aria-label="Notifications">
               <Bell size={18} />
             </button>

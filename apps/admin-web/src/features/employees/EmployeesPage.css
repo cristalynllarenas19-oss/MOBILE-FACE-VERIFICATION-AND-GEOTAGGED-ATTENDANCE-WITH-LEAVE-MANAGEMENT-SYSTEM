@@ -1,0 +1,287 @@
+/* ── Toolbar ── */
+.employees-toolbar {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 14px !important;
+  margin-bottom: 16px !important;
+}
+
+.employees-toolbar .filter-tabs {
+  display: flex !important;
+  gap: 8px !important;
+  flex-wrap: wrap !important;
+  margin-bottom: 0 !important;
+  align-items: center !important;
+}
+
+.employees-toolbar .filter-tabs button {
+  border: 1.5px solid #d1d5db !important;
+  background: #ffffff !important;
+  color: #41536b !important;
+  padding: 8px 18px !important;
+  border-radius: 999px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+}
+
+.employees-toolbar .filter-tabs button:hover {
+  border-color: #93c5fd !important;
+  color: #1a3a5c !important;
+}
+
+.employees-toolbar .filter-tabs button.active {
+  background: #dbeafe !important;
+  border-color: #1a3a5c !important;
+  color: #1a3a5c !important;
+}
+
+/* ── Department Dropdown ── */
+.department-select {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  background-color: #ffffff !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2341536b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 12px center !important;
+  border: 1.5px solid #d1d5db !important;
+  color: #41536b !important;
+  padding: 8px 36px 8px 14px !important;
+  border-radius: 999px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: border-color 0.15s ease !important;
+  min-width: 160px !important;
+}
+
+.department-select:hover {
+  border-color: #93c5fd !important;
+}
+
+.department-select:focus {
+  outline: none !important;
+  border-color: #93c5fd !important;
+  box-shadow: 0 0 0 3px rgba(147, 197, 253, 0.25) !important;
+}
+
+/* ── Add Button ── */
+.btn-add {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  background: #1a3a5c !important;
+  color: #ffffff !important;
+  border: none !important;
+  padding: 10px 18px !important;
+  border-radius: 8px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  white-space: nowrap !important;
+  transition: background 0.15s ease !important;
+}
+
+.btn-add:hover {
+  background: #15304e !important;
+}
+
+/* ── Table Card ── */
+.employees-table-card {
+  background: #ffffff !important;
+  border-radius: 14px !important;
+  box-shadow: 0 4px 20px rgba(15, 23, 42, 0.07) !important;
+  overflow: hidden !important;
+}
+
+.employees-table-card table {
+  width: 100% !important;
+  border-collapse: collapse !important;
+}
+
+.employees-table-card thead {
+  background: #ffffff !important;
+  border-bottom: 1.5px solid #e5eaf1 !important;
+}
+
+.employees-table-card th {
+  padding: 14px 20px !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.07em !important;
+  text-transform: uppercase !important;
+  color: #1a3a5c !important;
+  text-align: center !important;
+}
+
+.employees-table-card tbody tr {
+  border-bottom: 1px solid #f0f4f8 !important;
+  transition: background 0.12s !important;
+}
+
+.employees-table-card tbody tr:last-child {
+  border-bottom: none !important;
+}
+
+.employees-table-card tbody tr:hover {
+  background: #f8fafc !important;
+}
+
+.employees-table-card td {
+  padding: 16px 20px !important;
+  font-size: 13px !important;
+  color: #2d4a6a !important;
+  text-align: center !important;
+  border: none !important;
+}
+
+/* ── Status Badge ── */
+.employee-status-cell {
+  text-align: center !important;
+}
+
+.status-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 4px 14px !important;
+  border-radius: 999px !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.04em !important;
+  min-width: 90px !important;
+}
+
+.status-badge.active {
+  background: #dcfce7 !important;
+  color: #15803d !important;
+}
+
+.status-badge.inactive {
+  background: #fee2e2 !important;
+  color: #b91c1c !important;
+}
+
+/* ── Action Cell ── */
+.action-cell {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.btn-action {
+  padding: 7px 24px !important;
+  border-radius: 8px !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+  transition: all 0.15s ease !important;
+}
+
+.btn-view {
+  background: #ffffff !important;
+  color: #1a3a5c !important;
+  border: 1.5px solid #d1d5db !important;
+}
+
+.btn-view:hover {
+  border-color: #93c5fd !important;
+  background: #f0f7ff !important;
+}
+
+/* ── Empty State ── */
+.empty-state {
+  text-align: center !important;
+  padding: 40px 20px !important;
+  color: #7b8794 !important;
+  font-size: 13px !important;
+}
+
+/* ── Mobile ── */
+@media (max-width: 640px) {
+  .employees-toolbar {
+    flex-direction: column !important;
+    align-items: stretch !important;
+  }
+
+  .employees-toolbar .filter-tabs {
+    overflow-x: auto !important;
+    padding-bottom: 2px !important;
+    flex-wrap: nowrap !important;
+  }
+
+  .department-select {
+    width: 100% !important;
+  }
+
+  .btn-add {
+    justify-content: center !important;
+  }
+
+  .employees-table-card {
+    background: transparent !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+  }
+
+  .employees-table-card table,
+  .employees-table-card thead,
+  .employees-table-card tbody,
+  .employees-table-card tr,
+  .employees-table-card th,
+  .employees-table-card td {
+    display: block !important;
+    width: 100% !important;
+  }
+
+  .employees-table-card thead {
+    display: none !important;
+  }
+
+  .employees-table-card tbody {
+    display: grid !important;
+    gap: 12px !important;
+  }
+
+  .employees-table-card tr {
+    background: #ffffff !important;
+    border: 1px solid #dbe5ef !important;
+    border-radius: 12px !important;
+    box-shadow: 0 4px 14px rgba(15, 23, 42, 0.06) !important;
+    overflow: hidden !important;
+  }
+
+  .employees-table-card td {
+    min-height: 46px !important;
+    display: grid !important;
+    grid-template-columns: 120px 1fr !important;
+    align-items: center !important;
+    gap: 12px !important;
+    text-align: right !important;
+    border-bottom: 1px solid #edf2f7 !important;
+    padding: 11px 14px !important;
+  }
+
+  .employees-table-card td::before {
+    content: attr(data-label) !important;
+    color: #7b8794 !important;
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    text-align: left !important;
+    text-transform: uppercase !important;
+  }
+
+  .employees-table-card td:last-child {
+    border-bottom: none !important;
+  }
+
+  .employee-status-cell .status-badge {
+    justify-self: end !important;
+  }
+
+  .action-cell {
+    justify-content: flex-end !important;
+  }
+}
