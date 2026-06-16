@@ -8,6 +8,7 @@ import { ReportsPage } from "../features/reports/ReportsPage";
 import { SchedulesPage } from "../features/schedules/SchedulesPage";
 import { UsersPage } from "../features/users/UsersPage";
 import { FaceRegistrationPage } from "../features/face-registration/FaceRegistrationPage";
+import { GeotaggingPage } from "../features/geotagging/GeotaggingPage";
 import { AppLayout } from "../components/layout/AppLayout";
 import { PermissionCode } from "../types/rbac";
 import { AuthUser, getStoredUser, logout } from "../lib/api";
@@ -44,6 +45,7 @@ export default function App() {
       {page === "face-registration" && <FaceRegistrationPage />}
       {page === "employees" && <EmployeesPage />}
       {page === "attendance" && <AttendancePage />}
+      {page === "geotagging" && <GeotaggingPage />}
       {page === "leave" && <LeavePage />}
       {page === "schedules" && <SchedulesPage />}
       {page === "reports" && <ReportsPage />}

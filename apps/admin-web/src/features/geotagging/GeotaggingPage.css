@@ -1,0 +1,269 @@
+.geotagging-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.geotagging-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.geotagging-header h2 {
+  margin: 0 0 6px;
+  color: #193d69;
+  font-size: 28px;
+  font-weight: 700;
+}
+
+.geotagging-header p {
+  margin: 0;
+  color: #6d7890;
+  font-size: 14px;
+}
+
+.geotagging-summary {
+  min-width: 118px;
+  border: 1px solid #dbe5f0;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px 16px;
+  text-align: right;
+  box-shadow: 0 1px 3px rgba(23, 50, 82, 0.05);
+}
+
+.geotagging-summary span {
+  display: block;
+  color: #193d69;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.geotagging-summary small {
+  color: #6d7890;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.geotagging-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 390px;
+  gap: 18px;
+  align-items: start;
+}
+
+.geotagging-map-panel,
+.geotagging-form,
+.assigned-list,
+.selected-assignment {
+  border: 1px solid #dbe5f0;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(23, 50, 82, 0.05);
+}
+
+.geotagging-map-panel {
+  overflow: hidden;
+}
+
+.geotagging-map {
+  width: 100%;
+  height: 520px;
+  z-index: 1;
+}
+
+.geotagging-form-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.geotagging-form,
+.assigned-list,
+.selected-assignment {
+  padding: 18px;
+}
+
+.panel-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+  color: #193d69;
+}
+
+.panel-heading h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.geotagging-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-bottom: 13px;
+  color: #193d69;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.geotagging-form input,
+.geotagging-form select {
+  width: 100%;
+  border: 1px solid #dbe5f0;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #193d69;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+.geotagging-form input:focus,
+.geotagging-form select:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+
+.coordinate-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.geotagging-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.assigned-list {
+  max-height: 290px;
+  overflow: auto;
+}
+
+.empty-state {
+  color: #6d7890;
+  font-size: 14px;
+}
+
+.assigned-location {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid #e7eef6;
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.assigned-location + .assigned-location {
+  margin-top: 10px;
+}
+
+.assigned-location.selected {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+
+.assigned-location-main {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  border: 0;
+  background: transparent;
+  color: #193d69;
+  cursor: pointer;
+  text-align: left;
+}
+
+.assigned-location-main strong,
+.assigned-location-main span,
+.assigned-location-main small {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assigned-location-main strong {
+  font-size: 14px;
+}
+
+.assigned-location-main span,
+.assigned-location-main small {
+  color: #6d7890;
+  font-size: 12px;
+}
+
+.icon-button {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  background: #fff1f2;
+  color: #dc2626;
+  cursor: pointer;
+}
+
+.selected-assignment {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.selected-assignment span {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: #e0f2fe;
+  color: #075985;
+  font-weight: 700;
+}
+
+.selected-assignment p {
+  margin: 0;
+  color: #41536b;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+@media (max-width: 1180px) {
+  .geotagging-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .geotagging-map {
+    height: 460px;
+  }
+}
+
+@media (max-width: 640px) {
+  .geotagging-header {
+    flex-direction: column;
+  }
+
+  .geotagging-summary {
+    width: 100%;
+    text-align: left;
+  }
+
+  .coordinate-grid,
+  .geotagging-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .geotagging-map {
+    height: 340px;
+  }
+}

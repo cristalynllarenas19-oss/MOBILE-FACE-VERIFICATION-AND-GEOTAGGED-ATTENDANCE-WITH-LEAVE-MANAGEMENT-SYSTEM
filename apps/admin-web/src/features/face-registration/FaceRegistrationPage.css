@@ -1,6 +1,6 @@
 .face-page {
   display: grid;
-  gap: 32px;
+  gap: 24px;
   max-width: 1400px;
 }
 
@@ -9,7 +9,7 @@
   align-items: flex-start;
   justify-content: space-between;
   color: var(--text);
-  padding: 16px 0;
+  padding: 10px 0;
 }
 
 .face-page-heading > div {
@@ -17,13 +17,10 @@
 }
 
 .face-page-heading h2 {
-  font-size: 32px;
+  font-size: 30px;
   font-weight: 700;
   margin: 8px 0;
-  background: linear-gradient(135deg, #1e3a8a 0%, #2d6aa3 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: #163e68;
 }
 
 .face-page-heading p:last-child {
@@ -54,15 +51,15 @@
 
 .face-workspace {
   display: grid;
-  grid-template-columns: minmax(420px, 1.5fr) minmax(300px, 0.9fr);
-  gap: 28px;
+  grid-template-columns: minmax(420px, 1.45fr) minmax(320px, 0.9fr);
+  gap: 22px;
 }
 
 .face-card {
   background: white;
   border: 1px solid #e5e7eb;
-  border-radius: 16px;
-  padding: 28px;
+  border-radius: 8px;
+  padding: 24px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 4px 12px rgba(0, 0, 0, 0.05);
   transition: all 0.3s ease;
 }
@@ -74,8 +71,8 @@
 
 .capture-stage {
   aspect-ratio: 16 / 10;
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-  border-radius: 14px;
+  background: #111827;
+  border-radius: 8px;
   overflow: hidden;
   position: relative;
   border: 1px solid rgba(148, 163, 184, 0.2);
@@ -104,18 +101,86 @@
   font-weight: 500;
 }
 
-.face-guide {
-  position: absolute;
-  width: 34%;
-  height: 64%;
-  border: 3px solid rgba(255, 255, 255, 0.8);
-  border-radius: 48%;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  box-shadow: 0 0 0 999px rgba(4, 20, 36, 0.18);
+.face-tracker {
+  height: 100%;
+  inset: 0;
   pointer-events: none;
-  animation: facePulse 2s ease-in-out infinite;
+  position: absolute;
+  width: 100%;
+  z-index: 2;
+}
+
+.face-tracker polyline,
+.face-tracker polygon {
+  fill: none;
+  stroke: #60a5fa;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
+}
+
+.face-tracker .face-outline {
+  fill: transparent;
+  opacity: 1;
+  stroke: #0b6bff;
+  stroke-width: 3;
+}
+
+.face-tracker .mesh-line {
+  opacity: 0.7;
+  stroke: #38bdf8;
+  stroke-width: 0.95;
+}
+
+.face-tracker .feature-line {
+  opacity: 0.82;
+  stroke: #1d4ed8;
+  stroke-width: 1.35;
+}
+
+.face-tracker text {
+  fill: #eff6ff;
+  font-size: 13px;
+  font-weight: 800;
+  paint-order: stroke;
+  stroke: rgba(30, 64, 175, 0.86);
+  stroke-width: 5px;
+}
+
+.capture-overlay {
+  align-items: center;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.78), rgba(15, 23, 42, 0.36));
+  color: white;
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  left: 0;
+  padding: 18px;
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+  top: 0;
+  text-align: center;
+  z-index: 3;
+}
+
+.capture-overlay span {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.capture-overlay strong {
+  font-size: 56px;
+  font-weight: 800;
+  line-height: 1;
+  min-height: 56px;
+}
+
+.capture-overlay small {
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 12px;
+  font-weight: 500;
 }
 
 @keyframes facePulse {
@@ -126,7 +191,7 @@
 .capture-actions {
   display: flex;
   gap: 12px;
-  margin-top: 20px;
+  margin-top: 16px;
 }
 
 .capture-actions button,
@@ -138,7 +203,7 @@
   flex: 1;
   font-weight: 600;
   font-size: 14px;
-  border-radius: 10px;
+  border-radius: 8px;
   padding: 11px 16px;
   transition: all 0.3s ease;
   cursor: pointer;
@@ -147,6 +212,10 @@
 
 .capture-actions button {
   width: 100%;
+}
+
+.capture-actions .outline-button {
+  flex: 0 0 128px;
 }
 
 .upload-button {
@@ -162,8 +231,8 @@
 
 .sample-progress {
   height: auto;
-  margin-top: 18px;
-  color: #3b82f6;
+  margin-top: 14px;
+  color: #2563eb;
   font-size: 13px;
   font-weight: 600;
   display: flex;
@@ -191,7 +260,7 @@
   color: var(--sub);
   font-size: 13px;
   line-height: 1.6;
-  margin-top: 16px;
+  margin-top: 12px;
   min-height: 20px;
   padding: 10px 12px;
   background: #f0f9ff;
@@ -199,6 +268,46 @@
   border-radius: 6px;
   display: flex;
   align-items: center;
+}
+
+.pose-steps {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 16px;
+}
+
+.pose-step {
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  color: #64748b;
+  display: flex;
+  gap: 8px;
+  min-height: 42px;
+  padding: 10px 12px;
+}
+
+.pose-step span {
+  font-size: 12px;
+  font-weight: 700;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pose-step.active {
+  background: #eff6ff;
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+
+.pose-step.complete {
+  background: #ecfdf5;
+  border-color: #86efac;
+  color: #047857;
 }
 
 .enrollment-form {
@@ -230,7 +339,7 @@
 
 .enrollment-form input {
   border: 2px solid #e2e8f0;
-  border-radius: 10px;
+  border-radius: 8px;
   color: #172b3f;
   height: 44px;
   padding: 0 14px;
@@ -252,7 +361,7 @@
 }
 
 .enrollment-note {
-  background: linear-gradient(135deg, #eff6ff 0%, #f0f9ff 100%);
+  background: #f0f9ff;
   border-left: 4px solid #3b82f6;
   border-radius: 8px;
   color: #1e293b;
@@ -297,7 +406,7 @@
 .face-item {
   align-items: flex-start;
   border: 1px solid #e5e7eb;
-  border-radius: 12px;
+  border-radius: 8px;
   display: grid;
   grid-template-columns: 70px 1fr auto;
   gap: 14px;
@@ -313,7 +422,7 @@
 }
 
 .face-item img {
-  border-radius: 10px;
+  border-radius: 8px;
   height: 70px;
   object-fit: cover;
   width: 70px;
@@ -349,7 +458,7 @@
   text-align: center;
   background: #f8fafc;
   border: 2px dashed #cbd5e1;
-  border-radius: 12px;
+  border-radius: 8px;
 }
 
 .face-item button {
@@ -398,8 +507,29 @@
     flex-direction: column;
   }
 
+  .capture-actions .outline-button {
+    flex-basis: auto;
+  }
+
   .capture-stage {
     aspect-ratio: 1;
+  }
+
+  .capture-overlay {
+    padding: 14px;
+  }
+
+  .capture-overlay span {
+    font-size: 15px;
+  }
+
+  .capture-overlay strong {
+    font-size: 44px;
+    min-height: 44px;
+  }
+
+  .pose-steps {
+    grid-template-columns: 1fr;
   }
 
   .face-page-heading h2 {
