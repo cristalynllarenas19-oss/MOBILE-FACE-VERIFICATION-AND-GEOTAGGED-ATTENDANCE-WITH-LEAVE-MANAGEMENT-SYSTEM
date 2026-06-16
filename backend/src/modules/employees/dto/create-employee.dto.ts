@@ -33,3 +33,33 @@ export class CreateEmployeeDto {
   @IsEnum(CreateEmployeeEmploymentStatus)
   employmentStatus!: CreateEmployeeEmploymentStatus;
 }
+
+export class UpdateEmployeeDto {
+  @IsOptional()
+  @IsString()
+  firstName?: string;
+
+  @IsOptional()
+  @IsString()
+  lastName?: string;
+
+  @IsOptional()
+  @IsEmail()
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  department?: string;
+
+  @IsOptional()
+  @IsString()
+  position?: string;
+
+  @IsOptional()
+  @IsDateString()
+  hireDate?: string;
+
+  @IsOptional()
+  @IsEnum(CreateEmployeeEmploymentStatus)
+  employmentStatus?: CreateEmployeeEmploymentStatus;
+}

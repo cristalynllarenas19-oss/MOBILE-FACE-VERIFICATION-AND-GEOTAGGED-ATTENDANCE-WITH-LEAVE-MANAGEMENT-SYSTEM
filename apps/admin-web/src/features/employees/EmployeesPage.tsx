@@ -1,98 +1,572 @@
-import { useEffect, useState } from "react";
-import { Plus } from "lucide-react";
+import axios from "axios";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { AlertTriangle, CheckCircle2, Eye, Pencil, Plus, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { apiRequest } from "../../lib/api";
 import "./EmployeesPage.css";
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3001/api/v1";
 
 type Employee = {
   id: string;
   employeeNo: string;
   firstName: string;
   lastName: string;
-  employmentStatus: string;
+  employmentStatus: "REGULAR" | "PROBATIONARY" | "CONTRACTUAL" | "SEPARATED";
+  hireDate?: string;
+  user?: { email: string } | null;
   department: { name: string };
   position: { title: string };
 };
 
-export function EmployeesPage() {
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [formData, setFormData] = useState({
-    employeeNo: "",
-    firstName: "",
-    lastName: "",
-    departmentId: "",
-    positionId: "",
-    employmentStatus: "ACTIVE",
-  });
+type EmployeeForm = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  password: string;
+  department: string;
+  position: string;
+  hireDate: string;
+  employmentStatus: "REGULAR" | "PROBATIONARY" | "CONTRACTUAL";
+};
 
-  useEffect(() => {
-    fetchEmployees();
-  }, []);
+type EditEmployeeForm = Omit<EmployeeForm, "password">;
 
-  const fetchEmployees = () => {
-    apiRequest<Employee[]>("/employees").then(setEmployees).catch(() => undefined);
+type Notification = { type: "success" | "error"; message: string } | null;
+
+const initialForm: EmployeeForm = {
+  firstName: "",
+  lastName: "",
+  email: "",
+  password: "",
+  department: "",
+  position: "",
+  hireDate: "",
+  employmentStatus: "REGULAR",
+};
+
+function getDateInputValue(value?: string) {
+  return value ? value.slice(0, 10) : "";
+}
+
+function getStatusTone(status: Employee["employmentStatus"]) {
+  if (status === "REGULAR") return "success";
+  if (status === "SEPARATED") return "danger";
+  return "warning";
+}
+
+function getEmployeeName(employee: Employee) {
+  return `${employee.firstName} ${employee.lastName}`;
+}
+
+function EmployeeModal({
+  title,
+  description,
+  children,
+  onClose,
+}: {
+  title: string;
+  description?: string;
+  children: ReactNode;
+  onClose: () => void;
+}) {
+  return (
+    <div className="employee-modal-backdrop" role="presentation">
+      <section className="employee-modal" role="dialog" aria-modal="true" aria-labelledby="employee-modal-title">
+        <div className="employee-modal-header">
+          <div>
+            <h2 id="employee-modal-title">{title}</h2>
+            {description && <p>{description}</p>}
+          </div>
+          <button className="icon-button" onClick={onClose} aria-label="Close employee modal">
+            <X size={18} />
+          </button>
+        </div>
+        {children}
+      </section>
+    </div>
+  );
+}
+
+function AddEmployeeModal({
+  departments,
+  positions,
+  onClose,
+  onCreated,
+}: {
+  departments: string[];
+  positions: string[];
+  onClose: () => void;
+  onCreated: (employee: Employee) => void;
+}) {
+  const [form, setForm] = useState(initialForm);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const updateField =
+    (field: keyof EmployeeForm) =>
+    (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+      setForm((current) => ({ ...current, [field]: event.target.value }));
+    };
+
+  const validateForm = () => {
+    if (!form.firstName.trim() || !form.lastName.trim()) return "Employee name is required.";
+    if (!form.email.trim()) return "Email is required.";
+    if (!/^\S+@\S+\.\S+$/.test(form.email.trim())) return "Enter a valid email address.";
+    if (form.password.length < 8) return "Password must be at least 8 characters.";
+    if (!form.department.trim()) return "Department is required.";
+    if (!form.position.trim()) return "Position is required.";
+    return "";
   };
 
-  const handleAddEmployee = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const validationError = validateForm();
+
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    setIsSaving(true);
+    setError("");
+
     try {
-      await apiRequest("/employees", "POST", formData);
-      setShowAddModal(false);
-      setFormData({
-        employeeNo: "",
-        firstName: "",
-        lastName: "",
-        departmentId: "",
-        positionId: "",
-        employmentStatus: "ACTIVE",
-      });
-      fetchEmployees();
-    } catch (error) {
-      console.error("Failed to add employee:", error);
+      const token = localStorage.getItem("accessToken");
+      const response = await axios.post<Employee>(
+        `${API_BASE_URL}/employees`,
+        {
+          firstName: form.firstName.trim(),
+          lastName: form.lastName.trim(),
+          email: form.email.trim(),
+          password: form.password,
+          department: form.department.trim(),
+          position: form.position.trim(),
+          employmentStatus: form.employmentStatus,
+          ...(form.hireDate ? { hireDate: form.hireDate } : {}),
+        },
+        {
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        },
+      );
+
+      onCreated(response.data);
+    } catch (err) {
+      const message =
+        axios.isAxiosError(err) && err.response?.data
+          ? typeof err.response.data === "string"
+            ? err.response.data
+            : "Unable to add employee."
+          : "Unable to add employee.";
+      setError(message);
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
+  return (
+    <EmployeeModal title="Add Employee" description="Create an employee profile and login account." onClose={onClose}>
+      <form className="employee-form" onSubmit={handleSubmit}>
+        <div className="employee-form-grid">
+          <label>
+            First Name
+            <input type="text" value={form.firstName} onChange={updateField("firstName")} placeholder="Juan" required />
+          </label>
+
+          <label>
+            Last Name
+            <input type="text" value={form.lastName} onChange={updateField("lastName")} placeholder="Dela Cruz" required />
+          </label>
+        </div>
+
+        <div className="employee-form-grid">
+          <label>
+            Email
+            <input type="email" value={form.email} onChange={updateField("email")} placeholder="employee@example.com" required />
+          </label>
+
+          <label>
+            Password
+            <input
+              type="password"
+              value={form.password}
+              onChange={updateField("password")}
+              minLength={8}
+              placeholder="Minimum 8 characters"
+              required
+            />
+          </label>
+        </div>
+
+        <div className="employee-form-grid">
+          <label>
+            Department
+            <input
+              type="text"
+              value={form.department}
+              onChange={updateField("department")}
+              list="employee-departments"
+              placeholder="Production"
+              required
+            />
+            <datalist id="employee-departments">
+              {departments.map((department) => (
+                <option key={department} value={department} />
+              ))}
+            </datalist>
+          </label>
+
+          <label>
+            Position
+            <input
+              type="text"
+              value={form.position}
+              onChange={updateField("position")}
+              list="employee-positions"
+              placeholder="Leaf Processor"
+              required
+            />
+            <datalist id="employee-positions">
+              {positions.map((position) => (
+                <option key={position} value={position} />
+              ))}
+            </datalist>
+          </label>
+        </div>
+
+        <div className="employee-form-grid">
+          <label>
+            Employment Status
+            <select value={form.employmentStatus} onChange={updateField("employmentStatus")}>
+              <option value="REGULAR">Regular</option>
+              <option value="PROBATIONARY">Probationary</option>
+              <option value="CONTRACTUAL">Contractual</option>
+            </select>
+          </label>
+
+          <label>
+            Hire Date
+            <input type="date" value={form.hireDate} onChange={updateField("hireDate")} />
+          </label>
+        </div>
+
+        {error && <p className="employee-form-error">{error}</p>}
+
+        <div className="employee-form-actions">
+          <button type="button" className="outline-button" onClick={onClose} disabled={isSaving}>
+            Cancel
+          </button>
+          <button type="submit" className="primary-button" disabled={isSaving}>
+            {isSaving ? "Adding..." : "Add Employee"}
+          </button>
+        </div>
+      </form>
+    </EmployeeModal>
+  );
+}
+
+function EditEmployeeModal({
+  employee,
+  departments,
+  positions,
+  onClose,
+  onUpdated,
+}: {
+  employee: Employee;
+  departments: string[];
+  positions: string[];
+  onClose: () => void;
+  onUpdated: (employee: Employee) => void;
+}) {
+  const [form, setForm] = useState<EditEmployeeForm>({
+    firstName: employee.firstName,
+    lastName: employee.lastName,
+    email: employee.user?.email ?? "",
+    department: employee.department.name,
+    position: employee.position.title,
+    hireDate: getDateInputValue(employee.hireDate),
+    employmentStatus: employee.employmentStatus === "SEPARATED" ? "REGULAR" : employee.employmentStatus,
+  });
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const updateField =
+    (field: keyof EditEmployeeForm) =>
+    (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+      setForm((current) => ({ ...current, [field]: event.target.value }));
+    };
+
+  const validateForm = () => {
+    if (!form.firstName.trim() || !form.lastName.trim()) return "Employee name is required.";
+    if (!form.email.trim()) return "Email is required.";
+    if (!/^\S+@\S+\.\S+$/.test(form.email.trim())) return "Enter a valid email address.";
+    if (!form.department.trim()) return "Department is required.";
+    if (!form.position.trim()) return "Position is required.";
+    return "";
   };
 
-  const activeCount = employees.filter(
-    (emp) => emp.employmentStatus === "ACTIVE"
-  ).length;
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const validationError = validateForm();
+
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    setIsSaving(true);
+    setError("");
+
+    try {
+      const token = localStorage.getItem("accessToken");
+      const response = await axios.patch<Employee>(
+        `${API_BASE_URL}/employees/${employee.id}`,
+        {
+          firstName: form.firstName.trim(),
+          lastName: form.lastName.trim(),
+          email: form.email.trim(),
+          department: form.department.trim(),
+          position: form.position.trim(),
+          employmentStatus: form.employmentStatus,
+          ...(form.hireDate ? { hireDate: form.hireDate } : {}),
+        },
+        {
+          headers: {
+            "Content-Type": "application/json",
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+        },
+      );
+
+      onUpdated(response.data);
+    } catch (err) {
+      const message =
+        axios.isAxiosError(err) && err.response?.data
+          ? typeof err.response.data === "string"
+            ? err.response.data
+            : "Unable to update employee."
+          : "Unable to update employee.";
+      setError(message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <EmployeeModal title="Edit Employee" description={getEmployeeName(employee)} onClose={onClose}>
+      <form className="employee-form" onSubmit={handleSubmit}>
+        <div className="employee-form-grid">
+          <label>
+            First Name
+            <input type="text" value={form.firstName} onChange={updateField("firstName")} required />
+          </label>
+
+          <label>
+            Last Name
+            <input type="text" value={form.lastName} onChange={updateField("lastName")} required />
+          </label>
+        </div>
+
+        <div className="employee-form-grid">
+          <label>
+            Email
+            <input type="email" value={form.email} onChange={updateField("email")} required />
+          </label>
+
+          <label>
+            Employment Status
+            <select value={form.employmentStatus} onChange={updateField("employmentStatus")}>
+              <option value="REGULAR">Regular</option>
+              <option value="PROBATIONARY">Probationary</option>
+              <option value="CONTRACTUAL">Contractual</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="employee-form-grid">
+          <label>
+            Department
+            <input type="text" value={form.department} onChange={updateField("department")} list="edit-employee-departments" required />
+            <datalist id="edit-employee-departments">
+              {departments.map((department) => (
+                <option key={department} value={department} />
+              ))}
+            </datalist>
+          </label>
+
+          <label>
+            Position
+            <input type="text" value={form.position} onChange={updateField("position")} list="edit-employee-positions" required />
+            <datalist id="edit-employee-positions">
+              {positions.map((position) => (
+                <option key={position} value={position} />
+              ))}
+            </datalist>
+          </label>
+        </div>
+
+        <div className="employee-form-grid single-field">
+          <label>
+            Hire Date
+            <input type="date" value={form.hireDate} onChange={updateField("hireDate")} />
+          </label>
+        </div>
+
+        {error && <p className="employee-form-error">{error}</p>}
+
+        <div className="employee-form-actions">
+          <button type="button" className="outline-button" onClick={onClose} disabled={isSaving}>
+            Cancel
+          </button>
+          <button type="submit" className="primary-button" disabled={isSaving}>
+            {isSaving ? "Saving..." : "Save Changes"}
+          </button>
+        </div>
+      </form>
+    </EmployeeModal>
+  );
+}
+
+function ViewEmployeeModal({
+  employee,
+  onClose,
+  onEdit,
+}: {
+  employee: Employee;
+  onClose: () => void;
+  onEdit: () => void;
+}) {
+  return (
+    <EmployeeModal title="Employee Details" description={getEmployeeName(employee)} onClose={onClose}>
+      <div className="employee-detail-grid">
+        <div>
+          <span>Employee No.</span>
+          <strong>{employee.employeeNo}</strong>
+        </div>
+        <div>
+          <span>Email</span>
+          <strong>{employee.user?.email ?? "Unassigned"}</strong>
+        </div>
+        <div>
+          <span>Department</span>
+          <strong>{employee.department.name}</strong>
+        </div>
+        <div>
+          <span>Position</span>
+          <strong>{employee.position.title}</strong>
+        </div>
+        <div>
+          <span>Status</span>
+          <Badge tone={getStatusTone(employee.employmentStatus)}>{employee.employmentStatus}</Badge>
+        </div>
+      </div>
+
+      <div className="employee-detail-actions">
+        <button type="button" className="outline-button" onClick={onClose}>
+          Close
+        </button>
+        <button type="button" className="primary-button" onClick={onEdit}>
+          Edit Employee
+        </button>
+      </div>
+    </EmployeeModal>
+  );
+}
+
+export function EmployeesPage() {
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [departmentFilter, setDepartmentFilter] = useState("ALL");
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [viewEmployee, setViewEmployee] = useState<Employee | null>(null);
+  const [editEmployee, setEditEmployee] = useState<Employee | null>(null);
+  const [notification, setNotification] = useState<Notification>(null);
+
+  const loadEmployees = () => {
+    apiRequest<Employee[]>("/employees").then(setEmployees).catch(() => undefined);
+  };
+
+  useEffect(loadEmployees, []);
+
+  useEffect(() => {
+    if (!notification) return;
+
+    const timeoutId = window.setTimeout(() => setNotification(null), 3500);
+    return () => window.clearTimeout(timeoutId);
+  }, [notification]);
+
+  const departments = Array.from(new Set(employees.map((employee) => employee.department.name))).sort();
+  const positions = Array.from(new Set(employees.map((employee) => employee.position.title))).sort();
+  const visibleEmployees = employees.filter((employee) => {
+    if (departmentFilter === "ALL") return true;
+    return employee.department.name === departmentFilter;
+  });
+
+  const handleEmployeeCreated = (employee: Employee) => {
+    setEmployees((current) => [...current, employee].sort((a, b) => a.lastName.localeCompare(b.lastName)));
+    setIsAddOpen(false);
+    setNotification({ type: "success", message: "Employee was added successfully." });
+  };
+
+  const handleEmployeeUpdated = (employee: Employee) => {
+    setEmployees((current) =>
+      current.map((item) => (item.id === employee.id ? employee : item)).sort((a, b) => a.lastName.localeCompare(b.lastName)),
+    );
+    setViewEmployee((current) => (current?.id === employee.id ? employee : current));
+    setEditEmployee(null);
+    setNotification({ type: "success", message: "Employee was updated successfully." });
+  };
+
+  const openEditEmployee = (employee: Employee) => {
+    setViewEmployee(null);
+    setEditEmployee(employee);
+  };
 
   return (
     <>
-      <div className="employees-header">
-        <div className="employees-header-content">
-          <h2>Employee Management</h2>
-          <p>Manage employee records and information</p>
+      {notification && (
+        <div className={`employees-notification ${notification.type}`} role="status">
+          {notification.type === "success" ? <CheckCircle2 size={17} /> : <AlertTriangle size={17} />}
+          <span>{notification.message}</span>
         </div>
-        <button
-          className="btn-add-employee"
-          onClick={() => setShowAddModal(true)}
-        >
-          <Plus size={18} />
-          <span>Add Employee</span>
+      )}
+
+      <div className="employees-toolbar">
+        <div className="filter-tabs">
+          <button className={departmentFilter === "ALL" ? "active" : ""} onClick={() => setDepartmentFilter("ALL")}>
+            All Employees ({employees.length})
+          </button>
+
+          <select
+            className="department-select"
+            value={departmentFilter}
+            onChange={(event) => setDepartmentFilter(event.target.value)}
+            aria-label="Filter employees by department"
+          >
+            <option value="ALL">All Departments</option>
+            {departments.map((department) => (
+              <option key={department} value={department}>
+                {department}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <button className="add-employee-button" onClick={() => setIsAddOpen(true)}>
+          <Plus size={15} />
+          Add Employee
         </button>
       </div>
 
-      <div className="filter-tabs">
-        <button className="active">All Employees ({employees.length})</button>
-        <button>Active ({activeCount})</button>
-        <button>Inactive ({employees.length - activeCount})</button>
-      </div>
-
-      <section className="table-card">
+      <section className="table-card employees-table-card">
         <table>
           <thead>
             <tr>
               <th>Employee No.</th>
               <th>Name</th>
+              <th>Email</th>
               <th>Department</th>
               <th>Position</th>
               <th>Status</th>
@@ -100,152 +574,67 @@ export function EmployeesPage() {
             </tr>
           </thead>
           <tbody>
-            {employees.map((employee) => (
-              <tr key={employee.id}>
-                <td>{employee.employeeNo}</td>
-                <td>{employee.firstName} {employee.lastName}</td>
-                <td>{employee.department.name}</td>
-                <td>{employee.position.title}</td>
-                <td>
-                  <Badge
-                    tone={
-                      employee.employmentStatus === "ACTIVE"
-                        ? "success"
-                        : "danger"
-                    }
-                  >
-                    {employee.employmentStatus}
-                  </Badge>
-                </td>
-                <td>
-                  <button className="btn-edit">Edit</button>
+            {visibleEmployees.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="employees-empty-state">
+                  No employees found.
                 </td>
               </tr>
-            ))}
+            ) : (
+              visibleEmployees.map((employee) => (
+                <tr key={employee.id}>
+                  <td data-label="Employee No.">{employee.employeeNo}</td>
+                  <td data-label="Name">{getEmployeeName(employee)}</td>
+                  <td data-label="Email">{employee.user?.email ?? "Unassigned"}</td>
+                  <td data-label="Department">{employee.department.name}</td>
+                  <td data-label="Position">{employee.position.title}</td>
+                  <td data-label="Status" className="employee-status-cell">
+                    <Badge tone={getStatusTone(employee.employmentStatus)}>{employee.employmentStatus}</Badge>
+                  </td>
+                  <td data-label="Action">
+                    <div className="employee-action-group">
+                      <button className="employee-view-button" onClick={() => setViewEmployee(employee)}>
+                        <Eye size={14} />
+                        View
+                      </button>
+                      <button className="employee-edit-button" onClick={() => openEditEmployee(employee)}>
+                        <Pencil size={14} />
+                        Edit
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </section>
 
-      {/* Add Employee Modal */}
-      {showAddModal && (
-        <div className="modal-overlay" onClick={() => setShowAddModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>Add New Employee</h3>
-              <button
-                className="modal-close"
-                onClick={() => setShowAddModal(false)}
-              >
-                ×
-              </button>
-            </div>
+      {viewEmployee && (
+        <ViewEmployeeModal
+          employee={viewEmployee}
+          onClose={() => setViewEmployee(null)}
+          onEdit={() => openEditEmployee(viewEmployee)}
+        />
+      )}
 
-            <form onSubmit={handleAddEmployee} className="modal-form">
-              <div className="form-row">
-                <div className="form-group">
-                  <label htmlFor="employeeNo">Employee No. *</label>
-                  <input
-                    id="employeeNo"
-                    name="employeeNo"
-                    type="text"
-                    placeholder="e.g., EMP-001"
-                    value={formData.employeeNo}
-                    onChange={handleInputChange}
-                    required
-                  />
-                </div>
-                <div className="form-group">
-                  <label htmlFor="firstName">First Name *</label>
-                  <input
-                    id="firstName"
-                    name="firstName"
-                    type="text"
-                    placeholder="First name"
-                    value={formData.firstName}
-                    onChange={handleInputChange}
-                    required
-                  />
-                </div>
-              </div>
+      {editEmployee && (
+        <EditEmployeeModal
+          employee={editEmployee}
+          departments={departments}
+          positions={positions}
+          onClose={() => setEditEmployee(null)}
+          onUpdated={handleEmployeeUpdated}
+        />
+      )}
 
-              <div className="form-row">
-                <div className="form-group">
-                  <label htmlFor="lastName">Last Name *</label>
-                  <input
-                    id="lastName"
-                    name="lastName"
-                    type="text"
-                    placeholder="Last name"
-                    value={formData.lastName}
-                    onChange={handleInputChange}
-                    required
-                  />
-                </div>
-                <div className="form-group">
-                  <label htmlFor="employmentStatus">Status *</label>
-                  <select
-                    id="employmentStatus"
-                    name="employmentStatus"
-                    value={formData.employmentStatus}
-                    onChange={handleInputChange}
-                  >
-                    <option value="ACTIVE">Active</option>
-                    <option value="INACTIVE">Inactive</option>
-                    <option value="ON_LEAVE">On Leave</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="form-row">
-                <div className="form-group">
-                  <label htmlFor="departmentId">Department *</label>
-                  <select
-                    id="departmentId"
-                    name="departmentId"
-                    value={formData.departmentId}
-                    onChange={handleInputChange}
-                    required
-                  >
-                    <option value="">Select Department</option>
-                    <option value="1">IT</option>
-                    <option value="2">HR</option>
-                    <option value="3">Finance</option>
-                    <option value="4">Operations</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label htmlFor="positionId">Position *</label>
-                  <select
-                    id="positionId"
-                    name="positionId"
-                    value={formData.positionId}
-                    onChange={handleInputChange}
-                    required
-                  >
-                    <option value="">Select Position</option>
-                    <option value="1">Manager</option>
-                    <option value="2">Developer</option>
-                    <option value="3">Coordinator</option>
-                    <option value="4">Analyst</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="modal-footer">
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => setShowAddModal(false)}
-                >
-                  Cancel
-                </button>
-                <button type="submit" className="btn-primary">
-                  Add Employee
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {isAddOpen && (
+        <AddEmployeeModal
+          departments={departments}
+          positions={positions}
+          onClose={() => setIsAddOpen(false)}
+          onCreated={handleEmployeeCreated}
+        />
       )}
     </>
   );

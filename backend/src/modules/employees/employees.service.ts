@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import * as argon2 from "argon2";
 import { PrismaService } from "../../prisma/prisma.service";
-import { CreateEmployeeDto } from "./dto/create-employee.dto";
+import { CreateEmployeeDto, UpdateEmployeeDto } from "./dto/create-employee.dto";
 
 @Injectable()
 export class EmployeesService {
@@ -43,6 +43,41 @@ export class EmployeesService {
         positionId: position.id,
         hireDate: dto.hireDate ? new Date(dto.hireDate) : new Date(),
         employmentStatus: dto.employmentStatus,
+      },
+      include: { user: true, department: true, position: true },
+    });
+  }
+
+  async update(id: string, dto: UpdateEmployeeDto) {
+    const employee = await this.prisma.employee.findUniqueOrThrow({ where: { id } });
+    const department = dto.department
+      ? await this.prisma.department.upsert({
+          where: { name: dto.department },
+          update: {},
+          create: { name: dto.department },
+        })
+      : null;
+    const position = dto.position
+      ? (await this.prisma.position.findFirst({ where: { title: dto.position } })) ??
+        (await this.prisma.position.create({ data: { title: dto.position } }))
+      : null;
+
+    if (dto.email) {
+      await this.prisma.user.update({
+        where: { id: employee.userId },
+        data: { email: dto.email },
+      });
+    }
+
+    return this.prisma.employee.update({
+      where: { id },
+      data: {
+        ...(dto.firstName ? { firstName: dto.firstName } : {}),
+        ...(dto.lastName ? { lastName: dto.lastName } : {}),
+        ...(department ? { departmentId: department.id } : {}),
+        ...(position ? { positionId: position.id } : {}),
+        ...(dto.hireDate ? { hireDate: new Date(dto.hireDate) } : {}),
+        ...(dto.employmentStatus ? { employmentStatus: dto.employmentStatus } : {}),
       },
       include: { user: true, department: true, position: true },
     });
