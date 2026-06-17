@@ -1,8 +1,54 @@
+/* ── Leaflet popup ──────────────────────────────────────────────────────── */
+
+.leaflet-popup-content-wrapper {
+  border-radius: 10px !important;
+  box-shadow: 0 4px 20px rgba(23, 50, 82, 0.16) !important;
+  border: 1px solid #dbe5f0 !important;
+  padding: 0 !important;
+}
+
+.leaflet-popup-content {
+  margin: 0 !important;
+}
+
+.leaflet-popup-tip {
+  box-shadow: none !important;
+}
+
+.map-popup {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 13px;
+  font-family: inherit;
+}
+
+.map-popup strong {
+  font-size: 13px;
+  font-weight: 700;
+  color: #193d69;
+}
+
+.map-popup span {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.map-popup .popup-radius {
+  font-size: 11px;
+  color: #94a3b8;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Page ────────────────────────────────────────────────────────────────── */
+
 .geotagging-page {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 20px;
 }
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
 
 .geotagging-header {
   display: flex;
@@ -11,41 +57,59 @@
   gap: 18px;
 }
 
-.geotagging-header h2 {
-  margin: 0 0 6px;
+.geotagging-header-text h2 {
+  margin: 0 0 5px;
   color: #193d69;
-  font-size: 28px;
-  font-weight: 700;
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.3px;
 }
 
-.geotagging-header p {
+.geotagging-header-text p {
   margin: 0;
-  color: #6d7890;
-  font-size: 14px;
+  color: #64748b;
+  font-size: 13.5px;
 }
 
-.geotagging-summary {
-  min-width: 118px;
+/* ── Stat cards ──────────────────────────────────────────────────────────── */
+
+.geotagging-stats {
+  display: flex;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.geotagging-stat-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 80px;
+  padding: 10px 16px;
   border: 1px solid #dbe5f0;
-  border-radius: 8px;
+  border-radius: 10px;
   background: #ffffff;
-  padding: 12px 16px;
-  text-align: right;
-  box-shadow: 0 1px 3px rgba(23, 50, 82, 0.05);
+  box-shadow: 0 1px 4px rgba(23, 50, 82, 0.06);
+  gap: 1px;
 }
 
-.geotagging-summary span {
-  display: block;
+.geotagging-stat-card .stat-value {
   color: #193d69;
-  font-size: 24px;
-  font-weight: 700;
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.5px;
 }
 
-.geotagging-summary small {
-  color: #6d7890;
-  font-size: 12px;
+.geotagging-stat-card .stat-label {
+  color: #94a3b8;
+  font-size: 11px;
   font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
+
+/* ── Workspace ───────────────────────────────────────────────────────────── */
 
 .geotagging-workspace {
   display: grid;
@@ -54,18 +118,31 @@
   align-items: start;
 }
 
-.geotagging-map-panel,
-.geotagging-form,
-.assigned-list,
-.selected-assignment {
-  border: 1px solid #dbe5f0;
-  border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 1px 3px rgba(23, 50, 82, 0.05);
-}
+/* ── Map panel ───────────────────────────────────────────────────────────── */
 
 .geotagging-map-panel {
+  border: 1px solid #dbe5f0;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 2px 10px rgba(23, 50, 82, 0.07);
   overflow: hidden;
+}
+
+.map-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-bottom: 1px solid #eef2f8;
+  background: #f8fafd;
+  color: #5b7499;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.map-panel-icon {
+  color: #3b82f6;
+  flex-shrink: 0;
 }
 
 .geotagging-map {
@@ -73,6 +150,8 @@
   height: 520px;
   z-index: 1;
 }
+
+/* ── Sidebar ─────────────────────────────────────────────────────────────── */
 
 .geotagging-form-panel {
   display: flex;
@@ -83,56 +162,125 @@
 .geotagging-form,
 .assigned-list,
 .selected-assignment {
+  border: 1px solid #dbe5f0;
+  border-radius: 12px;
+  background: #ffffff;
   padding: 18px;
+  box-shadow: 0 1px 4px rgba(23, 50, 82, 0.05);
 }
+
+/* ── Panel heading ───────────────────────────────────────────────────────── */
 
 .panel-heading {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 14px;
+  gap: 9px;
+  margin-bottom: 16px;
   color: #193d69;
+}
+
+.panel-heading-icon {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 7px;
+  background: #2563eb;
+  color: #ffffff;
+  flex-shrink: 0;
+}
+
+.panel-heading-icon.neutral {
+  background: #e0eaf6;
+  color: #3b5f8a;
 }
 
 .panel-heading h3 {
   margin: 0;
-  font-size: 17px;
+  font-size: 15px;
+  font-weight: 700;
+  flex: 1;
+}
+
+.area-count-badge {
+  min-width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  border-radius: 99px;
+  background: #193d69;
+  color: #ffffff;
+  font-size: 11px;
   font-weight: 700;
 }
+
+/* ── Form labels & inputs ────────────────────────────────────────────────── */
 
 .geotagging-form label {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 6px;
   margin-bottom: 13px;
-  color: #193d69;
-  font-size: 13px;
+  color: #334155;
+  font-size: 12px;
   font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .geotagging-form input,
 .geotagging-form select {
   width: 100%;
-  border: 1px solid #dbe5f0;
+  border: 1.5px solid #e2eaf4;
   border-radius: 8px;
-  background: #ffffff;
+  background: #f8fafd;
   color: #193d69;
-  padding: 10px 12px;
-  font-size: 14px;
+  padding: 9px 12px;
+  font-size: 13.5px;
+  font-family: inherit;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+  box-sizing: border-box;
 }
 
 .geotagging-form input:focus,
 .geotagging-form select:focus {
   outline: none;
   border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.13);
 }
 
 .coordinate-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  gap: 10px;
 }
+
+/* Radius input with unit badge */
+.radius-input-wrap {
+  position: relative;
+}
+
+.radius-input-wrap input {
+  padding-right: 36px;
+}
+
+.radius-unit {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 700;
+  pointer-events: none;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* ── Action buttons ──────────────────────────────────────────────────────── */
 
 .geotagging-actions {
   display: grid;
@@ -141,28 +289,110 @@
   margin-top: 4px;
 }
 
+.primary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border: none;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  transition: filter 0.15s, transform 0.12s, box-shadow 0.15s;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.28);
+}
+
+.primary-button:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.36);
+}
+
+.primary-button:active {
+  transform: translateY(0);
+  filter: brightness(0.97);
+}
+
+.outline-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border: 1.5px solid #cbd5e1;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s, transform 0.12s;
+}
+
+.outline-button:hover {
+  border-color: #3b82f6;
+  background: #eff6ff;
+  color: #1d4ed8;
+  transform: translateY(-1px);
+}
+
+/* ── Assigned list ───────────────────────────────────────────────────────── */
+
 .assigned-list {
-  max-height: 290px;
-  overflow: auto;
+  max-height: 300px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
 }
 
+/* Empty state */
 .empty-state {
-  color: #6d7890;
-  font-size: 14px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 18px 0 8px;
+  color: #94a3b8;
+  text-align: center;
 }
 
+.empty-state p {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.empty-state small {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+/* Location cards */
 .assigned-location {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 36px;
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  gap: 8px;
   align-items: center;
-  border: 1px solid #e7eef6;
-  border-radius: 8px;
-  padding: 10px;
+  border: 1.5px solid #e7eef6;
+  border-radius: 9px;
+  padding: 10px 10px 10px 12px;
+  transition: border-color 0.15s, background 0.15s;
 }
 
 .assigned-location + .assigned-location {
-  margin-top: 10px;
+  margin-top: 8px;
+}
+
+.assigned-location:hover {
+  border-color: #bfdbfe;
+  background: #f5f9ff;
 }
 
 .assigned-location.selected {
@@ -175,12 +405,13 @@
   min-width: 0;
   flex-direction: column;
   align-items: flex-start;
-  gap: 3px;
+  gap: 2px;
   border: 0;
   background: transparent;
   color: #193d69;
   cursor: pointer;
   text-align: left;
+  padding: 0;
 }
 
 .assigned-location-main strong,
@@ -190,29 +421,50 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  display: block;
 }
 
 .assigned-location-main strong {
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 700;
 }
 
-.assigned-location-main span,
-.assigned-location-main small {
-  color: #6d7890;
+.assigned-location-main span {
+  color: #475569;
   font-size: 12px;
 }
 
+.assigned-location-main small {
+  color: #94a3b8;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Delete button */
 .icon-button {
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   display: grid;
   place-items: center;
-  border: 1px solid #fecaca;
-  border-radius: 8px;
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, transform 0.1s;
+  flex-shrink: 0;
+}
+
+.icon-button.danger {
+  border: 1.5px solid #fecaca;
   background: #fff1f2;
   color: #dc2626;
-  cursor: pointer;
 }
+
+.icon-button.danger:hover {
+  background: #fee2e2;
+  border-color: #f87171;
+  transform: scale(1.06);
+}
+
+/* ── Footer summary ──────────────────────────────────────────────────────── */
 
 .selected-assignment {
   display: flex;
@@ -220,23 +472,28 @@
   gap: 12px;
 }
 
-.selected-assignment span {
+.assignment-icon-wrap span {
   width: 42px;
   height: 42px;
   display: grid;
   place-items: center;
-  border-radius: 8px;
-  background: #e0f2fe;
-  color: #075985;
-  font-weight: 700;
+  border-radius: 10px;
+  background: #e0eef9;
+  color: #193d69;
+  font-size: 18px;
+  font-weight: 800;
+  box-shadow: 0 1px 4px rgba(23, 50, 82, 0.1);
 }
 
 .selected-assignment p {
   margin: 0;
-  color: #41536b;
+  color: #475569;
   font-size: 13px;
   font-weight: 600;
+  line-height: 1.4;
 }
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
 
 @media (max-width: 1180px) {
   .geotagging-workspace {
@@ -253,9 +510,12 @@
     flex-direction: column;
   }
 
-  .geotagging-summary {
+  .geotagging-stats {
     width: 100%;
-    text-align: left;
+  }
+
+  .geotagging-stat-card {
+    flex: 1;
   }
 
   .coordinate-grid,

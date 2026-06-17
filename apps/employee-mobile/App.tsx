@@ -4,6 +4,7 @@ import * as Location from "expo-location";
 
 import LoginScreen from "./src/screens/LoginScreen";
 import MainScreen from "./src/screens/MainScreen";
+import CameraScanner from "./src/components/CameraScanner";
 
 import {
   MobileUser,
@@ -22,6 +23,8 @@ export default function App() {
 
   const [isLoading, setIsLoading] =
     useState(false);
+
+  const [scanType, setScanType] = useState<"TIME_IN" | "TIME_OUT" | null>(null);
 
   async function handleLogin() {
     if (!email.trim() || !password.trim()) {
@@ -58,76 +61,47 @@ export default function App() {
     setPassword("");
   }
 
-  async function submitAttendance(
-    logType: "TIME_IN" | "TIME_OUT"
-  ) {
+  function startScan(type: "TIME_IN" | "TIME_OUT") {
     if (!user?.employeeId) {
-      Alert.alert(
-        "Missing Employee Profile",
-        "This account is not linked to an employee."
-      );
+      Alert.alert("Missing Employee Profile", "This account is not linked to an employee.");
       return;
     }
+    setScanType(type);
+  }
 
-    const permission =
-      await Location.requestForegroundPermissionsAsync();
-
-    if (permission.status !== "granted") {
-      Alert.alert(
-        "Location Required",
-        "Allow location access to submit attendance."
-      );
-      return;
-    }
-
+  async function handleScanComplete(location: Location.LocationObject, faceBase64?: string) {
+    if (!scanType || !user) return;
+    
     setIsLoading(true);
+    const currentScanType = scanType;
+    setScanType(null);
 
     try {
-      const location =
-        await Location.getCurrentPositionAsync({
-          accuracy:
-            Location.Accuracy.High,
-        });
-
-      const result =
-        await apiRequest<{
-          approved: boolean;
-          verificationStatus: string;
-          geoResult: {
-            reason?: string;
-          };
-        }>("/attendance/submit", {
-          method: "POST",
-          body: JSON.stringify({
-            employeeId:
-              user.employeeId,
-            logType,
-            latitude:
-              location.coords.latitude,
-            longitude:
-              location.coords.longitude,
-            accuracyMeters:
-              location.coords.accuracy ??
-              999,
-            livenessScore: 98,
-            similarityScore: 97,
-            deviceId:
-              "expo-demo-device",
-          }),
-        });
+      const result = await apiRequest<{
+        approved: boolean;
+        verificationStatus: string;
+        geoResult: { reason?: string };
+        faceResult: { reason?: string };
+      }>("/attendance/submit", {
+        method: "POST",
+        body: JSON.stringify({
+          employeeId: user.employeeId,
+          logType: currentScanType,
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+          accuracyMeters: location.coords.accuracy ?? 999,
+          livenessScore: 98, // Simulated High Score from the 3-second scan
+          similarityScore: 98, // Simulated High Score from the 3-second scan
+          deviceId: "expo-demo-device",
+        }),
+      });
 
       Alert.alert(
-        result.approved
-          ? "Attendance Approved"
-          : "Needs Review",
-        result.geoResult.reason ??
-          result.verificationStatus
+        result.approved ? "✅ Attendance Approved" : "❌ Verification Failed",
+        result.geoResult.reason ?? result.faceResult.reason ?? result.verificationStatus
       );
     } catch {
-      Alert.alert(
-        "Attendance Failed",
-        "Check API Server and Geofence Configuration."
-      );
+      Alert.alert("Submission Error", "Failed to connect to the server.");
     } finally {
       setIsLoading(false);
     }
@@ -146,17 +120,23 @@ export default function App() {
     );
   }
 
+  if (scanType) {
+    return (
+      <CameraScanner
+        logType={scanType}
+        onComplete={handleScanComplete}
+        onCancel={() => setScanType(null)}
+      />
+    );
+  }
+
   return (
     <MainScreen
       user={user}
       isLoading={isLoading}
       onLogout={handleLogout}
-      onTimeIn={() =>
-        submitAttendance("TIME_IN")
-      }
-      onTimeOut={() =>
-        submitAttendance("TIME_OUT")
-      }
+      onTimeIn={() => startScan("TIME_IN")}
+      onTimeOut={() => startScan("TIME_OUT")}
     />
   );
 }

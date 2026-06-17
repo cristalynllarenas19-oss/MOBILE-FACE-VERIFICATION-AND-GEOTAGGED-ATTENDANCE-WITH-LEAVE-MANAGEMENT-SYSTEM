@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { PrismaService } from "../../prisma/prisma.service";
 
 export type GeofenceInput = {
   latitude: number;
@@ -12,6 +13,42 @@ export type GeofenceInput = {
 
 @Injectable()
 export class GeolocationService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async findAllLocations() {
+    return this.prisma.workLocation.findMany({
+      include: { employee: true },
+      orderBy: { name: "asc" },
+    });
+  }
+
+  async createLocation(data: {
+    name: string;
+    latitude: number;
+    longitude: number;
+    radiusMeters: number;
+    employeeId?: string;
+  }) {
+    return this.prisma.workLocation.create({
+      data: {
+        name: data.name,
+        latitude: data.latitude,
+        longitude: data.longitude,
+        radiusMeters: data.radiusMeters,
+        allowedAccuracyMeters: 50, // Default generous accuracy for mobile GPS
+        isActive: true,
+        employeeId: data.employeeId || null,
+      },
+      include: { employee: true },
+    });
+  }
+
+  async removeLocation(id: string) {
+    return this.prisma.workLocation.delete({
+      where: { id },
+    });
+  }
+
   validateGeofence(input: GeofenceInput) {
     const distanceMeters = this.distanceInMeters(
       input.latitude,

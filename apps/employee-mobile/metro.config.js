@@ -6,33 +6,21 @@ const workspaceRoot = path.resolve(projectRoot, "../..");
 
 const config = getDefaultConfig(projectRoot);
 
-config.watchFolders = [workspaceRoot];
-config.resolver.disableHierarchicalLookup = true;
+// Monorepo: watch workspace root so Metro can resolve shared packages
+config.watchFolders = [workspaceRoot, ...config.watchFolders];
+
+// Monorepo: resolve node_modules from project first, then workspace root
 config.resolver.nodeModulesPaths = [
   path.resolve(projectRoot, "node_modules"),
   path.resolve(workspaceRoot, "node_modules"),
 ];
+
+// Force resolution of these packages to project-local copies
+// to avoid duplicates with admin-web (React 18) at the workspace root
 config.resolver.extraNodeModules = {
   react: path.resolve(projectRoot, "node_modules/react"),
   "react-dom": path.resolve(projectRoot, "node_modules/react-dom"),
   "react-native": path.resolve(projectRoot, "node_modules/react-native"),
 };
-config.resolver.blockList = [
-  new RegExp(
-    `${path
-      .resolve(workspaceRoot, "node_modules/react")
-      .replace(/[/\\]/g, "[/\\\\]")}[/\\\\].*`,
-  ),
-  new RegExp(
-    `${path
-      .resolve(workspaceRoot, "node_modules/react-dom")
-      .replace(/[/\\]/g, "[/\\\\]")}[/\\\\].*`,
-  ),
-  new RegExp(
-    `${path
-      .resolve(workspaceRoot, "node_modules/react-native")
-      .replace(/[/\\]/g, "[/\\\\]")}[/\\\\].*`,
-  ),
-];
 
 module.exports = config;

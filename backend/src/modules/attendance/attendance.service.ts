@@ -54,10 +54,10 @@ export class AttendanceService {
   );
 }
 
-  async createSession() {
+  async createSession(employeeId?: string) {
     const location =
       await this.prisma.workLocation.findFirst({
-        where: { isActive: true },
+        where: { isActive: true, employeeId: employeeId || undefined },
       });
 
     return {
@@ -81,12 +81,12 @@ export class AttendanceService {
 
     const location =
       await this.prisma.workLocation.findFirst({
-        where: { isActive: true },
+        where: { isActive: true, employeeId: dto.employeeId },
       });
 
     if (!location) {
       throw new NotFoundException(
-        "Active work location is not configured",
+        "No active work location is assigned to this employee",
       );
     }
 

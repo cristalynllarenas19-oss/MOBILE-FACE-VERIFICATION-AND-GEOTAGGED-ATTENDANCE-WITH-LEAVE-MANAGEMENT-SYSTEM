@@ -8,11 +8,13 @@ import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
 import markerIconUrl from "leaflet/dist/images/marker-icon.png";
 import markerShadowUrl from "leaflet/dist/images/marker-shadow.png";
 import "./GeotaggingPage.css";
+import { apiRequest } from "../../lib/api";
 
 type EmployeeOption = {
   id: string;
-  name: string;
-  department: string;
+  firstName: string;
+  lastName: string;
+  department: { name: string };
 };
 
 type GeotaggedLocation = {
@@ -21,23 +23,16 @@ type GeotaggedLocation = {
   latitude: number;
   longitude: number;
   radiusMeters: number;
-  employeeId: string;
-  employeeName: string;
+  employeeId: string | null;
+  employee?: EmployeeOption | null;
 };
-
-const defaultEmployees: EmployeeOption[] = [
-  { id: "EMP-001", name: "Maria Santos", department: "Operations" },
-  { id: "EMP-002", name: "Juan Dela Cruz", department: "Field Team" },
-  { id: "EMP-003", name: "Ana Reyes", department: "Quality Control" },
-  { id: "EMP-004", name: "Paolo Garcia", department: "Warehouse" },
-];
 
 const initialForm = {
   name: "",
   latitude: "16.3222",
   longitude: "120.3656",
   radiusMeters: "120",
-  employeeId: defaultEmployees[0].id,
+  employeeId: "",
 };
 
 const markerIcon = L.icon({
@@ -76,23 +71,34 @@ function MapViewController({ center }: { center: [number, number] }) {
 
 export function GeotaggingPage() {
   const [form, setForm] = useState(initialForm);
-  const [locations, setLocations] = useState<GeotaggedLocation[]>([
-    {
-      id: "geo-1",
-      name: "Agoo Main Work Area",
-      latitude: 16.3222,
-      longitude: 120.3656,
-      radiusMeters: 150,
-      employeeId: "EMP-001",
-      employeeName: "Maria Santos",
-    },
-  ]);
-  const [selectedLocationId, setSelectedLocationId] = useState("geo-1");
+  const [locations, setLocations] = useState<GeotaggedLocation[]>([]);
+  const [employees, setEmployees] = useState<EmployeeOption[]>([]);
+  const [selectedLocationId, setSelectedLocationId] = useState("");
+
+  useEffect(() => {
+    async function loadData() {
+      try {
+        const [emps, locs] = await Promise.all([
+          apiRequest<EmployeeOption[]>("/employees"),
+          apiRequest<GeotaggedLocation[]>("/geolocation/locations"),
+        ]);
+        setEmployees(emps);
+        setLocations(locs);
+        
+        if (locs.length > 0) {
+          setSelectedLocationId(locs[0].id);
+        }
+      } catch (error) {
+        console.error("Failed to load data", error);
+      }
+    }
+    loadData();
+  }, []);
 
   const latitude = Number(form.latitude);
   const longitude = Number(form.longitude);
   const radiusMeters = Number(form.radiusMeters);
-  const selectedEmployee = defaultEmployees.find((employee) => employee.id === form.employeeId);
+  const selectedEmployee = employees.find((employee) => employee.id === form.employeeId);
   const previewPosition = useMemo<[number, number]>(
     () => [
       Number.isFinite(latitude) ? latitude : 16.3222,
@@ -102,30 +108,36 @@ export function GeotaggingPage() {
   );
 
   const assignedEmployees = useMemo(
-    () => new Set(locations.map((location) => location.employeeId)),
+    () => new Set(locations.map((location) => location.employeeId).filter(Boolean)),
     [locations],
   );
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!form.name.trim() || !selectedEmployee || !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    if (!form.name.trim() || !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
       return;
     }
 
-    const newLocation: GeotaggedLocation = {
-      id: `geo-${Date.now()}`,
-      name: form.name.trim(),
-      latitude,
-      longitude,
-      radiusMeters: Number.isFinite(radiusMeters) && radiusMeters > 0 ? radiusMeters : 100,
-      employeeId: selectedEmployee.id,
-      employeeName: selectedEmployee.name,
-    };
+    try {
+      const newLoc = await apiRequest<GeotaggedLocation>("/geolocation/locations", {
+        method: "POST",
+        body: JSON.stringify({
+          name: form.name.trim(),
+          latitude,
+          longitude,
+          radiusMeters: Number.isFinite(radiusMeters) && radiusMeters > 0 ? radiusMeters : 100,
+          employeeId: form.employeeId || null,
+        }),
+      });
 
-    setLocations((current) => [newLocation, ...current]);
-    setSelectedLocationId(newLocation.id);
-    setForm((current) => ({ ...initialForm, latitude: current.latitude, longitude: current.longitude }));
+      setLocations((current) => [newLoc, ...current]);
+      setSelectedLocationId(newLoc.id);
+      setForm((current) => ({ ...initialForm, latitude: current.latitude, longitude: current.longitude }));
+    } catch (error) {
+      console.error("Failed to save location", error);
+      alert("Failed to save location");
+    }
   }
 
   function handleMapPick(nextLatitude: number, nextLongitude: number) {
@@ -136,42 +148,68 @@ export function GeotaggingPage() {
     }));
   }
 
-  function removeLocation(id: string) {
-    setLocations((current) => current.filter((location) => location.id !== id));
-    if (selectedLocationId === id) {
-      setSelectedLocationId("");
+  async function removeLocation(id: string) {
+    try {
+      await apiRequest(`/geolocation/locations/${id}`, { method: "DELETE" });
+      setLocations((current) => current.filter((location) => location.id !== id));
+      if (selectedLocationId === id) {
+        setSelectedLocationId("");
+      }
+    } catch (error) {
+      console.error("Failed to delete location", error);
+      alert("Failed to delete location");
     }
   }
 
   return (
     <div className="geotagging-page">
+      {/* ── Header ── */}
       <div className="geotagging-header">
-        <div>
+        <div className="geotagging-header-text">
           <h2>Geotagged Locations</h2>
-          <p>Add OpenStreetMap attendance areas and assign employees locally.</p>
+          <p>Define attendance zones on the street map and assign employees to each area.</p>
         </div>
-        <div className="geotagging-summary" aria-label="Geotagging summary">
-          <span>{locations.length}</span>
-          <small>Local areas</small>
+        <div className="geotagging-stats">
+          <div className="geotagging-stat-card">
+            <span className="stat-value">{locations.length}</span>
+            <span className="stat-label">Active Zones</span>
+          </div>
+          <div className="geotagging-stat-card">
+            <span className="stat-value">{assignedEmployees.size}</span>
+            <span className="stat-label">Assigned</span>
+          </div>
         </div>
       </div>
 
+      {/* ── Workspace ── */}
       <div className="geotagging-workspace">
+        {/* Map */}
         <section className="geotagging-map-panel" aria-label="OpenStreetMap geotagging map">
+          <div className="map-panel-header">
+            <MapPin size={15} className="map-panel-icon" />
+            <span>Street Map — Click anywhere to pin a location</span>
+          </div>
           <MapContainer center={previewPosition} zoom={15} scrollWheelZoom className="geotagging-map">
+            {/* OpenStreetMap street tile */}
             <TileLayer
               attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
               url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              maxZoom={19}
             />
             <CoordinatePicker onPick={handleMapPick} />
             <MapViewController center={previewPosition} />
+
+            {/* Draft marker */}
             <Marker icon={markerIcon} position={previewPosition}>
               <Popup>
-                Draft location
-                <br />
-                {previewPosition[0].toFixed(6)}, {previewPosition[1].toFixed(6)}
+                <div className="map-popup">
+                  <strong>📍 Draft location</strong>
+                  <span>{previewPosition[0].toFixed(6)}, {previewPosition[1].toFixed(6)}</span>
+                </div>
               </Popup>
             </Marker>
+
+            {/* Draft radius */}
             {Number.isFinite(radiusMeters) && radiusMeters > 0 && (
               <Circle
                 center={previewPosition}
@@ -179,6 +217,8 @@ export function GeotaggingPage() {
                 radius={radiusMeters}
               />
             )}
+
+            {/* Saved circles */}
             {locations.map((location) => (
               <Circle
                 key={location.id}
@@ -191,29 +231,38 @@ export function GeotaggingPage() {
                 radius={location.radiusMeters}
               />
             ))}
-            {locations.map((location) => (
-              <Marker
-                eventHandlers={{ click: () => setSelectedLocationId(location.id) }}
-                icon={markerIcon}
-                key={`${location.id}-marker`}
-                position={[location.latitude, location.longitude]}
-              >
-                <Popup>
-                  <strong>{location.name}</strong>
-                  <br />
-                  {location.employeeName}
-                  <br />
-                  {location.radiusMeters}m radius
-                </Popup>
-              </Marker>
-            ))}
+
+            {/* Saved markers */}
+            {locations.map((location) => {
+              const empName = location.employee ? `${location.employee.firstName} ${location.employee.lastName}` : "Global Zone (All Employees)";
+              return (
+                <Marker
+                  eventHandlers={{ click: () => setSelectedLocationId(location.id) }}
+                  icon={markerIcon}
+                  key={`${location.id}-marker`}
+                  position={[location.latitude, location.longitude]}
+                >
+                  <Popup>
+                    <div className="map-popup">
+                      <strong>{location.name}</strong>
+                      <span>{empName}</span>
+                      <span className="popup-radius">{location.radiusMeters}m radius</span>
+                    </div>
+                  </Popup>
+                </Marker>
+              );
+            })}
           </MapContainer>
         </section>
 
+        {/* Sidebar */}
         <aside className="geotagging-form-panel">
+          {/* Add location form */}
           <form onSubmit={handleSubmit} className="geotagging-form">
             <div className="panel-heading">
-              <MapPin size={18} />
+              <div className="panel-heading-icon">
+                <Plus size={14} />
+              </div>
               <h3>Add Location</h3>
             </div>
 
@@ -252,27 +301,31 @@ export function GeotaggingPage() {
             </div>
 
             <label>
-              Area radius
-              <input
-                type="number"
-                min="25"
-                max="1000"
-                step="5"
-                value={form.radiusMeters}
-                onChange={(event) => setForm((current) => ({ ...current, radiusMeters: event.target.value }))}
-                required
-              />
+              Area radius (meters)
+              <div className="radius-input-wrap">
+                <input
+                  type="number"
+                  min="25"
+                  max="1000"
+                  step="5"
+                  value={form.radiusMeters}
+                  onChange={(event) => setForm((current) => ({ ...current, radiusMeters: event.target.value }))}
+                  required
+                />
+                <span className="radius-unit">m</span>
+              </div>
             </label>
 
             <label>
-              Assigned employee
+              Assigned employee (Optional)
               <select
                 value={form.employeeId}
                 onChange={(event) => setForm((current) => ({ ...current, employeeId: event.target.value }))}
               >
-                {defaultEmployees.map((employee) => (
+                <option value="">Global (All Employees)</option>
+                {employees.map((employee) => (
                   <option key={employee.id} value={employee.id}>
-                    {employee.name} - {employee.department}
+                    {employee.firstName} {employee.lastName} — {employee.department?.name}
                   </option>
                 ))}
               </select>
@@ -284,58 +337,77 @@ export function GeotaggingPage() {
                 type="button"
                 onClick={() => handleMapPick(16.3222, 120.3656)}
               >
-                <Crosshair size={16} />
+                <Crosshair size={14} />
                 <span>Agoo Center</span>
               </button>
               <button className="primary-button" type="submit">
-                <Plus size={16} />
+                <Plus size={14} />
                 <span>Add Area</span>
               </button>
             </div>
           </form>
 
+          {/* Assigned list */}
           <section className="assigned-list" aria-label="Assigned geotagged areas">
             <div className="panel-heading">
+              <div className="panel-heading-icon neutral">
+                <MapPin size={14} />
+              </div>
               <h3>Assigned Areas</h3>
+              <span className="area-count-badge">{locations.length}</span>
             </div>
+
             {locations.length === 0 ? (
-              <p className="empty-state">No local geotagged areas added yet.</p>
+              <div className="empty-state">
+                <MapPin size={28} strokeWidth={1.2} />
+                <p>No geotagged areas added yet.</p>
+                <small>Click the map to drop a pin.</small>
+              </div>
             ) : (
-              locations.map((location) => (
-                <article
-                  className={`assigned-location ${selectedLocationId === location.id ? "selected" : ""}`}
-                  key={location.id}
-                >
-                  <button
-                    className="assigned-location-main"
-                    type="button"
-                    onClick={() => {
-                      setSelectedLocationId(location.id);
-                      handleMapPick(location.latitude, location.longitude);
-                    }}
+              locations.map((location) => {
+                const empName = location.employee ? `${location.employee.firstName} ${location.employee.lastName}` : "Global Zone (All Employees)";
+                return (
+                  <article
+                    className={`assigned-location ${selectedLocationId === location.id ? "selected" : ""}`}
+                    key={location.id}
                   >
-                    <strong>{location.name}</strong>
-                    <span>{location.employeeName}</span>
-                    <small>
-                      {location.latitude.toFixed(5)}, {location.longitude.toFixed(5)} - {location.radiusMeters}m
-                    </small>
-                  </button>
-                  <button
-                    className="icon-button"
-                    type="button"
-                    aria-label={`Remove ${location.name}`}
-                    onClick={() => removeLocation(location.id)}
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </article>
-              ))
+                    <button
+                      className="assigned-location-main"
+                      type="button"
+                      onClick={() => {
+                        setSelectedLocationId(location.id);
+                        handleMapPick(location.latitude, location.longitude);
+                      }}
+                    >
+                      <strong>{location.name}</strong>
+                      <span>{empName}</span>
+                      <small>
+                        {Number(location.latitude).toFixed(5)}, {Number(location.longitude).toFixed(5)} · {location.radiusMeters}m
+                      </small>
+                    </button>
+                    <button
+                      className="icon-button danger"
+                      type="button"
+                      aria-label={`Remove ${location.name}`}
+                      onClick={() => removeLocation(location.id)}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </article>
+                );
+              })
             )}
           </section>
 
+          {/* Footer summary */}
           <div className="selected-assignment">
-            <span>{assignedEmployees.size}</span>
-            <p>employees assigned across local geotagged areas</p>
+            <div className="assignment-icon-wrap">
+              <span>{assignedEmployees.size}</span>
+            </div>
+            <p>
+              {assignedEmployees.size === 1 ? "employee" : "employees"} specifically assigned across {locations.length}{" "}
+              {locations.length === 1 ? "area" : "areas"}
+            </p>
           </div>
         </aside>
       </div>
