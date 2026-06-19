@@ -107,7 +107,8 @@
 }
 
 .employee-view-button,
-.employee-edit-button {
+.employee-edit-button,
+.employee-archive-button {
   min-width: 94px;
   height: 38px;
   border-radius: 8px;
@@ -143,6 +144,19 @@
 .employee-edit-button:hover {
   border-color: #93b7dc;
   background: #dbeafe;
+}
+
+.employee-archive-button,
+.employee-archive-action {
+  border: 1.5px solid #fecaca;
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.employee-archive-button:hover,
+.employee-archive-action:hover:not(:disabled) {
+  border-color: #fca5a5;
+  background: #fecaca;
 }
 
 .employees-empty-state {
@@ -271,6 +285,33 @@
   border-radius: 7px;
   color: #1a3a5c;
   font-size: 12px;
+}
+
+.employee-archive-action {
+  min-height: 40px;
+  border-radius: 7px;
+  padding: 0 16px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.employee-full-field {
+  display: grid;
+  gap: 7px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.employee-full-field textarea {
+  min-height: 88px;
+  resize: vertical;
+  border: 1px solid #dbe5ef;
+  border-radius: 10px;
+  padding: 10px 12px;
+  color: #0f172a;
+  outline: none;
 }
 
 .employee-form-actions .outline-button:hover:not(:disabled),

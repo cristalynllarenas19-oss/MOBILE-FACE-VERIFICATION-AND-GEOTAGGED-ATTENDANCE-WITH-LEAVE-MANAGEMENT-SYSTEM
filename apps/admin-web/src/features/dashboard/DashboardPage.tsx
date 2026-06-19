@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, Clock, FileText, MapPin, Users } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock, FileText, MapPin, TrendingUp, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Card } from "../../components/ui/Card";
 import { StatCard } from "../../components/ui/StatCard";
@@ -6,7 +6,6 @@ import { apiRequest } from "../../lib/api";
 import "./DashboardPage.css";
 
 const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const calendar = ["31", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "1", "2", "3", "4"];
 
 type DashboardSummary = {
   stats: {
@@ -27,23 +26,49 @@ type DashboardSummary = {
     sick: number;
     special: number;
   };
+  calendar: {
+    monthLabel: string;
+    days: { day: number; present: number; late: number; absent: number; onLeave: number; officialBusiness: number }[];
+  };
+  absenceTrends: { department: string; dayOfWeek: string; absences: number; insight: string }[];
 };
 
 const initialSummary: DashboardSummary = {
   stats: { totalEmployees: 0, presentToday: 0, lateToday: 0, absentToday: 0, pendingLeaves: 0, geotaggedLogs: 0 },
   attendanceSummary: { present: 0, late: 0, pendingReview: 0 },
   leaveAvailability: { vacation: 0, sick: 0, special: 0 },
+  calendar: { monthLabel: "", days: [] },
+  absenceTrends: [],
 };
 
 export function DashboardPage() {
   const [summary, setSummary] = useState(initialSummary);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    apiRequest<DashboardSummary>("/dashboard/summary").then(setSummary).catch(() => undefined);
+    apiRequest<DashboardSummary>("/dashboard/summary")
+      .then((data) => {
+        // Merge defensively in case the API response is partial/malformed,
+        // so we never end up with `summary.calendar` being undefined.
+        setSummary({
+          stats: { ...initialSummary.stats, ...data?.stats },
+          attendanceSummary: { ...initialSummary.attendanceSummary, ...data?.attendanceSummary },
+          leaveAvailability: { ...initialSummary.leaveAvailability, ...data?.leaveAvailability },
+          calendar: { ...initialSummary.calendar, ...data?.calendar },
+          absenceTrends: data?.absenceTrends ?? [],
+        });
+        setLoadError(null);
+      })
+      .catch((err) => {
+        console.error("Failed to load dashboard summary:", err);
+        setLoadError("Could not load dashboard data. Please try refreshing or logging in again.");
+      });
   }, []);
 
   return (
     <>
+      {loadError && <p className="dashboard-error">{loadError}</p>}
+
       <div className="stats-grid">
         <StatCard label="Total Employees" value={summary.stats.totalEmployees} icon={Users} tone="blue" />
         <StatCard label="Present Today" value={summary.stats.presentToday} icon={CheckCircle2} tone="green" />
@@ -59,23 +84,37 @@ export function DashboardPage() {
             <h3>Attendance Calendar and Availability</h3>
           </div>
           <div className="calendar-header">
-            <button aria-label="Previous month">{"<"}</button>
-            <strong>June 2026</strong>
-            <button aria-label="Next month">{">"}</button>
+            <strong>{summary.calendar?.monthLabel ?? ""}</strong>
+            <span>Absence heatmap</span>
           </div>
           <div className="calendar-grid">
             {days.map((day) => (
               <span key={day}>{day}</span>
             ))}
-            {calendar.map((day, index) => (
-              <button className={day === "10" ? "selected" : index === 0 || index > 30 ? "muted" : ""} key={`${day}-${index}`}>
-                {day}
+            {(summary.calendar?.days ?? []).map((day) => (
+              <button className={day.absent >= 3 ? "hot" : day.absent > 0 ? "warm" : ""} key={day.day}>
+                <strong>{day.day}</strong>
+                <small>{day.absent} absent</small>
               </button>
             ))}
           </div>
         </Card>
 
         <aside className="side-stack">
+          <Card>
+            <h3><TrendingUp size={15} /> Absence Trends</h3>
+            {summary.absenceTrends.length === 0 ? (
+              <p className="trend-empty">No repeated absence pattern this month.</p>
+            ) : (
+              summary.absenceTrends.map((trend) => (
+                <div className="trend-row" key={`${trend.department}-${trend.dayOfWeek}`}>
+                  <strong>{trend.department}</strong>
+                  <span>{trend.dayOfWeek}: {trend.absences} absences</span>
+                  <small>{trend.insight}</small>
+                </div>
+              ))
+            )}
+          </Card>
           <Card>
             <h3>Attendance Summary</h3>
             <div className="summary-row"><span>Present</span><strong>{summary.attendanceSummary.present}</strong></div>

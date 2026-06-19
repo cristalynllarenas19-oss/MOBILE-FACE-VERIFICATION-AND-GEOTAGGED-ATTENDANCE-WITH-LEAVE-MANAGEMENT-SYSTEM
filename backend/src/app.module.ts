@@ -12,6 +12,9 @@ import { LeaveModule } from "./modules/leave/leave.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { UsersModule } from "./modules/users/users.module";
 import { DashboardModule } from "./modules/dashboard/dashboard.module";
+import { ReportsModule } from "./modules/reports/reports.module";
+import { SchedulesModule } from "./modules/schedules/schedules.module";
+import { HealthController } from "./health.controller";
 
 @Module({
   imports: [
@@ -25,7 +28,10 @@ import { DashboardModule } from "./modules/dashboard/dashboard.module";
     FaceVerificationModule,
     GeolocationModule,
     LeaveModule,
+    SchedulesModule,
+    ReportsModule,
   ],
+  controllers: [HealthController],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },

@@ -20,4 +20,9 @@ export class EmployeesController {
   update(@Param("id") id: string, @Body() dto: UpdateEmployeeDto) {
     return this.employeesService.update(id, dto);
   }
+
+  @Patch(":id/archive")
+  archive(@Param("id") id: string, @Body() dto: { reason?: string; archiveType?: string }) {
+    return this.employeesService.archive(id, dto);
+  }
 }

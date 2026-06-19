@@ -11,6 +11,7 @@ import {
   login,
   logout,
   apiRequest,
+  checkApiHealth,
 } from "./src/api";
 
 export default function App() {
@@ -38,14 +39,15 @@ export default function App() {
     setIsLoading(true);
 
     try {
+      await checkApiHealth();
       const loggedInUser =
         await login(email, password);
 
       setUser(loggedInUser);
-    } catch {
+    } catch (error) {
       Alert.alert(
         "Login Failed",
-        "Invalid email or password."
+        error instanceof Error ? error.message : "Invalid email or password."
       );
     } finally {
       setIsLoading(false);
@@ -100,8 +102,8 @@ export default function App() {
         result.approved ? "✅ Attendance Approved" : "❌ Verification Failed",
         result.geoResult.reason ?? result.faceResult.reason ?? result.verificationStatus
       );
-    } catch {
-      Alert.alert("Submission Error", "Failed to connect to the server.");
+    } catch (error) {
+      Alert.alert("Submission Error", error instanceof Error ? error.message : "Failed to connect to the server.");
     } finally {
       setIsLoading(false);
     }

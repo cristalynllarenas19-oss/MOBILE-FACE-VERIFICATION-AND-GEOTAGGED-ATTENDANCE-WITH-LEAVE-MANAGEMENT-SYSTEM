@@ -141,6 +141,41 @@ async function main() {
   }
 
   const sickLeave = await prisma.leaveType.findUniqueOrThrow({ where: { name: "Sick Leave" } });
+  const regularShift = await prisma.shift.upsert({
+    where: { id: "66666666-6666-4666-8666-666666666666" },
+    update: { name: "Regular Shift", startTime: "08:00", endTime: "17:00", gracePeriodMinutes: 10 },
+    create: {
+      id: "66666666-6666-4666-8666-666666666666",
+      name: "Regular Shift",
+      startTime: "08:00",
+      endTime: "17:00",
+      gracePeriodMinutes: 10,
+    },
+  });
+
+  await prisma.shift.upsert({
+    where: { id: "77777777-7777-4777-8777-777777777777" },
+    update: { name: "Morning Shift", startTime: "06:00", endTime: "14:00", gracePeriodMinutes: 5 },
+    create: {
+      id: "77777777-7777-4777-8777-777777777777",
+      name: "Morning Shift",
+      startTime: "06:00",
+      endTime: "14:00",
+      gracePeriodMinutes: 5,
+    },
+  });
+
+  await prisma.employeeSchedule.upsert({
+    where: { id: "88888888-8888-4888-8888-888888888888" },
+    update: {},
+    create: {
+      id: "88888888-8888-4888-8888-888888888888",
+      employeeId: employee.id,
+      shiftId: regularShift.id,
+      startsOn: new Date("2026-06-01"),
+    },
+  });
+
   await prisma.leaveRequest.upsert({
     where: { id: "55555555-5555-4555-8555-555555555555" },
     update: {},

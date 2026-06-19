@@ -82,4 +82,38 @@ export class EmployeesService {
       include: { user: true, department: true, position: true },
     });
   }
+
+  async archive(id: string, dto: { reason?: string; archiveType?: string }) {
+    const employee = await this.prisma.employee.findUniqueOrThrow({
+      where: { id },
+      include: { user: true },
+    });
+
+    await this.prisma.user.update({
+      where: { id: employee.userId },
+      data: { status: "INACTIVE" },
+    });
+
+    const archived = await this.prisma.employee.update({
+      where: { id },
+      data: { employmentStatus: "SEPARATED" },
+      include: { user: true, department: true, position: true },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        action: "ARCHIVE_EMPLOYEE",
+        entityType: "Employee",
+        entityId: id,
+        newValues: {
+          archiveType: dto.archiveType ?? "Separated",
+          reason: dto.reason?.trim() || "No reason provided",
+          userStatus: "INACTIVE",
+          employmentStatus: "SEPARATED",
+        },
+      },
+    });
+
+    return archived;
+  }
 }

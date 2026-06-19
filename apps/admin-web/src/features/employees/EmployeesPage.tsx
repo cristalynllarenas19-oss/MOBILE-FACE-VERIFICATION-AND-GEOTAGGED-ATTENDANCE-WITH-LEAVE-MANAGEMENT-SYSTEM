@@ -1,6 +1,6 @@
 import axios from "axios";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { AlertTriangle, CheckCircle2, Eye, Pencil, Plus, X } from "lucide-react";
+import { AlertTriangle, Archive, CheckCircle2, Eye, Pencil, Plus, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { apiRequest } from "../../lib/api";
 import "./EmployeesPage.css";
@@ -434,10 +434,12 @@ function ViewEmployeeModal({
   employee,
   onClose,
   onEdit,
+  onArchive,
 }: {
   employee: Employee;
   onClose: () => void;
   onEdit: () => void;
+  onArchive: () => void;
 }) {
   return (
     <EmployeeModal title="Employee Details" description={getEmployeeName(employee)} onClose={onClose}>
@@ -468,10 +470,79 @@ function ViewEmployeeModal({
         <button type="button" className="outline-button" onClick={onClose}>
           Close
         </button>
+        {employee.employmentStatus !== "SEPARATED" && (
+          <button type="button" className="employee-archive-action" onClick={onArchive}>
+            Archive Employee
+          </button>
+        )}
         <button type="button" className="primary-button" onClick={onEdit}>
           Edit Employee
         </button>
       </div>
+    </EmployeeModal>
+  );
+}
+
+function ArchiveEmployeeModal({
+  employee,
+  onClose,
+  onArchived,
+}: {
+  employee: Employee;
+  onClose: () => void;
+  onArchived: (employee: Employee) => void;
+}) {
+  const [archiveType, setArchiveType] = useState("Resigned");
+  const [reason, setReason] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleArchive = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setIsSaving(true);
+    setError("");
+
+    try {
+      const archived = await apiRequest<Employee>(`/employees/${employee.id}/archive`, {
+        method: "PATCH",
+        body: JSON.stringify({ archiveType, reason }),
+      });
+      onArchived(archived);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to archive employee.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <EmployeeModal title="Archive Employee" description={getEmployeeName(employee)} onClose={onClose}>
+      <form className="employee-form" onSubmit={handleArchive}>
+        <div className="employee-form-grid">
+          <label>
+            Archive Type
+            <select value={archiveType} onChange={(event) => setArchiveType(event.target.value)}>
+              <option value="Resigned">Resigned</option>
+              <option value="Retired">Retired</option>
+              <option value="End of Contract">End of Contract</option>
+              <option value="Separated">Separated</option>
+            </select>
+          </label>
+          <label>
+            Effective Date
+            <input type="date" defaultValue={new Date().toISOString().slice(0, 10)} />
+          </label>
+        </div>
+        <label className="employee-full-field">
+          Reason / Remarks
+          <textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Reason for resignation, retirement, or separation" />
+        </label>
+        {error && <p className="employee-form-error">{error}</p>}
+        <div className="employee-form-actions">
+          <button type="button" className="outline-button" onClick={onClose} disabled={isSaving}>Cancel</button>
+          <button type="submit" className="employee-archive-action" disabled={isSaving}>{isSaving ? "Archiving..." : "Archive Employee"}</button>
+        </div>
+      </form>
     </EmployeeModal>
   );
 }
@@ -482,6 +553,7 @@ export function EmployeesPage() {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [viewEmployee, setViewEmployee] = useState<Employee | null>(null);
   const [editEmployee, setEditEmployee] = useState<Employee | null>(null);
+  const [archiveEmployee, setArchiveEmployee] = useState<Employee | null>(null);
   const [notification, setNotification] = useState<Notification>(null);
 
   const loadEmployees = () => {
@@ -517,6 +589,13 @@ export function EmployeesPage() {
     setViewEmployee((current) => (current?.id === employee.id ? employee : current));
     setEditEmployee(null);
     setNotification({ type: "success", message: "Employee was updated successfully." });
+  };
+
+  const handleEmployeeArchived = (employee: Employee) => {
+    setEmployees((current) => current.map((item) => (item.id === employee.id ? employee : item)));
+    setViewEmployee((current) => (current?.id === employee.id ? employee : current));
+    setArchiveEmployee(null);
+    setNotification({ type: "success", message: "Employee was archived and their login was deactivated." });
   };
 
   const openEditEmployee = (employee: Employee) => {
@@ -601,6 +680,12 @@ export function EmployeesPage() {
                         <Pencil size={14} />
                         Edit
                       </button>
+                      {employee.employmentStatus !== "SEPARATED" && (
+                        <button className="employee-archive-button" onClick={() => setArchiveEmployee(employee)}>
+                          <Archive size={14} />
+                          Archive
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -615,6 +700,10 @@ export function EmployeesPage() {
           employee={viewEmployee}
           onClose={() => setViewEmployee(null)}
           onEdit={() => openEditEmployee(viewEmployee)}
+          onArchive={() => {
+            setArchiveEmployee(viewEmployee);
+            setViewEmployee(null);
+          }}
         />
       )}
 
@@ -634,6 +723,14 @@ export function EmployeesPage() {
           positions={positions}
           onClose={() => setIsAddOpen(false)}
           onCreated={handleEmployeeCreated}
+        />
+      )}
+
+      {archiveEmployee && (
+        <ArchiveEmployeeModal
+          employee={archiveEmployee}
+          onClose={() => setArchiveEmployee(null)}
+          onArchived={handleEmployeeArchived}
         />
       )}
     </>

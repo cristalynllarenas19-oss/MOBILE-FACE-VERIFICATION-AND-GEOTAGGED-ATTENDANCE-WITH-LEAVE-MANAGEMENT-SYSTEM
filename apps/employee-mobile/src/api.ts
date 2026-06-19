@@ -1,6 +1,8 @@
 import * as SecureStore from "expo-secure-store";
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "http://192.168.1.14:3001/api/v1";
+const API_BASE_URL =
+  process.env.EXPO_PUBLIC_API_BASE_URL ??
+  "https://mobile-face-verification-and-geotagged-attendanc-production.up.railway.app/api/v1";
 
 export type MobileUser = {
   id: string;
@@ -16,22 +18,34 @@ export type TodayAttendance = {
 };
 
 export async function apiRequest<T>(path: string, options: RequestInit = {}) {
-  console.log("REQUEST:", `${API_BASE_URL}${path}`);
+  const url = `${API_BASE_URL}${path}`;
+  console.log("REQUEST:", url);
   const token = await SecureStore.getItemAsync("accessToken");
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(url, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...options.headers,
+      },
+    });
+  } catch (error) {
+    throw new Error(`Cannot reach API server. Check internet connection or API URL: ${API_BASE_URL}`);
+  }
 
   if (!response.ok) {
-    throw new Error(await response.text());
+    const message = await response.text();
+    throw new Error(message || `Request failed with status ${response.status}`);
   }
 
   return response.json() as Promise<T>;
+}
+
+export async function checkApiHealth() {
+  return apiRequest<{ ok: boolean; service: string; checkedAt: string }>("/health");
 }
 
 export async function login(email: string, password: string) {

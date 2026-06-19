@@ -17,12 +17,12 @@ export class LeaveController {
   }
 
   @Patch(":id/approve")
-  approve(@Param("id") id: string) {
-    return this.leaveService.updateStatus(id, "APPROVED");
+  approve(@Param("id") id: string, @Body() body: { remarks?: string }) {
+    return this.leaveService.updateStatus(id, "APPROVED", body.remarks);
   }
 
   @Patch(":id/reject")
-  reject(@Param("id") id: string) {
-    return this.leaveService.updateStatus(id, "REJECTED");
+  reject(@Param("id") id: string, @Body() body: { remarks?: string }) {
+    return this.leaveService.updateStatus(id, "REJECTED", body.remarks);
   }
 }

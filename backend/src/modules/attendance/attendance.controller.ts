@@ -2,8 +2,10 @@ import {
   Body,
   Controller,
   Get,
+  Patch,
   Post,
   Param,
+  Query,
 } from "@nestjs/common";
 
 import { AttendanceService } from "./attendance.service";
@@ -16,8 +18,12 @@ export class AttendanceController {
   ) {}
 
   @Get()
-  findAll() {
-    return this.attendanceService.findAll();
+  findAll(
+    @Query("department") department?: string,
+    @Query("status") status?: string,
+    @Query("date") date?: string,
+  ) {
+    return this.attendanceService.findAll({ department, status, date });
   }
 
   @Get("today/:employeeId")
@@ -40,5 +46,15 @@ export class AttendanceController {
     dto: SubmitAttendanceDto,
   ) {
     return this.attendanceService.submit(dto);
+  }
+
+  @Patch(":id/approve")
+  approve(@Param("id") id: string, @Body() body: { remarks?: string }) {
+    return this.attendanceService.updateStatus(id, "PRESENT", body.remarks);
+  }
+
+  @Patch(":id/official-business")
+  officialBusiness(@Param("id") id: string, @Body() body: { remarks?: string }) {
+    return this.attendanceService.updateStatus(id, "OFFICIAL_BUSINESS", body.remarks);
   }
 }

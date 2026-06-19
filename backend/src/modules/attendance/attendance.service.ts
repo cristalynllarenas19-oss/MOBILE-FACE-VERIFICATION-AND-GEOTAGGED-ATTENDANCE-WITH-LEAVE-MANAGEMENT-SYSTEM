@@ -5,6 +5,12 @@ import { FaceVerificationService } from "../face-verification/face-verification.
 import { GeolocationService } from "../geolocation/geolocation.service";
 import { SubmitAttendanceDto } from "./dto/submit-attendance.dto";
 
+type AttendanceFilters = {
+  department?: string;
+  status?: string;
+  date?: string;
+};
+
 @Injectable()
 export class AttendanceService {
   constructor(
@@ -13,15 +19,60 @@ export class AttendanceService {
     private readonly faceVerification: FaceVerificationService,
   ) {}
 
-  findAll() {
-    return this.prisma.attendanceRecord.findMany({
+  async findAll(filters: AttendanceFilters = {}) {
+    const attendanceDate = filters.date ? new Date(filters.date) : undefined;
+    const records = await this.prisma.attendanceRecord.findMany({
+      where: {
+        ...(filters.status && filters.status !== "ALL" ? { status: filters.status as any } : {}),
+        ...(attendanceDate && !Number.isNaN(attendanceDate.getTime()) ? { attendanceDate } : {}),
+        ...(filters.department && filters.department !== "ALL"
+          ? { employee: { department: { name: filters.department } } }
+          : {}),
+      },
       include: {
-        employee: { include: { department: true } },
+        employee: { include: { department: true, faceProfiles: { orderBy: { enrolledAt: "desc" }, take: 1 } } },
         logs: { orderBy: { capturedAt: "desc" } },
       },
       orderBy: { attendanceDate: "desc" },
       take: 100,
     });
+
+    const remarks = await this.prisma.auditLog.findMany({
+      where: { entityType: "AttendanceRecord", entityId: { in: records.map((record) => record.id) } },
+      orderBy: { createdAt: "desc" },
+    });
+
+    return records.map((record) => ({
+      ...record,
+      adminRemarks: remarks.find((remark) => remark.entityId === record.id)?.newValues,
+    }));
+  }
+
+  async updateStatus(id: string, status: "PRESENT" | "OFFICIAL_BUSINESS", remarks?: string) {
+    const record = await this.prisma.attendanceRecord.update({
+      where: { id },
+      data: { status },
+      include: {
+        employee: { include: { department: true, faceProfiles: { orderBy: { enrolledAt: "desc" }, take: 1 } } },
+        logs: { orderBy: { capturedAt: "desc" } },
+      },
+    });
+
+    if (remarks?.trim()) {
+      await this.prisma.auditLog.create({
+        data: {
+          action: status === "PRESENT" ? "APPROVE_ATTENDANCE" : "MARK_OFFICIAL_BUSINESS",
+          entityType: "AttendanceRecord",
+          entityId: id,
+          newValues: { remarks: remarks.trim(), status },
+        },
+      });
+    }
+
+    return {
+      ...record,
+      adminRemarks: remarks?.trim() ? { remarks: remarks.trim(), status } : undefined,
+    };
   }
 
   async getTodayAttendance(
