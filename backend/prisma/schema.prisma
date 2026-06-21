@@ -225,6 +225,8 @@ model FaceProfile {
   provider           String               @default("aws_rekognition")
   providerFaceId     String?              @map("provider_face_id")
   referenceImagePath String?              @map("reference_image_path")
+  referenceImageData String?              @map("reference_image_data")
+  descriptors        Json?                @map("descriptors")
   enrollmentStatus   FaceEnrollmentStatus @default(PENDING) @map("enrollment_status")
   enrolledAt         DateTime?            @map("enrolled_at")
   employee           Employee             @relation(fields: [employeeId], references: [id])

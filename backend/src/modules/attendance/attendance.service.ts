@@ -5,6 +5,8 @@ import { FaceVerificationService } from "../face-verification/face-verification.
 import { GeolocationService } from "../geolocation/geolocation.service";
 import { SubmitAttendanceDto } from "./dto/submit-attendance.dto";
 
+const Jimp: any = require("jimp-compact");
+
 type AttendanceFilters = {
   department?: string;
   status?: string;
@@ -141,11 +143,21 @@ export class AttendanceService {
       );
     }
 
-    const faceResult =
-      this.faceVerification.evaluateScores(
-        dto.livenessScore,
-        dto.similarityScore,
-      );
+    const faceProfile = (await this.prisma.faceProfile.findFirst({
+      where: { employeeId: dto.employeeId, enrollmentStatus: "ACTIVE" },
+      orderBy: { enrolledAt: "desc" },
+    })) as any;
+
+    if (!faceProfile?.referenceImageData) {
+      throw new NotFoundException("No active face profile is enrolled for this employee");
+    }
+
+    const similarityScore = await this.compareFaceImages(
+      faceProfile.referenceImageData,
+      dto.faceImageBase64,
+    );
+
+    const faceResult = this.faceVerification.evaluateScores(100, similarityScore);
 
     const geoResult =
       this.geolocation.validateGeofence({
@@ -295,6 +307,75 @@ export class AttendanceService {
       geoResult,
       attendanceRecordId:
         record.id,
+      similarityScore,
     };
+  }
+
+  private async compareFaceImages(referenceImageData: string, capturedImageData: string) {
+    const reference = await this.loadImage(referenceImageData);
+    const captured = await this.loadImage(capturedImageData);
+
+    const referenceHash = reference.hash();
+    const capturedHash = captured.hash();
+    const hashSimilarity = Math.max(0, Math.min(100, Math.round((1 - Jimp.compareHashes(referenceHash, capturedHash)) * 100)));
+    const pixelSimilarity = this.comparePixelSimilarity(reference, captured);
+    const brightnessSimilarity = this.compareBrightnessSimilarity(reference, captured);
+
+    return Math.max(
+      0,
+      Math.min(100, Math.round(hashSimilarity * 0.45 + pixelSimilarity * 0.45 + brightnessSimilarity * 0.1)),
+    );
+  }
+
+  private async loadImage(imageData: string) {
+    const source = imageData.startsWith("data:") ? imageData : `data:image/jpeg;base64,${imageData}`;
+    const image = await Jimp.read(source);
+    const size = Math.min(image.bitmap.width, image.bitmap.height);
+    const left = Math.floor((image.bitmap.width - size) / 2);
+    const top = Math.floor((image.bitmap.height - size) / 2);
+    return image.crop(left, top, size, size).resize(256, 256).grayscale().normalize();
+  }
+
+  private comparePixelSimilarity(reference: any, captured: any) {
+    const width = Math.min(reference.bitmap.width, captured.bitmap.width);
+    const height = Math.min(reference.bitmap.height, captured.bitmap.height);
+    const step = 4;
+    let totalDifference = 0;
+    let samples = 0;
+
+    for (let y = 0; y < height; y += step) {
+      for (let x = 0; x < width; x += step) {
+        const refIndex = reference.getPixelIndex(x, y);
+        const capIndex = captured.getPixelIndex(x, y);
+        totalDifference += Math.abs(reference.bitmap.data[refIndex] - captured.bitmap.data[capIndex]) / 255;
+        samples += 1;
+      }
+    }
+
+    if (!samples) return 0;
+    return Math.max(0, Math.min(100, Math.round((1 - totalDifference / samples) * 100)));
+  }
+
+  private compareBrightnessSimilarity(reference: any, captured: any) {
+    const referenceAvg = this.averageLuma(reference);
+    const capturedAvg = this.averageLuma(captured);
+    const diff = Math.abs(referenceAvg - capturedAvg) / 255;
+    return Math.max(0, Math.min(100, Math.round((1 - diff) * 100)));
+  }
+
+  private averageLuma(image: any) {
+    const step = 8;
+    let total = 0;
+    let samples = 0;
+
+    for (let y = 0; y < image.bitmap.height; y += step) {
+      for (let x = 0; x < image.bitmap.width; x += step) {
+        const index = image.getPixelIndex(x, y);
+        total += image.bitmap.data[index];
+        samples += 1;
+      }
+    }
+
+    return samples ? total / samples : 0;
   }
 }

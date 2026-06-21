@@ -92,8 +92,9 @@ export default function App() {
           latitude: location.coords.latitude,
           longitude: location.coords.longitude,
           accuracyMeters: location.coords.accuracy ?? 999,
-          livenessScore: 98, // Simulated High Score from the 3-second scan
-          similarityScore: 98, // Simulated High Score from the 3-second scan
+          livenessScore: 100,
+          similarityScore: 100,
+          faceImageBase64: faceBase64 ?? "",
           deviceId: "expo-demo-device",
         }),
       });

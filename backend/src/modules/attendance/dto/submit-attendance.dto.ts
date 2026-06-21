@@ -32,5 +32,8 @@ export class SubmitAttendanceDto {
   similarityScore!: number;
 
   @IsString()
+  faceImageBase64!: string;
+
+  @IsString()
   deviceId!: string;
 }

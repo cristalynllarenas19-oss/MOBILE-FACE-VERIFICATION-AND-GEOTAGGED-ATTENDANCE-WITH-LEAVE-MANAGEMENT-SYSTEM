@@ -1,6 +1,7 @@
 import * as faceapi from "face-api.js";
 import { Camera, CheckCircle2, Circle, RotateCcw, ScanFace, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { apiRequest } from "../../lib/api";
 import "./FaceRegistrationPage.css";
 
 type Enrollment = {
@@ -19,23 +20,33 @@ type FaceFrame = {
   confidence: number;
   width: number;
   height: number;
-  faceOutline: string;
-  meshLines: string[];
-  jaw: string;
-  leftBrow: string;
-  rightBrow: string;
-  noseBridge: string;
-  noseBase: string;
-  leftEye: string;
-  rightEye: string;
-  outerMouth: string;
-  innerMouth: string;
+  x: number;
+  y: number;
+  boxWidth: number;
+  boxHeight: number;
+};
+
+type Employee = {
+  id: string;
+  employeeNo: string;
+  firstName: string;
+  lastName: string;
+  department?: { name: string } | null;
+};
+
+type FaceProfile = {
+  id: string;
+  employeeId: string;
+  referenceImageData: string | null;
+  enrollmentStatus: "PENDING" | "ACTIVE" | "REJECTED";
+  enrolledAt: string | null;
+  employee: Employee;
 };
 
 const MODEL_URL = "/models";
-const CAMERA_SAMPLE_TARGET = 3;
+const CAMERA_SAMPLE_TARGET = 1;
 const STORAGE_KEY = "employeeFaceEnrollments";
-const COUNTDOWN_SECONDS = 3;
+const COUNTDOWN_SECONDS = 2;
 
 const CAPTURE_STEPS = [
   {
@@ -43,51 +54,6 @@ const CAPTURE_STEPS = [
     title: "Look at the camera",
     helper: "Keep the face centered inside the guide.",
   },
-  {
-    key: "left",
-    title: "Look left",
-    helper: "Turn the head slightly to the employee's left.",
-  },
-  {
-    key: "right",
-    title: "Look right",
-    helper: "Turn the head slightly to the employee's right.",
-  },
-] as const;
-
-const FACE_MESH_CONNECTIONS = [
-  [0, 1], [1, 2], [2, 3], [3, 4], [4, 5], [5, 6], [6, 7], [7, 8],
-  [8, 9], [9, 10], [10, 11], [11, 12], [12, 13], [13, 14], [14, 15], [15, 16],
-  [17, 18], [18, 19], [19, 20], [20, 21], [22, 23], [23, 24], [24, 25], [25, 26],
-  [27, 28], [28, 29], [29, 30], [30, 33], [31, 32], [32, 33], [33, 34], [34, 35],
-  [36, 37], [37, 38], [38, 39], [39, 40], [40, 41], [41, 36],
-  [42, 43], [43, 44], [44, 45], [45, 46], [46, 47], [47, 42],
-  [48, 49], [49, 50], [50, 51], [51, 52], [52, 53], [53, 54],
-  [54, 55], [55, 56], [56, 57], [57, 58], [58, 59], [59, 48],
-  [60, 61], [61, 62], [62, 63], [63, 64], [64, 65], [65, 66], [66, 67], [67, 60],
-  [0, 17], [1, 17], [2, 18], [3, 19], [4, 20], [5, 31], [6, 48], [7, 59],
-  [8, 57], [9, 55], [10, 54], [11, 35], [12, 25], [13, 26], [14, 26], [16, 26],
-  [17, 27], [18, 27], [19, 28], [20, 28], [21, 27], [21, 39],
-  [22, 27], [22, 42], [23, 28], [24, 28], [25, 35], [26, 35],
-  [27, 36], [27, 42], [28, 39], [28, 42], [29, 31], [29, 35],
-  [30, 31], [30, 35], [31, 48], [32, 50], [33, 51], [34, 52], [35, 54],
-  [36, 48], [37, 49], [38, 50], [39, 51], [40, 31], [41, 48],
-  [42, 54], [43, 53], [44, 52], [45, 54], [46, 35], [47, 54],
-  [48, 60], [49, 60], [50, 61], [51, 62], [52, 63], [53, 64],
-  [54, 64], [55, 65], [56, 66], [57, 66], [58, 67], [59, 60],
-  [0, 36], [0, 41], [1, 36], [1, 41], [2, 36], [2, 31],
-  [3, 31], [3, 48], [4, 48], [4, 59], [5, 48], [5, 59],
-  [6, 59], [6, 58], [7, 58], [7, 57], [8, 56], [8, 58],
-  [9, 56], [9, 55], [10, 55], [10, 54], [11, 54], [11, 35],
-  [12, 35], [12, 45], [13, 45], [13, 46], [14, 46], [14, 47],
-  [15, 42], [15, 47], [16, 42], [16, 47], [17, 36], [18, 37],
-  [19, 38], [20, 39], [21, 39], [22, 42], [23, 43], [24, 44],
-  [25, 45], [26, 45], [31, 36], [31, 41], [32, 40], [32, 49],
-  [33, 39], [33, 42], [33, 51], [33, 62], [34, 46], [34, 53],
-  [35, 42], [35, 47], [36, 49], [37, 50], [38, 51], [39, 51],
-  [40, 49], [41, 48], [42, 53], [43, 52], [44, 51], [45, 53],
-  [46, 54], [47, 54], [48, 61], [49, 61], [50, 62], [51, 63],
-  [52, 63], [53, 64], [55, 64], [56, 65], [57, 67], [58, 60],
 ] as const;
 
 function readEnrollments(): Enrollment[] {
@@ -98,6 +64,14 @@ function readEnrollments(): Enrollment[] {
   }
 }
 
+function employeeLabel(employee: Employee) {
+  return `${employee.firstName} ${employee.lastName}`;
+}
+
+function normalizeEmployeeSearch(employee: Employee) {
+  return `${employee.employeeNo} ${employeeLabel(employee)} ${employee.department?.name ?? ""}`.toLowerCase();
+}
+
 export function FaceRegistrationPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -106,13 +80,12 @@ export function FaceRegistrationPage() {
   const faceTrackingTimerRef = useRef<number | null>(null);
   const [modelsReady, setModelsReady] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
-  const [employeeId, setEmployeeId] = useState("");
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [department, setDepartment] = useState("");
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [employeeSearch, setEmployeeSearch] = useState("");
+  const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [descriptors, setDescriptors] = useState<number[][]>([]);
   const [preview, setPreview] = useState("");
-  const [enrollments, setEnrollments] = useState<Enrollment[]>(readEnrollments);
+  const [enrollments, setEnrollments] = useState<FaceProfile[]>([]);
   const [message, setMessage] = useState("Loading face recognition models...");
   const [busy, setBusy] = useState(false);
   const [captureStepIndex, setCaptureStepIndex] = useState(0);
@@ -121,15 +94,19 @@ export function FaceRegistrationPage() {
 
   useEffect(() => {
     Promise.all([
+      apiRequest<Employee[]>("/employees"),
+      apiRequest<FaceProfile[]>("/face-profiles"),
       faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
       faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL),
       faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
     ])
-      .then(() => {
+      .then(([employeeData, faceProfiles]) => {
+        setEmployees(employeeData);
+        setEnrollments(faceProfiles);
         setModelsReady(true);
-        setMessage("Models ready. Start the camera for a guided front, left, and right capture.");
+        setMessage("Employee enrollment ready. Search for an employee, then start the camera.");
       })
-      .catch(() => setMessage("Face models could not be loaded. Refresh the page and try again."));
+      .catch(() => setMessage("Employee or face models could not be loaded. Refresh the page and try again."));
 
     return () => {
       clearCountdownTimer();
@@ -231,51 +208,22 @@ export function FaceRegistrationPage() {
           x: video.clientWidth - (point.x * scale - cropX),
           y: point.y * scale - cropY,
         });
-        const toPointString = (points: faceapi.Point[]) =>
-          points
-            .map((point) => {
-              const screenPoint = toScreenPoint(point);
-              return `${screenPoint.x},${screenPoint.y}`;
-            })
-            .join(" ");
-        const landmarkPoints = result.landmarks.positions.map(toScreenPoint);
-        const jawPoints = result.landmarks.getJawOutline().map(toScreenPoint);
-        const leftBrowPoints = result.landmarks.getLeftEyeBrow().map(toScreenPoint);
-        const rightBrowPoints = result.landmarks.getRightEyeBrow().map(toScreenPoint);
-        const browPoints = [...leftBrowPoints, ...rightBrowPoints];
-        const minX = Math.min(...jawPoints.map((point) => point.x));
-        const maxX = Math.max(...jawPoints.map((point) => point.x));
-        const browTop = Math.min(...browPoints.map((point) => point.y));
-        const jawHeight = Math.max(...jawPoints.map((point) => point.y)) - browTop;
-        const foreheadTop = browTop - jawHeight * 0.34;
-        const faceOutlinePoints = [
-          ...jawPoints,
-          { x: maxX - (maxX - minX) * 0.08, y: browTop - jawHeight * 0.08 },
-          { x: maxX - (maxX - minX) * 0.28, y: foreheadTop },
-          { x: (minX + maxX) / 2, y: foreheadTop - jawHeight * 0.04 },
-          { x: minX + (maxX - minX) * 0.28, y: foreheadTop },
-          { x: minX + (maxX - minX) * 0.08, y: browTop - jawHeight * 0.08 },
-        ];
+        const box = result.detection.box;
+        const padX = box.width * 0.08;
+        const padY = box.height * 0.12;
+        const x = Math.max(0, (box.x * scale) - cropX - padX);
+        const y = Math.max(0, (box.y * scale) - cropY - padY);
+        const boxWidth = Math.min(video.clientWidth - x, box.width * scale + padX * 2);
+        const boxHeight = Math.min(video.clientHeight - y, box.height * scale + padY * 2);
 
         setFaceFrame({
           confidence: result.detection.score,
           width: video.clientWidth,
           height: video.clientHeight,
-          faceOutline: faceOutlinePoints.map((point) => `${point.x},${point.y}`).join(" "),
-          meshLines: FACE_MESH_CONNECTIONS.map(([start, end]) => {
-            const startPoint = landmarkPoints[start];
-            const endPoint = landmarkPoints[end];
-            return `${startPoint.x},${startPoint.y} ${endPoint.x},${endPoint.y}`;
-          }),
-          jaw: toPointString(result.landmarks.getJawOutline()),
-          leftBrow: toPointString(result.landmarks.getLeftEyeBrow()),
-          rightBrow: toPointString(result.landmarks.getRightEyeBrow()),
-          noseBridge: toPointString(result.landmarks.getNose().slice(0, 4)),
-          noseBase: toPointString(result.landmarks.getNose().slice(4)),
-          leftEye: toPointString(result.landmarks.getLeftEye()),
-          rightEye: toPointString(result.landmarks.getRightEye()),
-          outerMouth: toPointString(result.landmarks.getMouth().slice(0, 12)),
-          innerMouth: toPointString(result.landmarks.getMouth().slice(12)),
+          x,
+          y,
+          boxWidth,
+          boxHeight,
         });
       } catch {
         setFaceFrame(null);
@@ -388,33 +336,27 @@ export function FaceRegistrationPage() {
   }
 
   function saveEnrollment() {
-    if (!employeeId.trim() || !firstName.trim() || !lastName.trim() || !department.trim()) {
-      setMessage("All employee details are required.");
+    if (!selectedEmployee) {
+      setMessage("Search and select an employee first.");
       return;
     }
     if (!preview || descriptors.length < CAMERA_SAMPLE_TARGET) {
-      setMessage("Capture all 3 face samples before registering.");
+      setMessage("Capture the face sample before registering.");
       return;
     }
     try {
-      const enrollment: Enrollment = {
-        id: crypto.randomUUID(),
-        employeeId: employeeId.trim(),
-        firstName: firstName.trim(),
-        lastName: lastName.trim(),
-        department: department.trim(),
-        descriptors,
-        referenceImage: preview,
-        sampleCount: descriptors.length,
-        createdAt: new Date().toISOString(),
-      };
-      const next = [enrollment, ...enrollments];
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-      setEnrollments(next);
-      setEmployeeId("");
-      setFirstName("");
-      setLastName("");
-      setDepartment("");
+      apiRequest<FaceProfile>("/face-profiles", {
+        method: "POST",
+        body: JSON.stringify({
+          employeeId: selectedEmployee.id,
+          referenceImageData: preview,
+          descriptors,
+        }),
+      }).then((enrollment) => {
+        setEnrollments((current) => [enrollment, ...current]);
+      });
+      setEmployeeSearch("");
+      setSelectedEmployee(null);
       setDescriptors([]);
       setPreview("");
       setCaptureStepIndex(0);
@@ -423,15 +365,15 @@ export function FaceRegistrationPage() {
       stopCamera();
       setMessage("Employee face registered successfully!");
     } catch {
-      setMessage("Browser storage is full. Delete an older registration and try again.");
+      setMessage("Unable to register the face profile. Check the backend connection and try again.");
     }
   }
 
   function removeEnrollment(id: string) {
     if (!window.confirm("Delete this face registration?")) return;
-    const next = enrollments.filter((item) => item.id !== id);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    setEnrollments(next);
+    apiRequest(`/face-profiles/${id}`, { method: "DELETE" }).then(() => {
+      setEnrollments((current) => current.filter((item) => item.id !== id));
+    });
   }
 
   return (
@@ -440,13 +382,26 @@ export function FaceRegistrationPage() {
         <div>
           <p className="eyebrow">Employee enrollment</p>
           <h2>Face Registration</h2>
-          <p>Register employee face recognition profiles with mandatory employee details.</p>
+          <p>Search by employee name or employee ID, then register a clean face capture.</p>
         </div>
-        <ScanFace size={38} />
+        <div className="face-heading-badge">
+          <ScanFace size={18} />
+          <span>Employee face enrollment</span>
+        </div>
       </header>
 
       <div className="face-workspace">
         <section className="face-card capture-card">
+          <div className="capture-summary">
+            <div>
+              <p>Selected employee</p>
+              <strong>{selectedEmployee ? `${employeeLabel(selectedEmployee)} · ${selectedEmployee.employeeNo}` : "None selected"}</strong>
+            </div>
+            <div>
+              <p>Status</p>
+              <strong>{selectedEmployee ? "Ready for capture" : "Choose an employee first"}</strong>
+            </div>
+          </div>
           <div className="capture-stage">
             {cameraActive ? (
               <video ref={videoRef} autoPlay muted playsInline />
@@ -461,19 +416,15 @@ export function FaceRegistrationPage() {
                 viewBox={`0 0 ${faceFrame.width} ${faceFrame.height}`}
                 aria-hidden="true"
               >
-                <polygon className="face-outline" points={faceFrame.faceOutline} />
-                {faceFrame.meshLines.map((points, index) => (
-                  <polyline className="mesh-line" points={points} key={`${points}-${index}`} />
-                ))}
-                <polyline className="feature-line" points={faceFrame.jaw} />
-                <polyline className="feature-line" points={faceFrame.leftBrow} />
-                <polyline className="feature-line" points={faceFrame.rightBrow} />
-                <polyline className="feature-line" points={faceFrame.noseBridge} />
-                <polyline className="feature-line" points={faceFrame.noseBase} />
-                <polygon className="feature-line" points={faceFrame.leftEye} />
-                <polygon className="feature-line" points={faceFrame.rightEye} />
-                <polygon className="feature-line" points={faceFrame.outerMouth} />
-                <polygon className="feature-line" points={faceFrame.innerMouth} />
+                <rect
+                  className="face-guide-rect"
+                  x={faceFrame.x}
+                  y={faceFrame.y}
+                  width={faceFrame.boxWidth}
+                  height={faceFrame.boxHeight}
+                  rx="18"
+                  ry="18"
+                />
                 <text x="14" y="24">{Math.round(faceFrame.confidence * 100)}%</text>
               </svg>
             )}
@@ -508,53 +459,81 @@ export function FaceRegistrationPage() {
             </button>
           </div>
 
-          <div className="sample-progress">{descriptors.length} / {CAMERA_SAMPLE_TARGET} guided samples captured</div>
+          <div className="sample-progress">{descriptors.length} / {CAMERA_SAMPLE_TARGET} face sample captured</div>
           <p className="capture-message" role="status">{message}</p>
         </section>
 
         <section className="face-card enrollment-form">
-          <h3>Employee Details</h3>
-          
-          <label htmlFor="employee-id">Employee ID *</label>
-          <input
-            id="employee-id"
-            value={employeeId}
-            onChange={(event) => setEmployeeId(event.target.value)}
-            placeholder="e.g., EMP-001"
-            maxLength={50}
-          />
-
-          <label htmlFor="first-name">First Name *</label>
-          <input
-            id="first-name"
-            value={firstName}
-            onChange={(event) => setFirstName(event.target.value)}
-            placeholder="e.g., John"
-            maxLength={100}
-          />
-
-          <label htmlFor="last-name">Last Name *</label>
-          <input
-            id="last-name"
-            value={lastName}
-            onChange={(event) => setLastName(event.target.value)}
-            placeholder="e.g., Doe"
-            maxLength={100}
-          />
-
-          <label htmlFor="department">Department *</label>
-          <input
-            id="department"
-            value={department}
-            onChange={(event) => setDepartment(event.target.value)}
-            placeholder="e.g., Sales"
-            maxLength={100}
-          />
-
-          <div className="enrollment-note">
-            <strong>Important:</strong> Complete the front, left, and right guided captures in even lighting before registration.
+          <div className="form-title-row">
+            <div>
+              <p className="form-kicker">Step 1</p>
+              <h3>Select Employee</h3>
+            </div>
+            <ScanFace size={18} />
           </div>
-          <button className="primary-button save-face-button" onClick={saveEnrollment} disabled={busy || descriptors.length < CAMERA_SAMPLE_TARGET}>
+
+          <label htmlFor="employee-search">Search by name or employee ID</label>
+          <div className="search-shell">
+            <input
+              id="employee-search"
+              value={employeeSearch}
+              onChange={(event) => setEmployeeSearch(event.target.value)}
+              placeholder="Type an employee name or ID"
+              maxLength={80}
+              autoComplete="off"
+            />
+          </div>
+
+          <div className="employee-picks">
+            {employees
+              .filter((employee) => {
+                const query = employeeSearch.trim().toLowerCase();
+                if (!query) return true;
+                return (
+                  employee.employeeNo.toLowerCase().includes(query) ||
+                  employeeLabel(employee).toLowerCase().includes(query) ||
+                  employee.department?.name?.toLowerCase().includes(query)
+                );
+              })
+              .slice(0, 8)
+              .map((employee) => {
+                const active = selectedEmployee?.id === employee.id;
+                return (
+                  <button
+                    key={employee.id}
+                    type="button"
+                    className={`employee-pick ${active ? "active" : ""}`}
+                    onClick={() => {
+                      setSelectedEmployee(employee);
+                      setEmployeeSearch(`${employeeLabel(employee)} · ${employee.employeeNo}`);
+                    }}
+                  >
+                    <strong>{employeeLabel(employee)}</strong>
+                    <span>{employee.employeeNo}</span>
+                    <small>{employee.department?.name ?? "No department"}</small>
+                  </button>
+                );
+              })}
+          </div>
+
+          {selectedEmployee ? (
+            <div className="selected-employee-card">
+              <div>
+                <p>Selected employee</p>
+                <strong>{employeeLabel(selectedEmployee)}</strong>
+                <span>{selectedEmployee.employeeNo}</span>
+              </div>
+              <div>
+                <p>Department</p>
+                <strong>{selectedEmployee.department?.name ?? "Unknown"}</strong>
+              </div>
+            </div>
+          ) : (
+            <div className="selected-employee-card empty">
+              <strong>No employee selected yet</strong>
+              <span>Search by name or employee ID to continue.</span>
+            </div>
+          )}`r`n<button className="primary-button save-face-button" onClick={saveEnrollment} disabled={busy || descriptors.length < CAMERA_SAMPLE_TARGET || !selectedEmployee}>
             Register Employee Face
           </button>
         </section>
@@ -568,14 +547,14 @@ export function FaceRegistrationPage() {
           <div className="face-grid">
             {enrollments.map((item) => (
               <article className="face-item" key={item.id}>
-                <img src={item.referenceImage} alt="" />
+                <img src={item.referenceImageData ?? ""} alt="" />
                 <div>
-                  <strong>{item.firstName} {item.lastName}</strong>
-                  <span>{item.employeeId}</span>
-                  <small>{item.department}</small>
-                  <small>{new Date(item.createdAt).toLocaleString()}</small>
+                  <strong>{employeeLabel(item.employee)}</strong>
+                  <span>{item.employee.employeeNo}</span>
+                  <small>{item.employee.department?.name ?? "Unknown department"}</small>
+                  <small>{item.enrolledAt ? new Date(item.enrolledAt).toLocaleString() : "Pending"}</small>
                 </div>
-                <button onClick={() => removeEnrollment(item.id)} aria-label={`Delete ${item.firstName} ${item.lastName}`}><Trash2 size={17} /></button>
+                <button onClick={() => removeEnrollment(item.id)} aria-label={`Delete ${employeeLabel(item.employee)}`}><Trash2 size={17} /></button>
               </article>
             ))}
           </div>

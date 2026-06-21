@@ -7,6 +7,7 @@ import { AttendanceModule } from "./modules/attendance/attendance.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { EmployeesModule } from "./modules/employees/employees.module";
 import { FaceVerificationModule } from "./modules/face-verification/face-verification.module";
+import { FaceProfilesModule } from "./modules/face-profiles/face-profiles.module";
 import { GeolocationModule } from "./modules/geolocation/geolocation.module";
 import { LeaveModule } from "./modules/leave/leave.module";
 import { LeaveTypesModule } from "./modules/leave/leave-types.module";
@@ -28,6 +29,7 @@ import { HealthController } from "./health.controller";
     EmployeesModule,
     AttendanceModule,
     FaceVerificationModule,
+    FaceProfilesModule,
     GeolocationModule,
     LeaveModule,
     LeaveTypesModule,

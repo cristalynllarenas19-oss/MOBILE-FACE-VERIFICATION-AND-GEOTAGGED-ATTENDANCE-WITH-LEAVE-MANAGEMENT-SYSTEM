@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { View, StyleSheet, Text, ActivityIndicator } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Location from "expo-location";
@@ -11,6 +11,7 @@ type CameraScannerProps = {
 };
 
 export default function CameraScanner({ logType, onComplete, onCancel }: CameraScannerProps) {
+  const cameraRef = useRef<CameraView | null>(null);
   const [permission, requestPermission] = useCameraPermissions();
   const [isScanning, setIsScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState(0);
@@ -44,9 +45,12 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
       const location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
       });
-      // In a real app, we would take a picture here using a ref to CameraView
-      // and pass the base64 image to onComplete.
-      onComplete(location, "simulated_base64_image");
+      const photo = await cameraRef.current?.takePictureAsync({
+        base64: true,
+        quality: 0.7,
+        skipProcessing: true,
+      });
+      onComplete(location, photo?.base64 ? `data:image/jpeg;base64,${photo.base64}` : undefined);
     } catch (error) {
       console.error("Location error", error);
       onCancel();
@@ -67,7 +71,7 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
 
   return (
     <View style={styles.container}>
-      <CameraView style={styles.camera} facing="front">
+      <CameraView ref={cameraRef} style={styles.camera} facing="front">
         <View style={styles.overlay}>
           {/* Top Bar */}
           <View style={styles.topBar}>
