@@ -9,6 +9,8 @@ import { EmployeesModule } from "./modules/employees/employees.module";
 import { FaceVerificationModule } from "./modules/face-verification/face-verification.module";
 import { GeolocationModule } from "./modules/geolocation/geolocation.module";
 import { LeaveModule } from "./modules/leave/leave.module";
+import { LeaveTypesModule } from "./modules/leave/leave-types.module";
+import { LeaveBalancesModule } from "./modules/leave/leave-balances.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { UsersModule } from "./modules/users/users.module";
 import { DashboardModule } from "./modules/dashboard/dashboard.module";
@@ -28,6 +30,8 @@ import { HealthController } from "./health.controller";
     FaceVerificationModule,
     GeolocationModule,
     LeaveModule,
+    LeaveTypesModule,
+    LeaveBalancesModule,
     SchedulesModule,
     ReportsModule,
   ],

@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3001/api/v1VITE_API_BASE_URL=https://mobile-face-verification-and-geotagged-attendanc-production.up.railway.app/api/v1";
+const API_BASE_URL = "http://localhost:3001/api/v1";
 console.log("API_BASE_URL =", API_BASE_URL);
 
 export type AuthUser = {
