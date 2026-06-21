@@ -7,7 +7,7 @@
     "start:dev": "nest start --watch",
     "build": "nest build",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev",
+    "prisma:migrate": "prisma db push",
     "prisma:seed": "tsx prisma/seed.ts",
     "lint": "eslint \"src/**/*.ts\""
   },

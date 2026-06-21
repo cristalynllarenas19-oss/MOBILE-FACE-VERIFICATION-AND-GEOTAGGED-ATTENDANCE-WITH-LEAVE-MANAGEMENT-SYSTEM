@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post } from "@nestjs/common";
 import { GeolocationService } from "./geolocation.service";
 
 @Controller("geolocation")
@@ -17,8 +17,34 @@ export class GeolocationController {
       latitude: Number(data.latitude),
       longitude: Number(data.longitude),
       radiusMeters: Number(data.radiusMeters),
-      employeeId: data.employeeId,
+      allowedAccuracyMeters: data.allowedAccuracyMeters !== undefined ? Number(data.allowedAccuracyMeters) : undefined,
+      employeeIds: Array.isArray(data.employeeIds) ? data.employeeIds : [],
+      assignAllEmployees: Boolean(data.assignAllEmployees),
     });
+  }
+
+  @Patch("locations/:id")
+  updateLocation(@Param("id") id: string, @Body() data: any) {
+    return this.geolocationService.updateLocation(id, {
+      name: data.name,
+      latitude: data.latitude !== undefined ? Number(data.latitude) : undefined,
+      longitude: data.longitude !== undefined ? Number(data.longitude) : undefined,
+      radiusMeters: data.radiusMeters !== undefined ? Number(data.radiusMeters) : undefined,
+      allowedAccuracyMeters: data.allowedAccuracyMeters !== undefined ? Number(data.allowedAccuracyMeters) : undefined,
+      isActive: data.isActive !== undefined ? Boolean(data.isActive) : undefined,
+      employeeIds: Array.isArray(data.employeeIds) ? data.employeeIds : undefined,
+      assignAllEmployees: data.assignAllEmployees !== undefined ? Boolean(data.assignAllEmployees) : undefined,
+    });
+  }
+
+  @Post("locations/:id/employees/:employeeId")
+  addEmployee(@Param("id") id: string, @Param("employeeId") employeeId: string) {
+    return this.geolocationService.addEmployee(id, employeeId);
+  }
+
+  @Delete("locations/:id/employees/:employeeId")
+  removeEmployee(@Param("id") id: string, @Param("employeeId") employeeId: string) {
+    return this.geolocationService.removeEmployee(id, employeeId);
   }
 
   @Delete("locations/:id")

@@ -156,7 +156,7 @@ model Employee {
   leaveRequests    LeaveRequest[]
   leaveBalances    LeaveBalance[]
   schedules        EmployeeSchedule[]
-  workLocations    WorkLocation[]
+  workLocations    WorkLocationEmployee[]
 
   @@index([departmentId])
   @@index([supervisorId])
@@ -171,11 +171,21 @@ model WorkLocation {
   radiusMeters          Decimal  @map("radius_meters")
   allowedAccuracyMeters Decimal  @map("allowed_accuracy_meters")
   isActive              Boolean  @default(true) @map("is_active")
-  employeeId            String?  @map("employee_id")
-  employee              Employee? @relation(fields: [employeeId], references: [id])
+  employees             WorkLocationEmployee[]
 
-  @@index([employeeId])
   @@map("work_locations")
+}
+
+model WorkLocationEmployee {
+  id             String       @id @default(uuid())
+  workLocationId String       @map("work_location_id")
+  employeeId     String       @unique @map("employee_id")
+  workLocation   WorkLocation @relation(fields: [workLocationId], references: [id], onDelete: Cascade)
+  employee       Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([workLocationId, employeeId])
+  @@index([workLocationId])
+  @@map("work_location_employees")
 }
 
 model AttendanceRecord {

@@ -1,7 +1,7 @@
 import "leaflet/dist/leaflet.css";
 
 import { Component, FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Crosshair, MapPin, Plus, Trash2 } from "lucide-react";
+import { Crosshair, Edit3, MapPin, Plus, Trash2 } from "lucide-react";
 import L from "leaflet";
 import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
 import markerIconUrl from "leaflet/dist/images/marker-icon.png";
@@ -22,16 +22,23 @@ type GeotaggedLocation = {
   latitude: number;
   longitude: number;
   radiusMeters: number;
-  employeeId: string | null;
+  employees?: Array<{ employee: EmployeeOption }>;
+  employeeId?: string | null;
   employee?: EmployeeOption | null;
+  isActive?: boolean;
 };
+
+function isGlobalZoneLocation(location?: GeotaggedLocation | null) {
+  return Boolean(location?.name && location.name.toLowerCase().includes("global zone"));
+}
 
 const initialForm = {
   name: "",
   latitude: "16.3222",
   longitude: "120.3656",
   radiusMeters: "120",
-  employeeId: "",
+  employeeIds: [] as string[],
+  assignAllEmployees: false,
 };
 
 const markerIcon = L.icon({
@@ -43,9 +50,6 @@ const markerIcon = L.icon({
   popupAnchor: [1, -34],
   shadowSize: [41, 41],
 });
-
-const partialLoadMessage =
-  "Some geotagging data could not be loaded. The page will still work with the data that did arrive.";
 
 class GeotaggingErrorBoundary extends Component<
   { children: React.ReactNode },
@@ -79,9 +83,13 @@ function GeotaggingPageContent() {
   const [form, setForm] = useState(initialForm);
   const [locations, setLocations] = useState<GeotaggedLocation[]>([]);
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
+  const [employeeSearch, setEmployeeSearch] = useState("");
+  const [assignmentError, setAssignmentError] = useState("");
   const [selectedLocationId, setSelectedLocationId] = useState("");
+  const [editingLocationId, setEditingLocationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
+  const [loadIssues, setLoadIssues] = useState<string[]>([]);
 
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -95,6 +103,8 @@ function GeotaggingPageContent() {
     async function loadData() {
       setLoading(true);
       setLoadError("");
+      setLoadIssues([]);
+      setAssignmentError("");
 
       const empsPromise = apiRequest<EmployeeOption[]>("/employees");
       const locsPromise = apiRequest<GeotaggedLocation[]>("/geolocation/locations");
@@ -107,7 +117,8 @@ function GeotaggingPageContent() {
       } catch (error) {
         console.error("Failed to load employees", error);
         if (alive) {
-          setLoadError(partialLoadMessage);
+          setLoadError("Some geotagging data could not be loaded.");
+          setLoadIssues((current) => [...current, "Employees could not be loaded."]);
         }
       }
 
@@ -116,11 +127,13 @@ function GeotaggingPageContent() {
         if (alive) {
           setLocations(Array.isArray(locs) ? locs : []);
           setSelectedLocationId(locs?.[0]?.id ?? "");
+          setEditingLocationId(null);
         }
       } catch (error) {
         console.error("Failed to load locations", error);
         if (alive) {
-          setLoadError(partialLoadMessage);
+          setLoadError("Some geotagging data could not be loaded.");
+          setLoadIssues((current) => [...current, "Geotagged locations could not be loaded."]);
         }
       }
 
@@ -148,9 +161,41 @@ function GeotaggingPageContent() {
   );
 
   const assignedEmployees = useMemo(
-    () => new Set(locations.map((location) => location.employeeId).filter(Boolean)),
+    () =>
+      new Set(
+        locations.flatMap(
+          (location) =>
+            location.employees?.map((entry) => entry.employee.id) ?? (location.employeeId ? [location.employeeId] : []),
+        ),
+      ),
     [locations],
   );
+
+  const currentLocationAssignedIds = useMemo(() => new Set(form.employeeIds), [form.employeeIds]);
+  const assignAllEmployees = form.assignAllEmployees;
+
+  const editingLocation = useMemo(
+    () => locations.find((location) => location.id === editingLocationId) ?? null,
+    [editingLocationId, locations],
+  );
+  const editingIsGlobalZone = isGlobalZoneLocation(editingLocation);
+
+  const employeeRows = useMemo(() => {
+    const query = employeeSearch.trim().toLowerCase();
+    return employees
+      .filter((employee) => {
+        if (!query) return true;
+        const fullName = `${employee.firstName} ${employee.lastName}`.toLowerCase();
+        const department = employee.department?.name?.toLowerCase() ?? "";
+        return fullName.includes(query) || department.includes(query);
+      })
+      .sort((a, b) => {
+        const aAssigned = currentLocationAssignedIds.has(a.id);
+        const bAssigned = currentLocationAssignedIds.has(b.id);
+        if (aAssigned !== bAssigned) return aAssigned ? -1 : 1;
+        return `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`);
+      });
+  }, [currentLocationAssignedIds, employeeSearch, employees]);
 
   const normalizedLocations = useMemo(
     () =>
@@ -168,10 +213,24 @@ function GeotaggingPageContent() {
     const nextLongitude = Number(location.longitude);
 
     setSelectedLocationId(location.id);
+    setEditingLocationId(location.id);
+    setAssignmentError("");
     setForm((current) => ({
       ...current,
+      name: location.name,
       latitude: Number.isFinite(nextLatitude) ? nextLatitude.toFixed(6) : current.latitude,
       longitude: Number.isFinite(nextLongitude) ? nextLongitude.toFixed(6) : current.longitude,
+      radiusMeters: Number(location.radiusMeters).toString(),
+      employeeIds:
+        location.employees?.map((entry) => entry.employee.id) ??
+        (location.employeeId ? [location.employeeId] : location.employee ? [location.employee.id] : []),
+      assignAllEmployees: Boolean(
+        employees.length > 0 &&
+          (location.employees?.length ?? 0) === employees.length &&
+          employees.every((employee) =>
+            location.employees?.some((entry) => entry.employee.id === employee.id),
+          ),
+      ),
     }));
 
     const map = mapRef.current;
@@ -274,9 +333,12 @@ function GeotaggingPageContent() {
 
     normalizedLocations.forEach((location) => {
       const isSelected = selectedLocationId === location.id;
-      const empName = location.employee
-        ? `${location.employee.firstName} ${location.employee.lastName}`
-        : "Global Zone (All Employees)";
+      const empName =
+        location.employees && location.employees.length > 0
+          ? location.employees.map(({ employee }) => `${employee.firstName} ${employee.lastName}`).join(", ")
+          : location.employee
+            ? `${location.employee.firstName} ${location.employee.lastName}`
+          : "Global Zone (All Employees)";
 
       L.circle([location.latitude, location.longitude], {
         radius: location.radiusMeters,
@@ -310,23 +372,43 @@ function GeotaggingPageContent() {
     }
 
     try {
-      const newLoc = await apiRequest<GeotaggedLocation>("/geolocation/locations", {
-        method: "POST",
-        body: JSON.stringify({
-          name: form.name.trim(),
-          latitude,
-          longitude,
-          radiusMeters: Number.isFinite(radiusMeters) && radiusMeters > 0 ? radiusMeters : 100,
-          employeeId: form.employeeId || null,
-        }),
-      });
+      setAssignmentError("");
+      const payload = {
+        name: form.name.trim(),
+        latitude,
+        longitude,
+        radiusMeters: Number.isFinite(radiusMeters) && radiusMeters > 0 ? radiusMeters : 100,
+        employeeIds: form.employeeIds,
+        assignAllEmployees: form.assignAllEmployees,
+      };
 
-      setLocations((current) => [newLoc, ...current]);
-      setSelectedLocationId(newLoc.id);
-      setForm((current) => ({ ...initialForm, latitude: current.latitude, longitude: current.longitude }));
+      if (editingLocationId) {
+        const updated = await apiRequest<GeotaggedLocation>(`/geolocation/locations/${editingLocationId}`, {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        });
+        setLocations((current) => current.map((location) => (location.id === updated.id ? updated : location)));
+      } else {
+        const newLoc = await apiRequest<GeotaggedLocation>("/geolocation/locations", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        setLocations((current) => [newLoc, ...current]);
+        setSelectedLocationId(newLoc.id);
+        setEditingLocationId(newLoc.id);
+      }
+
+      setForm((current) => ({
+        ...initialForm,
+        latitude: current.latitude,
+        longitude: current.longitude,
+      }));
     } catch (error) {
-      console.error("Failed to save location", error);
-      alert("Failed to save location");
+      console.error("Failed to save geotagged area", error);
+      const message =
+        error instanceof Error ? error.message : "Failed to save geotagged area";
+      setAssignmentError(message);
+      alert(message);
     }
   }
 
@@ -337,10 +419,67 @@ function GeotaggingPageContent() {
       if (selectedLocationId === id) {
         setSelectedLocationId("");
       }
+      if (editingLocationId === id) {
+        setEditingLocationId(null);
+      }
     } catch (error) {
       console.error("Failed to delete location", error);
-      alert("Failed to delete location");
+      alert(error instanceof Error ? error.message : "Failed to delete location");
     }
+  }
+
+  function startCreateMode() {
+    setEditingLocationId(null);
+    setSelectedLocationId("");
+    setForm((current) => ({
+      ...initialForm,
+      latitude: current.latitude,
+      longitude: current.longitude,
+    }));
+    setAssignmentError("");
+  }
+
+  function toggleEmployee(employeeId: string) {
+    if (editingIsGlobalZone) {
+      return;
+    }
+
+    const isSelected = currentLocationAssignedIds.has(employeeId);
+
+    if (isSelected) {
+      setForm((current) => ({
+        ...current,
+        assignAllEmployees: false,
+        employeeIds: current.employeeIds.filter((id) => id !== employeeId),
+      }));
+      return;
+    }
+
+    if (assignedEmployees.has(employeeId)) {
+      return;
+    }
+
+    setForm((current) => ({
+      ...current,
+      assignAllEmployees: false,
+      employeeIds: [...current.employeeIds, employeeId],
+    }));
+  }
+
+  function removeEmployeeFromCurrentLocation(employeeId: string) {
+    setForm((current) => ({
+      ...current,
+      assignAllEmployees: false,
+      employeeIds: current.employeeIds.filter((id) => id !== employeeId),
+    }));
+  }
+
+  function toggleAssignAllEmployees(checked: boolean) {
+    setForm((current) => ({
+      ...current,
+      assignAllEmployees: checked,
+      employeeIds: checked ? employees.map((employee) => employee.id) : [],
+    }));
   }
 
   return (
@@ -364,7 +503,14 @@ function GeotaggingPageContent() {
 
       {loadError && (
         <div className="geotagging-banner error" role="alert">
-          {loadError}
+          <div>{loadError} The page will still work with the data that did arrive.</div>
+          {loadIssues.length > 0 && (
+            <ul className="geotagging-load-issues">
+              {loadIssues.map((issue) => (
+                <li key={issue}>{issue}</li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 
@@ -384,8 +530,21 @@ function GeotaggingPageContent() {
               <div className="panel-heading-icon">
                 <Plus size={14} />
               </div>
-              <h3>Add Location</h3>
+              <h3>{editingLocationId ? "Edit Location" : "Add Location"}</h3>
             </div>
+
+            {editingIsGlobalZone && (
+              <div className="geotagging-banner info" role="note">
+                Global Zone is assignment-locked. Remove employees from their current area before assigning them to a new
+                location.
+              </div>
+            )}
+
+            {assignmentError && (
+              <div className="geotagging-banner error" role="alert">
+                {assignmentError}
+              </div>
+            )}
 
             <label>
               Location name
@@ -437,30 +596,108 @@ function GeotaggingPageContent() {
               </div>
             </label>
 
-            <label>
-              Assigned employee (Optional)
-              <select
-                value={form.employeeId}
-                onChange={(event) => setForm((current) => ({ ...current, employeeId: event.target.value }))}
-                disabled={loading && employees.length === 0}
-              >
-                <option value="">Global (All Employees)</option>
-                {employees.map((employee) => (
-                  <option key={employee.id} value={employee.id}>
-                    {employee.firstName} {employee.lastName} - {employee.department?.name}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className={`employee-assignment-box${editingIsGlobalZone ? " locked" : ""}`}>
+              <div className="employee-assignment-header">
+                {!editingIsGlobalZone && (
+                  <label className="employee-assignment-label">
+                    Assigned employees
+                    <input
+                      type="text"
+                      value={employeeSearch}
+                      onChange={(event) => setEmployeeSearch(event.target.value)}
+                      placeholder="Search employees or departments"
+                    />
+                  </label>
+                )}
+                <small className="field-help">
+                  {editingIsGlobalZone
+                    ? "Global Zone is remove-only. You can unassign employees here, but you cannot add new ones."
+                    : "Check employees to assign them here. Uncheck to remove them from this area."}
+                </small>
+              </div>
+
+              {!editingIsGlobalZone && (
+                <label className="assign-all-employees-toggle">
+                  <span className="assign-all-copy">
+                    <strong>Assign All Employees</strong>
+                    <small>Assign every current employee to this geotagged area.</small>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={assignAllEmployees}
+                    onChange={(event) => toggleAssignAllEmployees(event.target.checked)}
+                  />
+                </label>
+              )}
+
+              <div className="employee-checklist" role="group" aria-label="Employee assignment checklist">
+                {employeeRows.length === 0 ? (
+                  <div className="employee-empty-state">
+                    <p>No employees match your search.</p>
+                    <small>Try a different name or department.</small>
+                  </div>
+                ) : (
+                  employeeRows.map((employee) => {
+                    const isSelected = currentLocationAssignedIds.has(employee.id);
+                    const isAssignedElsewhere = assignedEmployees.has(employee.id) && !isSelected;
+
+                    return (
+                      editingIsGlobalZone ? (
+                        isSelected ? (
+                          <div key={employee.id} className="employee-checklist-item selected">
+                            <span className="employee-checklist-main">
+                              <span className="employee-checklist-name">
+                                {employee.firstName} {employee.lastName}
+                              </span>
+                              <span className="employee-checklist-meta">{employee.department?.name}</span>
+                            </span>
+                              <button
+                                type="button"
+                                className="employee-unassign-button"
+                                onClick={() => removeEmployeeFromCurrentLocation(employee.id)}
+                              >
+                                Unassign
+                              </button>
+                          </div>
+                        ) : null
+                      ) : (
+                        <label
+                          key={employee.id}
+                          className={`employee-checklist-item${isSelected ? " selected" : ""}${isAssignedElsewhere ? " disabled" : ""}`}
+                        >
+                          <span className="employee-checklist-main">
+                            <span className="employee-checklist-name">
+                              {employee.firstName} {employee.lastName}
+                            </span>
+                            <span className="employee-checklist-meta">{employee.department?.name}</span>
+                            {isAssignedElsewhere && (
+                              <span className="employee-assigned-note">
+                                Already assigned to another geotagged area
+                              </span>
+                            )}
+                          </span>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            disabled={isAssignedElsewhere || (loading && employees.length === 0)}
+                            onChange={() => toggleEmployee(employee.id)}
+                          />
+                        </label>
+                      )
+                    );
+                  })
+                )}
+              </div>
+            </div>
 
             <div className="geotagging-actions">
-              <button className="outline-button" type="button" onClick={() => setForm((current) => ({ ...current, latitude: "16.3222", longitude: "120.3656" }))}>
+              <button className="outline-button" type="button" onClick={startCreateMode}>
                 <Crosshair size={14} />
-                <span>Agoo Center</span>
+                <span>New Area</span>
               </button>
               <button className="primary-button" type="submit" disabled={loading}>
                 <Plus size={14} />
-                <span>Add Area</span>
+                <span>{editingLocationId ? "Save Changes" : "Add Area"}</span>
               </button>
             </div>
           </form>
@@ -491,9 +728,12 @@ function GeotaggingPageContent() {
               </div>
             ) : (
               locations.map((location) => {
-                const empName = location.employee
-                  ? `${location.employee.firstName} ${location.employee.lastName}`
-                  : "Global Zone (All Employees)";
+                const empName =
+                  location.employees && location.employees.length > 0
+                    ? location.employees.map(({ employee }) => `${employee.firstName} ${employee.lastName}`).join(", ")
+                    : location.employee
+                      ? `${location.employee.firstName} ${location.employee.lastName}`
+                    : "Global Zone (All Employees)";
 
                 return (
                   <article
@@ -511,6 +751,14 @@ function GeotaggingPageContent() {
                         {Number(location.latitude).toFixed(5)}, {Number(location.longitude).toFixed(5)} · {location.radiusMeters}
                         m
                       </small>
+                    </button>
+                    <button
+                      className="icon-button manage-employees-button"
+                      type="button"
+                      aria-label={`Manage employees for ${location.name}`}
+                      onClick={() => focusLocation(location)}
+                    >
+                      <Edit3 size={14} />
                     </button>
                     <button
                       className="icon-button danger"

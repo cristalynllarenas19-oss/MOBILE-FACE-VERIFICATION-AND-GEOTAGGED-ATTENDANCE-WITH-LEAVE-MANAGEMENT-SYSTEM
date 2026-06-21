@@ -109,9 +109,7 @@ export class AttendanceService {
 
   async createSession(employeeId?: string) {
     const location =
-      await this.prisma.workLocation.findFirst({
-        where: { isActive: true, employeeId: employeeId || undefined },
-      });
+      employeeId ? await this.geolocation.getLocationForEmployee(employeeId) : null;
 
     return {
       sessionId: randomUUID(),
@@ -133,9 +131,7 @@ export class AttendanceService {
     }
 
     const location =
-      await this.prisma.workLocation.findFirst({
-        where: { isActive: true, employeeId: dto.employeeId },
-      });
+      await this.geolocation.getLocationForEmployee(dto.employeeId);
 
     if (!location) {
       throw new NotFoundException(
