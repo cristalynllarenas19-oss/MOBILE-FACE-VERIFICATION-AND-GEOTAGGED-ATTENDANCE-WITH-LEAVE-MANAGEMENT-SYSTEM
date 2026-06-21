@@ -1,8 +1,33 @@
 import * as SecureStore from "expo-secure-store";
+import Constants from "expo-constants";
 
-const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL ??
+const DEFAULT_API_BASE_URL =
   "https://mobile-face-verification-and-geotagged-attendanc-production.up.railway.app/api/v1";
+
+function getApiBaseUrl() {
+  const configuredUrl =
+    process.env.EXPO_PUBLIC_API_BASE_URL ??
+    DEFAULT_API_BASE_URL;
+
+  const metroHost = (
+    Constants as unknown as {
+      expoConfig?: { hostUri?: string };
+      manifest?: { debuggerHost?: string };
+      manifest2?: { extra?: { expoClient?: { hostUri?: string } } };
+    }
+  ).expoConfig?.hostUri
+    ?? (Constants as unknown as { manifest?: { debuggerHost?: string } }).manifest?.debuggerHost
+    ?? (Constants as unknown as { manifest2?: { extra?: { expoClient?: { hostUri?: string } } } }).manifest2?.extra?.expoClient?.hostUri;
+
+  const host = metroHost?.split(":")[0];
+  if (host && /localhost|127\.0\.0\.1/.test(configuredUrl)) {
+    return configuredUrl.replace(/localhost|127\.0\.0\.1/, host);
+  }
+
+  return configuredUrl;
+}
+
+const API_BASE_URL = getApiBaseUrl();
 
 export type MobileUser = {
   id: string;

@@ -43,7 +43,7 @@ export default function LoginScreen({
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={
-          Platform.OS === "ios"
+          Platform.OS === "ios" || Platform.OS === "android"
             ? "padding"
             : undefined
         }
