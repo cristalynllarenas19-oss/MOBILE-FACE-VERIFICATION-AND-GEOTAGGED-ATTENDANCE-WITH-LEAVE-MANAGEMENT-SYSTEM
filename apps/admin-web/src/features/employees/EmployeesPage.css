@@ -82,6 +82,52 @@
   box-shadow: 0 18px 40px rgba(15, 23, 42, 0.16);
 }
 
+
+.employees-table-card {
+  border: 1px solid #e3e9f0;
+  border-radius: 12px;
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 480px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: #b8c7d8 #f4f7fb;
+}
+
+.employees-table-card::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+.employees-table-card::-webkit-scrollbar-track {
+  background: #f4f7fb;
+  border-radius: 999px;
+}
+
+.employees-table-card::-webkit-scrollbar-thumb {
+  background: #b8c7d8;
+  border-radius: 999px;
+}
+
+.employees-table-card::-webkit-scrollbar-thumb:hover {
+  background: #8fa9c4;
+}
+
+.employees-table-card table {
+  width: 100%;
+  min-width: 820px; 
+  border-collapse: collapse;
+}
+
+.employees-table-card thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f4f7fb;
+}
+
 .employees-table-card th,
 .employees-table-card td {
   text-align: center;
@@ -396,6 +442,8 @@
     background: transparent;
     box-shadow: none;
     overflow: visible;
+    max-height: none;
+    border: none;
   }
 
   .employees-table-card table,
@@ -411,6 +459,7 @@
 
   .employees-table-card thead {
     display: none;
+    position: static; 
   }
 
   .employees-table-card tbody {

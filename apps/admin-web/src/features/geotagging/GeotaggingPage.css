@@ -2,8 +2,8 @@
 
 .leaflet-popup-content-wrapper {
   border-radius: 10px !important;
-  box-shadow: 0 4px 20px rgba(23, 50, 82, 0.16) !important;
-  border: 1px solid #dbe5f0 !important;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.16) !important;
+  border: 1px solid #dbe5ef !important;
   padding: 0 !important;
 }
 
@@ -31,12 +31,12 @@
 
 .map-popup span {
   font-size: 12px;
-  color: #64748b;
+  color: #7b8794;
 }
 
 .map-popup .popup-radius {
   font-size: 11px;
-  color: #94a3b8;
+  color: #9aa9bb;
   font-variant-numeric: tabular-nums;
 }
 
@@ -45,27 +45,27 @@
 .geotagging-page {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
 }
 
 .geotagging-banner {
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: 10px;
   padding: 12px 14px;
   font-size: 13px;
   font-weight: 600;
 }
 
 .geotagging-banner.error {
-  border-color: #fecaca;
-  background: #fff1f2;
-  color: #b91c1c;
+  border-color: #fca5a5;
+  background: #fef2f2;
+  color: #991b1b;
 }
 
 .geotagging-banner.info {
-  border-color: #bfdbfe;
-  background: #eff6ff;
-  color: #1d4ed8;
+  border-color: #dbe5ef;
+  background: #eef4fb;
+  color: #1a3a5c;
 }
 
 .geotagging-load-issues {
@@ -75,7 +75,7 @@
   font-weight: 600;
 }
 
-/* ── Header ──────────────────────────────────────────────────────────────── */
+/* ── Header row: title + stat cards ─────────────────────────────────────── */
 
 .geotagging-header {
   display: flex;
@@ -94,7 +94,7 @@
 
 .geotagging-header-text p {
   margin: 0;
-  color: #64748b;
+  color: #7b8794;
   font-size: 13.5px;
 }
 
@@ -104,6 +104,7 @@
   display: flex;
   gap: 10px;
   flex-shrink: 0;
+  align-items: flex-start;
 }
 
 .geotagging-stat-card {
@@ -113,10 +114,10 @@
   justify-content: center;
   min-width: 80px;
   padding: 10px 16px;
-  border: 1px solid #dbe5f0;
+  border: 1px solid #dbe5ef;
   border-radius: 10px;
   background: #ffffff;
-  box-shadow: 0 1px 4px rgba(23, 50, 82, 0.06);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
   gap: 1px;
 }
 
@@ -129,29 +130,36 @@
 }
 
 .geotagging-stat-card .stat-label {
-  color: #94a3b8;
+  color: #7b8794;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
 }
 
-/* ── Workspace ───────────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   NEW LAYOUT STRUCTURE
+   ─────────────────────────────────────────────────────────────────────────
+   Top area:  [Map (left)] | [Add Location form (right, compact)]
+   Bottom:    [Assigned Areas (left col)] | [Assigned Employees (right col)]
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Main workspace: map + compact add-form side by side ─────────────────── */
 
 .geotagging-workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 390px;
-  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 16px;
   align-items: start;
 }
 
 /* ── Map panel ───────────────────────────────────────────────────────────── */
 
 .geotagging-map-panel {
-  border: 1px solid #dbe5f0;
+  border: 1px solid #dbe5ef;
   border-radius: 12px;
   background: #ffffff;
-  box-shadow: 0 2px 10px rgba(23, 50, 82, 0.07);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
   overflow: hidden;
 }
 
@@ -160,59 +168,58 @@
   align-items: center;
   gap: 8px;
   padding: 10px 14px;
-  border-bottom: 1px solid #eef2f8;
-  background: #f8fafd;
-  color: #5b7499;
+  border-bottom: 1px solid #edf2f7;
+  background: #f4f7fb;
+  color: #41536b;
   font-size: 12.5px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .map-panel-icon {
-  color: #3b82f6;
+  color: #2979d0;
   flex-shrink: 0;
 }
 
 .geotagging-map {
   width: 100%;
-  height: 520px;
+  height: 420px; /* reduced from 520px — form is now beside map, not below */
   z-index: 1;
 }
 
 .map-loading-overlay {
   display: grid;
   place-items: center;
-  min-height: 520px;
-  background: linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(241, 245, 249, 0.96));
-  color: #64748b;
+  min-height: 420px;
+  background: #f4f7fb;
+  color: #7b8794;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
-/* ── Sidebar ─────────────────────────────────────────────────────────────── */
+/* ── Add Location form (right column, compact) ───────────────────────────── */
 
 .geotagging-form-panel {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 0;
+  /* The form panel now only holds the Add Location card. */
 }
 
-.geotagging-form,
-.assigned-list,
-.selected-assignment {
-  border: 1px solid #dbe5f0;
+.geotagging-form {
+  border: 1px solid #dbe5ef;
   border-radius: 12px;
   background: #ffffff;
-  padding: 18px;
-  box-shadow: 0 1px 4px rgba(23, 50, 82, 0.05);
+  padding: 14px 16px;          /* tighter than original 18px 20px */
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
-/* ── Panel heading ───────────────────────────────────────────────────────── */
+/* ── Panel heading (shared) ──────────────────────────────────────────────── */
 
 .panel-heading {
   display: flex;
   align-items: center;
   gap: 9px;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
   color: #193d69;
 }
 
@@ -222,20 +229,22 @@
   display: grid;
   place-items: center;
   border-radius: 7px;
-  background: #2563eb;
+  background: #1a3a5c;
   color: #ffffff;
   flex-shrink: 0;
 }
 
 .panel-heading-icon.neutral {
-  background: #e0eaf6;
-  color: #3b5f8a;
+  background: #eef4fb;
+  color: #41536b;
 }
 
 .panel-heading h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: 12px;
   font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
   flex: 1;
 }
 
@@ -246,8 +255,8 @@
   align-items: center;
   justify-content: center;
   padding: 0 6px;
-  border-radius: 99px;
-  background: #193d69;
+  border-radius: 999px;
+  background: #1a3a5c;
   color: #ffffff;
   font-size: 11px;
   font-weight: 700;
@@ -258,10 +267,10 @@
 .geotagging-form label {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-bottom: 13px;
-  color: #334155;
-  font-size: 12px;
+  gap: 5px;
+  margin-bottom: 10px;          /* tighter than 13px */
+  color: #7b8794;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -270,34 +279,36 @@
 .geotagging-form input,
 .geotagging-form select {
   width: 100%;
-  border: 1.5px solid #e2eaf4;
+  border: 1px solid #dbe5ef;
   border-radius: 8px;
-  background: #f8fafd;
-  color: #193d69;
-  padding: 9px 12px;
-  font-size: 13.5px;
+  background: #ffffff;
+  color: #1a3a5c;
+  padding: 0 12px;
+  height: 36px;                 /* slightly slimmer than 38px */
+  font-size: 13px;
+  font-weight: 700;
   font-family: inherit;
-  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
   box-sizing: border-box;
 }
 
 .geotagging-form select[multiple] {
-  min-height: 140px;
-  padding: 10px 12px;
+  min-height: 120px;
+  height: auto;
+  padding: 8px 12px;
 }
 
 .geotagging-form input:focus,
 .geotagging-form select:focus {
   outline: none;
-  border-color: #3b82f6;
-  background: #ffffff;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.13);
+  border-color: #2979d0;
+  box-shadow: 0 0 0 3px rgba(41, 121, 208, 0.14);
 }
 
 .field-help {
   display: block;
-  margin-top: 6px;
-  color: #64748b;
+  margin-top: 5px;
+  color: #7b8794;
   font-size: 11.5px;
   font-weight: 500;
   text-transform: none;
@@ -305,8 +316,10 @@
   line-height: 1.45;
 }
 
+/* ── Employee assignment (inside form — compact mode) ────────────────────── */
+
 .employee-assignment-box {
-  margin-bottom: 13px;
+  margin-bottom: 10px;
 }
 
 .employee-assignment-box.locked .employee-checklist-item {
@@ -316,8 +329,8 @@
 .employee-assignment-header {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-bottom: 10px;
+  gap: 5px;
+  margin-bottom: 8px;
 }
 
 .assign-all-employees-toggle {
@@ -325,12 +338,12 @@
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  margin-bottom: 12px;
-  padding: 11px 12px;
-  border: 1.5px solid #dbe8f5;
+  margin-bottom: 10px;
+  padding: 9px 12px;
+  border: 1px solid #dbe5ef;
   border-radius: 10px;
-  background: linear-gradient(180deg, #f8fbff 0%, #eef6ff 100%);
-  color: #193d69;
+  background: #f4f7fb;
+  color: #1a3a5c;
   text-transform: none;
   letter-spacing: 0;
 }
@@ -347,7 +360,7 @@
 }
 
 .assign-all-copy small {
-  color: #64748b;
+  color: #7b8794;
   font-size: 11.5px;
   font-weight: 500;
   line-height: 1.4;
@@ -356,15 +369,15 @@
 .assign-all-employees-toggle input[type="checkbox"] {
   width: 18px;
   height: 18px;
-  accent-color: #2563eb;
+  accent-color: #1a3a5c;
 }
 
 .employee-assignment-label {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  color: #334155;
-  font-size: 12px;
+  color: #7b8794;
+  font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -372,14 +385,16 @@
 
 .employee-assignment-label input {
   width: 100%;
-  border: 1.5px solid #e2eaf4;
+  border: 1px solid #dbe5ef;
   border-radius: 8px;
-  background: #f8fafd;
-  color: #193d69;
-  padding: 9px 12px;
-  font-size: 13.5px;
+  background: #ffffff;
+  color: #1a3a5c;
+  padding: 0 12px;
+  height: 36px;
+  font-size: 13px;
+  font-weight: 700;
   font-family: inherit;
-  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
   box-sizing: border-box;
   text-transform: none;
   letter-spacing: 0;
@@ -387,18 +402,20 @@
 
 .employee-assignment-label input:focus {
   outline: none;
-  border-color: #3b82f6;
-  background: #ffffff;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.13);
+  border-color: #2979d0;
+  box-shadow: 0 0 0 3px rgba(41, 121, 208, 0.14);
 }
 
-.employee-checklist {
+/* In-form employee checklist is compact (fewer rows visible) */
+.geotagging-form .employee-checklist {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  max-height: 260px;
+  gap: 6px;
+  max-height: 160px;            /* compact inside form */
   overflow-y: auto;
   padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
 }
 
 .employee-checklist-item {
@@ -406,24 +423,22 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 11px 12px;
-  border: 1.5px solid #e2eaf4;
+  padding: 9px 12px;
+  border: 1px solid #dbe5ef;
   border-radius: 10px;
-  background: #f8fafd;
+  background: #f8fafc;
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s, transform 0.12s, box-shadow 0.15s;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
 .employee-checklist-item:hover {
-  border-color: #c6d6ea;
+  border-color: #b8c7d8;
   background: #ffffff;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(23, 50, 82, 0.06);
 }
 
 .employee-checklist-item.selected {
-  border-color: #93c5fd;
-  background: #eff6ff;
+  border-color: #2979d0;
+  background: #eef4fb;
 }
 
 .employee-checklist-item.disabled {
@@ -439,13 +454,13 @@
 }
 
 .employee-checklist-name {
-  color: #193d69;
+  color: #1a3a5c;
   font-size: 13px;
   font-weight: 700;
 }
 
 .employee-checklist-meta {
-  color: #64748b;
+  color: #7b8794;
   font-size: 11.5px;
   font-weight: 500;
 }
@@ -462,13 +477,13 @@
   width: 16px;
   height: 16px;
   flex-shrink: 0;
-  accent-color: #2563eb;
+  accent-color: #1a3a5c;
 }
 
 .employee-unassign-button {
-  border: 1px solid #fecaca;
-  background: #fff1f2;
-  color: #b91c1c;
+  border: 1px solid #fca5a5;
+  background: #fef2f2;
+  color: #991b1b;
   border-radius: 999px;
   padding: 6px 10px;
   font-size: 11.5px;
@@ -477,7 +492,7 @@
 }
 
 .employee-unassign-button:hover {
-  background: #ffe4e6;
+  background: #fee2e2;
 }
 
 .manage-employees-button {
@@ -498,15 +513,15 @@
   flex-direction: column;
   gap: 2px;
   padding: 12px;
-  border: 1px dashed #cbd5e1;
+  border: 1px dashed #dbe5ef;
   border-radius: 10px;
-  background: #f8fafd;
-  color: #64748b;
+  background: #f8fafc;
+  color: #7b8794;
 }
 
 .employee-empty-state p {
   margin: 0;
-  color: #334155;
+  color: #41536b;
   font-size: 13px;
   font-weight: 700;
 }
@@ -535,15 +550,13 @@
   right: 12px;
   top: 50%;
   transform: translateY(-50%);
-  color: #94a3b8;
+  color: #9aa9bb;
   font-size: 12px;
   font-weight: 700;
   pointer-events: none;
   text-transform: none;
   letter-spacing: 0;
 }
-
-/* ── Action buttons ──────────────────────────────────────────────────────── */
 
 .geotagging-actions {
   display: grid;
@@ -552,101 +565,93 @@
   margin-top: 4px;
 }
 
-.primary-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 9px 14px;
-  border: none;
-  border-radius: 8px;
-  background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%);
-  color: #ffffff;
-  font-size: 13px;
-  font-weight: 700;
-  font-family: inherit;
-  cursor: pointer;
-  transition: filter 0.15s, transform 0.12s, box-shadow 0.15s;
-  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.28);
+/* ═══════════════════════════════════════════════════════════════════════════
+   BOTTOM TWO-COLUMN SECTION
+   Left: Assigned Areas  |  Right: Assigned Employees
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.geotagging-bottom-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
 }
 
-.primary-button:hover {
-  filter: brightness(1.1);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.36);
-}
-
-.primary-button:active {
-  transform: translateY(0);
-  filter: brightness(0.97);
-}
-
-.outline-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 9px 14px;
-  border: 1.5px solid #cbd5e1;
-  border-radius: 8px;
-  background: #ffffff;
-  color: #334155;
-  font-size: 13px;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s, color 0.15s, transform 0.12s;
-}
-
-.outline-button:hover {
-  border-color: #3b82f6;
-  background: #eff6ff;
-  color: #1d4ed8;
-  transform: translateY(-1px);
-}
-
-/* ── Assigned list ───────────────────────────────────────────────────────── */
+/* ── Assigned Areas (left) ───────────────────────────────────────────────── */
 
 .assigned-list {
-  max-height: 300px;
+  border: 1px solid #dbe5ef;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 18px 20px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  max-height: 340px;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: #cbd5e1 transparent;
 }
 
-/* Empty state */
+/* ── Assigned Employees (right) ──────────────────────────────────────────── */
+
+.assigned-employees-panel {
+  border: 1px solid #dbe5ef;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 18px 20px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  max-height: 340px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+/* The standalone employee checklist (bottom-row panel, not inside form) */
+.assigned-employees-panel .employee-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+/* ── Empty state (shared) ────────────────────────────────────────────────── */
+
 .empty-state {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 6px;
   padding: 18px 0 8px;
-  color: #94a3b8;
+  color: #9aa9bb;
   text-align: center;
 }
 
 .empty-state p {
   margin: 0;
   font-size: 13px;
-  font-weight: 600;
-  color: #64748b;
+  font-weight: 700;
+  color: #7b8794;
 }
 
 .empty-state small {
   font-size: 12px;
-  color: #94a3b8;
+  color: #9aa9bb;
 }
 
-/* Location cards */
+/* ── Assigned location row ───────────────────────────────────────────────── */
+
 .assigned-location {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 6px;
   align-items: center;
-  border: 1.5px solid #e7eef6;
+  border: 1px solid #edf2f7;
   border-radius: 9px;
   padding: 10px 10px 10px 12px;
-  transition: border-color 0.15s, background 0.15s;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
 .assigned-location + .assigned-location {
@@ -654,8 +659,8 @@
 }
 
 .assigned-location:hover {
-  border-color: #bfdbfe;
-  background: #f5f9ff;
+  border-color: #dbe5ef;
+  background: #f8fafc;
 }
 
 .assigned-location.selected {
@@ -671,7 +676,7 @@
   gap: 2px;
   border: 0;
   background: transparent;
-  color: #193d69;
+  color: #1a3a5c;
   cursor: pointer;
   text-align: left;
   padding: 0;
@@ -693,54 +698,65 @@
 }
 
 .assigned-location-main span {
-  color: #475569;
+  color: #41536b;
   font-size: 12px;
 }
 
 .assigned-location-main small {
-  color: #94a3b8;
+  color: #9aa9bb;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
 }
 
-/* Delete button */
+/* ── Icon buttons ────────────────────────────────────────────────────────── */
+
 .icon-button {
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   display: grid;
   place-items: center;
-  border-radius: 7px;
+  border-radius: 8px;
   cursor: pointer;
-  transition: background 0.12s, border-color 0.12s, transform 0.1s;
+  border: none;
+  background: #f1f5f9;
+  color: #1a3a5c;
+  transition: background 0.15s ease;
   flex-shrink: 0;
 }
 
+.icon-button:hover {
+  background: #e2e8f0;
+}
+
 .icon-button.danger {
-  border: 1.5px solid #fecaca;
-  background: #fff1f2;
+  border: 1px solid #fca5a5;
+  background: #fef2f2;
   color: #dc2626;
 }
 
 .icon-button.danger:hover {
   background: #fee2e2;
   border-color: #f87171;
-  transform: scale(1.06);
 }
 
 .manage-employees-button {
   width: 28px;
   height: 28px;
   padding: 0;
-  border: 1.5px solid #cbd5e1;
+  border: 1.5px solid #b8c7d8;
   background: #ffffff;
-  color: #334155;
+  color: #1a3a5c;
   justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: unset;
 }
 
 .manage-employees-button:hover {
-  border-color: #3b82f6;
-  background: #eff6ff;
-  color: #1d4ed8;
+  border-color: #2979d0;
+  background: #eef4fb;
+  color: #1a3a5c;
 }
 
 .manage-employees-button svg {
@@ -748,36 +764,64 @@
   height: 14px;
 }
 
-/* ── Footer summary ──────────────────────────────────────────────────────── */
+/* ── Selected assignment info bar ────────────────────────────────────────── */
 
 .selected-assignment {
+  border: 1px solid #dbe5ef;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 14px 16px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
 .assignment-icon-wrap span {
-  width: 42px;
-  height: 42px;
+  width: 40px;
+  height: 40px;
   display: grid;
   place-items: center;
   border-radius: 10px;
-  background: #e0eef9;
+  background: #eef4fb;
   color: #193d69;
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 800;
-  box-shadow: 0 1px 4px rgba(23, 50, 82, 0.1);
 }
 
 .selected-assignment p {
   margin: 0;
-  color: #475569;
+  color: #41536b;
   font-size: 13px;
   font-weight: 600;
   line-height: 1.4;
 }
 
-/* ── Responsive ──────────────────────────────────────────────────────────── */
+/* ── Summary banner (e.g. "2 employees across 2 areas") ──────────────────── */
+
+.geotagging-summary-banner {
+  border: 1px solid #dbe5ef;
+  border-radius: 10px;
+  background: #f4f7fb;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #41536b;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.geotagging-summary-banner .summary-count {
+  font-size: 20px;
+  font-weight: 800;
+  color: #193d69;
+  line-height: 1;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   RESPONSIVE
+   ══════════════════════════════════════════════════════════════════════════ */
 
 @media (max-width: 1180px) {
   .geotagging-workspace {
@@ -785,11 +829,22 @@
   }
 
   .geotagging-map {
-    height: 460px;
+    height: 400px;
   }
 
   .map-loading-overlay {
-    min-height: 460px;
+    min-height: 400px;
+  }
+
+  /* Stack bottom columns at medium width too */
+  .geotagging-bottom-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 860px) {
+  .geotagging-bottom-row {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -812,10 +867,19 @@
   }
 
   .geotagging-map {
-    height: 340px;
+    height: 300px;
   }
 
   .map-loading-overlay {
-    min-height: 340px;
+    min-height: 300px;
+  }
+
+  .geotagging-bottom-row {
+    grid-template-columns: 1fr;
+  }
+
+  .assigned-list,
+  .assigned-employees-panel {
+    max-height: none;
   }
 }

@@ -379,14 +379,15 @@ export function FaceRegistrationPage() {
   return (
     <div className="face-page">
       <header className="face-page-heading">
-        <div>
-          <p className="eyebrow">Employee enrollment</p>
+        <div className="face-page-heading-text">
           <h2>Face Registration</h2>
           <p>Search by employee name or employee ID, then register a clean face capture.</p>
         </div>
-        <div className="face-heading-badge">
-          <ScanFace size={18} />
-          <span>Employee face enrollment</span>
+        <div className="face-stats">
+          <div className="face-stat-card">
+            <span className="stat-value">{enrollments.length}</span>
+            <span className="stat-label">Registered</span>
+          </div>
         </div>
       </header>
 
@@ -533,7 +534,8 @@ export function FaceRegistrationPage() {
               <strong>No employee selected yet</strong>
               <span>Search by name or employee ID to continue.</span>
             </div>
-          )}`r`n<button className="primary-button save-face-button" onClick={saveEnrollment} disabled={busy || descriptors.length < CAMERA_SAMPLE_TARGET || !selectedEmployee}>
+          )}
+          <button className="primary-button save-face-button" onClick={saveEnrollment} disabled={busy || descriptors.length < CAMERA_SAMPLE_TARGET || !selectedEmployee}>
             Register Employee Face
           </button>
         </section>
