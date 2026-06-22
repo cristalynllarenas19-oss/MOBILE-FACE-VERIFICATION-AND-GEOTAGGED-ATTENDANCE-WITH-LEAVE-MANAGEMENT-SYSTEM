@@ -1,7 +1,7 @@
 import "leaflet/dist/leaflet.css";
 
 import { Component, FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Crosshair, Edit3, MapPin, Plus, Trash2 } from "lucide-react";
+import { Crosshair, Edit3, MapPin, Plus, Trash2, Users } from "lucide-react";
 import L from "leaflet";
 import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
 import markerIconUrl from "leaflet/dist/images/marker-icon.png";
@@ -489,16 +489,6 @@ function GeotaggingPageContent() {
           <h2>Geotagged Locations</h2>
           <p>Define attendance zones on the street map and assign employees to each area.</p>
         </div>
-        <div className="geotagging-stats">
-          <div className="geotagging-stat-card">
-            <span className="stat-value">{locations.length}</span>
-            <span className="stat-label">Active Zones</span>
-          </div>
-          <div className="geotagging-stat-card">
-            <span className="stat-value">{assignedEmployees.size}</span>
-            <span className="stat-label">Assigned</span>
-          </div>
-        </div>
       </div>
 
       {loadError && (
@@ -514,7 +504,7 @@ function GeotaggingPageContent() {
         </div>
       )}
 
-      <div className="geotagging-workspace">
+      <div className="geotagging-top-grid">
         <section className="geotagging-map-panel" aria-label="OpenStreetMap geotagging map">
           <div className="map-panel-header">
             <MapPin size={15} className="map-panel-icon" />
@@ -524,7 +514,18 @@ function GeotaggingPageContent() {
           {loading && <div className="map-loading-overlay">Loading map...</div>}
         </section>
 
-        <aside className="geotagging-form-panel">
+        <div className="geotagging-top-right">
+          <div className="geotagging-stats">
+            <div className="geotagging-stat-card">
+              <span className="stat-value">{locations.length}</span>
+              <span className="stat-label">Active Zones</span>
+            </div>
+            <div className="geotagging-stat-card">
+              <span className="stat-value">{assignedEmployees.size}</span>
+              <span className="stat-label">Assigned Employees</span>
+            </div>
+          </div>
+
           <form onSubmit={handleSubmit} className="geotagging-form">
             <div className="panel-heading">
               <div className="panel-heading-icon">
@@ -596,100 +597,6 @@ function GeotaggingPageContent() {
               </div>
             </label>
 
-            <div className={`employee-assignment-box${editingIsGlobalZone ? " locked" : ""}`}>
-              <div className="employee-assignment-header">
-                {!editingIsGlobalZone && (
-                  <label className="employee-assignment-label">
-                    Assigned employees
-                    <input
-                      type="text"
-                      value={employeeSearch}
-                      onChange={(event) => setEmployeeSearch(event.target.value)}
-                      placeholder="Search employees or departments"
-                    />
-                  </label>
-                )}
-                <small className="field-help">
-                  {editingIsGlobalZone
-                    ? "Global Zone is remove-only. You can unassign employees here, but you cannot add new ones."
-                    : "Check employees to assign them here. Uncheck to remove them from this area."}
-                </small>
-              </div>
-
-              {!editingIsGlobalZone && (
-                <label className="assign-all-employees-toggle">
-                  <span className="assign-all-copy">
-                    <strong>Assign All Employees</strong>
-                    <small>Assign every current employee to this geotagged area.</small>
-                  </span>
-                  <input
-                    type="checkbox"
-                    checked={assignAllEmployees}
-                    onChange={(event) => toggleAssignAllEmployees(event.target.checked)}
-                  />
-                </label>
-              )}
-
-              <div className="employee-checklist" role="group" aria-label="Employee assignment checklist">
-                {employeeRows.length === 0 ? (
-                  <div className="employee-empty-state">
-                    <p>No employees match your search.</p>
-                    <small>Try a different name or department.</small>
-                  </div>
-                ) : (
-                  employeeRows.map((employee) => {
-                    const isSelected = currentLocationAssignedIds.has(employee.id);
-                    const isAssignedElsewhere = assignedEmployees.has(employee.id) && !isSelected;
-
-                    return (
-                      editingIsGlobalZone ? (
-                        isSelected ? (
-                          <div key={employee.id} className="employee-checklist-item selected">
-                            <span className="employee-checklist-main">
-                              <span className="employee-checklist-name">
-                                {employee.firstName} {employee.lastName}
-                              </span>
-                              <span className="employee-checklist-meta">{employee.department?.name}</span>
-                            </span>
-                              <button
-                                type="button"
-                                className="employee-unassign-button"
-                                onClick={() => removeEmployeeFromCurrentLocation(employee.id)}
-                              >
-                                Unassign
-                              </button>
-                          </div>
-                        ) : null
-                      ) : (
-                        <label
-                          key={employee.id}
-                          className={`employee-checklist-item${isSelected ? " selected" : ""}${isAssignedElsewhere ? " disabled" : ""}`}
-                        >
-                          <span className="employee-checklist-main">
-                            <span className="employee-checklist-name">
-                              {employee.firstName} {employee.lastName}
-                            </span>
-                            <span className="employee-checklist-meta">{employee.department?.name}</span>
-                            {isAssignedElsewhere && (
-                              <span className="employee-assigned-note">
-                                Already assigned to another geotagged area
-                              </span>
-                            )}
-                          </span>
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            disabled={isAssignedElsewhere || (loading && employees.length === 0)}
-                            onChange={() => toggleEmployee(employee.id)}
-                          />
-                        </label>
-                      )
-                    );
-                  })
-                )}
-              </div>
-            </div>
-
             <div className="geotagging-actions">
               <button className="outline-button" type="button" onClick={startCreateMode}>
                 <Crosshair size={14} />
@@ -701,16 +608,20 @@ function GeotaggingPageContent() {
               </button>
             </div>
           </form>
+        </div>
+      </div>
 
-          <section className="assigned-list" aria-label="Assigned geotagged areas">
-            <div className="panel-heading">
-              <div className="panel-heading-icon neutral">
-                <MapPin size={14} />
-              </div>
-              <h3>Assigned Areas</h3>
-              <span className="area-count-badge">{locations.length}</span>
+      <div className="geotagging-bottom-grid">
+        <section className="assigned-list" aria-label="Assigned geotagged areas">
+          <div className="panel-heading">
+            <div className="panel-heading-icon neutral">
+              <MapPin size={14} />
             </div>
+            <h3>Assigned Areas</h3>
+            <span className="area-count-badge">{locations.length}</span>
+          </div>
 
+          <div className="assigned-list-scroll">
             {locations.length === 0 ? (
               <div className="empty-state">
                 <MapPin size={28} strokeWidth={1.2} />
@@ -733,7 +644,7 @@ function GeotaggingPageContent() {
                     ? location.employees.map(({ employee }) => `${employee.firstName} ${employee.lastName}`).join(", ")
                     : location.employee
                       ? `${location.employee.firstName} ${location.employee.lastName}`
-                    : "Global Zone (All Employees)";
+                      : "Global Zone (All Employees)";
 
                 return (
                   <article
@@ -772,7 +683,119 @@ function GeotaggingPageContent() {
                 );
               })
             )}
-          </section>
+          </div>
+        </section>
+
+        <section className="assigned-employees-panel" aria-label="Assigned employees">
+          <div className="panel-heading">
+            <div className="panel-heading-icon neutral">
+              <Users size={14} />
+            </div>
+            <h3>Assigned Employees</h3>
+            <span className="area-count-badge">{assignedEmployees.size}</span>
+          </div>
+
+          <p className="assignment-context">
+            {editingLocationId ? (
+              <>Managing assignments for <strong>{editingLocation?.name}</strong></>
+            ) : (
+              "Start a new area or select one below to manage its employees."
+            )}
+          </p>
+
+          <div className={`employee-assignment-box${editingIsGlobalZone ? " locked" : ""}`}>
+            <div className="employee-assignment-header">
+              {!editingIsGlobalZone && (
+                <label className="employee-assignment-label">
+                  Search employees
+                  <input
+                    type="text"
+                    value={employeeSearch}
+                    onChange={(event) => setEmployeeSearch(event.target.value)}
+                    placeholder="Search employees or departments"
+                  />
+                </label>
+              )}
+              <small className="field-help">
+                {editingIsGlobalZone
+                  ? "Global Zone is remove-only. You can unassign employees here, but you cannot add new ones."
+                  : "Check employees to assign them here. Uncheck to remove them from this area."}
+              </small>
+            </div>
+
+            {!editingIsGlobalZone && (
+              <label className="assign-all-employees-toggle">
+                <span className="assign-all-copy">
+                  <strong>Assign All Employees</strong>
+                  <small>Assign every current employee to this geotagged area.</small>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={assignAllEmployees}
+                  onChange={(event) => toggleAssignAllEmployees(event.target.checked)}
+                />
+              </label>
+            )}
+
+            <div className="employee-checklist" role="group" aria-label="Employee assignment checklist">
+              {employeeRows.length === 0 ? (
+                <div className="employee-empty-state">
+                  <p>No employees match your search.</p>
+                  <small>Try a different name or department.</small>
+                </div>
+              ) : (
+                employeeRows.map((employee) => {
+                  const isSelected = currentLocationAssignedIds.has(employee.id);
+                  const isAssignedElsewhere = assignedEmployees.has(employee.id) && !isSelected;
+
+                  return (
+                    editingIsGlobalZone ? (
+                      isSelected ? (
+                        <div key={employee.id} className="employee-checklist-item selected">
+                          <span className="employee-checklist-main">
+                            <span className="employee-checklist-name">
+                              {employee.firstName} {employee.lastName}
+                            </span>
+                            <span className="employee-checklist-meta">{employee.department?.name}</span>
+                          </span>
+                            <button
+                              type="button"
+                              className="employee-unassign-button"
+                              onClick={() => removeEmployeeFromCurrentLocation(employee.id)}
+                            >
+                              Unassign
+                            </button>
+                        </div>
+                      ) : null
+                    ) : (
+                      <label
+                        key={employee.id}
+                        className={`employee-checklist-item${isSelected ? " selected" : ""}${isAssignedElsewhere ? " disabled" : ""}`}
+                      >
+                        <span className="employee-checklist-main">
+                          <span className="employee-checklist-name">
+                            {employee.firstName} {employee.lastName}
+                          </span>
+                          <span className="employee-checklist-meta">{employee.department?.name}</span>
+                          {isAssignedElsewhere && (
+                            <span className="employee-assigned-note">
+                              Already assigned to another geotagged area
+                            </span>
+                          )}
+                        </span>
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          disabled={isAssignedElsewhere || (loading && employees.length === 0)}
+                          onChange={() => toggleEmployee(employee.id)}
+                        />
+                      </label>
+                    )
+                  );
+                })
+              )}
+            </div>
+          </div>
 
           <div className="selected-assignment">
             <div className="assignment-icon-wrap">
@@ -783,7 +806,7 @@ function GeotaggingPageContent() {
               {locations.length === 1 ? "area" : "areas"}
             </p>
           </div>
-        </aside>
+        </section>
       </div>
     </div>
   );

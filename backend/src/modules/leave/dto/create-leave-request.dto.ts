@@ -1,4 +1,4 @@
-import { IsDateString, IsNumber, IsString } from "class-validator";
+import { IsDateString, IsNumber, IsOptional, IsString } from "class-validator";
 
 export class CreateLeaveRequestDto {
   @IsString()
@@ -18,4 +18,16 @@ export class CreateLeaveRequestDto {
 
   @IsString()
   reason!: string;
+
+  @IsOptional()
+  @IsString()
+  attachmentName?: string;
+
+  @IsOptional()
+  @IsString()
+  attachmentMimeType?: string;
+
+  @IsOptional()
+  @IsString()
+  attachmentData?: string;
 }

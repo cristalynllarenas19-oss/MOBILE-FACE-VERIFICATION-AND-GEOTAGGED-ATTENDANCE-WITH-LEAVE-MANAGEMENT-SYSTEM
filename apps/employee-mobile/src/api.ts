@@ -61,6 +61,56 @@ export type SubmitAttendanceInput = {
   deviceId: string;
 };
 
+export type LeaveType = {
+  id: string;
+  name: string;
+  defaultDays: string;
+  requiresDocument: boolean;
+};
+
+export type LeaveBalance = {
+  leaveTypeId: string;
+  leaveTypeName: string;
+  year: number;
+  earnedDays: number;
+  usedDays: number;
+  remainingDays: number;
+};
+
+export type LeaveRequest = {
+  id: string;
+  startDate: string;
+  endDate: string;
+  totalDays: string;
+  status: string;
+  reason: string;
+  attachmentName?: string | null;
+  adminRemarks?: { remarks?: string } | null;
+  leaveType: { id: string; name: string };
+};
+
+export type CreateLeaveRequestInput = {
+  employeeId: string;
+  leaveTypeId: string;
+  startDate: string;
+  endDate: string;
+  totalDays: number;
+  reason: string;
+  attachmentName?: string;
+  attachmentMimeType?: string;
+  attachmentData?: string;
+};
+
+export type AppNotification = {
+  id: string;
+  title: string;
+  message: string;
+  type: string | null;
+  entityId: string | null;
+  readAt: string | null;
+  createdAt: string;
+};
+
 export async function apiRequest<T>(path: string, options: RequestInit = {}) {
   const url = `${API_BASE_URL}${path}`;
   console.log("REQUEST:", url);
@@ -131,4 +181,39 @@ export async function submitAttendance(input: SubmitAttendanceInput) {
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+export async function getLeaveTypes() {
+  return apiRequest<LeaveType[]>("/leave-types");
+}
+
+export async function getLeaveBalances(employeeId: string) {
+  return apiRequest<LeaveBalance[]>(`/leave-balances/${employeeId}?year=${new Date().getFullYear()}`);
+}
+
+export async function getLeaveRequests(employeeId: string) {
+  return apiRequest<LeaveRequest[]>(`/leave-requests?employeeId=${employeeId}`);
+}
+
+export async function createLeaveRequest(input: CreateLeaveRequestInput) {
+  return apiRequest<LeaveRequest>("/leave-requests", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function getNotifications() {
+  return apiRequest<AppNotification[]>("/notifications/me");
+}
+
+export async function getUnreadNotificationCount() {
+  return apiRequest<{ count: number }>("/notifications/me/unread-count");
+}
+
+export async function markNotificationRead(id: string) {
+  return apiRequest(`/notifications/${id}/read`, { method: "PATCH" });
+}
+
+export async function markAllNotificationsRead() {
+  return apiRequest("/notifications/read-all", { method: "PATCH" });
 }

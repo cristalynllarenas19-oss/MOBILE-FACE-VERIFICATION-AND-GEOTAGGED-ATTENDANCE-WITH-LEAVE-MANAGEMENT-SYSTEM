@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Alert } from "react-native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import * as Location from "expo-location";
 
 import LoginScreen from "./src/screens/LoginScreen";
@@ -194,7 +195,7 @@ export default function App() {
   }
 
   return (
-    <>
+    <SafeAreaProvider>
       {!user ? (
         <LoginScreen
           email={email}
@@ -228,6 +229,6 @@ export default function App() {
         message={resultModal?.message ?? ""}
         onClose={() => setResultModal(null)}
       />
-    </>
+    </SafeAreaProvider>
   );
 }

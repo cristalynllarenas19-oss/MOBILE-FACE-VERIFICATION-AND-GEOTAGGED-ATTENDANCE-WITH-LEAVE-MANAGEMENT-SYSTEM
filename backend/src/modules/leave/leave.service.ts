@@ -1,13 +1,20 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
+import { NotificationsService } from "../notifications/notifications.service";
 import { CreateLeaveRequestDto } from "./dto/create-leave-request.dto";
+
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 
 @Injectable()
 export class LeaveService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
-  async findAll() {
+  async findAll(employeeId?: string) {
     const requests = await this.prisma.leaveRequest.findMany({
+      where: employeeId ? { employeeId } : undefined,
       include: {
         employee: { include: { department: true } },
         leaveType: true,
@@ -26,8 +33,12 @@ export class LeaveService {
     }));
   }
 
-  create(dto: CreateLeaveRequestDto) {
-    return this.prisma.leaveRequest.create({
+  async create(dto: CreateLeaveRequestDto) {
+    if (dto.attachmentData && Buffer.byteLength(dto.attachmentData, "base64") > MAX_ATTACHMENT_BYTES) {
+      throw new BadRequestException("Attachment must be 5MB or smaller.");
+    }
+
+    const request = await this.prisma.leaveRequest.create({
       data: {
         employeeId: dto.employeeId,
         leaveTypeId: dto.leaveTypeId,
@@ -35,7 +46,41 @@ export class LeaveService {
         endDate: new Date(dto.endDate),
         totalDays: dto.totalDays,
         reason: dto.reason,
+        attachmentName: dto.attachmentName,
+        attachmentMimeType: dto.attachmentMimeType,
+        attachmentData: dto.attachmentData,
       },
+      include: {
+        employee: { include: { supervisor: true, department: true } },
+        leaveType: true,
+      },
+    });
+
+    await this.notifySubmission(request);
+
+    return request;
+  }
+
+  private async notifySubmission(request: {
+    id: string;
+    startDate: Date;
+    endDate: Date;
+    employee: { userId: string; firstName: string; lastName: string; supervisor: { userId: string } | null };
+    leaveType: { name: string };
+  }) {
+    const adminUserIds = await this.notifications.adminUserIds();
+    const recipientIds = [...adminUserIds, request.employee.supervisor?.userId].filter(
+      (id): id is string => Boolean(id) && id !== request.employee.userId,
+    );
+
+    const employeeName = `${request.employee.firstName} ${request.employee.lastName}`;
+    const dateRange = `${request.startDate.toLocaleDateString()} - ${request.endDate.toLocaleDateString()}`;
+
+    await this.notifications.notifyUsers(recipientIds, {
+      title: "New Leave Request",
+      message: `${employeeName} filed a ${request.leaveType.name} request for ${dateRange}.`,
+      type: "LEAVE_SUBMITTED",
+      entityId: request.id,
     });
   }
 
@@ -58,6 +103,13 @@ export class LeaveService {
         employee: { include: { department: true } },
         leaveType: true,
       },
+    });
+
+    await this.notifications.notifyUsers([request.employee.userId], {
+      title: status === "APPROVED" ? "Leave Request Approved" : "Leave Request Rejected",
+      message: `Your ${request.leaveType.name} request for ${request.startDate.toLocaleDateString()} - ${request.endDate.toLocaleDateString()} was ${status === "APPROVED" ? "approved" : "rejected"}.${remarks?.trim() ? ` Remarks: ${remarks.trim()}` : ""}`,
+      type: status === "APPROVED" ? "LEAVE_APPROVED" : "LEAVE_REJECTED",
+      entityId: request.id,
     });
 
     // Only touch the balance when the approval state is actually changing:

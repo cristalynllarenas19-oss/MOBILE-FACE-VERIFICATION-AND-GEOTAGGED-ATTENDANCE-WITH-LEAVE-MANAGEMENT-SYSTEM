@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   SafeAreaView,
   View,
@@ -8,12 +8,15 @@ import AttendanceScreen from "./AttendanceScreen";
 import LeaveScreen from "./LeaveScreen";
 import DTRScreen from "./DTRScreen";
 import SettingsScreen from "./SettingsScreen";
+import NotificationsScreen from "./NotificationsScreen";
 
 import Header from "../components/Header";
 import BottomTab from "../components/BottomTab";
 
 import { Tab } from "../types";
-import { TodayAttendance } from "../api";
+import { TodayAttendance, getUnreadNotificationCount } from "../api";
+
+const NOTIFICATION_POLL_MS = 30000;
 
 type Props = {
   user: any;
@@ -35,9 +38,33 @@ export default function MainScreen({
   const [tab, setTab] =
     useState<Tab>("attendance");
 
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notificationsVisible, setNotificationsVisible] = useState(false);
+
+  useEffect(() => {
+    const refreshUnreadCount = () => {
+      getUnreadNotificationCount()
+        .then((data) => setUnreadCount(data.count))
+        .catch(() => undefined);
+    };
+    refreshUnreadCount();
+    const interval = setInterval(refreshUnreadCount, NOTIFICATION_POLL_MS);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <SafeAreaView style={{ flex: 1 }}>
-      <Header user={user} />
+      <Header
+        user={user}
+        unreadCount={unreadCount}
+        onPressNotifications={() => setNotificationsVisible(true)}
+      />
+
+      <NotificationsScreen
+        visible={notificationsVisible}
+        onClose={() => setNotificationsVisible(false)}
+        onUnreadCountChange={setUnreadCount}
+      />
 
       <View
         style={{
@@ -56,7 +83,7 @@ export default function MainScreen({
         )}
 
         {tab === "leave" && (
-          <LeaveScreen />
+          <LeaveScreen employeeId={user?.employeeId} />
         )}
 
         {tab === "dtr" && (

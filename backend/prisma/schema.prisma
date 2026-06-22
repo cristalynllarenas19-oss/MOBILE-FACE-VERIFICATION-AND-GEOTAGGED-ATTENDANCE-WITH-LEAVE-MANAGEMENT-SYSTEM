@@ -272,6 +272,9 @@ model LeaveRequest {
   reviewedBy  String?     @map("reviewed_by")
   reviewedAt  DateTime?   @map("reviewed_at")
   attachmentPath String?  @map("attachment_path")
+  attachmentName String?  @map("attachment_name")
+  attachmentMimeType String? @map("attachment_mime_type")
+  attachmentData String?  @map("attachment_data")
   employee    Employee    @relation(fields: [employeeId], references: [id])
   leaveType   LeaveType   @relation(fields: [leaveTypeId], references: [id])
 
@@ -323,6 +326,8 @@ model Notification {
   userId    String   @map("user_id")
   title     String
   message   String
+  type      String?
+  entityId  String?  @map("entity_id")
   readAt    DateTime? @map("read_at")
   createdAt DateTime @default(now()) @map("created_at")
   user      User     @relation(fields: [userId], references: [id])

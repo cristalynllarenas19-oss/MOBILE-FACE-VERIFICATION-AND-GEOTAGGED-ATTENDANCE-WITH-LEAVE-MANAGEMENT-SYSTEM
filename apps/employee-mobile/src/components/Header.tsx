@@ -9,10 +9,14 @@ import { Ionicons } from "@expo/vector-icons";
 
 type Props = {
   user: any;
+  unreadCount?: number;
+  onPressNotifications?: () => void;
 };
 
 export default function Header({
   user,
+  unreadCount = 0,
+  onPressNotifications,
 }: Props) {
   return (
     <View style={styles.container}>
@@ -29,12 +33,17 @@ export default function Header({
           </Text>
         </View>
 
-        <Pressable>
+        <Pressable onPress={onPressNotifications} style={styles.bellButton}>
           <Ionicons
             name="notifications-outline"
             size={28}
             color="#244c7a"
           />
+          {unreadCount > 0 && (
+            <View style={styles.bellBadge}>
+              <Text style={styles.bellBadgeText}>{unreadCount > 9 ? "9+" : unreadCount}</Text>
+            </View>
+          )}
         </Pressable>
       </View>
 
@@ -78,5 +87,30 @@ const styles = StyleSheet.create({
     marginLeft: 48,
     fontSize: 13,
     color: "#64748B",
+  },
+
+  bellButton: {
+    position: "relative",
+  },
+
+  bellBadge: {
+    position: "absolute",
+    top: -4,
+    right: -4,
+    minWidth: 16,
+    height: 16,
+    paddingHorizontal: 3,
+    borderRadius: 8,
+    backgroundColor: "#DC2626",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: "#FFFFFF",
+  },
+
+  bellBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 9,
+    fontWeight: "700",
   },
 });

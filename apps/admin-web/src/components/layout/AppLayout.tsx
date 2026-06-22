@@ -12,10 +12,21 @@ import {
   ScanFace,
   Menu,
 } from "lucide-react";
-import { ReactNode, useState } from "react";
+import { ReactNode, useEffect, useRef, useState } from "react";
 import { PermissionCode, permissions } from "../../types/rbac";
 import logo from "../../assets/unileaf-logo.png"; // ← add this
+import {
+  AppNotification,
+  fetchNotifications,
+  fetchUnreadCount,
+  markAllNotificationsRead,
+  markNotificationRead,
+} from "../../lib/notifications";
+import { NotificationPanel } from "./NotificationPanel";
 import "./AppLayout.css";
+import "./NotificationPanel.css";
+
+const NOTIFICATION_POLL_MS = 30000;
 
 type User = {
   displayName: string;
@@ -58,10 +69,68 @@ export function AppLayout({
   user: User;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [notifLoading, setNotifLoading] = useState(false);
+  const notifRef = useRef<HTMLDivElement>(null);
 
   const visibleItems = navItems.filter((item) =>
     user.permissions.includes(item.permission)
   );
+
+  useEffect(() => {
+    const refreshUnreadCount = () => {
+      fetchUnreadCount()
+        .then((data) => setUnreadCount(data.count))
+        .catch(() => undefined);
+    };
+    refreshUnreadCount();
+    const interval = window.setInterval(refreshUnreadCount, NOTIFICATION_POLL_MS);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (!notifOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(event.target as Node)) {
+        setNotifOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [notifOpen]);
+
+  const toggleNotifications = () => {
+    const next = !notifOpen;
+    setNotifOpen(next);
+    if (next) {
+      setNotifLoading(true);
+      fetchNotifications()
+        .then(setNotifications)
+        .catch(() => undefined)
+        .finally(() => setNotifLoading(false));
+    }
+  };
+
+  const handleMarkRead = (id: string) => {
+    setNotifications((items) => items.map((item) => (item.id === id ? { ...item, readAt: new Date().toISOString() } : item)));
+    setUnreadCount((count) => Math.max(0, count - 1));
+    markNotificationRead(id).catch(() => undefined);
+  };
+
+  const handleMarkAllRead = () => {
+    setNotifications((items) => items.map((item) => ({ ...item, readAt: item.readAt ?? new Date().toISOString() })));
+    setUnreadCount(0);
+    markAllNotificationsRead().catch(() => undefined);
+  };
+
+  const handleSelectNotification = (notification: AppNotification) => {
+    if (notification.type?.startsWith("LEAVE")) {
+      onNavigate("leave");
+    }
+    setNotifOpen(false);
+  };
 
   return (
     <div className="app-shell">
@@ -137,10 +206,28 @@ export function AppLayout({
             </div>
           </div>
 
-          <div className="topbar-actions">
-            <button className="bell-button" aria-label="Notifications">
-              <Bell size={18} />
-            </button>
+          <div className="topbar-actions" ref={notifRef}>
+            <div className="notification-anchor">
+              <button
+                className="bell-button"
+                aria-label="Notifications"
+                onClick={toggleNotifications}
+              >
+                <Bell size={18} />
+                {unreadCount > 0 && (
+                  <span className="notification-badge">{unreadCount > 9 ? "9+" : unreadCount}</span>
+                )}
+              </button>
+              {notifOpen && (
+                <NotificationPanel
+                  notifications={notifications}
+                  isLoading={notifLoading}
+                  onMarkRead={handleMarkRead}
+                  onMarkAllRead={handleMarkAllRead}
+                  onSelect={handleSelectNotification}
+                />
+              )}
+            </div>
           </div>
         </header>
 

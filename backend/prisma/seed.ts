@@ -21,7 +21,7 @@ const permissionRows = [
 const rolePermissions: Record<RoleCode, string[]> = {
   ADMIN: permissionRows.map(([code]) => code),
   SUPERVISOR: ["dashboard:view", "employees:read", "attendance:read", "leave:read", "schedules:read", "reports:read"],
-  EMPLOYEE: ["dashboard:view", "attendance:write", "leave:write"],
+  EMPLOYEE: ["dashboard:view", "attendance:write", "leave:read", "leave:write"],
 };
 
 async function upsertUser(email: string, password: string, roleCode: RoleCode, employee: {

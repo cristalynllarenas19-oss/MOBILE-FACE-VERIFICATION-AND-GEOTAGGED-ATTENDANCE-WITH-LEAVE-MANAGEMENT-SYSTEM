@@ -1,0 +1,1 @@
+- [Seed script overwrite risk](seed_script_overwrite_risk.md) — re-running backend/prisma/seed.ts resets UL-001/002/003 employee names to defaults

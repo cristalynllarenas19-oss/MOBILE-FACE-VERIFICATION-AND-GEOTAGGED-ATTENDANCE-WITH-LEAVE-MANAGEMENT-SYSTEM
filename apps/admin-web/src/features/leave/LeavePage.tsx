@@ -1,6 +1,6 @@
 // pages/leave/LeavePage.tsx
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Eye, Plus, Search, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Eye, FileText, Paperclip, Plus, Search, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { apiRequest } from "../../lib/api";
 import "./LeavePage.css";
@@ -22,6 +22,9 @@ type LeaveRequest = {
   status: string;
   reason: string;
   adminRemarks?: { remarks?: string } | null;
+  attachmentName?: string | null;
+  attachmentMimeType?: string | null;
+  attachmentData?: string | null;
   employee: {
     id: string;
     firstName: string;
@@ -406,6 +409,37 @@ export function LeavePage() {
                   <strong className="leave-requires-doc">Yes, per policy</strong>
                 </div>
               )}
+
+              <div className="leave-attachment-row">
+                <span>Supporting Document</span>
+                {reviewRequest.attachmentData ? (
+                  reviewRequest.attachmentMimeType?.startsWith("image/") ? (
+                    <a
+                      className="leave-attachment-preview"
+                      href={`data:${reviewRequest.attachmentMimeType};base64,${reviewRequest.attachmentData}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <img
+                        src={`data:${reviewRequest.attachmentMimeType};base64,${reviewRequest.attachmentData}`}
+                        alt={reviewRequest.attachmentName ?? "Supporting document"}
+                      />
+                      <span><Paperclip size={13} /> {reviewRequest.attachmentName ?? "View attachment"}</span>
+                    </a>
+                  ) : (
+                    <a
+                      className="leave-attachment-link"
+                      href={`data:${reviewRequest.attachmentMimeType ?? "application/octet-stream"};base64,${reviewRequest.attachmentData}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <FileText size={14} /> {reviewRequest.attachmentName ?? "View document"}
+                    </a>
+                  )
+                ) : (
+                  <strong className="leave-no-attachment">None attached</strong>
+                )}
+              </div>
 
               <div><span>Reason</span><strong>{reviewRequest.reason}</strong></div>
               <div><span>Latest Remarks</span><strong>{reviewRequest.adminRemarks?.remarks ?? "None"}</strong></div>

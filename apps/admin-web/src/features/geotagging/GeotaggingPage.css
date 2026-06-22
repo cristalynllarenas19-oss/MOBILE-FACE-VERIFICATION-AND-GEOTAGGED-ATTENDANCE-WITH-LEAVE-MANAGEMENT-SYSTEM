@@ -136,11 +136,26 @@
   letter-spacing: 0.05em;
 }
 
-/* ── Workspace ───────────────────────────────────────────────────────────── */
+/* ── Top section: map + stats/add-location ──────────────────────────────── */
 
-.geotagging-workspace {
+.geotagging-top-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 390px;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 18px;
+  align-items: start;
+}
+
+.geotagging-top-right {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ── Bottom section: assigned areas + assigned employees ────────────────── */
+
+.geotagging-bottom-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 18px;
   align-items: start;
 }
@@ -174,36 +189,49 @@
 
 .geotagging-map {
   width: 100%;
-  height: 520px;
+  height: 460px;
   z-index: 1;
 }
 
 .map-loading-overlay {
   display: grid;
   place-items: center;
-  min-height: 520px;
+  min-height: 460px;
   background: linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(241, 245, 249, 0.96));
   color: #64748b;
   font-size: 13px;
   font-weight: 600;
 }
 
-/* ── Sidebar ─────────────────────────────────────────────────────────────── */
-
-.geotagging-form-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
+/* ── Panels ──────────────────────────────────────────────────────────────── */
 
 .geotagging-form,
 .assigned-list,
+.assigned-employees-panel,
 .selected-assignment {
   border: 1px solid #dbe5f0;
   border-radius: 12px;
   background: #ffffff;
   padding: 18px;
   box-shadow: 0 1px 4px rgba(23, 50, 82, 0.05);
+}
+
+.assigned-employees-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.assignment-context {
+  margin: -4px 0 12px;
+  color: #64748b;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.assignment-context strong {
+  color: #193d69;
+  font-weight: 700;
 }
 
 /* ── Panel heading ───────────────────────────────────────────────────────── */
@@ -396,7 +424,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 260px;
+  max-height: 330px;
   overflow-y: auto;
   padding-right: 4px;
 }
@@ -478,19 +506,6 @@
 
 .employee-unassign-button:hover {
   background: #ffe4e6;
-}
-
-.manage-employees-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 124px;
-  justify-content: center;
-}
-
-.manage-employees-button span {
-  font-size: 11.5px;
-  font-weight: 700;
 }
 
 .employee-empty-state {
@@ -608,10 +623,17 @@
 /* ── Assigned list ───────────────────────────────────────────────────────── */
 
 .assigned-list {
-  max-height: 300px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.assigned-list-scroll {
+  max-height: 430px;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: #cbd5e1 transparent;
+  padding-right: 2px;
 }
 
 /* Empty state */
@@ -780,16 +802,14 @@
 /* ── Responsive ──────────────────────────────────────────────────────────── */
 
 @media (max-width: 1180px) {
-  .geotagging-workspace {
+  .geotagging-top-grid,
+  .geotagging-bottom-grid {
     grid-template-columns: 1fr;
   }
 
-  .geotagging-map {
-    height: 460px;
-  }
-
-  .map-loading-overlay {
-    min-height: 460px;
+  .assigned-list-scroll,
+  .employee-checklist {
+    max-height: 320px;
   }
 }
 
