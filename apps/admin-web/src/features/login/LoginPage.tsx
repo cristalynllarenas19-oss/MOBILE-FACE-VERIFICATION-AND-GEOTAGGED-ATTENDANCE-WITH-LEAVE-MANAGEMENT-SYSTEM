@@ -106,13 +106,6 @@ export function LoginPage({
           <p className="forgot-password">
             Forgot your password?
           </p>
-
-          <div className="divider"></div>
-
-          <p className="signup-text">
-            Don't have an account?
-            <span> Sign Up</span>
-          </p>
         </form>
       </section>
     </main>

@@ -1,29 +1,26 @@
 .primary-button {
-  border: none;
-  background: linear-gradient(135deg, #1e3a8a 0%, #2d6aa3 100%);
+  height: 38px;
+  border: 1.5px solid #1a3a5c;
+  background: #1a3a5c;
   color: white;
-  padding: 11px 18px;
-  border-radius: 10px;
+  padding: 0 16px;
+  border-radius: 8px;
   cursor: pointer;
-  font-weight: 600;
-  font-size: 14px;
-  transition: all 0.3s ease;
+  font-weight: 700;
+  font-size: 13px;
+  font-family: inherit;
+  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  box-shadow: 0 2px 8px rgba(30, 58, 138, 0.15);
+  gap: 7px;
+  box-shadow: 0 8px 18px rgba(26, 58, 92, 0.16);
 }
 
 .primary-button:hover:not(:disabled) {
-  background: linear-gradient(135deg, #1d33a0 0%, #2a5c8b 100%);
-  box-shadow: 0 4px 16px rgba(30, 58, 138, 0.25);
-  transform: translateY(-2px);
-}
-
-.primary-button:active:not(:disabled) {
-  transform: translateY(0);
-  box-shadow: 0 2px 8px rgba(30, 58, 138, 0.15);
+  background: #254d78;
+  border-color: #254d78;
+  box-shadow: 0 10px 22px rgba(26, 58, 92, 0.2);
 }
 
 .primary-button:disabled {
@@ -32,26 +29,26 @@
 }
 
 .outline-button {
-  border: 2px solid #3b82f6;
+  height: 38px;
+  border: 1.5px solid #b8c7d8;
   background: white;
-  color: #3b82f6;
-  padding: 10px 16px;
-  border-radius: 10px;
+  color: #1a3a5c;
+  padding: 0 16px;
+  border-radius: 8px;
   cursor: pointer;
-  font-weight: 600;
-  font-size: 14px;
-  transition: all 0.3s ease;
+  font-weight: 700;
+  font-size: 13px;
+  font-family: inherit;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 7px;
 }
 
 .outline-button:hover:not(:disabled) {
-  background: #eff6ff;
-  border-color: #1e40af;
-  color: #1e40af;
-  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.15);
+  background: #f4f7fb;
+  border-color: #1a3a5c;
 }
 
 .outline-button:disabled {
@@ -62,16 +59,17 @@
 .header-button {
   border: none;
   background: white;
-  color: #1e3a8a;
+  color: #1a3a5c;
   padding: 10px 16px;
-  border-radius: 10px;
+  border-radius: 8px;
   cursor: pointer;
-  font-weight: 600;
-  font-size: 14px;
-  transition: all 0.3s ease;
+  font-weight: 700;
+  font-size: 13px;
+  font-family: inherit;
+  transition: background 0.18s ease, box-shadow 0.18s ease;
 }
 
 .header-button:hover {
-  background: #f0f9ff;
+  background: #f4f7fb;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }

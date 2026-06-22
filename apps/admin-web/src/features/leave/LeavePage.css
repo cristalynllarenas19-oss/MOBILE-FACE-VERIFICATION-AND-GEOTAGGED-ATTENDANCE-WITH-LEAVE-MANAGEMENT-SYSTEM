@@ -80,7 +80,6 @@
   font-weight: 600;
 }
 
-/* ── Leave type filter row (select + add button) ── */
 
 .leave-type-filter-row {
   display: flex;
@@ -133,7 +132,51 @@
   color: #2979d0;
 }
 
-/* ── Table ── */
+
+.leave-table-card {
+  border: 1px solid #e3e9f0;
+  border-radius: 12px;
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 540px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: #b8c7d8 #f4f7fb;
+}
+
+.leave-table-card::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+.leave-table-card::-webkit-scrollbar-track {
+  background: #f4f7fb;
+  border-radius: 999px;
+}
+
+.leave-table-card::-webkit-scrollbar-thumb {
+  background: #b8c7d8;
+  border-radius: 999px;
+}
+
+.leave-table-card::-webkit-scrollbar-thumb:hover {
+  background: #8fa9c4;
+}
+
+.leave-table-card table {
+  width: 100%;
+  min-width: 780px; 
+  border-collapse: collapse;
+}
+
+.leave-table-card thead {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #f4f7fb;
+}
 
 .leave-table-card th,
 .leave-table-card td {
@@ -174,7 +217,6 @@
   padding: 28px 18px;
 }
 
-/* ── Toast notification ── */
 
 .leave-notification {
   position: fixed;
@@ -278,7 +320,6 @@
   border-color: #b8c7d8;
 }
 
-/* ── Review modal detail grid ── */
 
 .leave-detail-grid {
   display: grid;
@@ -406,7 +447,6 @@
   box-shadow: 0 0 0 3px rgba(41, 121, 208, 0.12);
 }
 
-/* ── Modal action buttons ── */
 
 .leave-detail-actions {
   display: flex;
@@ -466,7 +506,6 @@
   cursor: not-allowed;
 }
 
-/* ── Add Leave Type modal body ── */
 
 .add-type-body {
   display: grid;
@@ -562,5 +601,9 @@
 
   .leave-detail-actions {
     flex-direction: column-reverse;
+  }
+
+  .leave-table-card {
+    max-height: 400px;
   }
 }
