@@ -13,6 +13,7 @@ import Header from "../components/Header";
 import BottomTab from "../components/BottomTab";
 
 import { Tab } from "../types";
+import { TodayAttendance } from "../api";
 
 type Props = {
   user: any;
@@ -20,6 +21,7 @@ type Props = {
   onTimeIn: () => void;
   onTimeOut: () => void;
   isLoading: boolean;
+  todayAttendance: TodayAttendance | null;
 };
 
 export default function MainScreen({
@@ -28,6 +30,7 @@ export default function MainScreen({
   onTimeIn,
   onTimeOut,
   isLoading,
+  todayAttendance,
 }: Props) {
   const [tab, setTab] =
     useState<Tab>("attendance");
@@ -46,6 +49,7 @@ export default function MainScreen({
       <AttendanceScreen
           user={user}
           isLoading={isLoading}
+          todayAttendance={todayAttendance}
           onTimeIn={onTimeIn}
           onTimeOut={onTimeOut}
       />

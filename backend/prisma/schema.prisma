@@ -172,6 +172,7 @@ model WorkLocation {
   allowedAccuracyMeters Decimal  @map("allowed_accuracy_meters")
   isActive              Boolean  @default(true) @map("is_active")
   employees             WorkLocationEmployee[]
+  attendanceLogs        AttendanceLog[]
 
   @@map("work_locations")
 }
@@ -216,6 +217,7 @@ model AttendanceLog {
   longitude               Decimal
   gpsAccuracyMeters       Decimal            @map("gps_accuracy_meters")
   distanceFromSiteMeters  Decimal            @map("distance_from_site_meters")
+  workLocationId          String?            @map("work_location_id")
   faceLivenessScore       Decimal?           @map("face_liveness_score")
   faceSimilarityScore     Decimal?           @map("face_similarity_score")
   verificationStatus      VerificationStatus @map("verification_status")
@@ -223,9 +225,11 @@ model AttendanceLog {
   failureReason           String?            @map("failure_reason")
   attendanceRecord        AttendanceRecord?  @relation(fields: [attendanceRecordId], references: [id])
   employee                Employee           @relation(fields: [employeeId], references: [id])
+  workLocation            WorkLocation?      @relation(fields: [workLocationId], references: [id])
 
   @@index([employeeId, capturedAt])
   @@index([verificationStatus])
+  @@index([workLocationId])
   @@map("attendance_logs")
 }
 

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { View, StyleSheet, Text, ActivityIndicator } from "react-native";
+import { View, StyleSheet, Text, ActivityIndicator, Pressable, Linking, Animated, Easing } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
@@ -10,11 +10,51 @@ type CameraScannerProps = {
   onCancel: () => void;
 };
 
+const SCAN_COLOR_START = { r: 0x3b, g: 0x82, b: 0xf6 }; // blue
+const SCAN_COLOR_LOCKED = { r: 0x22, g: 0xc5, b: 0x5e }; // green
+
+function getLockColor(progress: number) {
+  const t = Math.min(1, Math.max(0, progress / 100));
+  const r = Math.round(SCAN_COLOR_START.r + (SCAN_COLOR_LOCKED.r - SCAN_COLOR_START.r) * t);
+  const g = Math.round(SCAN_COLOR_START.g + (SCAN_COLOR_LOCKED.g - SCAN_COLOR_START.g) * t);
+  const b = Math.round(SCAN_COLOR_START.b + (SCAN_COLOR_LOCKED.b - SCAN_COLOR_START.b) * t);
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+function getStageText(progress: number) {
+  if (progress < 25) return "Position your face inside the frame";
+  if (progress < 70) return "Hold steady, analyzing...";
+  if (progress < 100) return "Almost there...";
+  return "Face locked!";
+}
+
 export default function CameraScanner({ logType, onComplete, onCancel }: CameraScannerProps) {
   const cameraRef = useRef<CameraView | null>(null);
   const [permission, requestPermission] = useCameraPermissions();
+  const [locationPermission, requestLocationPermission] = Location.useForegroundPermissions();
   const [isScanning, setIsScanning] = useState(false);
   const [scanProgress, setScanProgress] = useState(0);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const pulseAnim = useRef(new Animated.Value(0)).current;
+
+  const permissionsReady = permission?.granted && locationPermission?.granted;
+  const lockColor = getLockColor(scanProgress);
+  const isLocked = scanProgress >= 100;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, { toValue: 1, duration: 1100, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 0, duration: 1100, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, []);
+
+  const glowScale = pulseAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.06] });
+  const glowOpacity = pulseAnim.interpolate({ inputRange: [0, 1], outputRange: [0.35, 0.75] });
+  const boxScale = pulseAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.015] });
 
   useEffect(() => {
     if (!permission?.granted) {
@@ -22,14 +62,20 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
     }
   }, [permission]);
 
-  // Simulate a 2.5 second "Face Analysis" scan when the component mounts
   useEffect(() => {
-    if (permission?.granted) {
+    if (!locationPermission?.granted) {
+      requestLocationPermission();
+    }
+  }, [locationPermission]);
+
+  // Simulate a 2.5 second "Face Analysis" scan once both permissions are granted
+  useEffect(() => {
+    if (permissionsReady) {
       let progress = 0;
       const interval = setInterval(() => {
         progress += 4;
         setScanProgress(progress);
-        
+
         if (progress >= 100) {
           clearInterval(interval);
           finishScan();
@@ -37,10 +83,11 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
       }, 100);
       return () => clearInterval(interval);
     }
-  }, [permission]);
+  }, [permissionsReady]);
 
   async function finishScan() {
     setIsScanning(true);
+    setScanError(null);
     try {
       const location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
@@ -52,19 +99,66 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
       });
       onComplete(location, photo?.base64 ? `data:image/jpeg;base64,${photo.base64}` : undefined);
     } catch (error) {
-      console.error("Location error", error);
-      onCancel();
-    } finally {
+      console.error("Scan error", error);
+      setScanError(error instanceof Error ? error.message : "Failed to capture location or photo.");
       setIsScanning(false);
     }
   }
 
-  if (!permission) return <View style={styles.container} />;
-  
-  if (!permission.granted) {
+  if (!permission || !locationPermission) return <View style={styles.container} />;
+
+  if (!permission.granted || !locationPermission.granted) {
+    const missing = [
+      !permission.granted ? "camera" : null,
+      !locationPermission.granted ? "location" : null,
+    ].filter(Boolean).join(" and ");
+
+    const canAskAgain = permission.canAskAgain && locationPermission.canAskAgain;
+
     return (
       <View style={styles.centerContainer}>
-        <Text style={styles.errorText}>Camera permission is required for face verification.</Text>
+        <Text style={styles.errorText}>
+          {`Please allow ${missing} access to use face verification attendance.`}
+        </Text>
+        <Pressable
+          style={styles.retryButton}
+          onPress={() => {
+            if (canAskAgain) {
+              if (!permission.granted) requestPermission();
+              if (!locationPermission.granted) requestLocationPermission();
+            } else {
+              Linking.openSettings();
+            }
+          }}
+        >
+          <Text style={styles.retryButtonText}>
+            {canAskAgain ? "Grant Permission" : "Open Settings"}
+          </Text>
+        </Pressable>
+        <Pressable style={styles.cancelLink} onPress={onCancel}>
+          <Text style={styles.cancelLinkText}>Cancel</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  if (scanError) {
+    return (
+      <View style={styles.centerContainer}>
+        <Text style={styles.errorText}>{scanError}</Text>
+        <Pressable
+          style={styles.retryButton}
+          onPress={() => {
+            setScanProgress(0);
+            setScanError(null);
+            finishScan();
+          }}
+        >
+          <Text style={styles.retryButtonText}>Try Again</Text>
+        </Pressable>
+        <Pressable style={styles.cancelLink} onPress={onCancel}>
+          <Text style={styles.cancelLinkText}>Cancel</Text>
+        </Pressable>
       </View>
     );
   }
@@ -82,31 +176,55 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
 
           {/* Scanning Reticle */}
           <View style={styles.reticleContainer}>
-            <View style={styles.reticleBox}>
-              <View style={[styles.corner, styles.topLeft]} />
-              <View style={[styles.corner, styles.topRight]} />
-              <View style={[styles.corner, styles.bottomLeft]} />
-              <View style={[styles.corner, styles.bottomRight]} />
-            </View>
-            
+            <Animated.View
+              style={[
+                styles.glowRing,
+                {
+                  borderColor: lockColor,
+                  opacity: glowOpacity,
+                  transform: [{ scale: glowScale }],
+                },
+              ]}
+            />
+
+            <Animated.View style={[styles.reticleBox, { transform: [{ scale: boxScale }] }]}>
+              <View style={[styles.corner, styles.topLeft, { borderColor: lockColor }]} />
+              <View style={[styles.corner, styles.topRight, { borderColor: lockColor }]} />
+              <View style={[styles.corner, styles.bottomLeft, { borderColor: lockColor }]} />
+              <View style={[styles.corner, styles.bottomRight, { borderColor: lockColor }]} />
+              {isLocked && (
+                <View style={styles.lockBadge}>
+                  <Ionicons name="checkmark-circle" size={28} color={lockColor} />
+                </View>
+              )}
+            </Animated.View>
+
             {/* Animated Scan Line */}
-            <View style={[styles.scanLine, { top: `${scanProgress}%` }]} />
+            {!isLocked && (
+              <View
+                style={[
+                  styles.scanLine,
+                  { top: `${scanProgress}%`, backgroundColor: lockColor, shadowColor: lockColor },
+                ]}
+              />
+            )}
           </View>
 
           {/* Bottom Info */}
           <View style={styles.bottomBar}>
             {isScanning ? (
               <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#3b82f6" />
+                <ActivityIndicator size="large" color={lockColor} />
                 <Text style={styles.statusText}>Verifying Location & Identity...</Text>
               </View>
             ) : (
               <View style={styles.instructionContainer}>
-                <Ionicons name="scan-outline" size={24} color="#60a5fa" />
-                <Text style={styles.instructionText}>
-                  Please position your face inside the frame.
-                </Text>
-                <Text style={styles.progressText}>{scanProgress}% Analyzed</Text>
+                <Ionicons
+                  name={isLocked ? "checkmark-circle" : "scan-outline"}
+                  size={24}
+                  color={lockColor}
+                />
+                <Text style={styles.instructionText}>{getStageText(scanProgress)}</Text>
               </View>
             )}
           </View>
@@ -130,6 +248,27 @@ const styles = StyleSheet.create({
   errorText: {
     color: "#fff",
     fontSize: 16,
+    textAlign: "center",
+    paddingHorizontal: 32,
+    marginBottom: 24,
+  },
+  retryButton: {
+    backgroundColor: "#3b82f6",
+    paddingVertical: 12,
+    paddingHorizontal: 28,
+    borderRadius: 12,
+  },
+  retryButtonText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  cancelLink: {
+    marginTop: 18,
+  },
+  cancelLinkText: {
+    color: "#94a3b8",
+    fontSize: 14,
   },
   camera: {
     flex: 1,
@@ -158,10 +297,24 @@ const styles = StyleSheet.create({
     height: 350,
     position: "relative",
   },
+  glowRing: {
+    position: "absolute",
+    width: 304,
+    height: 344,
+    borderRadius: 32,
+    borderWidth: 2,
+  },
   reticleBox: {
     width: 280,
     height: 320,
     position: "relative",
+  },
+  lockBadge: {
+    position: "absolute",
+    top: "50%",
+    left: "50%",
+    marginTop: -14,
+    marginLeft: -14,
   },
   corner: {
     position: "absolute",
@@ -235,12 +388,5 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 15,
     textAlign: "center",
-  },
-  progressText: {
-    color: "#60a5fa",
-    fontSize: 18,
-    fontWeight: "700",
-    marginTop: 10,
-    fontVariant: ["tabular-nums"],
   },
 });

@@ -6,21 +6,31 @@ import {
   StyleSheet,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { TodayAttendance } from "../api";
 
 type Props = {
   user: any;
   isLoading: boolean;
+  todayAttendance: TodayAttendance | null;
   onTimeIn: () => void;
   onTimeOut: () => void;
 };
 
+function formatTime(value: string | null | undefined) {
+  if (!value) return "--:--";
+  return new Date(value).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 export default function AttendanceScreen({
   user,
   isLoading,
+  todayAttendance,
   onTimeIn,
   onTimeOut,
 }: Props) {
-  console.log("USER:", user);
   const today = new Date().toLocaleDateString(
     "en-US",
     {
@@ -30,6 +40,24 @@ export default function AttendanceScreen({
       year: "numeric",
     }
   );
+
+  const hasTimedIn = Boolean(todayAttendance?.timeInAt);
+  const hasTimedOut = Boolean(todayAttendance?.timeOutAt);
+
+  const statusLabel = hasTimedOut
+    ? "Day Completed"
+    : hasTimedIn
+      ? "Timed In"
+      : "Not Timed In";
+
+  const statusColor = hasTimedOut
+    ? "#17A34A"
+    : hasTimedIn
+      ? "#1680D8"
+      : "#EF4444";
+
+  const timeInDisabled = isLoading || hasTimedIn;
+  const timeOutDisabled = isLoading || !hasTimedIn || hasTimedOut;
 
   return (
     <View style={styles.container}>
@@ -46,11 +74,11 @@ export default function AttendanceScreen({
           <Ionicons
             name="ellipse"
             size={12}
-            color="#EF4444"
+            color={statusColor}
           />
 
-          <Text style={styles.statusText}>
-            Not Timed In
+          <Text style={[styles.statusText, { color: statusColor }]}>
+            {statusLabel}
           </Text>
         </View>
 
@@ -66,7 +94,7 @@ export default function AttendanceScreen({
           </Text>
 
           <Text style={styles.timeValue}>
-            --:--
+            {formatTime(todayAttendance?.timeInAt)}
           </Text>
         </View>
 
@@ -76,15 +104,18 @@ export default function AttendanceScreen({
           </Text>
 
           <Text style={styles.timeValue}>
-            --:--
+            {formatTime(todayAttendance?.timeOutAt)}
           </Text>
         </View>
       </View>
 
       <Pressable
-        disabled={isLoading}
+        disabled={timeInDisabled}
         onPress={onTimeIn}
-        style={styles.timeInButton}
+        style={[
+          styles.timeInButton,
+          timeInDisabled && styles.disabledButtonFilled,
+        ]}
       >
         <Ionicons
           name="log-in-outline"
@@ -100,24 +131,25 @@ export default function AttendanceScreen({
       </Pressable>
 
       <Pressable
-        disabled={true}
+        disabled={timeOutDisabled}
+        onPress={onTimeOut}
         style={[
           styles.timeOutButton,
-          styles.disabledButtonOutline,
+          timeOutDisabled
+            ? styles.disabledButtonOutline
+            : styles.timeOutButtonActive,
         ]}
       >
         <Ionicons
           name="log-out-outline"
           size={20}
-          color="#94A3B8"
+          color={timeOutDisabled ? "#94A3B8" : "#FFFFFF"}
         />
 
         <Text
           style={[
             styles.timeOutText,
-            {
-              color: "#94A3B8",
-            },
+            { color: timeOutDisabled ? "#94A3B8" : "#FFFFFF" },
           ]}
         >
           TIME OUT
@@ -256,6 +288,15 @@ const styles = StyleSheet.create({
   disabledButtonOutline: {
     borderColor: "#CBD5E1",
     backgroundColor: "#F8FAFC",
+  },
+
+  disabledButtonFilled: {
+    backgroundColor: "#94A3B8",
+  },
+
+  timeOutButtonActive: {
+    borderColor: "#062B59",
+    backgroundColor: "#062B59",
   },
 
   infoCard: {

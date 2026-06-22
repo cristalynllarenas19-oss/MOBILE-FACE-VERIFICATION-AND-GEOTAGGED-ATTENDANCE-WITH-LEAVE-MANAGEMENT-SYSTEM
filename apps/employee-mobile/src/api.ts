@@ -42,6 +42,25 @@ export type TodayAttendance = {
   timeOutAt: string | null;
 };
 
+export type AttendanceSubmitResult = {
+  approved: boolean;
+  verificationStatus: string;
+  geoResult: { reason?: string | null };
+  faceResult: { reason?: string | null };
+};
+
+export type SubmitAttendanceInput = {
+  employeeId: string;
+  logType: "TIME_IN" | "TIME_OUT";
+  latitude: number;
+  longitude: number;
+  accuracyMeters: number;
+  livenessScore: number;
+  similarityScore: number;
+  faceImageBase64: string;
+  deviceId: string;
+};
+
 export async function apiRequest<T>(path: string, options: RequestInit = {}) {
   const url = `${API_BASE_URL}${path}`;
   console.log("REQUEST:", url);
@@ -62,11 +81,22 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}) {
   }
 
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `Request failed with status ${response.status}`);
+    const body = await response.text();
+    throw new Error(extractErrorMessage(body) || `Request failed with status ${response.status}`);
   }
 
   return response.json() as Promise<T>;
+}
+
+function extractErrorMessage(body: string) {
+  try {
+    const parsed = JSON.parse(body);
+    if (Array.isArray(parsed?.message)) return parsed.message.join(" ");
+    if (typeof parsed?.message === "string") return parsed.message;
+  } catch {
+    // Not JSON, fall back to the raw text below.
+  }
+  return body;
 }
 
 export async function checkApiHealth() {
@@ -94,4 +124,11 @@ export async function getTodayAttendance(
   return apiRequest<TodayAttendance>(
     `/attendance/today/${employeeId}`,
   );
+}
+
+export async function submitAttendance(input: SubmitAttendanceInput) {
+  return apiRequest<AttendanceSubmitResult>("/attendance/submit", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }

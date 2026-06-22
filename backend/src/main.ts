@@ -3,6 +3,7 @@ console.log("MAIN.TS LOADED");
 
 import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import { json, urlencoded } from "express";
 import helmet from "helmet";
 import { AppModule } from "./app.module";
 
@@ -13,6 +14,8 @@ async function bootstrap() {
 
   app.setGlobalPrefix("api/v1");
 
+  app.use(json({ limit: "10mb" }));
+  app.use(urlencoded({ extended: true, limit: "10mb" }));
   app.use(helmet());
 console.log("🔥 MAIN.TS LOADED");
 
