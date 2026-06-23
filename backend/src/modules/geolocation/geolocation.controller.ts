@@ -25,7 +25,6 @@ export class GeolocationController {
       radiusMeters: Number(data.radiusMeters),
       allowedAccuracyMeters: data.allowedAccuracyMeters !== undefined ? Number(data.allowedAccuracyMeters) : undefined,
       employeeIds: Array.isArray(data.employeeIds) ? data.employeeIds : [],
-      assignAllEmployees: Boolean(data.assignAllEmployees),
     });
   }
 
@@ -39,7 +38,6 @@ export class GeolocationController {
       allowedAccuracyMeters: data.allowedAccuracyMeters !== undefined ? Number(data.allowedAccuracyMeters) : undefined,
       isActive: data.isActive !== undefined ? Boolean(data.isActive) : undefined,
       employeeIds: Array.isArray(data.employeeIds) ? data.employeeIds : undefined,
-      assignAllEmployees: data.assignAllEmployees !== undefined ? Boolean(data.assignAllEmployees) : undefined,
     });
   }
 

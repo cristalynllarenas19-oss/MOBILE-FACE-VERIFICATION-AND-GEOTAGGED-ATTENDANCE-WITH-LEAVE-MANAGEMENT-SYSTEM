@@ -1,7 +1,7 @@
 import "leaflet/dist/leaflet.css";
 
 import { Component, FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Crosshair, Edit3, MapPin, Plus, Trash2, Users } from "lucide-react";
+import { Crosshair, Edit3, MapPin, Plus, Save, Trash2, Users } from "lucide-react";
 import L from "leaflet";
 import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
 import markerIconUrl from "leaflet/dist/images/marker-icon.png";
@@ -38,7 +38,6 @@ const initialForm = {
   longitude: "120.3656",
   radiusMeters: "120",
   employeeIds: [] as string[],
-  assignAllEmployees: false,
 };
 
 const markerIcon = L.icon({
@@ -90,6 +89,7 @@ function GeotaggingPageContent() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [loadIssues, setLoadIssues] = useState<string[]>([]);
+  const [savingAssignments, setSavingAssignments] = useState(false);
 
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -172,7 +172,6 @@ function GeotaggingPageContent() {
   );
 
   const currentLocationAssignedIds = useMemo(() => new Set(form.employeeIds), [form.employeeIds]);
-  const assignAllEmployees = form.assignAllEmployees;
 
   const editingLocation = useMemo(
     () => locations.find((location) => location.id === editingLocationId) ?? null,
@@ -224,13 +223,6 @@ function GeotaggingPageContent() {
       employeeIds:
         location.employees?.map((entry) => entry.employee.id) ??
         (location.employeeId ? [location.employeeId] : location.employee ? [location.employee.id] : []),
-      assignAllEmployees: Boolean(
-        employees.length > 0 &&
-          (location.employees?.length ?? 0) === employees.length &&
-          employees.every((employee) =>
-            location.employees?.some((entry) => entry.employee.id === employee.id),
-          ),
-      ),
     }));
 
     const map = mapRef.current;
@@ -373,42 +365,68 @@ function GeotaggingPageContent() {
 
     try {
       setAssignmentError("");
-      const payload = {
+      const areaPayload = {
         name: form.name.trim(),
         latitude,
         longitude,
         radiusMeters: Number.isFinite(radiusMeters) && radiusMeters > 0 ? radiusMeters : 100,
-        employeeIds: form.employeeIds,
-        assignAllEmployees: form.assignAllEmployees,
       };
 
       if (editingLocationId) {
+        // Editing an existing area only updates its geo details here — employee
+        // assignments are saved separately via "Save Assignments" below.
         const updated = await apiRequest<GeotaggedLocation>(`/geolocation/locations/${editingLocationId}`, {
           method: "PATCH",
-          body: JSON.stringify(payload),
+          body: JSON.stringify(areaPayload),
         });
         setLocations((current) => current.map((location) => (location.id === updated.id ? updated : location)));
       } else {
         const newLoc = await apiRequest<GeotaggedLocation>("/geolocation/locations", {
           method: "POST",
-          body: JSON.stringify(payload),
+          body: JSON.stringify({ ...areaPayload, employeeIds: form.employeeIds }),
         });
         setLocations((current) => [newLoc, ...current]);
         setSelectedLocationId(newLoc.id);
         setEditingLocationId(newLoc.id);
+        setForm((current) => ({
+          ...current,
+          name: newLoc.name,
+          employeeIds: newLoc.employees?.map((entry) => entry.employee.id) ?? current.employeeIds,
+        }));
       }
-
-      setForm((current) => ({
-        ...initialForm,
-        latitude: current.latitude,
-        longitude: current.longitude,
-      }));
     } catch (error) {
       console.error("Failed to save geotagged area", error);
       const message =
         error instanceof Error ? error.message : "Failed to save geotagged area";
       setAssignmentError(message);
       alert(message);
+    }
+  }
+
+  async function handleSaveAssignments() {
+    if (!editingLocationId) {
+      return;
+    }
+
+    try {
+      setSavingAssignments(true);
+      setAssignmentError("");
+      const updated = await apiRequest<GeotaggedLocation>(`/geolocation/locations/${editingLocationId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ employeeIds: form.employeeIds }),
+      });
+      setLocations((current) => current.map((location) => (location.id === updated.id ? updated : location)));
+      setForm((current) => ({
+        ...current,
+        employeeIds: updated.employees?.map((entry) => entry.employee.id) ?? current.employeeIds,
+      }));
+    } catch (error) {
+      console.error("Failed to save employee assignments", error);
+      const message = error instanceof Error ? error.message : "Failed to save employee assignments";
+      setAssignmentError(message);
+      alert(message);
+    } finally {
+      setSavingAssignments(false);
     }
   }
 
@@ -449,7 +467,6 @@ function GeotaggingPageContent() {
     if (isSelected) {
       setForm((current) => ({
         ...current,
-        assignAllEmployees: false,
         employeeIds: current.employeeIds.filter((id) => id !== employeeId),
       }));
       return;
@@ -461,7 +478,6 @@ function GeotaggingPageContent() {
 
     setForm((current) => ({
       ...current,
-      assignAllEmployees: false,
       employeeIds: [...current.employeeIds, employeeId],
     }));
   }
@@ -469,16 +485,7 @@ function GeotaggingPageContent() {
   function removeEmployeeFromCurrentLocation(employeeId: string) {
     setForm((current) => ({
       ...current,
-      assignAllEmployees: false,
       employeeIds: current.employeeIds.filter((id) => id !== employeeId),
-    }));
-  }
-
-  function toggleAssignAllEmployees(checked: boolean) {
-    setForm((current) => ({
-      ...current,
-      assignAllEmployees: checked,
-      employeeIds: checked ? employees.map((employee) => employee.id) : [],
     }));
   }
 
@@ -723,20 +730,6 @@ function GeotaggingPageContent() {
               </small>
             </div>
 
-            {!editingIsGlobalZone && (
-              <label className="assign-all-employees-toggle">
-                <span className="assign-all-copy">
-                  <strong>Assign All Employees</strong>
-                  <small>Assign every current employee to this geotagged area.</small>
-                </span>
-                <input
-                  type="checkbox"
-                  checked={assignAllEmployees}
-                  onChange={(event) => toggleAssignAllEmployees(event.target.checked)}
-                />
-              </label>
-            )}
-
             <div className="employee-checklist" role="group" aria-label="Employee assignment checklist">
               {employeeRows.length === 0 ? (
                 <div className="employee-empty-state">
@@ -795,6 +788,23 @@ function GeotaggingPageContent() {
                 })
               )}
             </div>
+          </div>
+
+          <div className="assignment-save-row">
+            <small className="field-help">
+              {editingLocationId
+                ? "Saving assignments only updates who is assigned here, not the area's location settings."
+                : "Save the area first, then come back here to manage its employees."}
+            </small>
+            <button
+              className="primary-button"
+              type="button"
+              disabled={!editingLocationId || savingAssignments}
+              onClick={handleSaveAssignments}
+            >
+              <Save size={14} />
+              <span>{savingAssignments ? "Saving..." : "Save Assignments"}</span>
+            </button>
           </div>
 
           <div className="selected-assignment">

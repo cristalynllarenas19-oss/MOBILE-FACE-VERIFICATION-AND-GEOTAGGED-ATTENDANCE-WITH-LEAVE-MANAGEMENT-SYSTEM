@@ -9,14 +9,14 @@ export function StatCard({
   label: string;
   value: string | number;
   icon: LucideIcon;
-  tone: "blue" | "green" | "yellow" | "red" | "pink" | "cyan";
+  tone: "blue" | "green" | "yellow" | "red" | "pink" | "cyan" | "purple" | "teal";
 }) {
   return (
     <article className="stat-card">
       <div className={`stat-icon ${tone}`}>
-        <Icon size={21} />
+        <Icon size={15} />
       </div>
-      <div>
+      <div className="stat-text">
         <p>{label}</p>
         <strong>{value}</strong>
       </div>

@@ -9,9 +9,10 @@
 }
 
 .app-shell {
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
   background: #f0f4f8;
+  overflow: hidden;
 }
 
 /* ━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -154,8 +155,10 @@
 .main-area {
   flex: 1;
   min-width: 0;
+  height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .topbar {
@@ -249,6 +252,8 @@
 .page-content {
   padding: 22px 26px 54px;
   flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .menu-toggle {

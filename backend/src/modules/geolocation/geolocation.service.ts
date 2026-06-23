@@ -71,7 +71,6 @@ export class GeolocationService {
     radiusMeters: number;
     allowedAccuracyMeters?: number;
     employeeIds?: string[];
-    assignAllEmployees?: boolean;
   }) {
     const joinTableAvailable = await this.hasJoinTable();
     return this.prisma.$transaction(async (tx) => {
@@ -86,12 +85,7 @@ export class GeolocationService {
         },
       });
 
-      await this.replaceAssignments(
-        tx,
-        workLocation.id,
-        await this.resolveEmployeeIds(tx, data),
-        joinTableAvailable,
-      );
+      await this.replaceAssignments(tx, workLocation.id, data.employeeIds ?? [], joinTableAvailable);
 
       return this.loadLocationById(tx, workLocation.id, joinTableAvailable);
     });
@@ -107,7 +101,6 @@ export class GeolocationService {
       allowedAccuracyMeters?: number;
       isActive?: boolean;
       employeeIds?: string[];
-      assignAllEmployees?: boolean;
     },
   ) {
     const joinTableAvailable = await this.hasJoinTable();
@@ -126,8 +119,8 @@ export class GeolocationService {
         },
       });
 
-      if (data.employeeIds !== undefined || data.assignAllEmployees !== undefined) {
-        await this.replaceAssignments(tx, id, await this.resolveEmployeeIds(tx, data), joinTableAvailable);
+      if (data.employeeIds !== undefined) {
+        await this.replaceAssignments(tx, id, data.employeeIds, joinTableAvailable);
       }
 
       return this.loadLocationById(tx, id, joinTableAvailable);
@@ -294,22 +287,6 @@ export class GeolocationService {
         "This employee is already assigned to another geotagged area. Please unassign them from their current area before assigning them to a new one.",
       );
     }
-  }
-
-  private async resolveEmployeeIds(
-    tx: Prisma.TransactionClient,
-    data: { employeeIds?: string[]; assignAllEmployees?: boolean },
-  ) {
-    if (data.assignAllEmployees) {
-      const employees = await tx.employee.findMany({
-        select: { id: true },
-        orderBy: { lastName: "asc" },
-      });
-
-      return employees.map((employee) => employee.id);
-    }
-
-    return data.employeeIds ?? [];
   }
 
   private async hasJoinTable() {
