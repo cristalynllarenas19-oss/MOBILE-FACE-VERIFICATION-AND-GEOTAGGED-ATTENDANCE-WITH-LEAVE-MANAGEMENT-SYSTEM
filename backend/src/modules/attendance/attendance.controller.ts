@@ -35,6 +35,14 @@ export class AttendanceController {
     );
   }
 
+  @Get("history/:employeeId")
+  getHistory(
+    @Param("employeeId") employeeId: string,
+    @Query("limit") limit?: string,
+  ) {
+    return this.attendanceService.getHistory(employeeId, limit ? Number(limit) : undefined);
+  }
+
   @Post("session")
   createSession() {
     return this.attendanceService.createSession();

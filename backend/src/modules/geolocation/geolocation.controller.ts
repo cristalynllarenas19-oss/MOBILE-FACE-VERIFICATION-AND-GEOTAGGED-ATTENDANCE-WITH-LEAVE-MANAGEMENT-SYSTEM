@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Req } from "@nestjs/common";
 import { GeolocationService } from "./geolocation.service";
 
 @Controller("geolocation")
@@ -8,6 +8,12 @@ export class GeolocationController {
   @Get("locations")
   findAllLocations() {
     return this.geolocationService.findAllLocations();
+  }
+
+  @Get("my-location")
+  getMyLocation(@Req() request: Request) {
+    const employeeId = (request as any).user.employeeId;
+    return this.geolocationService.getLocationForEmployee(employeeId);
   }
 
   @Post("locations")

@@ -17,6 +17,7 @@ async function bootstrap() {
   app.use(json({ limit: "10mb" }));
   app.use(urlencoded({ extended: true, limit: "10mb" }));
   app.use(helmet());
+  app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
 console.log("🔥 MAIN.TS LOADED");
 
   const origins =

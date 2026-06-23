@@ -61,20 +61,43 @@ enum FaceEnrollmentStatus {
   REJECTED
 }
 
+enum Sex {
+  MALE
+  FEMALE
+}
+
 model User {
   id           String      @id @default(uuid())
   email        String      @unique
   passwordHash String      @map("password_hash")
   status       UserStatus  @default(ACTIVE)
   lastLoginAt  DateTime?   @map("last_login_at")
+  notifyOnAttendance   Boolean @default(true) @map("notify_on_attendance")
+  notifyOnLeaveUpdates Boolean @default(true) @map("notify_on_leave_updates")
   createdAt    DateTime    @default(now()) @map("created_at")
   updatedAt    DateTime    @updatedAt @map("updated_at")
   employee     Employee?
   userRoles    UserRole[]
   auditLogs    AuditLog[]
   notifications Notification[]
+  passwordResetOtps PasswordResetOtp[]
 
   @@map("users")
+}
+
+model PasswordResetOtp {
+  id         String    @id @default(uuid())
+  userId     String    @map("user_id")
+  otpHash    String    @map("otp_hash")
+  expiresAt  DateTime  @map("expires_at")
+  attempts   Int       @default(0)
+  verifiedAt DateTime? @map("verified_at")
+  consumedAt DateTime? @map("consumed_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("password_reset_otps")
 }
 
 model Role {
@@ -119,11 +142,40 @@ model RolePermission {
 }
 
 model Department {
-  id        String     @id @default(uuid())
-  name      String     @unique
-  employees Employee[]
+  id          String      @id @default(uuid())
+  name        String      @unique
+  division_id String?
+  divisions   divisions?  @relation(fields: [division_id], references: [id])
+  employees   Employee[]
+  sections    sections[]
 
+  @@index([division_id])
   @@map("departments")
+}
+
+// Pre-existing live-DB tables not originally tracked in this schema file
+// (created directly against the shared dev database outside of Prisma migrations).
+// Mirrored here as-is so `prisma db push` does not drop them.
+model divisions {
+  id          String       @id
+  name        String       @unique
+  departments Department[]
+}
+
+model sections {
+  id            String     @id
+  name          String
+  department_id String
+  employees     Employee[]
+  departments   Department @relation(fields: [department_id], references: [id])
+
+  @@unique([department_id, name])
+  @@index([department_id])
+}
+
+model id_sequences {
+  year        Int @id
+  last_number Int @default(0)
 }
 
 model Position {
@@ -145,6 +197,13 @@ model Employee {
   employmentStatus EmploymentStatus   @default(REGULAR) @map("employment_status")
   hireDate         DateTime           @map("hire_date")
   supervisorId     String?            @map("supervisor_id")
+  contactNumber        String?        @map("contact_number")
+  profilePhotoData     String?        @map("profile_photo_data")
+  profilePhotoMimeType String?        @map("profile_photo_mime_type")
+  birthdate        DateTime?
+  section_id       String?
+  sex              Sex?
+  sections         sections?          @relation(fields: [section_id], references: [id])
   user             User               @relation(fields: [userId], references: [id])
   department       Department         @relation(fields: [departmentId], references: [id])
   position         Position           @relation(fields: [positionId], references: [id])
@@ -160,6 +219,7 @@ model Employee {
 
   @@index([departmentId])
   @@index([supervisorId])
+  @@index([section_id])
   @@map("employees")
 }
 
@@ -181,6 +241,7 @@ model WorkLocationEmployee {
   id             String       @id @default(uuid())
   workLocationId String       @map("work_location_id")
   employeeId     String       @unique @map("employee_id")
+  assigned_at    DateTime     @default(now())
   workLocation   WorkLocation @relation(fields: [workLocationId], references: [id], onDelete: Cascade)
   employee       Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 

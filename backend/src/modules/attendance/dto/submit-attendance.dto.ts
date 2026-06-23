@@ -1,4 +1,4 @@
-import { IsEnum, IsNumber, IsString, Max, Min } from "class-validator";
+import { IsEnum, IsNumber, IsOptional, IsString, Max, Min } from "class-validator";
 
 export enum SubmitAttendanceType {
   TIME_IN = "TIME_IN",
@@ -9,8 +9,9 @@ export class SubmitAttendanceDto {
   @IsString()
   employeeId!: string;
 
+  @IsOptional()
   @IsEnum(SubmitAttendanceType)
-  logType!: SubmitAttendanceType;
+  logType?: SubmitAttendanceType;
 
   @IsNumber()
   @Min(-90)

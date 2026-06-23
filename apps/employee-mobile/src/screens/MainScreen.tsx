@@ -7,6 +7,7 @@ import {
 import AttendanceScreen from "./AttendanceScreen";
 import LeaveScreen from "./LeaveScreen";
 import DTRScreen from "./DTRScreen";
+import WorkAreaScreen from "./WorkAreaScreen";
 import SettingsScreen from "./SettingsScreen";
 import NotificationsScreen from "./NotificationsScreen";
 
@@ -70,6 +71,7 @@ export default function MainScreen({
         style={{
           flex: 1,
           padding: 16,
+          paddingBottom: 100,
         }}
       >
         {tab === "attendance" && (
@@ -87,7 +89,11 @@ export default function MainScreen({
         )}
 
         {tab === "dtr" && (
-          <DTRScreen />
+          <DTRScreen employeeId={user?.employeeId} />
+        )}
+
+        {tab === "workarea" && (
+          <WorkAreaScreen employeeId={user?.employeeId} />
         )}
 
         {tab === "settings" && (

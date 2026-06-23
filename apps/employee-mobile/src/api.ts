@@ -45,13 +45,13 @@ export type TodayAttendance = {
 export type AttendanceSubmitResult = {
   approved: boolean;
   verificationStatus: string;
+  logType: "TIME_IN" | "TIME_OUT";
   geoResult: { reason?: string | null };
   faceResult: { reason?: string | null };
 };
 
 export type SubmitAttendanceInput = {
   employeeId: string;
-  logType: "TIME_IN" | "TIME_OUT";
   latitude: number;
   longitude: number;
   accuracyMeters: number;
@@ -59,6 +59,50 @@ export type SubmitAttendanceInput = {
   similarityScore: number;
   faceImageBase64: string;
   deviceId: string;
+};
+
+export type AttendanceHistoryRecord = {
+  id: string;
+  attendanceDate: string;
+  timeInAt: string | null;
+  timeOutAt: string | null;
+  status: string;
+  totalMinutes: number;
+};
+
+export type WorkLocation = {
+  id: string;
+  name: string;
+  latitude: string | number;
+  longitude: string | number;
+  radiusMeters: string | number;
+  allowedAccuracyMeters: string | number;
+};
+
+export type EmployeeProfile = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  contactNumber: string | null;
+  profilePhotoData: string | null;
+  profilePhotoMimeType: string | null;
+  user: { email: string };
+  department: { name: string };
+  position: { title: string };
+};
+
+export type UpdateMyProfileInput = {
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  contactNumber?: string;
+  profilePhotoData?: string;
+  profilePhotoMimeType?: string;
+};
+
+export type NotificationPreferences = {
+  notifyOnAttendance: boolean;
+  notifyOnLeaveUpdates: boolean;
 };
 
 export type LeaveType = {
@@ -168,6 +212,27 @@ export async function logout() {
   await SecureStore.deleteItemAsync("refreshToken");
 }
 
+export async function forgotPassword(email: string) {
+  return apiRequest<{ message: string }>("/auth/forgot-password", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function verifyResetOtp(email: string, otp: string) {
+  return apiRequest<{ resetToken: string }>("/auth/reset-password/verify-otp", {
+    method: "POST",
+    body: JSON.stringify({ email, otp }),
+  });
+}
+
+export async function resetPassword(resetToken: string, newPassword: string) {
+  return apiRequest<{ message: string }>("/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify({ resetToken, newPassword }),
+  });
+}
+
 export async function getTodayAttendance(
   employeeId: string,
 ) {
@@ -179,6 +244,43 @@ export async function getTodayAttendance(
 export async function submitAttendance(input: SubmitAttendanceInput) {
   return apiRequest<AttendanceSubmitResult>("/attendance/submit", {
     method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function getAttendanceHistory(employeeId: string, limit = 30) {
+  return apiRequest<AttendanceHistoryRecord[]>(`/attendance/history/${employeeId}?limit=${limit}`);
+}
+
+export async function getMyWorkLocation() {
+  return apiRequest<WorkLocation | null>("/geolocation/my-location");
+}
+
+export async function getMyProfile() {
+  return apiRequest<EmployeeProfile>("/employees/me");
+}
+
+export async function updateMyProfile(input: UpdateMyProfileInput) {
+  return apiRequest<EmployeeProfile>("/employees/me", {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function changePassword(currentPassword: string, newPassword: string) {
+  return apiRequest<{ message: string }>("/users/me/password", {
+    method: "PATCH",
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+}
+
+export async function getNotificationPreferences() {
+  return apiRequest<NotificationPreferences>("/users/me/notification-preferences");
+}
+
+export async function updateNotificationPreferences(input: Partial<NotificationPreferences>) {
+  return apiRequest<NotificationPreferences>("/users/me/notification-preferences", {
+    method: "PATCH",
     body: JSON.stringify(input),
   });
 }

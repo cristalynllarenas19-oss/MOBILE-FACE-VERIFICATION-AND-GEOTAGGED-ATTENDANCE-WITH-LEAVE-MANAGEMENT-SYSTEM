@@ -1,11 +1,49 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable, UnauthorizedException } from "@nestjs/common";
 import * as argon2 from "argon2";
 import { PrismaService } from "../../prisma/prisma.service";
 import { CreateUserDto } from "./dto/create-user.dto";
+import { NotificationPreferencesDto } from "./dto/notification-preferences.dto";
 
 @Injectable()
 export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const valid = await argon2.verify(user.passwordHash, currentPassword);
+    if (!valid) {
+      throw new UnauthorizedException("Current password is incorrect.");
+    }
+    if (currentPassword === newPassword) {
+      throw new BadRequestException("New password must be different from the current password.");
+    }
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash: await argon2.hash(newPassword) },
+    });
+
+    return { message: "Password updated." };
+  }
+
+  async getNotificationPreferences(userId: string) {
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { notifyOnAttendance: true, notifyOnLeaveUpdates: true },
+    });
+    return user;
+  }
+
+  async updateNotificationPreferences(userId: string, dto: NotificationPreferencesDto) {
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        ...(dto.notifyOnAttendance !== undefined ? { notifyOnAttendance: dto.notifyOnAttendance } : {}),
+        ...(dto.notifyOnLeaveUpdates !== undefined ? { notifyOnLeaveUpdates: dto.notifyOnLeaveUpdates } : {}),
+      },
+      select: { notifyOnAttendance: true, notifyOnLeaveUpdates: true },
+    });
+  }
 
   findAll() {
     return this.prisma.user.findMany({

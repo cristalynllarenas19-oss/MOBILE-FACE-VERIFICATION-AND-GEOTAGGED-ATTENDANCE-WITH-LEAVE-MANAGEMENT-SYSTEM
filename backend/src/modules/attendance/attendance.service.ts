@@ -140,16 +140,16 @@ export class AttendanceService {
       },
     });
 
-    if (dto.logType === "TIME_IN" && existingRecord?.timeInAt) {
-      throw new BadRequestException("You have already timed in today.");
-    }
+    // The server, not the button the employee tapped, is the authority on whether
+    // this scan is a Time In or Time Out, derived from the latest attendance entry.
+    const logType = !existingRecord?.timeInAt
+      ? "TIME_IN"
+      : !existingRecord?.timeOutAt
+        ? "TIME_OUT"
+        : null;
 
-    if (dto.logType === "TIME_OUT" && !existingRecord?.timeInAt) {
-      throw new BadRequestException("You must time in before you can time out.");
-    }
-
-    if (dto.logType === "TIME_OUT" && existingRecord?.timeOutAt) {
-      throw new BadRequestException("You have already timed out today.");
+    if (!logType) {
+      throw new BadRequestException("You have already completed your attendance for today.");
     }
 
     const location =
@@ -243,14 +243,14 @@ export class AttendanceService {
             : "PENDING_REVIEW",
 
           timeInAt:
-            dto.logType ===
+            logType ===
               "TIME_IN" &&
             approved
               ? now
               : null,
 
           timeOutAt:
-            dto.logType ===
+            logType ===
               "TIME_OUT" &&
             approved
               ? now
@@ -262,16 +262,17 @@ export class AttendanceService {
             ? "PRESENT"
             : existingRecord?.status ?? "PENDING_REVIEW",
 
-          ...(dto.logType ===
+          ...(logType ===
             "TIME_IN" &&
           approved
             ? { timeInAt: now }
             : {}),
 
-          ...(dto.logType ===
+          ...(logType ===
             "TIME_OUT" &&
-          approved
-            ? { timeOutAt: now }
+          approved &&
+          existingRecord?.timeInAt
+            ? { timeOutAt: now, totalMinutes: Math.round((now.getTime() - existingRecord.timeInAt.getTime()) / 60000) }
             : {}),
         },
       });
@@ -285,7 +286,7 @@ export class AttendanceService {
           dto.employeeId,
 
         logType: approved
-          ? dto.logType
+          ? logType
           : "FAILED_ATTEMPT",
 
         latitude:
@@ -323,12 +324,21 @@ export class AttendanceService {
     return {
       approved,
       verificationStatus,
+      logType,
       faceResult,
       geoResult,
       attendanceRecordId:
         record.id,
       similarityScore,
     };
+  }
+
+  async getHistory(employeeId: string, limit = 30) {
+    return this.prisma.attendanceRecord.findMany({
+      where: { employeeId },
+      orderBy: { attendanceDate: "desc" },
+      take: limit,
+    });
   }
 
   private decodeImageBase64(imageData: string) {

@@ -25,6 +25,7 @@ type Props = {
   setPassword: (value: string) => void;
   isLoading: boolean;
   onLogin: () => void;
+  onForgotPassword: () => void;
 };
 
 export default function LoginScreen({
@@ -34,6 +35,7 @@ export default function LoginScreen({
   setPassword,
   isLoading,
   onLogin,
+  onForgotPassword,
 }: Props) {
   const [showPassword, setShowPassword] =
     useState(false);
@@ -165,13 +167,15 @@ export default function LoginScreen({
               </Text>
             </Pressable>
 
-            <Text
-              style={
-                styles.forgotPassword
-              }
-            >
-              Forgot your password?
-            </Text>
+            <Pressable onPress={onForgotPassword}>
+              <Text
+                style={
+                  styles.forgotPassword
+                }
+              >
+                Forgot your password?
+              </Text>
+            </Pressable>
 
             <View style={styles.divider} />
 
@@ -292,7 +296,8 @@ const styles = StyleSheet.create({
 
   forgotPassword: {
     textAlign: "center",
-    color: "#94A3B8",
+    color: "#1680D8",
+    fontWeight: "600",
     marginTop: 22,
     fontSize: 15,
   },
