@@ -2,15 +2,14 @@ import React, { useCallback, useEffect, useState } from "react";
 import { View, Text, Image, Pressable, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { EmployeeProfile, getMyProfile } from "../api";
-import EditProfileScreen from "./EditProfileScreen";
+import ViewProfileScreen from "./ViewProfileScreen";
 import ChangePasswordScreen from "./ChangePasswordScreen";
-import NotificationPreferencesScreen from "./NotificationPreferencesScreen";
 
 type Props = {
   onLogout: () => void;
 };
 
-type SettingsView = "root" | "profile" | "password" | "notifications";
+type SettingsView = "root" | "profile" | "password";
 
 export default function SettingsScreen({ onLogout }: Props) {
   const [view, setView] = useState<SettingsView>("root");
@@ -25,13 +24,10 @@ export default function SettingsScreen({ onLogout }: Props) {
   }, [loadProfile]);
 
   if (view === "profile") {
-    return <EditProfileScreen onClose={() => setView("root")} onUpdated={loadProfile} />;
+    return <ViewProfileScreen onClose={() => setView("root")} />;
   }
   if (view === "password") {
     return <ChangePasswordScreen onClose={() => setView("root")} />;
-  }
-  if (view === "notifications") {
-    return <NotificationPreferencesScreen onClose={() => setView("root")} />;
   }
 
   const avatarSource = profile?.profilePhotoData
@@ -58,9 +54,8 @@ export default function SettingsScreen({ onLogout }: Props) {
 
       <Text style={styles.cardTitle}>Settings</Text>
 
-      <SettingsRow icon="person-outline" label="Edit Profile" onPress={() => setView("profile")} />
+      <SettingsRow icon="person-outline" label="My Profile" onPress={() => setView("profile")} />
       <SettingsRow icon="key-outline" label="Change Password" onPress={() => setView("password")} />
-      <SettingsRow icon="notifications-outline" label="Notification Settings" onPress={() => setView("notifications")} />
 
       <Pressable onPress={onLogout} style={styles.logoutButton}>
         <Text style={styles.logoutText}>Logout</Text>

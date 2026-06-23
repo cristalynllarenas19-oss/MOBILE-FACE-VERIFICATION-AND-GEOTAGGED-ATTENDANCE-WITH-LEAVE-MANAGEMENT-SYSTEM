@@ -71,7 +71,6 @@ export default function MainScreen({
         style={{
           flex: 1,
           padding: 16,
-          paddingBottom: 100,
         }}
       >
         {tab === "attendance" && (

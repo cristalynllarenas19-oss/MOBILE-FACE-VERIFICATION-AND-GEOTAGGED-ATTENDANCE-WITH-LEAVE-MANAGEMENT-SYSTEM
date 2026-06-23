@@ -72,8 +72,6 @@ model User {
   passwordHash String      @map("password_hash")
   status       UserStatus  @default(ACTIVE)
   lastLoginAt  DateTime?   @map("last_login_at")
-  notifyOnAttendance   Boolean @default(true) @map("notify_on_attendance")
-  notifyOnLeaveUpdates Boolean @default(true) @map("notify_on_leave_updates")
   createdAt    DateTime    @default(now()) @map("created_at")
   updatedAt    DateTime    @updatedAt @map("updated_at")
   employee     Employee?

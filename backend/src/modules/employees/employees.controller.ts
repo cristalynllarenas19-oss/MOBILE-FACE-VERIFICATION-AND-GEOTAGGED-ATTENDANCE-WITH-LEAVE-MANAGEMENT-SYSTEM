@@ -1,6 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post, Req } from "@nestjs/common";
 import { CreateEmployeeDto, UpdateEmployeeDto } from "./dto/create-employee.dto";
-import { UpdateMeDto } from "./dto/update-me.dto";
 import { EmployeesService } from "./employees.service";
 
 @Controller("employees")
@@ -14,16 +13,11 @@ export class EmployeesController {
 
   // Must stay before the ":id"-shaped routes below — Nest matches routes by
   // registration order and ":id" would otherwise swallow the literal "me".
+  // View-only: employees cannot self-edit their profile, so there is no PATCH "me".
   @Get("me")
   findMe(@Req() request: Request) {
     const employeeId = (request as any).user.employeeId;
     return this.employeesService.findMe(employeeId);
-  }
-
-  @Patch("me")
-  updateMe(@Req() request: Request, @Body() dto: UpdateMeDto) {
-    const employeeId = (request as any).user.employeeId;
-    return this.employeesService.updateMe(employeeId, dto);
   }
 
   @Post()

@@ -65,9 +65,9 @@ export default function ChangePasswordScreen({ onClose }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#FFFFFF" },
-  content: { padding: 20, paddingBottom: 40 },
+  content: { paddingHorizontal: 20, paddingTop: 4, paddingBottom: 40 },
   backButton: { width: 40, height: 40, justifyContent: "center" },
-  title: { fontSize: 22, fontWeight: "700", color: "#062B59", marginTop: 4 },
+  title: { fontSize: 22, fontWeight: "700", color: "#062B59", marginTop: 0 },
   subtitle: { color: "#64748B", marginTop: 6, marginBottom: 20, fontSize: 13 },
   label: { color: "#334155", fontWeight: "600", marginBottom: 6, marginTop: 14, fontSize: 14 },
   input: {

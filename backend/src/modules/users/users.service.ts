@@ -2,7 +2,6 @@ import { BadRequestException, Injectable, UnauthorizedException } from "@nestjs/
 import * as argon2 from "argon2";
 import { PrismaService } from "../../prisma/prisma.service";
 import { CreateUserDto } from "./dto/create-user.dto";
-import { NotificationPreferencesDto } from "./dto/notification-preferences.dto";
 
 @Injectable()
 export class UsersService {
@@ -24,25 +23,6 @@ export class UsersService {
     });
 
     return { message: "Password updated." };
-  }
-
-  async getNotificationPreferences(userId: string) {
-    const user = await this.prisma.user.findUniqueOrThrow({
-      where: { id: userId },
-      select: { notifyOnAttendance: true, notifyOnLeaveUpdates: true },
-    });
-    return user;
-  }
-
-  async updateNotificationPreferences(userId: string, dto: NotificationPreferencesDto) {
-    return this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        ...(dto.notifyOnAttendance !== undefined ? { notifyOnAttendance: dto.notifyOnAttendance } : {}),
-        ...(dto.notifyOnLeaveUpdates !== undefined ? { notifyOnLeaveUpdates: dto.notifyOnLeaveUpdates } : {}),
-      },
-      select: { notifyOnAttendance: true, notifyOnLeaveUpdates: true },
-    });
   }
 
   findAll() {

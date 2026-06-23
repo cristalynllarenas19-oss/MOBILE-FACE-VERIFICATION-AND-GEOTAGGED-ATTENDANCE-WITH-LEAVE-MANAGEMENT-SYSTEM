@@ -2,7 +2,6 @@ import { Injectable } from "@nestjs/common";
 import * as argon2 from "argon2";
 import { PrismaService } from "../../prisma/prisma.service";
 import { CreateEmployeeDto, UpdateEmployeeDto } from "./dto/create-employee.dto";
-import { UpdateMeDto } from "./dto/update-me.dto";
 
 @Injectable()
 export class EmployeesService {
@@ -18,29 +17,6 @@ export class EmployeesService {
   findMe(employeeId: string) {
     return this.prisma.employee.findUniqueOrThrow({
       where: { id: employeeId },
-      include: { user: true, department: true, position: true },
-    });
-  }
-
-  async updateMe(employeeId: string, dto: UpdateMeDto) {
-    const employee = await this.prisma.employee.findUniqueOrThrow({ where: { id: employeeId } });
-
-    if (dto.email) {
-      await this.prisma.user.update({
-        where: { id: employee.userId },
-        data: { email: dto.email },
-      });
-    }
-
-    return this.prisma.employee.update({
-      where: { id: employeeId },
-      data: {
-        ...(dto.firstName ? { firstName: dto.firstName } : {}),
-        ...(dto.lastName ? { lastName: dto.lastName } : {}),
-        ...(dto.contactNumber !== undefined ? { contactNumber: dto.contactNumber } : {}),
-        ...(dto.profilePhotoData !== undefined ? { profilePhotoData: dto.profilePhotoData } : {}),
-        ...(dto.profilePhotoMimeType !== undefined ? { profilePhotoMimeType: dto.profilePhotoMimeType } : {}),
-      },
       include: { user: true, department: true, position: true },
     });
   }

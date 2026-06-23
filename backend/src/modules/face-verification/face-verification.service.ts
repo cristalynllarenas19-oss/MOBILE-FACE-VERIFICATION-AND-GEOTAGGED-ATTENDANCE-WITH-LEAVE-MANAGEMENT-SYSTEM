@@ -59,6 +59,25 @@ export class FaceVerificationService implements OnModuleInit {
     return { status: "REJECTED", reason: "Face does not match enrolled profile" };
   }
 
+  async detectFace(imageBase64: string): Promise<{ detected: boolean; confidence: number }> {
+    await this.ensureModelsLoaded();
+
+    const base64Data = imageBase64.includes("base64,") ? imageBase64.split("base64,")[1] : imageBase64;
+    const buffer = Buffer.from(base64Data, "base64");
+
+    try {
+      const image = await canvasLib.loadImage(buffer);
+      const result = await faceapi.detectSingleFace(
+        image as any,
+        new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 }),
+      );
+
+      return { detected: !!result, confidence: result?.score ?? 0 };
+    } catch {
+      return { detected: false, confidence: 0 };
+    }
+  }
+
   async extractDescriptor(buffer: Buffer): Promise<Float32Array | null> {
     await this.ensureModelsLoaded();
 

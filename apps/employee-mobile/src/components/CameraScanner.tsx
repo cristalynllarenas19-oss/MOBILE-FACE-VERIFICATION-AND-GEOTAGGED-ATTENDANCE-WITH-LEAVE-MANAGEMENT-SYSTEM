@@ -3,6 +3,7 @@ import { View, StyleSheet, Text, ActivityIndicator, Pressable, Linking, Animated
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
+import { detectFace } from "../api";
 
 type CameraScannerProps = {
   logType: "TIME_IN" | "TIME_OUT";
@@ -10,21 +11,24 @@ type CameraScannerProps = {
   onCancel: () => void;
 };
 
-const SCAN_COLOR_START = { r: 0x3b, g: 0x82, b: 0xf6 }; // blue
-const SCAN_COLOR_LOCKED = { r: 0x22, g: 0xc5, b: 0x5e }; // green
+const SCAN_COLOR_SEARCHING = { r: 0xef, g: 0x44, b: 0x44 }; // red - no face detected
+const SCAN_COLOR_LOCKED = { r: 0x22, g: 0xc5, b: 0x5e }; // green - face held long enough
+
+const DETECT_POLL_MS = 900;
+const HOLD_TO_LOCK_MS = 1500;
+const TICK_MS = 100;
 
 function getLockColor(progress: number) {
   const t = Math.min(1, Math.max(0, progress / 100));
-  const r = Math.round(SCAN_COLOR_START.r + (SCAN_COLOR_LOCKED.r - SCAN_COLOR_START.r) * t);
-  const g = Math.round(SCAN_COLOR_START.g + (SCAN_COLOR_LOCKED.g - SCAN_COLOR_START.g) * t);
-  const b = Math.round(SCAN_COLOR_START.b + (SCAN_COLOR_LOCKED.b - SCAN_COLOR_START.b) * t);
+  const r = Math.round(SCAN_COLOR_SEARCHING.r + (SCAN_COLOR_LOCKED.r - SCAN_COLOR_SEARCHING.r) * t);
+  const g = Math.round(SCAN_COLOR_SEARCHING.g + (SCAN_COLOR_LOCKED.g - SCAN_COLOR_SEARCHING.g) * t);
+  const b = Math.round(SCAN_COLOR_SEARCHING.b + (SCAN_COLOR_LOCKED.b - SCAN_COLOR_SEARCHING.b) * t);
   return `rgb(${r}, ${g}, ${b})`;
 }
 
-function getStageText(progress: number) {
-  if (progress < 25) return "Position your face inside the frame";
-  if (progress < 70) return "Hold steady, analyzing...";
-  if (progress < 100) return "Almost there...";
+function getStageText(faceDetected: boolean, progress: number) {
+  if (!faceDetected) return "No face detected — position your face inside the frame";
+  if (progress < 100) return "Face detected, hold steady...";
   return "Face locked!";
 }
 
@@ -33,9 +37,14 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
   const [permission, requestPermission] = useCameraPermissions();
   const [locationPermission, requestLocationPermission] = Location.useForegroundPermissions();
   const [isScanning, setIsScanning] = useState(false);
+  const [faceDetected, setFaceDetected] = useState(false);
   const [scanProgress, setScanProgress] = useState(0);
   const [scanError, setScanError] = useState<string | null>(null);
   const pulseAnim = useRef(new Animated.Value(0)).current;
+
+  const isDetectingRef = useRef(false);
+  const isFinishingRef = useRef(false);
+  const faceDetectedRef = useRef(false);
 
   const permissionsReady = permission?.granted && locationPermission?.granted;
   const lockColor = getLockColor(scanProgress);
@@ -68,22 +77,54 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
     }
   }, [locationPermission]);
 
-  // Simulate a 2.5 second "Face Analysis" scan once both permissions are granted
+  // Poll the backend's real face detector on a low-res snapshot. This is the
+  // actual "is a face here?" signal — the camera never fakes detection.
   useEffect(() => {
-    if (permissionsReady) {
-      let progress = 0;
-      const interval = setInterval(() => {
-        progress += 4;
-        setScanProgress(progress);
+    if (!permissionsReady || isScanning || scanError) return;
 
-        if (progress >= 100) {
-          clearInterval(interval);
+    const interval = setInterval(async () => {
+      if (isDetectingRef.current || isFinishingRef.current) return;
+      isDetectingRef.current = true;
+      try {
+        const photo = await cameraRef.current?.takePictureAsync({
+          base64: true,
+          quality: 0.3,
+          skipProcessing: true,
+        });
+        if (!photo?.base64) return;
+        const result = await detectFace(`data:image/jpeg;base64,${photo.base64}`);
+        faceDetectedRef.current = result.detected;
+        setFaceDetected(result.detected);
+      } catch (error) {
+        faceDetectedRef.current = false;
+        setFaceDetected(false);
+      } finally {
+        isDetectingRef.current = false;
+      }
+    }, DETECT_POLL_MS);
+
+    return () => clearInterval(interval);
+  }, [permissionsReady, isScanning, scanError]);
+
+  // Drives the visual "hold steady" progress: only advances while a face is
+  // actually detected, and resets the moment it's lost.
+  useEffect(() => {
+    if (!permissionsReady || isScanning || scanError) return;
+
+    const tick = setInterval(() => {
+      setScanProgress((progress) => {
+        if (!faceDetectedRef.current) return 0;
+        const next = Math.min(100, progress + (TICK_MS / HOLD_TO_LOCK_MS) * 100);
+        if (next >= 100 && !isFinishingRef.current) {
+          isFinishingRef.current = true;
           finishScan();
         }
-      }, 100);
-      return () => clearInterval(interval);
-    }
-  }, [permissionsReady]);
+        return next;
+      });
+    }, TICK_MS);
+
+    return () => clearInterval(tick);
+  }, [permissionsReady, isScanning, scanError]);
 
   async function finishScan() {
     setIsScanning(true);
@@ -102,7 +143,16 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
       console.error("Scan error", error);
       setScanError(error instanceof Error ? error.message : "Failed to capture location or photo.");
       setIsScanning(false);
+      isFinishingRef.current = false;
     }
+  }
+
+  function retryScan() {
+    isFinishingRef.current = false;
+    faceDetectedRef.current = false;
+    setFaceDetected(false);
+    setScanProgress(0);
+    setScanError(null);
   }
 
   if (!permission || !locationPermission) return <View style={styles.container} />;
@@ -146,14 +196,7 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
     return (
       <View style={styles.centerContainer}>
         <Text style={styles.errorText}>{scanError}</Text>
-        <Pressable
-          style={styles.retryButton}
-          onPress={() => {
-            setScanProgress(0);
-            setScanError(null);
-            finishScan();
-          }}
-        >
+        <Pressable style={styles.retryButton} onPress={retryScan}>
           <Text style={styles.retryButtonText}>Try Again</Text>
         </Pressable>
         <Pressable style={styles.cancelLink} onPress={onCancel}>
@@ -199,8 +242,8 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
               )}
             </Animated.View>
 
-            {/* Animated Scan Line */}
-            {!isLocked && (
+            {/* Animated Scan Line, only while actively holding a detected face */}
+            {faceDetected && !isLocked && (
               <View
                 style={[
                   styles.scanLine,
@@ -220,11 +263,11 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
             ) : (
               <View style={styles.instructionContainer}>
                 <Ionicons
-                  name={isLocked ? "checkmark-circle" : "scan-outline"}
+                  name={isLocked ? "checkmark-circle" : faceDetected ? "scan-outline" : "alert-circle-outline"}
                   size={24}
                   color={lockColor}
                 />
-                <Text style={styles.instructionText}>{getStageText(scanProgress)}</Text>
+                <Text style={styles.instructionText}>{getStageText(faceDetected, scanProgress)}</Text>
               </View>
             )}
           </View>

@@ -7,7 +7,6 @@ import LoginScreen from "./src/screens/LoginScreen";
 import MainScreen from "./src/screens/MainScreen";
 import CameraScanner from "./src/components/CameraScanner";
 import ResultModal, { ResultModalStatus } from "./src/components/ResultModal";
-import ForgotPasswordScreen from "./src/screens/ForgotPasswordScreen";
 import VerifyOtpScreen from "./src/screens/VerifyOtpScreen";
 import NewPasswordScreen from "./src/screens/NewPasswordScreen";
 
@@ -20,6 +19,7 @@ import {
   getTodayAttendance,
   submitAttendance,
   getMyWorkLocation,
+  forgotPassword,
 } from "./src/api";
 import { getFriendlyReason } from "./src/utils/attendanceMessages";
 import { distanceInMeters } from "./src/utils/geofence";
@@ -30,7 +30,7 @@ type ResultModalState = {
   message: string;
 };
 
-type AuthView = "login" | "forgot-email" | "forgot-otp" | "forgot-new-password";
+type AuthView = "login" | "forgot-otp" | "forgot-new-password";
 
 export default function App() {
   // Empty by default
@@ -90,6 +90,24 @@ export default function App() {
         "Login Failed",
         error instanceof Error ? error.message : "Invalid email or password."
       );
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleForgotPassword() {
+    if (!email.trim()) {
+      Alert.alert("Email Required", "Please enter your email address above first.");
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      await forgotPassword(email.trim());
+      setResetEmail(email.trim());
+      setAuthView("forgot-otp");
+    } catch (error) {
+      Alert.alert("Something Went Wrong", error instanceof Error ? error.message : "Please try again.");
     } finally {
       setIsLoading(false);
     }
@@ -248,15 +266,7 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      {!user && authView === "forgot-email" ? (
-        <ForgotPasswordScreen
-          onSubmitted={(submittedEmail) => {
-            setResetEmail(submittedEmail);
-            setAuthView("forgot-otp");
-          }}
-          onBack={backToLogin}
-        />
-      ) : !user && authView === "forgot-otp" ? (
+      {!user && authView === "forgot-otp" ? (
         <VerifyOtpScreen
           email={resetEmail}
           onVerified={(token) => {
@@ -275,7 +285,7 @@ export default function App() {
           setPassword={setPassword}
           isLoading={isLoading}
           onLogin={handleLogin}
-          onForgotPassword={() => setAuthView("forgot-email")}
+          onForgotPassword={handleForgotPassword}
         />
       ) : scanType ? (
         <CameraScanner

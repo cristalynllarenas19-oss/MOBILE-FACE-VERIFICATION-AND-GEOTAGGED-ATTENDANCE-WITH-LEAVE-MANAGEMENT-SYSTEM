@@ -91,20 +91,6 @@ export type EmployeeProfile = {
   position: { title: string };
 };
 
-export type UpdateMyProfileInput = {
-  firstName?: string;
-  lastName?: string;
-  email?: string;
-  contactNumber?: string;
-  profilePhotoData?: string;
-  profilePhotoMimeType?: string;
-};
-
-export type NotificationPreferences = {
-  notifyOnAttendance: boolean;
-  notifyOnLeaveUpdates: boolean;
-};
-
 export type LeaveType = {
   id: string;
   name: string;
@@ -241,6 +227,13 @@ export async function getTodayAttendance(
   );
 }
 
+export async function detectFace(imageBase64: string) {
+  return apiRequest<{ detected: boolean; confidence: number }>("/face/detect", {
+    method: "POST",
+    body: JSON.stringify({ imageBase64 }),
+  });
+}
+
 export async function submitAttendance(input: SubmitAttendanceInput) {
   return apiRequest<AttendanceSubmitResult>("/attendance/submit", {
     method: "POST",
@@ -260,28 +253,10 @@ export async function getMyProfile() {
   return apiRequest<EmployeeProfile>("/employees/me");
 }
 
-export async function updateMyProfile(input: UpdateMyProfileInput) {
-  return apiRequest<EmployeeProfile>("/employees/me", {
-    method: "PATCH",
-    body: JSON.stringify(input),
-  });
-}
-
 export async function changePassword(currentPassword: string, newPassword: string) {
   return apiRequest<{ message: string }>("/users/me/password", {
     method: "PATCH",
     body: JSON.stringify({ currentPassword, newPassword }),
-  });
-}
-
-export async function getNotificationPreferences() {
-  return apiRequest<NotificationPreferences>("/users/me/notification-preferences");
-}
-
-export async function updateNotificationPreferences(input: Partial<NotificationPreferences>) {
-  return apiRequest<NotificationPreferences>("/users/me/notification-preferences", {
-    method: "PATCH",
-    body: JSON.stringify(input),
   });
 }
 

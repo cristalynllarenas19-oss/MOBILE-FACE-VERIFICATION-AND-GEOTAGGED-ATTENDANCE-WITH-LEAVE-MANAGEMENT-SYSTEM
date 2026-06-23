@@ -69,7 +69,7 @@ export default function LoginScreen({
             />
 
             <Text style={styles.title}>
-              Welcome Back!
+              Log In
             </Text>
 
             <Text style={styles.subtitle}>
@@ -176,22 +176,6 @@ export default function LoginScreen({
                 Forgot your password?
               </Text>
             </Pressable>
-
-            <View style={styles.divider} />
-
-            <Text
-              style={styles.signupText}
-            >
-              Don't have an account?
-              <Text
-                style={
-                  styles.signupLink
-                }
-              >
-                {" "}
-                Sign Up
-              </Text>
-            </Text>
           </ScrollView>
         </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
@@ -300,22 +284,5 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginTop: 22,
     fontSize: 15,
-  },
-
-  divider: {
-    height: 1,
-    backgroundColor: "#E2E8F0",
-    marginVertical: 28,
-  },
-
-  signupText: {
-    textAlign: "center",
-    color: "#94A3B8",
-    fontSize: 15,
-  },
-
-  signupLink: {
-    color: "#062B59",
-    fontWeight: "700",
   },
 });
