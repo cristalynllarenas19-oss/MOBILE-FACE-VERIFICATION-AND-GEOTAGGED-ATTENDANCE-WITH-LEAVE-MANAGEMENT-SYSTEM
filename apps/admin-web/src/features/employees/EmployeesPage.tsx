@@ -3,6 +3,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { AlertTriangle, Archive, CheckCircle2, Eye, Pencil, Plus, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { apiRequest } from "../../lib/api";
+import { PermissionCode, permissions } from "../../types/rbac";
 import "./EmployeesPage.css";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3001/api/v1";
@@ -435,11 +436,13 @@ function ViewEmployeeModal({
   onClose,
   onEdit,
   onArchive,
+  canWrite,
 }: {
   employee: Employee;
   onClose: () => void;
   onEdit: () => void;
   onArchive: () => void;
+  canWrite: boolean;
 }) {
   return (
     <EmployeeModal title="Employee Details" description={getEmployeeName(employee)} onClose={onClose}>
@@ -470,14 +473,16 @@ function ViewEmployeeModal({
         <button type="button" className="outline-button" onClick={onClose}>
           Close
         </button>
-        {employee.employmentStatus !== "SEPARATED" && (
+        {canWrite && employee.employmentStatus !== "SEPARATED" && (
           <button type="button" className="employee-archive-action" onClick={onArchive}>
             Archive Employee
           </button>
         )}
-        <button type="button" className="primary-button" onClick={onEdit}>
-          Edit Employee
-        </button>
+        {canWrite && (
+          <button type="button" className="primary-button" onClick={onEdit}>
+            Edit Employee
+          </button>
+        )}
       </div>
     </EmployeeModal>
   );
@@ -547,7 +552,8 @@ function ArchiveEmployeeModal({
   );
 }
 
-export function EmployeesPage() {
+export function EmployeesPage({ user }: { user?: { permissions: PermissionCode[] } }) {
+  const canWrite = user?.permissions.includes(permissions.employeesWrite) ?? true;
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [departmentFilter, setDepartmentFilter] = useState("ALL");
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -633,10 +639,12 @@ export function EmployeesPage() {
           </select>
         </div>
 
-        <button className="add-employee-button" onClick={() => setIsAddOpen(true)}>
-          <Plus size={15} />
-          Add Employee
-        </button>
+        {canWrite && (
+          <button className="add-employee-button" onClick={() => setIsAddOpen(true)}>
+            <Plus size={15} />
+            Add Employee
+          </button>
+        )}
       </div>
 
       <section className="table-card employees-table-card">
@@ -676,11 +684,13 @@ export function EmployeesPage() {
                         <Eye size={14} />
                         View
                       </button>
-                      <button className="employee-edit-button" onClick={() => openEditEmployee(employee)}>
-                        <Pencil size={14} />
-                        Edit
-                      </button>
-                      {employee.employmentStatus !== "SEPARATED" && (
+                      {canWrite && (
+                        <button className="employee-edit-button" onClick={() => openEditEmployee(employee)}>
+                          <Pencil size={14} />
+                          Edit
+                        </button>
+                      )}
+                      {canWrite && employee.employmentStatus !== "SEPARATED" && (
                         <button className="employee-archive-button" onClick={() => setArchiveEmployee(employee)}>
                           <Archive size={14} />
                           Archive
@@ -704,6 +714,7 @@ export function EmployeesPage() {
             setArchiveEmployee(viewEmployee);
             setViewEmployee(null);
           }}
+          canWrite={canWrite}
         />
       )}
 

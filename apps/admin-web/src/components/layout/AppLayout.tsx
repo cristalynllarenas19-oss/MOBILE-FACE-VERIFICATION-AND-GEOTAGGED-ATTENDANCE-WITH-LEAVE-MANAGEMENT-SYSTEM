@@ -8,6 +8,7 @@ import {
   LogOut,
   MapPin,
   Users,
+  UserCircle,
   UserSquare2,
   ScanFace,
   Menu,
@@ -34,8 +35,10 @@ type User = {
   permissions: PermissionCode[];
 };
 
-const navItems = [
+// `permission: null` means the page is self-scoped (e.g. My Profile) and is always visible.
+export const navItems = [
   { id: "dashboard",  label: "Dashboard",            icon: LayoutDashboard, permission: permissions.dashboardView },
+  { id: "profile",    label: "My Profile",            icon: UserCircle,      permission: null },
   { id: "users",      label: "User Management",       icon: Users,           permission: permissions.usersRead },
   { id: "face-registration", label: "Face Registration", icon: ScanFace,      permission: permissions.usersWrite },
   { id: "employees",  label: "Employee Management",   icon: UserSquare2,     permission: permissions.employeesRead },
@@ -75,8 +78,8 @@ export function AppLayout({
   const [notifLoading, setNotifLoading] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
 
-  const visibleItems = navItems.filter((item) =>
-    user.permissions.includes(item.permission)
+  const visibleItems = navItems.filter(
+    (item) => item.permission === null || user.permissions.includes(item.permission)
   );
 
   useEffect(() => {
@@ -126,7 +129,7 @@ export function AppLayout({
   };
 
   const handleSelectNotification = (notification: AppNotification) => {
-    if (notification.type?.startsWith("LEAVE")) {
+    if (notification.type?.startsWith("LEAVE") && user.permissions.includes(permissions.leaveRead)) {
       onNavigate("leave");
     }
     setNotifOpen(false);

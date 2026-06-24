@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { AlertTriangle, CheckCircle2, Eye, Plus, Settings, X } from "lucide-react";
 import { apiRequest } from "../../lib/api";
+import { PermissionCode, permissions } from "../../types/rbac";
 import "./SchedulesPage.css";
 
 type Employee = {
@@ -37,7 +38,8 @@ function formatDate(value?: string | null) {
   return value ? new Date(value).toLocaleDateString() : "Ongoing";
 }
 
-export function SchedulesPage() {
+export function SchedulesPage({ user }: { user?: { permissions: PermissionCode[] } }) {
+  const canWrite = user?.permissions.includes(permissions.schedulesWrite) ?? true;
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
@@ -145,78 +147,80 @@ export function SchedulesPage() {
       )}
 
       {/* ── Assign Shift Card ── */}
-      <section className="schedule-form-card">
-        <div className="schedule-form-card-header">
-          <h3 className="schedule-form-card-title">Assign Shift to Employee</h3>
-          <button
-            type="button"
-            className="manage-shifts-btn"
-            onClick={() => setShowAddShift(true)}
-            title="Manage shift types"
-          >
-            <Settings size={14} />
-            Manage Shifts
-          </button>
-        </div>
-
-        <form className="schedule-form" onSubmit={createSchedule}>
-          <div className="schedule-field">
-            <label className="schedule-field-label">Employee</label>
-            <select
-              value={form.employeeId}
-              onChange={(e) => setForm((c) => ({ ...c, employeeId: e.target.value }))}
-              required
+      {canWrite && (
+        <section className="schedule-form-card">
+          <div className="schedule-form-card-header">
+            <h3 className="schedule-form-card-title">Assign Shift to Employee</h3>
+            <button
+              type="button"
+              className="manage-shifts-btn"
+              onClick={() => setShowAddShift(true)}
+              title="Manage shift types"
             >
-              <option value="" disabled>Select employee…</option>
-              {employees.map((emp) => (
-                <option key={emp.id} value={emp.id}>{getName(emp)}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="schedule-field">
-            <label className="schedule-field-label">Shift</label>
-            <select
-              value={form.shiftId}
-              onChange={(e) => setForm((c) => ({ ...c, shiftId: e.target.value }))}
-              required
-            >
-              <option value="" disabled>Select shift…</option>
-              {shifts.map((shift) => (
-                <option key={shift.id} value={shift.id}>
-                  {shift.name} ({shift.startTime} – {shift.endTime})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="schedule-field">
-            <label className="schedule-field-label">Start Date</label>
-            <input
-              type="date"
-              value={form.startsOn}
-              onChange={(e) => setForm((c) => ({ ...c, startsOn: e.target.value }))}
-              required
-            />
-          </div>
-
-          <div className="schedule-field">
-            <label className="schedule-field-label">End Date <span className="optional-tag">optional</span></label>
-            <input
-              type="date"
-              value={form.endsOn}
-              onChange={(e) => setForm((c) => ({ ...c, endsOn: e.target.value }))}
-            />
-          </div>
-
-          <div className="schedule-field schedule-field--action">
-            <label className="schedule-field-label">&nbsp;</label>
-            <button className="add-schedule-button" disabled={isSaving}>
-              <Plus size={15} /> Assign Shift
+              <Settings size={14} />
+              Manage Shifts
             </button>
           </div>
-        </form>
-      </section>
+
+          <form className="schedule-form" onSubmit={createSchedule}>
+            <div className="schedule-field">
+              <label className="schedule-field-label">Employee</label>
+              <select
+                value={form.employeeId}
+                onChange={(e) => setForm((c) => ({ ...c, employeeId: e.target.value }))}
+                required
+              >
+                <option value="" disabled>Select employee…</option>
+                {employees.map((emp) => (
+                  <option key={emp.id} value={emp.id}>{getName(emp)}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="schedule-field">
+              <label className="schedule-field-label">Shift</label>
+              <select
+                value={form.shiftId}
+                onChange={(e) => setForm((c) => ({ ...c, shiftId: e.target.value }))}
+                required
+              >
+                <option value="" disabled>Select shift…</option>
+                {shifts.map((shift) => (
+                  <option key={shift.id} value={shift.id}>
+                    {shift.name} ({shift.startTime} – {shift.endTime})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="schedule-field">
+              <label className="schedule-field-label">Start Date</label>
+              <input
+                type="date"
+                value={form.startsOn}
+                onChange={(e) => setForm((c) => ({ ...c, startsOn: e.target.value }))}
+                required
+              />
+            </div>
+
+            <div className="schedule-field">
+              <label className="schedule-field-label">End Date <span className="optional-tag">optional</span></label>
+              <input
+                type="date"
+                value={form.endsOn}
+                onChange={(e) => setForm((c) => ({ ...c, endsOn: e.target.value }))}
+              />
+            </div>
+
+            <div className="schedule-field schedule-field--action">
+              <label className="schedule-field-label">&nbsp;</label>
+              <button className="add-schedule-button" disabled={isSaving}>
+                <Plus size={15} /> Assign Shift
+              </button>
+            </div>
+          </form>
+        </section>
+      )}
 
       {/* ── Filters + Table ── */}
       <div className="schedules-toolbar">
@@ -312,7 +316,7 @@ export function SchedulesPage() {
       )}
 
       {/* ── Add Shift Type Modal ── */}
-      {showAddShift && (
+      {canWrite && showAddShift && (
         <div className="schedule-modal-backdrop" role="presentation">
           <section className="schedule-modal schedule-modal--sm" role="dialog" aria-modal="true" aria-labelledby="add-shift-title">
             <div className="schedule-modal-header">

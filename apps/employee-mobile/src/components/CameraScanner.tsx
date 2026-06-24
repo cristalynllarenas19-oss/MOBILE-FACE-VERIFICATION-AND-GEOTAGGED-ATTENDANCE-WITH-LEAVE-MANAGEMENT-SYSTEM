@@ -90,6 +90,7 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
           base64: true,
           quality: 0.3,
           skipProcessing: true,
+          shutterSound: false,
         });
         if (!photo?.base64) return;
         const result = await detectFace(`data:image/jpeg;base64,${photo.base64}`);
@@ -137,6 +138,7 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
         base64: true,
         quality: 0.7,
         skipProcessing: true,
+        shutterSound: false,
       });
       onComplete(location, photo?.base64 ? `data:image/jpeg;base64,${photo.base64}` : undefined);
     } catch (error) {

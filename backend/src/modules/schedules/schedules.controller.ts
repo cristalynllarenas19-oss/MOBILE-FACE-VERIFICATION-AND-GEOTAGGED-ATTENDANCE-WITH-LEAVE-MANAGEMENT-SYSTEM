@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Post, Query } from "@nestjs/common";
+import { Body, Controller, Get, Post, Query, Req } from "@nestjs/common";
+import { RequirePermissions } from "../../common/decorators/permissions.decorator";
 import { SchedulesService } from "./schedules.service";
 
 @Controller("schedules")
@@ -7,11 +8,14 @@ export class SchedulesController {
 
   @Get()
   findAll(
+    @Req() request: Request,
     @Query("department") department?: string,
     @Query("shiftId") shiftId?: string,
     @Query("status") status?: string,
   ) {
-    return this.schedulesService.findAll({ department, shiftId, status });
+    const user = (request as any).user;
+    const departmentId = user.role === "SUPERVISOR" ? user.departmentId : undefined;
+    return this.schedulesService.findAll({ department, departmentId, shiftId, status });
   }
 
   @Get("shifts")
@@ -20,6 +24,7 @@ export class SchedulesController {
   }
 
   @Post()
+  @RequirePermissions("schedules:write")
   createAssignment(
     @Body()
     dto: {
@@ -33,6 +38,7 @@ export class SchedulesController {
   }
 
   @Post("shifts")
+  @RequirePermissions("schedules:write")
   createShift(
     @Body()
     dto: {

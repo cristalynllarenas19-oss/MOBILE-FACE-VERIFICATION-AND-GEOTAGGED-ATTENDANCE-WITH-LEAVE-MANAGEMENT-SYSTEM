@@ -7,6 +7,7 @@ import { SubmitAttendanceDto } from "./dto/submit-attendance.dto";
 
 type AttendanceFilters = {
   department?: string;
+  departmentId?: string;
   status?: string;
   date?: string;
 };
@@ -25,9 +26,11 @@ export class AttendanceService {
       where: {
         ...(filters.status && filters.status !== "ALL" ? { status: filters.status as any } : {}),
         ...(attendanceDate && !Number.isNaN(attendanceDate.getTime()) ? { attendanceDate } : {}),
-        ...(filters.department && filters.department !== "ALL"
-          ? { employee: { department: { name: filters.department } } }
-          : {}),
+        ...(filters.departmentId
+          ? { employee: { departmentId: filters.departmentId } }
+          : filters.department && filters.department !== "ALL"
+            ? { employee: { department: { name: filters.department } } }
+            : {}),
       },
       include: {
         employee: { include: { department: true, faceProfiles: { orderBy: { enrolledAt: "desc" }, take: 1 } } },

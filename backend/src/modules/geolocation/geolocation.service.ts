@@ -16,10 +16,10 @@ export type GeofenceInput = {
 export class GeolocationService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAllLocations() {
+  async findAllLocations(departmentId?: string) {
     if (await this.hasJoinTable()) {
       try {
-        return await this.prisma.workLocation.findMany({
+        const locations = await this.prisma.workLocation.findMany({
           include: {
             employees: {
               include: { employee: { include: { department: true, position: true } } },
@@ -27,6 +27,26 @@ export class GeolocationService {
           },
           orderBy: { name: "asc" },
         });
+
+        if (!departmentId) {
+          return locations;
+        }
+
+        // A supervisor only sees zones with at least one of their own department's
+        // employees assigned; zones with no assignments at all (e.g. a "Global Zone")
+        // stay visible to everyone, but the employee list is filtered to their department.
+        return locations
+          .filter(
+            (location) =>
+              location.employees.length === 0 ||
+              location.employees.some((entry) => entry.employee.departmentId === departmentId),
+          )
+          .map((location) => ({
+            ...location,
+            employees: location.employees.filter(
+              (entry) => entry.employee.departmentId === departmentId,
+            ),
+          }));
       } catch (error) {
         if (!this.isMissingJoinTableError(error)) {
           throw error;

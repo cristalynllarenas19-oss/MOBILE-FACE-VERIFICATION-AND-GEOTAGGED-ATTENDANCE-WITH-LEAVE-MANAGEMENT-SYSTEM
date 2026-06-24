@@ -6,8 +6,10 @@ import {
   Post,
   Param,
   Query,
+  Req,
 } from "@nestjs/common";
 
+import { RequirePermissions } from "../../common/decorators/permissions.decorator";
 import { AttendanceService } from "./attendance.service";
 import { SubmitAttendanceDto } from "./dto/submit-attendance.dto";
 
@@ -19,11 +21,14 @@ export class AttendanceController {
 
   @Get()
   findAll(
+    @Req() request: Request,
     @Query("department") department?: string,
     @Query("status") status?: string,
     @Query("date") date?: string,
   ) {
-    return this.attendanceService.findAll({ department, status, date });
+    const user = (request as any).user;
+    const departmentId = user.role === "SUPERVISOR" ? user.departmentId : undefined;
+    return this.attendanceService.findAll({ department, departmentId, status, date });
   }
 
   @Get("today/:employeeId")
@@ -57,11 +62,13 @@ export class AttendanceController {
   }
 
   @Patch(":id/approve")
+  @RequirePermissions("attendance:write")
   approve(@Param("id") id: string, @Body() body: { remarks?: string }) {
     return this.attendanceService.updateStatus(id, "PRESENT", body.remarks);
   }
 
   @Patch(":id/official-business")
+  @RequirePermissions("attendance:write")
   officialBusiness(@Param("id") id: string, @Body() body: { remarks?: string }) {
     return this.attendanceService.updateStatus(id, "OFFICIAL_BUSINESS", body.remarks);
   }

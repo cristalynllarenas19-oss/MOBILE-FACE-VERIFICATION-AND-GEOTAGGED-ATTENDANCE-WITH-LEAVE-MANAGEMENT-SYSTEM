@@ -3,6 +3,7 @@ import { PrismaService } from "../../prisma/prisma.service";
 
 type ScheduleFilters = {
   department?: string;
+  departmentId?: string;
   shiftId?: string;
   status?: string;
 };
@@ -15,9 +16,11 @@ export class SchedulesService {
     const today = new Date();
     return this.prisma.employeeSchedule.findMany({
       where: {
-        ...(filters.department && filters.department !== "ALL"
-          ? { employee: { department: { name: filters.department } } }
-          : {}),
+        ...(filters.departmentId
+          ? { employee: { departmentId: filters.departmentId } }
+          : filters.department && filters.department !== "ALL"
+            ? { employee: { department: { name: filters.department } } }
+            : {}),
         ...(filters.shiftId && filters.shiftId !== "ALL" ? { shiftId: filters.shiftId } : {}),
         ...(filters.status === "ACTIVE" ? { OR: [{ endsOn: null }, { endsOn: { gte: today } }] } : {}),
         ...(filters.status === "ENDED" ? { endsOn: { lt: today } } : {}),

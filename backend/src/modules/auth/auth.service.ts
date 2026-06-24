@@ -27,7 +27,7 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({
       where: { email },
       include: {
-        employee: true,
+        employee: { include: { department: true } },
         userRoles: {
           include: {
             role: {
@@ -56,6 +56,7 @@ export class AuthService {
       role: role?.code,
       permissions,
       employeeId: user.employee?.id,
+      departmentId: user.employee?.departmentId,
     };
 
     await this.prisma.user.update({
@@ -78,6 +79,8 @@ export class AuthService {
         role: role?.code,
         permissions,
         employeeId: user.employee?.id,
+        departmentId: user.employee?.departmentId,
+        department: user.employee?.department?.name,
         displayName,
       },
     };

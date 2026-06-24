@@ -8,6 +8,7 @@ import markerIconUrl from "leaflet/dist/images/marker-icon.png";
 import markerShadowUrl from "leaflet/dist/images/marker-shadow.png";
 import "./GeotaggingPage.css";
 import { apiRequest } from "../../lib/api";
+import { PermissionCode, permissions } from "../../types/rbac";
 
 type EmployeeOption = {
   id: string;
@@ -78,7 +79,7 @@ class GeotaggingErrorBoundary extends Component<
   }
 }
 
-function GeotaggingPageContent() {
+function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
   const [form, setForm] = useState(initialForm);
   const [locations, setLocations] = useState<GeotaggedLocation[]>([]);
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
@@ -533,88 +534,90 @@ function GeotaggingPageContent() {
             </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="geotagging-form">
-            <div className="panel-heading">
-              <div className="panel-heading-icon">
-                <Plus size={14} />
+          {canWrite && (
+            <form onSubmit={handleSubmit} className="geotagging-form">
+              <div className="panel-heading">
+                <div className="panel-heading-icon">
+                  <Plus size={14} />
+                </div>
+                <h3>{editingLocationId ? "Edit Location" : "Add Location"}</h3>
               </div>
-              <h3>{editingLocationId ? "Edit Location" : "Add Location"}</h3>
-            </div>
 
-            {editingIsGlobalZone && (
-              <div className="geotagging-banner info" role="note">
-                Global Zone is assignment-locked. Remove employees from their current area before assigning them to a new
-                location.
-              </div>
-            )}
+              {editingIsGlobalZone && (
+                <div className="geotagging-banner info" role="note">
+                  Global Zone is assignment-locked. Remove employees from their current area before assigning them to a new
+                  location.
+                </div>
+              )}
 
-            {assignmentError && (
-              <div className="geotagging-banner error" role="alert">
-                {assignmentError}
-              </div>
-            )}
+              {assignmentError && (
+                <div className="geotagging-banner error" role="alert">
+                  {assignmentError}
+                </div>
+              )}
 
-            <label>
-              Location name
-              <input
-                type="text"
-                value={form.name}
-                onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-                placeholder="e.g., Leaf buying station"
-                required
-              />
-            </label>
-
-            <div className="coordinate-grid">
               <label>
-                Latitude
+                Location name
                 <input
-                  type="number"
-                  step="0.000001"
-                  value={form.latitude}
-                  onChange={(event) => setForm((current) => ({ ...current, latitude: event.target.value }))}
+                  type="text"
+                  value={form.name}
+                  onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+                  placeholder="e.g., Leaf buying station"
                   required
                 />
               </label>
-              <label>
-                Longitude
-                <input
-                  type="number"
-                  step="0.000001"
-                  value={form.longitude}
-                  onChange={(event) => setForm((current) => ({ ...current, longitude: event.target.value }))}
-                  required
-                />
-              </label>
-            </div>
 
-            <label>
-              Area radius (meters)
-              <div className="radius-input-wrap">
-                <input
-                  type="number"
-                  min="25"
-                  max="1000"
-                  step="5"
-                  value={form.radiusMeters}
-                  onChange={(event) => setForm((current) => ({ ...current, radiusMeters: event.target.value }))}
-                  required
-                />
-                <span className="radius-unit">m</span>
+              <div className="coordinate-grid">
+                <label>
+                  Latitude
+                  <input
+                    type="number"
+                    step="0.000001"
+                    value={form.latitude}
+                    onChange={(event) => setForm((current) => ({ ...current, latitude: event.target.value }))}
+                    required
+                  />
+                </label>
+                <label>
+                  Longitude
+                  <input
+                    type="number"
+                    step="0.000001"
+                    value={form.longitude}
+                    onChange={(event) => setForm((current) => ({ ...current, longitude: event.target.value }))}
+                    required
+                  />
+                </label>
               </div>
-            </label>
 
-            <div className="geotagging-actions">
-              <button className="outline-button" type="button" onClick={startCreateMode}>
-                <Crosshair size={14} />
-                <span>New Area</span>
-              </button>
-              <button className="primary-button" type="submit" disabled={loading}>
-                <Plus size={14} />
-                <span>{editingLocationId ? "Save Changes" : "Add Area"}</span>
-              </button>
-            </div>
-          </form>
+              <label>
+                Area radius (meters)
+                <div className="radius-input-wrap">
+                  <input
+                    type="number"
+                    min="25"
+                    max="1000"
+                    step="5"
+                    value={form.radiusMeters}
+                    onChange={(event) => setForm((current) => ({ ...current, radiusMeters: event.target.value }))}
+                    required
+                  />
+                  <span className="radius-unit">m</span>
+                </div>
+              </label>
+
+              <div className="geotagging-actions">
+                <button className="outline-button" type="button" onClick={startCreateMode}>
+                  <Crosshair size={14} />
+                  <span>New Area</span>
+                </button>
+                <button className="primary-button" type="submit" disabled={loading}>
+                  <Plus size={14} />
+                  <span>{editingLocationId ? "Save Changes" : "Add Area"}</span>
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       </div>
 
@@ -673,19 +676,21 @@ function GeotaggingPageContent() {
                     <button
                       className="icon-button manage-employees-button"
                       type="button"
-                      aria-label={`Manage employees for ${location.name}`}
+                      aria-label={canWrite ? `Manage employees for ${location.name}` : `View employees for ${location.name}`}
                       onClick={() => focusLocation(location)}
                     >
                       <Edit3 size={14} />
                     </button>
-                    <button
-                      className="icon-button danger"
-                      type="button"
-                      aria-label={`Remove ${location.name}`}
-                      onClick={() => removeLocation(location.id)}
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                    {canWrite && (
+                      <button
+                        className="icon-button danger"
+                        type="button"
+                        aria-label={`Remove ${location.name}`}
+                        onClick={() => removeLocation(location.id)}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
                   </article>
                 );
               })
@@ -724,9 +729,11 @@ function GeotaggingPageContent() {
                 </label>
               )}
               <small className="field-help">
-                {editingIsGlobalZone
-                  ? "Global Zone is remove-only. You can unassign employees here, but you cannot add new ones."
-                  : "Check employees to assign them here. Uncheck to remove them from this area."}
+                {!canWrite
+                  ? "Employees assigned to this area."
+                  : editingIsGlobalZone
+                    ? "Global Zone is remove-only. You can unassign employees here, but you cannot add new ones."
+                    : "Check employees to assign them here. Uncheck to remove them from this area."}
               </small>
             </div>
 
@@ -740,6 +747,20 @@ function GeotaggingPageContent() {
                 employeeRows.map((employee) => {
                   const isSelected = currentLocationAssignedIds.has(employee.id);
                   const isAssignedElsewhere = assignedEmployees.has(employee.id) && !isSelected;
+
+                  if (!canWrite) {
+                    if (!isSelected) return null;
+                    return (
+                      <div key={employee.id} className="employee-checklist-item selected">
+                        <span className="employee-checklist-main">
+                          <span className="employee-checklist-name">
+                            {employee.firstName} {employee.lastName}
+                          </span>
+                          <span className="employee-checklist-meta">{employee.department?.name}</span>
+                        </span>
+                      </div>
+                    );
+                  }
 
                   return (
                     editingIsGlobalZone ? (
@@ -790,22 +811,24 @@ function GeotaggingPageContent() {
             </div>
           </div>
 
-          <div className="assignment-save-row">
-            <small className="field-help">
-              {editingLocationId
-                ? "Saving assignments only updates who is assigned here, not the area's location settings."
-                : "Save the area first, then come back here to manage its employees."}
-            </small>
-            <button
-              className="primary-button"
-              type="button"
-              disabled={!editingLocationId || savingAssignments}
-              onClick={handleSaveAssignments}
-            >
-              <Save size={14} />
-              <span>{savingAssignments ? "Saving..." : "Save Assignments"}</span>
-            </button>
-          </div>
+          {canWrite && (
+            <div className="assignment-save-row">
+              <small className="field-help">
+                {editingLocationId
+                  ? "Saving assignments only updates who is assigned here, not the area's location settings."
+                  : "Save the area first, then come back here to manage its employees."}
+              </small>
+              <button
+                className="primary-button"
+                type="button"
+                disabled={!editingLocationId || savingAssignments}
+                onClick={handleSaveAssignments}
+              >
+                <Save size={14} />
+                <span>{savingAssignments ? "Saving..." : "Save Assignments"}</span>
+              </button>
+            </div>
+          )}
 
           <div className="selected-assignment">
             <div className="assignment-icon-wrap">
@@ -822,10 +845,11 @@ function GeotaggingPageContent() {
   );
 }
 
-export function GeotaggingPage() {
+export function GeotaggingPage({ user }: { user?: { permissions: PermissionCode[] } }) {
+  const canWrite = user?.permissions.includes(permissions.geolocationWrite) ?? true;
   return (
     <GeotaggingErrorBoundary>
-      <GeotaggingPageContent />
+      <GeotaggingPageContent canWrite={canWrite} />
     </GeotaggingErrorBoundary>
   );
 }

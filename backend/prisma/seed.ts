@@ -16,11 +16,12 @@ const permissionRows = [
   ["schedules:read", "Schedules"],
   ["schedules:write", "Schedules"],
   ["reports:read", "Reports"],
+  ["geolocation:write", "Geolocation"],
 ] as const;
 
 const rolePermissions: Record<RoleCode, string[]> = {
   ADMIN: permissionRows.map(([code]) => code),
-  SUPERVISOR: ["dashboard:view", "employees:read", "attendance:read", "leave:read", "schedules:read", "reports:read"],
+  SUPERVISOR: ["dashboard:view", "employees:read", "attendance:read", "schedules:read"],
   EMPLOYEE: ["dashboard:view", "attendance:write", "leave:read", "leave:write"],
 };
 
@@ -76,12 +77,13 @@ async function main() {
       },
     });
 
+    // Full replace, not additive upsert — otherwise a permission removed from
+    // rolePermissions above would stay granted forever on an already-seeded DB.
+    await prisma.rolePermission.deleteMany({ where: { roleId: role.id } });
     for (const permissionCode of rolePermissions[code]) {
       const permission = await prisma.permission.findUniqueOrThrow({ where: { code: permissionCode } });
-      await prisma.rolePermission.upsert({
-        where: { roleId_permissionId: { roleId: role.id, permissionId: permission.id } },
-        update: {},
-        create: { roleId: role.id, permissionId: permission.id },
+      await prisma.rolePermission.create({
+        data: { roleId: role.id, permissionId: permission.id },
       });
     }
   }

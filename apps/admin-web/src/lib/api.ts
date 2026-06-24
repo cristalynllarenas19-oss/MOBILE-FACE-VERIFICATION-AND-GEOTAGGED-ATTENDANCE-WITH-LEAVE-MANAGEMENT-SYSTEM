@@ -6,6 +6,8 @@ export type AuthUser = {
   role: string;
   permissions: string[];
   employeeId?: string;
+  departmentId?: string;
+  department?: string;
   displayName: string;
 };
 

@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Req } from "@nestjs/common";
+import { RequirePermissions } from "../../common/decorators/permissions.decorator";
 import { GeolocationService } from "./geolocation.service";
 
 @Controller("geolocation")
@@ -6,8 +7,10 @@ export class GeolocationController {
   constructor(private readonly geolocationService: GeolocationService) {}
 
   @Get("locations")
-  findAllLocations() {
-    return this.geolocationService.findAllLocations();
+  findAllLocations(@Req() request: Request) {
+    const user = (request as any).user;
+    const departmentId = user.role === "SUPERVISOR" ? user.departmentId : undefined;
+    return this.geolocationService.findAllLocations(departmentId);
   }
 
   @Get("my-location")
@@ -17,6 +20,7 @@ export class GeolocationController {
   }
 
   @Post("locations")
+  @RequirePermissions("geolocation:write")
   createLocation(@Body() data: any) {
     return this.geolocationService.createLocation({
       name: data.name,
@@ -29,6 +33,7 @@ export class GeolocationController {
   }
 
   @Patch("locations/:id")
+  @RequirePermissions("geolocation:write")
   updateLocation(@Param("id") id: string, @Body() data: any) {
     return this.geolocationService.updateLocation(id, {
       name: data.name,
@@ -42,16 +47,19 @@ export class GeolocationController {
   }
 
   @Post("locations/:id/employees/:employeeId")
+  @RequirePermissions("geolocation:write")
   addEmployee(@Param("id") id: string, @Param("employeeId") employeeId: string) {
     return this.geolocationService.addEmployee(id, employeeId);
   }
 
   @Delete("locations/:id/employees/:employeeId")
+  @RequirePermissions("geolocation:write")
   removeEmployee(@Param("id") id: string, @Param("employeeId") employeeId: string) {
     return this.geolocationService.removeEmployee(id, employeeId);
   }
 
   @Delete("locations/:id")
+  @RequirePermissions("geolocation:write")
   removeLocation(@Param("id") id: string) {
     return this.geolocationService.removeLocation(id);
   }

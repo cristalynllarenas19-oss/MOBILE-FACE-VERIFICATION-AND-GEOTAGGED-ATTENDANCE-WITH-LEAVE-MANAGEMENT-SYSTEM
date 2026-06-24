@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Eye, MapPin, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { apiRequest } from "../../lib/api";
+import { PermissionCode, permissions } from "../../types/rbac";
 import "./AttendancePage.css";
 
 type AttendanceStatus = "PRESENT" | "LATE" | "ABSENT" | "ON_LEAVE" | "OFFICIAL_BUSINESS" | "PENDING_REVIEW";
@@ -126,10 +127,12 @@ function AttendanceDetailsModal({
   record,
   onClose,
   onUpdated,
+  canWrite,
 }: {
   record: AttendanceRecord;
   onClose: () => void;
   onUpdated: (record: AttendanceRecord, message: string) => void;
+  canWrite: boolean;
 }) {
   const [remarks, setRemarks] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -204,18 +207,22 @@ function AttendanceDetailsModal({
         </div>
 
         <div className="attendance-admin-actions">
-          <label>
-            Add Remarks
-            <textarea
-              value={remarks}
-              onChange={(event) => setRemarks(event.target.value)}
-              placeholder={record.adminRemarks?.remarks ?? "Optional review notes"}
-            />
-          </label>
+          {canWrite && (
+            <label>
+              Add Remarks
+              <textarea
+                value={remarks}
+                onChange={(event) => setRemarks(event.target.value)}
+                placeholder={record.adminRemarks?.remarks ?? "Optional review notes"}
+              />
+            </label>
+          )}
           {error && <p className="attendance-form-error">{error}</p>}
           <div>
             <button className="outline-button" onClick={onClose} disabled={isSaving}>Close</button>
-            <button className="primary-button" onClick={() => updateStatus("approve")} disabled={isSaving}>Approve</button>
+            {canWrite && (
+              <button className="primary-button" onClick={() => updateStatus("approve")} disabled={isSaving}>Approve</button>
+            )}
           </div>
         </div>
       </section>
@@ -223,7 +230,8 @@ function AttendanceDetailsModal({
   );
 }
 
-export function AttendancePage() {
+export function AttendancePage({ user }: { user?: { permissions: PermissionCode[] } }) {
+  const canWrite = user?.permissions.includes(permissions.attendanceWrite) ?? true;
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [employeeOptions, setEmployeeOptions] = useState<EmployeeOption[]>([]);
   const [departmentFilter, setDepartmentFilter] = useState("ALL");
@@ -359,7 +367,14 @@ export function AttendancePage() {
         </table>
       </section>
 
-      {viewRecord && <AttendanceDetailsModal record={viewRecord} onClose={() => setViewRecord(null)} onUpdated={handleUpdated} />}
+      {viewRecord && (
+        <AttendanceDetailsModal
+          record={viewRecord}
+          onClose={() => setViewRecord(null)}
+          onUpdated={handleUpdated}
+          canWrite={canWrite}
+        />
+      )}
     </>
   );
 }

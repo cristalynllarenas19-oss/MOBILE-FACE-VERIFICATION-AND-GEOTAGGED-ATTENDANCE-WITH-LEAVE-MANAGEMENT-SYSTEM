@@ -7,8 +7,9 @@ import { CreateEmployeeDto, UpdateEmployeeDto } from "./dto/create-employee.dto"
 export class EmployeesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findAll() {
+  findAll(departmentId?: string) {
     return this.prisma.employee.findMany({
+      where: departmentId ? { departmentId } : undefined,
       include: { user: true, department: true, position: true },
       orderBy: { lastName: "asc" },
     });
