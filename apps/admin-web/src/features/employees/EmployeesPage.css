@@ -411,6 +411,10 @@
   padding: 12px 24px 24px;
 }
 
+.employee-detail-actions .employee-archive-action {
+  margin-right: auto;
+}
+
 @media (max-width: 640px) {
   .employees-notification {
     bottom: 12px;

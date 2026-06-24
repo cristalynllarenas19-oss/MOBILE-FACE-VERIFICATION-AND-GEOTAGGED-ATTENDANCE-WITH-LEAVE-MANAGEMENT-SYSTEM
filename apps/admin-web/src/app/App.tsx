@@ -4,7 +4,6 @@ import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { EmployeesPage } from "../features/employees/EmployeesPage";
 import { LeavePage } from "../features/leave/LeavePage";
 import { LoginPage } from "../features/login/LoginPage";
-import { ProfilePage } from "../features/profile/ProfilePage";
 import { ReportsPage } from "../features/reports/ReportsPage";
 import { SchedulesPage } from "../features/schedules/SchedulesPage";
 import { UsersPage } from "../features/users/UsersPage";
@@ -34,8 +33,7 @@ export default function App() {
   // Defends against `page` ever pointing at a page the user's permissions don't
   // cover (e.g. a stale notification deep-link) — falls back to the dashboard.
   const activeNavItem = navItems.find((item) => item.id === page);
-  const hasAccess =
-    !activeNavItem || activeNavItem.permission === null || user.permissions.includes(activeNavItem.permission);
+  const hasAccess = !activeNavItem || user.permissions.includes(activeNavItem.permission);
   const renderPage = hasAccess ? page : "dashboard";
 
   return (
@@ -49,7 +47,6 @@ export default function App() {
       user={user}
     >
       {renderPage === "dashboard" && <DashboardPage />}
-      {renderPage === "profile" && <ProfilePage />}
       {renderPage === "users" && <UsersPage />}
       {renderPage === "face-registration" && <FaceRegistrationPage />}
       {renderPage === "employees" && <EmployeesPage user={user} />}

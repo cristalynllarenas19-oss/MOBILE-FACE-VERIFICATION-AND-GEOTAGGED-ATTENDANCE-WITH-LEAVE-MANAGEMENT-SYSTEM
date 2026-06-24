@@ -1,6 +1,6 @@
 import axios from "axios";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { AlertTriangle, Archive, CheckCircle2, Eye, Pencil, Plus, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Eye, Plus, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { apiRequest } from "../../lib/api";
 import { PermissionCode, permissions } from "../../types/rbac";
@@ -470,14 +470,14 @@ function ViewEmployeeModal({
       </div>
 
       <div className="employee-detail-actions">
-        <button type="button" className="outline-button" onClick={onClose}>
-          Close
-        </button>
         {canWrite && employee.employmentStatus !== "SEPARATED" && (
           <button type="button" className="employee-archive-action" onClick={onArchive}>
             Archive Employee
           </button>
         )}
+        <button type="button" className="outline-button" onClick={onClose}>
+          Close
+        </button>
         {canWrite && (
           <button type="button" className="primary-button" onClick={onEdit}>
             Edit Employee
@@ -556,6 +556,7 @@ export function EmployeesPage({ user }: { user?: { permissions: PermissionCode[]
   const canWrite = user?.permissions.includes(permissions.employeesWrite) ?? true;
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [departmentFilter, setDepartmentFilter] = useState("ALL");
+  const [statusFilter, setStatusFilter] = useState<"ACTIVE" | "ARCHIVED" | "ALL">("ACTIVE");
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [viewEmployee, setViewEmployee] = useState<Employee | null>(null);
   const [editEmployee, setEditEmployee] = useState<Employee | null>(null);
@@ -578,8 +579,10 @@ export function EmployeesPage({ user }: { user?: { permissions: PermissionCode[]
   const departments = Array.from(new Set(employees.map((employee) => employee.department.name))).sort();
   const positions = Array.from(new Set(employees.map((employee) => employee.position.title))).sort();
   const visibleEmployees = employees.filter((employee) => {
-    if (departmentFilter === "ALL") return true;
-    return employee.department.name === departmentFilter;
+    if (departmentFilter !== "ALL" && employee.department.name !== departmentFilter) return false;
+    if (statusFilter === "ACTIVE" && employee.employmentStatus === "SEPARATED") return false;
+    if (statusFilter === "ARCHIVED" && employee.employmentStatus !== "SEPARATED") return false;
+    return true;
   });
 
   const handleEmployeeCreated = (employee: Employee) => {
@@ -637,6 +640,17 @@ export function EmployeesPage({ user }: { user?: { permissions: PermissionCode[]
               </option>
             ))}
           </select>
+
+          <select
+            className="department-select"
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value as "ACTIVE" | "ARCHIVED" | "ALL")}
+            aria-label="Filter employees by archive status"
+          >
+            <option value="ACTIVE">Active Employees</option>
+            <option value="ARCHIVED">Archived Employees</option>
+            <option value="ALL">All Statuses</option>
+          </select>
         </div>
 
         {canWrite && (
@@ -684,18 +698,6 @@ export function EmployeesPage({ user }: { user?: { permissions: PermissionCode[]
                         <Eye size={14} />
                         View
                       </button>
-                      {canWrite && (
-                        <button className="employee-edit-button" onClick={() => openEditEmployee(employee)}>
-                          <Pencil size={14} />
-                          Edit
-                        </button>
-                      )}
-                      {canWrite && employee.employmentStatus !== "SEPARATED" && (
-                        <button className="employee-archive-button" onClick={() => setArchiveEmployee(employee)}>
-                          <Archive size={14} />
-                          Archive
-                        </button>
-                      )}
                     </div>
                   </td>
                 </tr>
