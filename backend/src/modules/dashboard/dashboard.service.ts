@@ -5,12 +5,15 @@ import { PrismaService } from "../../prisma/prisma.service";
 export class DashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async summary() {
+  async summary(month: number, year: number) {
     const today = new Date();
     const attendanceDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-    const monthEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0);
 
+    // Use the requested month/year for the calendar
+    const monthStart = new Date(year, month, 1);
+    const monthEnd = new Date(year, month + 1, 0);
+
+    // Stats (present/late/absent today) always reflect the real today
     const [
       employees,
       presentToday,
@@ -56,13 +59,11 @@ export class DashboardService {
     const trendMap = new Map<string, { department: string; dayOfWeek: string; absences: number; dates: string[] }>();
 
     const calendarDays = Array.from({ length: monthEnd.getDate() }, (_, index) => {
-      const date = new Date(today.getFullYear(), today.getMonth(), index + 1);
+      const date = new Date(year, month, index + 1);
       const records = monthAttendance.filter((record) => record.attendanceDate.getDate() === index + 1);
       const isPastDate = date < attendanceDate;
 
       const explicitAbsentees = records.filter((record) => record.status === "ABSENT");
-      // Employees with no attendance record at all for a past date never clocked in/out,
-      // so they count as absent even though no row was ever created for them.
       const recordedEmployeeIds = new Set(records.map((record) => record.employeeId));
       const noShowAbsentees = isPastDate
         ? employees.filter((employee) => employee.hireDate <= date && !recordedEmployeeIds.has(employee.id))
@@ -107,6 +108,11 @@ export class DashboardService {
             : `${trend.department} has ${trend.absences} absence${trend.absences === 1 ? "" : "s"} on ${trend.dayOfWeek}s this month.`,
       }));
 
+    const monthLabel = new Date(year, month, 1).toLocaleString("en-US", {
+      month: "long",
+      year: "numeric",
+    });
+
     return {
       stats: {
         totalEmployees,
@@ -135,7 +141,7 @@ export class DashboardService {
         total: totalEmployees,
       },
       calendar: {
-        monthLabel: today.toLocaleString("en-US", { month: "long", year: "numeric" }),
+        monthLabel,
         days: calendarDays,
       },
       absenceTrends,

@@ -13,32 +13,99 @@
   --sub: #41536b;
 }
 
-
-.dashboard-page .card {
-  padding: 10px 12px;
+/* ── Section labels above stat rows ── */
+.stats-section-label {
+  margin: 0 0 5px 2px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.55px;
+  color: var(--muted);
 }
 
+/* ── Stat grid: single row ── */
 .stats-grid {
   display: flex;
   flex-wrap: nowrap;
   gap: 6px;
   margin-bottom: 10px;
-  overflow-x: auto;
-  padding-bottom: 2px;
 }
 
+.stats-grid--bottom {
+  margin-bottom: 10px;
+}
 
+/* ── Stat card ── */
+.stat-card {
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  min-height: 68px;
+  padding: 10px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.stat-text {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.stat-card p {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: normal;
+  line-height: 1.3;
+}
+
+.stat-card strong {
+  display: block;
+  margin-top: 3px;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1;
+}
+
+.stat-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 32px;
+}
+
+.stat-icon.blue   { background: #e8f4fd; color: #1a6faf; }
+.stat-icon.green  { background: #e8f8f0; color: #1a8a4a; }
+.stat-icon.yellow { background: #fef9e7; color: #c09000; }
+.stat-icon.red    { background: #fdecea; color: #c0392b; }
+.stat-icon.pink   { background: #fce8f0; color: #b0306a; }
+.stat-icon.cyan   { background: #e3f7fb; color: #1a90aa; }
+.stat-icon.purple { background: #f1ebfd; color: #6d36c4; }
+.stat-icon.teal   { background: #e6f8f4; color: #128a72; }
+
+/* ── Dashboard grid ── */
 .dashboard-grid {
   display: grid;
   grid-template-columns: 1fr 280px;
   gap: 10px;
 }
 
+.dashboard-page .card {
+  padding: 12px 14px;
+}
+
 .calendar-card {
   min-height: 380px;
 }
 
-
+/* ── Card heading ── */
 .card-heading h3 {
   margin: 0;
   font-size: 13px;
@@ -46,11 +113,11 @@
   color: var(--text);
 }
 
-
+/* ── Calendar ── */
 .calendar-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  gap: 8px;
   margin: 8px 0;
 }
 
@@ -58,12 +125,44 @@
   font-size: 14px;
   font-weight: 700;
   color: var(--text);
+  min-width: 130px;
+  text-align: center;
 }
 
-.calendar-header span {
+.cal-hint {
+  margin-left: auto;
   color: var(--muted);
   font-size: 11px;
   font-weight: 700;
+}
+
+.cal-nav-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: var(--navy);
+  color: #ffffff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s ease;
+}
+
+.cal-nav-btn:hover {
+  background: var(--navy-dark);
+}
+
+.cal-nav-btn:focus-visible {
+  outline: 2px solid #1a6faf;
+  outline-offset: 2px;
+}
+
+.calendar-loading {
+  opacity: 0.55;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
 }
 
 .calendar-grid {
@@ -82,7 +181,7 @@
 }
 
 .calendar-grid button {
-  height: 58px;
+  height: 64px;
   border: 1px solid var(--line);
   background: white;
   text-align: left;
@@ -93,6 +192,7 @@
   display: grid;
   align-content: space-between;
   gap: 3px;
+  border-radius: 6px;
   transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
 }
 
@@ -109,17 +209,18 @@
 
 .calendar-grid button.today {
   border-color: #1a6faf;
+  background: #e8f4fd;
   box-shadow: inset 0 0 0 1px #1a6faf;
 }
 
 .calendar-grid button.warm {
-  background: #fff7ed;
-  border-color: #fed7aa;
+  background: white;
+  border-color: var(--line);
 }
 
 .calendar-grid button.hot {
-  background: #fee2e2;
-  border-color: #fca5a5;
+  background: white;
+  border-color: var(--line);
 }
 
 .calendar-grid button small {
@@ -144,28 +245,45 @@
   background: #e2e8f0;
 }
 
-
+/* ── Sidebar ── */
 .side-stack {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.side-stack h3 {
+/* Each sidebar card gets a top accent border to visually separate sections */
+.side-card {
+  border-top: 3px solid var(--line) !important;
+}
+
+.side-card-header {
   display: flex;
   align-items: center;
   gap: 6px;
+  margin-bottom: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #edf2f7;
+}
+
+.side-card-header svg {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.side-stack h3 {
   font-size: 12px;
   font-weight: 700;
   color: var(--text);
-  margin: 0 0 6px 0;
+  margin: 0;
 }
 
+/* ── Summary rows ── */
 .summary-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 5px 0;
+  padding: 6px 0;
   border-bottom: 1px solid #edf2f7;
   font-size: 11px;
   color: var(--sub);
@@ -173,19 +291,24 @@
 
 .summary-row:last-child {
   border-bottom: none;
+  padding-bottom: 0;
 }
 
 .summary-row strong {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--text);
+}
+
+.value-green {
+  color: #1a8a4a !important;
 }
 
 .warning-text {
   color: #f59e0b;
 }
 
-
+/* ── Card base ── */
 .card {
   background: #ffffff;
   border: 1px solid var(--line);
@@ -193,85 +316,7 @@
   padding: 14px;
 }
 
-
-.stat-card {
-  background: #ffffff;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  min-height: 64px;
-  padding: 9px;
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  flex: 1 1 0;
-  min-width: 108px;
-}
-
-.stat-text {
-  min-width: 0;
-  flex: 1 1 auto;
-}
-
-.stat-card p {
-  margin: 0;
-  font-size: 8px;
-  font-weight: 700;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.stat-card strong {
-  display: block;
-  margin-top: 2px;
-  font-size: 17px;
-  font-weight: 700;
-  color: var(--text);
-  line-height: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.stat-icon {
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
-  display: grid;
-  place-items: center;
-  flex: 0 0 28px;
-}
-
-.stat-icon.blue { background: #e8f4fd; color: #1a6faf; }
-.stat-icon.green { background: #e8f8f0; color: #1a8a4a; }
-.stat-icon.yellow { background: #fef9e7; color: #c09000; }
-.stat-icon.red { background: #fdecea; color: #c0392b; }
-.stat-icon.pink { background: #fce8f0; color: #b0306a; }
-.stat-icon.cyan { background: #e3f7fb; color: #1a90aa; }
-.stat-icon.purple { background: #f1ebfd; color: #6d36c4; }
-.stat-icon.teal { background: #e6f8f4; color: #128a72; }
-
-
-
-@media (max-width: 1100px) {
-  .dashboard-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 768px) {
-  .dashboard-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .calendar-grid {
-    overflow-x: auto;
-  }
-}
-
+/* ── Absence trend ── */
 .trend-row {
   display: grid;
   gap: 3px;
@@ -280,14 +325,8 @@
 }
 
 @keyframes trend-fade-in {
-  from {
-    opacity: 0;
-    transform: translateY(3px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(3px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 .trend-row strong {
@@ -307,7 +346,7 @@
   display: flex;
   justify-content: center;
   gap: 5px;
-  margin-top: 4px;
+  margin-top: 6px;
 }
 
 .trend-dots span {
@@ -323,6 +362,7 @@
   transform: scale(1.3);
 }
 
+/* ── Day detail modal ── */
 .day-modal-backdrop {
   position: fixed;
   inset: 0;
@@ -404,4 +444,35 @@
   color: var(--muted);
   font-size: 12px;
   padding: 24px 0;
+}
+
+/* ── Responsive ── */
+@media (max-width: 1100px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .stats-grid {
+    flex-wrap: wrap;
+  }
+  .stat-card {
+    flex: 1 1 calc(25% - 6px);
+  }
+}
+
+@media (max-width: 768px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+  .stats-grid {
+    flex-wrap: wrap;
+  }
+  .stat-card {
+    flex: 1 1 calc(50% - 6px);
+  }
+  .calendar-grid {
+    overflow-x: auto;
+  }
 }

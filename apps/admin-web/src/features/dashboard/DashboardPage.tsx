@@ -1,8 +1,9 @@
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock,
-  FileText,
   MapPin,
   MapPinned,
   ScanFace,
@@ -108,7 +109,7 @@ function DayMiniBar({ day }: { day: CalendarDay }) {
     { key: "onLeave", value: day.onLeave, color: STATUS_COLORS.onLeave },
     { key: "officialBusiness", value: day.officialBusiness, color: STATUS_COLORS.officialBusiness },
   ];
-  const total = segments.reduce((sum, segment) => sum + segment.value, 0);
+  const total = segments.reduce((sum, s) => sum + s.value, 0);
 
   if (total === 0) {
     return (
@@ -121,9 +122,9 @@ function DayMiniBar({ day }: { day: CalendarDay }) {
   return (
     <div className="mini-bar">
       {segments
-        .filter((segment) => segment.value > 0)
-        .map((segment) => (
-          <span key={segment.key} style={{ flexGrow: segment.value, background: segment.color }} />
+        .filter((s) => s.value > 0)
+        .map((s) => (
+          <span key={s.key} style={{ flexGrow: s.value, background: s.color }} />
         ))}
     </div>
   );
@@ -145,7 +146,7 @@ function DayDetailModal({ day, onClose }: { day: CalendarDay; onClose: () => voi
         role="dialog"
         aria-modal="true"
         aria-labelledby="day-modal-title"
-        onClick={(event) => event.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
       >
         <div className="day-modal-header">
           <div>
@@ -173,7 +174,11 @@ function DayDetailModal({ day, onClose }: { day: CalendarDay; onClose: () => voi
 }
 
 export function DashboardPage() {
+  const now = new Date();
+  const [calendarMonth, setCalendarMonth] = useState(now.getMonth()); // 0-indexed
+  const [calendarYear, setCalendarYear] = useState(now.getFullYear());
   const [summary, setSummary] = useState(initialSummary);
+  const [calendarLoading, setCalendarLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<CalendarDay | null>(null);
   const [trendIndex, setTrendIndex] = useState(0);
@@ -188,10 +193,12 @@ export function DashboardPage() {
   }, [summary.absenceTrends.length]);
 
   useEffect(() => {
-    apiRequest<DashboardSummary>("/dashboard/summary")
+    setCalendarLoading(true);
+    // month param is 1-indexed for the API
+    apiRequest<DashboardSummary>(
+      `/dashboard/summary?month=${calendarMonth + 1}&year=${calendarYear}`
+    )
       .then((data) => {
-        // Merge defensively in case the API response is partial/malformed,
-        // so we never end up with `summary.calendar` being undefined.
         setSummary({
           stats: { ...initialSummary.stats, ...data?.stats },
           attendanceSummary: { ...initialSummary.attendanceSummary, ...data?.attendanceSummary },
@@ -206,8 +213,23 @@ export function DashboardPage() {
       .catch((err) => {
         console.error("Failed to load dashboard summary:", err);
         setLoadError("Could not load dashboard data. Please try refreshing or logging in again.");
-      });
-  }, []);
+      })
+      .finally(() => setCalendarLoading(false));
+  }, [calendarMonth, calendarYear]);
+
+  function prevMonth() {
+    setCalendarMonth((m) => {
+      if (m === 0) { setCalendarYear((y) => y - 1); return 11; }
+      return m - 1;
+    });
+  }
+
+  function nextMonth() {
+    setCalendarMonth((m) => {
+      if (m === 11) { setCalendarYear((y) => y + 1); return 0; }
+      return m + 1;
+    });
+  }
 
   return (
     <div className="dashboard-page">
@@ -217,8 +239,7 @@ export function DashboardPage() {
         <StatCard label="Total Employees" value={summary.stats.totalEmployees} icon={Users} tone="blue" />
         <StatCard label="Present Today" value={summary.stats.presentToday} icon={CheckCircle2} tone="green" />
         <StatCard label="Late Today" value={summary.stats.lateToday} icon={Clock} tone="yellow" />
-        <StatCard label="Absent" value={summary.stats.absentToday} icon={AlertTriangle} tone="red" />
-        <StatCard label="Pending Leaves" value={summary.stats.pendingLeaves} icon={FileText} tone="pink" />
+        <StatCard label="Absent Today" value={summary.stats.absentToday} icon={AlertTriangle} tone="red" />
         <StatCard label="Geotagged Logs" value={summary.stats.geotaggedLogs} icon={MapPin} tone="cyan" />
         <StatCard
           label="Face Enrollment"
@@ -227,7 +248,7 @@ export function DashboardPage() {
           tone="purple"
         />
         <StatCard
-          label="Geotagged Assignment"
+          label="Geotagged Areas"
           value={`${summary.geotagging.assigned}/${summary.geotagging.total}`}
           icon={MapPinned}
           tone="teal"
@@ -235,13 +256,19 @@ export function DashboardPage() {
       </div>
 
       <div className="dashboard-grid">
-        <Card className="calendar-card">
+        <Card className={`calendar-card${calendarLoading ? " calendar-loading" : ""}`}>
           <div className="card-heading">
             <h3>Attendance Calendar and Availability</h3>
           </div>
           <div className="calendar-header">
+            <button className="cal-nav-btn" onClick={prevMonth} aria-label="Previous month">
+              <ChevronLeft size={16} />
+            </button>
             <strong>{summary.calendar?.monthLabel ?? ""}</strong>
-            <span>Click a date to view its breakdown</span>
+            <button className="cal-nav-btn" onClick={nextMonth} aria-label="Next month">
+              <ChevronRight size={16} />
+            </button>
+            <span className="cal-hint">Click a date to view its breakdown</span>
           </div>
           <div className="calendar-grid">
             {days.map((day) => (
@@ -268,8 +295,11 @@ export function DashboardPage() {
         </Card>
 
         <aside className="side-stack">
-          <Card>
-            <h3><TrendingUp size={15} /> Absence Trends</h3>
+          <Card className="side-card">
+            <div className="side-card-header">
+              <TrendingUp size={15} />
+              <h3>Absence Trends</h3>
+            </div>
             {summary.absenceTrends.length === 0 ? (
               <p className="trend-empty">No repeated absence pattern this month.</p>
             ) : (
@@ -295,17 +325,41 @@ export function DashboardPage() {
               </div>
             )}
           </Card>
-          <Card>
-            <h3>Attendance Summary</h3>
-            <div className="summary-row"><span>Present</span><strong>{summary.attendanceSummary.present}</strong></div>
-            <div className="summary-row"><span>Late</span><strong className="warning-text">{summary.attendanceSummary.late}</strong></div>
-            <div className="summary-row"><span>Pending Review</span><strong>{summary.attendanceSummary.pendingReview}</strong></div>
+
+          <Card className="side-card">
+            <div className="side-card-header">
+              <h3>Attendance Summary</h3>
+            </div>
+            <div className="summary-row">
+              <span>Present</span>
+              <strong className="value-green">{summary.attendanceSummary.present}</strong>
+            </div>
+            <div className="summary-row">
+              <span>Late</span>
+              <strong className="warning-text">{summary.attendanceSummary.late}</strong>
+            </div>
+            <div className="summary-row">
+              <span>Pending Review</span>
+              <strong>{summary.attendanceSummary.pendingReview}</strong>
+            </div>
           </Card>
-          <Card>
-            <h3>Leave Availability</h3>
-            <div className="summary-row"><span>Vacation Leave</span><strong>{summary.leaveAvailability.vacation}</strong></div>
-            <div className="summary-row"><span>Sick Leave</span><strong>{summary.leaveAvailability.sick}</strong></div>
-            <div className="summary-row"><span>Special Leave</span><strong>{summary.leaveAvailability.special}</strong></div>
+
+          <Card className="side-card">
+            <div className="side-card-header">
+              <h3>Leave Availability</h3>
+            </div>
+            <div className="summary-row">
+              <span>Vacation Leave</span>
+              <strong>{summary.leaveAvailability.vacation}</strong>
+            </div>
+            <div className="summary-row">
+              <span>Sick Leave</span>
+              <strong>{summary.leaveAvailability.sick}</strong>
+            </div>
+            <div className="summary-row">
+              <span>Special Leave</span>
+              <strong>{summary.leaveAvailability.special}</strong>
+            </div>
           </Card>
         </aside>
       </div>

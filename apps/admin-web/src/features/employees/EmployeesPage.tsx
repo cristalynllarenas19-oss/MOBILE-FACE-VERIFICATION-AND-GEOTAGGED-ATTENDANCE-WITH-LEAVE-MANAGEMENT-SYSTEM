@@ -1,6 +1,6 @@
 import axios from "axios";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { AlertTriangle, CheckCircle2, Eye, Plus, X } from "lucide-react";
+import { AlertTriangle, Archive, CheckCircle2, Eye, Pencil, Plus, Search, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { apiRequest } from "../../lib/api";
 import { PermissionCode, permissions } from "../../types/rbac";
@@ -15,6 +15,9 @@ type Employee = {
   lastName: string;
   employmentStatus: "REGULAR" | "PROBATIONARY" | "CONTRACTUAL" | "SEPARATED";
   hireDate?: string;
+  archiveType?: string;
+  archiveReason?: string;
+  archiveDate?: string;
   user?: { email: string } | null;
   department: { name: string };
   position: { title: string };
@@ -50,14 +53,70 @@ function getDateInputValue(value?: string) {
   return value ? value.slice(0, 10) : "";
 }
 
+function formatRelativeTime(value: string) {
+  const then = new Date(value).getTime();
+  if (Number.isNaN(then)) return "";
+
+  const now = Date.now();
+  const diffDays = Math.round((now - then) / (1000 * 60 * 60 * 24));
+
+  if (diffDays <= 0) return "today";
+  if (diffDays === 1) return "yesterday";
+  if (diffDays < 30) return `${diffDays} day${diffDays === 1 ? "" : "s"} ago`;
+
+  const diffMonths = Math.round(diffDays / 30);
+  if (diffMonths < 12) return diffMonths === 1 ? "last month" : `${diffMonths} months ago`;
+
+  const diffYears = Math.round(diffMonths / 12);
+  return diffYears === 1 ? "1 year ago" : `${diffYears} years ago`;
+}
+
+function formatArchiveDate(value?: string) {
+  if (!value) return "";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const exact = date.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+  const relative = formatRelativeTime(value);
+
+  return relative ? `${exact} \u00b7 ${relative}` : exact;
+}
+
 function getStatusTone(status: Employee["employmentStatus"]) {
   if (status === "REGULAR") return "success";
   if (status === "SEPARATED") return "danger";
   return "warning";
 }
 
+// FIX 1: Show archiveType label instead of "SEPARATED" for archived employees
+function getStatusLabel(employee: Employee) {
+  if (employee.employmentStatus === "SEPARATED" && employee.archiveType) {
+    return employee.archiveType;
+  }
+  return employee.employmentStatus;
+}
+
 function getEmployeeName(employee: Employee) {
   return `${employee.firstName} ${employee.lastName}`;
+}
+
+function matchesSearch(employee: Employee, query: string) {
+  if (!query.trim()) return true;
+
+  const needle = query.trim().toLowerCase();
+  const haystacks = [
+    employee.employeeNo,
+    employee.firstName,
+    employee.lastName,
+    getEmployeeName(employee),
+    employee.user?.email ?? "",
+    employee.department.name,
+    employee.position.title,
+    employee.employmentStatus,
+  ];
+
+  return haystacks.some((value) => value.toLowerCase().includes(needle));
 }
 
 function EmployeeModal({
@@ -76,7 +135,7 @@ function EmployeeModal({
       <section className="employee-modal" role="dialog" aria-modal="true" aria-labelledby="employee-modal-title">
         <div className="employee-modal-header">
           <div>
-            <h2 id="employee-modal-title">{title}</h2>
+            {title && <h2 id="employee-modal-title">{title}</h2>}
             {description && <p>{description}</p>}
           </div>
           <button className="icon-button" onClick={onClose} aria-label="Close employee modal">
@@ -465,13 +524,45 @@ function ViewEmployeeModal({
         </div>
         <div>
           <span>Status</span>
-          <Badge tone={getStatusTone(employee.employmentStatus)}>{employee.employmentStatus}</Badge>
+          {/* FIX 1: Show archiveType instead of "SEPARATED" */}
+          <Badge tone={getStatusTone(employee.employmentStatus)}>
+            {getStatusLabel(employee)}
+          </Badge>
         </div>
       </div>
+
+      {/* FIX 2: Always show archive details block for SEPARATED employees */}
+      {employee.employmentStatus === "SEPARATED" && (
+        <div className="employee-archive-details">
+          <h3>Archive Details</h3>
+          <div className="employee-detail-grid">
+            {employee.archiveType && (
+              <div>
+                <span>Type</span>
+                <strong>{employee.archiveType}</strong>
+              </div>
+            )}
+            {employee.archiveDate && (
+              <div>
+                <span>Effective Date</span>
+                <strong>{formatArchiveDate(employee.archiveDate)}</strong>
+              </div>
+            )}
+          </div>
+          {employee.archiveReason ? (
+            <p className="employee-archive-remarks">{employee.archiveReason}</p>
+          ) : (
+            <p className="employee-archive-remarks" style={{ color: "#9aabbc", fontStyle: "italic" }}>
+              No remarks provided.
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="employee-detail-actions">
         {canWrite && employee.employmentStatus !== "SEPARATED" && (
           <button type="button" className="employee-archive-action" onClick={onArchive}>
+            <Archive size={14} />
             Archive Employee
           </button>
         )}
@@ -480,6 +571,7 @@ function ViewEmployeeModal({
         </button>
         {canWrite && (
           <button type="button" className="primary-button" onClick={onEdit}>
+            <Pencil size={14} />
             Edit Employee
           </button>
         )}
@@ -497,7 +589,9 @@ function ArchiveEmployeeModal({
   onClose: () => void;
   onArchived: (employee: Employee) => void;
 }) {
+  const [confirmed, setConfirmed] = useState(false);
   const [archiveType, setArchiveType] = useState("Resigned");
+  const [effectiveDate, setEffectiveDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [reason, setReason] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
@@ -510,7 +604,7 @@ function ArchiveEmployeeModal({
     try {
       const archived = await apiRequest<Employee>(`/employees/${employee.id}/archive`, {
         method: "PATCH",
-        body: JSON.stringify({ archiveType, reason }),
+        body: JSON.stringify({ archiveType, effectiveDate, reason }),
       });
       onArchived(archived);
     } catch (err) {
@@ -520,6 +614,35 @@ function ArchiveEmployeeModal({
     }
   };
 
+  // Step 1: Confirmation dialog
+  if (!confirmed) {
+    return (
+      <EmployeeModal title="" onClose={onClose}>
+        <div className="employee-confirm-body">
+          <div className="employee-confirm-icon">
+            <AlertTriangle size={28} />
+          </div>
+          <h2 className="employee-confirm-title">Archive Employee</h2>
+          <p className="employee-confirm-message">
+            Are you sure you want to archive{" "}
+            <strong>{getEmployeeName(employee)}</strong>?
+            <br />
+            Their login will be deactivated.
+          </p>
+          <div className="employee-confirm-actions">
+            <button type="button" className="outline-button" onClick={onClose}>
+              Cancel
+            </button>
+            <button type="button" className="employee-archive-action" onClick={() => setConfirmed(true)}>
+              Archive Employee
+            </button>
+          </div>
+        </div>
+      </EmployeeModal>
+    );
+  }
+
+  // Step 2: Archive details form
   return (
     <EmployeeModal title="Archive Employee" description={getEmployeeName(employee)} onClose={onClose}>
       <form className="employee-form" onSubmit={handleArchive}>
@@ -535,7 +658,12 @@ function ArchiveEmployeeModal({
           </label>
           <label>
             Effective Date
-            <input type="date" defaultValue={new Date().toISOString().slice(0, 10)} />
+            <input
+              type="date"
+              value={effectiveDate}
+              onChange={(event) => setEffectiveDate(event.target.value)}
+              required
+            />
           </label>
         </div>
         <label className="employee-full-field">
@@ -544,8 +672,12 @@ function ArchiveEmployeeModal({
         </label>
         {error && <p className="employee-form-error">{error}</p>}
         <div className="employee-form-actions">
-          <button type="button" className="outline-button" onClick={onClose} disabled={isSaving}>Cancel</button>
-          <button type="submit" className="employee-archive-action" disabled={isSaving}>{isSaving ? "Archiving..." : "Archive Employee"}</button>
+          <button type="button" className="outline-button" onClick={onClose} disabled={isSaving}>
+            Cancel
+          </button>
+          <button type="submit" className="employee-archive-action" disabled={isSaving}>
+            {isSaving ? "Archiving..." : "Archive Employee"}
+          </button>
         </div>
       </form>
     </EmployeeModal>
@@ -556,7 +688,8 @@ export function EmployeesPage({ user }: { user?: { permissions: PermissionCode[]
   const canWrite = user?.permissions.includes(permissions.employeesWrite) ?? true;
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [departmentFilter, setDepartmentFilter] = useState("ALL");
-  const [statusFilter, setStatusFilter] = useState<"ACTIVE" | "ARCHIVED" | "ALL">("ACTIVE");
+  const [showArchivedOnly, setShowArchivedOnly] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [viewEmployee, setViewEmployee] = useState<Employee | null>(null);
   const [editEmployee, setEditEmployee] = useState<Employee | null>(null);
@@ -578,10 +711,15 @@ export function EmployeesPage({ user }: { user?: { permissions: PermissionCode[]
 
   const departments = Array.from(new Set(employees.map((employee) => employee.department.name))).sort();
   const positions = Array.from(new Set(employees.map((employee) => employee.position.title))).sort();
+  const activeEmployeeCount = employees.filter((employee) => employee.employmentStatus !== "SEPARATED").length;
   const visibleEmployees = employees.filter((employee) => {
     if (departmentFilter !== "ALL" && employee.department.name !== departmentFilter) return false;
-    if (statusFilter === "ACTIVE" && employee.employmentStatus === "SEPARATED") return false;
-    if (statusFilter === "ARCHIVED" && employee.employmentStatus !== "SEPARATED") return false;
+    if (showArchivedOnly) {
+      if (employee.employmentStatus !== "SEPARATED") return false;
+    } else {
+      if (employee.employmentStatus === "SEPARATED") return false;
+    }
+    if (!matchesSearch(employee, searchQuery)) return false;
     return true;
   });
 
@@ -623,8 +761,11 @@ export function EmployeesPage({ user }: { user?: { permissions: PermissionCode[]
 
       <div className="employees-toolbar">
         <div className="filter-tabs">
-          <button className={departmentFilter === "ALL" ? "active" : ""} onClick={() => setDepartmentFilter("ALL")}>
-            All Employees ({employees.length})
+          <button
+            className={!showArchivedOnly ? "active" : ""}
+            onClick={() => setShowArchivedOnly(false)}
+          >
+            All Employees ({activeEmployeeCount})
           </button>
 
           <select
@@ -641,24 +782,43 @@ export function EmployeesPage({ user }: { user?: { permissions: PermissionCode[]
             ))}
           </select>
 
-          <select
-            className="department-select"
-            value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value as "ACTIVE" | "ARCHIVED" | "ALL")}
-            aria-label="Filter employees by archive status"
+          <button
+            className={showArchivedOnly ? "active" : ""}
+            onClick={() => setShowArchivedOnly(true)}
           >
-            <option value="ACTIVE">Active Employees</option>
-            <option value="ARCHIVED">Archived Employees</option>
-            <option value="ALL">All Statuses</option>
-          </select>
+            Archived Employees
+          </button>
         </div>
 
-        {canWrite && (
-          <button className="add-employee-button" onClick={() => setIsAddOpen(true)}>
-            <Plus size={15} />
-            Add Employee
-          </button>
-        )}
+        <div className="employees-toolbar-actions">
+          <div className="employee-search">
+            <Search size={14} className="employee-search-icon" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search employees..."
+              aria-label="Search employees"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                className="employee-search-clear"
+                onClick={() => setSearchQuery("")}
+                aria-label="Clear search"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+
+          {canWrite && (
+            <button className="add-employee-button" onClick={() => setIsAddOpen(true)}>
+              <Plus size={15} />
+              Add Employee
+            </button>
+          )}
+        </div>
       </div>
 
       <section className="table-card employees-table-card">
@@ -690,7 +850,10 @@ export function EmployeesPage({ user }: { user?: { permissions: PermissionCode[]
                   <td data-label="Department">{employee.department.name}</td>
                   <td data-label="Position">{employee.position.title}</td>
                   <td data-label="Status" className="employee-status-cell">
-                    <Badge tone={getStatusTone(employee.employmentStatus)}>{employee.employmentStatus}</Badge>
+                    {/* FIX 1: Use getStatusLabel to show archiveType instead of "SEPARATED" */}
+                    <Badge tone={getStatusTone(employee.employmentStatus)}>
+                      {getStatusLabel(employee)}
+                    </Badge>
                   </td>
                   <td data-label="Action">
                     <div className="employee-action-group">
