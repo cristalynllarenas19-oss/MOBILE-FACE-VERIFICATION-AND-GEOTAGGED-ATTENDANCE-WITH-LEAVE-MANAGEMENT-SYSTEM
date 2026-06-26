@@ -54,10 +54,14 @@ export default function LoginScreen({
           onPress={Keyboard.dismiss}
         >
           <ScrollView
+            style={styles.scroll}
             contentContainerStyle={
               styles.content
             }
             keyboardShouldPersistTaps="handled"
+            bounces={false}
+            alwaysBounceVertical={false}
+            overScrollMode="never"
             showsVerticalScrollIndicator={
               false
             }
@@ -187,6 +191,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#F1F5F9",
+  },
+
+  scroll: {
+    flex: 1,
   },
 
   content: {

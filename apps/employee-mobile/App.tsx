@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Alert } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import * as Location from "expo-location";
@@ -9,12 +9,14 @@ import CameraScanner from "./src/components/CameraScanner";
 import ResultModal, { ResultModalStatus } from "./src/components/ResultModal";
 import VerifyOtpScreen from "./src/screens/VerifyOtpScreen";
 import NewPasswordScreen from "./src/screens/NewPasswordScreen";
+import SplashScreen from "./src/screens/SplashScreen";
 
 import {
   MobileUser,
   TodayAttendance,
   login,
   logout,
+  restoreSession,
   checkApiHealth,
   getTodayAttendance,
   submitAttendance,
@@ -52,6 +54,37 @@ export default function App() {
   const [authView, setAuthView] = useState<AuthView>("login");
   const [resetEmail, setResetEmail] = useState("");
   const [resetToken, setResetToken] = useState("");
+  const [hasSplashAnimationFinished, setHasSplashAnimationFinished] = useState(false);
+  const [hasSessionCheckFinished, setHasSessionCheckFinished] = useState(false);
+
+  const handleSplashAnimationComplete = useCallback(() => {
+    setHasSplashAnimationFinished(true);
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function restoreSavedSession() {
+      try {
+        const restoredUser = await restoreSession();
+        if (isMounted && restoredUser) {
+          setUser(restoredUser);
+        }
+      } catch (error) {
+        console.error("Failed to restore saved session", error);
+      } finally {
+        if (isMounted) {
+          setHasSessionCheckFinished(true);
+        }
+      }
+    }
+
+    restoreSavedSession();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (user?.employeeId) {
@@ -266,7 +299,9 @@ export default function App() {
 
   return (
     <SafeAreaProvider>
-      {!user && authView === "forgot-otp" ? (
+      {!hasSplashAnimationFinished || !hasSessionCheckFinished ? (
+        <SplashScreen onAnimationComplete={handleSplashAnimationComplete} />
+      ) : !user && authView === "forgot-otp" ? (
         <VerifyOtpScreen
           email={resetEmail}
           onVerified={(token) => {
