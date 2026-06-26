@@ -59,7 +59,9 @@ export class FaceVerificationService implements OnModuleInit {
     return { status: "REJECTED", reason: "Face does not match enrolled profile" };
   }
 
-  async detectFace(imageBase64: string): Promise<{ detected: boolean; confidence: number }> {
+  async detectFace(
+    imageBase64: string,
+  ): Promise<{ detected: boolean; confidence: number; box: { x: number; y: number; width: number; height: number } | null }> {
     await this.ensureModelsLoaded();
 
     const base64Data = imageBase64.includes("base64,") ? imageBase64.split("base64,")[1] : imageBase64;
@@ -72,9 +74,21 @@ export class FaceVerificationService implements OnModuleInit {
         new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 }),
       );
 
-      return { detected: !!result, confidence: result?.score ?? 0 };
+      if (!result) {
+        return { detected: false, confidence: 0, box: null };
+      }
+
+      // Box coordinates as fractions (0-1) of the source image, so the
+      // mobile client can map them onto its own preview size without
+      // needing to know the exact pixel dimensions we decoded here.
+      const relativeBox = result.relativeBox;
+      return {
+        detected: true,
+        confidence: result.score,
+        box: { x: relativeBox.x, y: relativeBox.y, width: relativeBox.width, height: relativeBox.height },
+      };
     } catch {
-      return { detected: false, confidence: 0 };
+      return { detected: false, confidence: 0, box: null };
     }
   }
 

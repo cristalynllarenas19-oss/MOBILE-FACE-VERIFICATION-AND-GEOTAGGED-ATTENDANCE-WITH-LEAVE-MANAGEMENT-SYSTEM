@@ -1,14 +1,13 @@
 import * as SecureStore from "expo-secure-store";
 import Constants from "expo-constants";
 
-const DEFAULT_API_BASE_URL =
-  "https://mobile-face-verification-and-geotagged-attendanc-production.up.railway.app/api/v1";
+const DEFAULT_API_BASE_URL ="http://192.168.1.117:3001/api/v1";
 
 function getApiBaseUrl() {
   const configuredUrl =
     process.env.EXPO_PUBLIC_API_BASE_URL ??
     DEFAULT_API_BASE_URL;
-
+ 
   const metroHost = (
     Constants as unknown as {
       expoConfig?: { hostUri?: string };
@@ -227,8 +226,10 @@ export async function getTodayAttendance(
   );
 }
 
+export type FaceBox = { x: number; y: number; width: number; height: number };
+
 export async function detectFace(imageBase64: string) {
-  return apiRequest<{ detected: boolean; confidence: number }>("/face/detect", {
+  return apiRequest<{ detected: boolean; confidence: number; box: FaceBox | null }>("/face/detect", {
     method: "POST",
     body: JSON.stringify({ imageBase64 }),
   });
