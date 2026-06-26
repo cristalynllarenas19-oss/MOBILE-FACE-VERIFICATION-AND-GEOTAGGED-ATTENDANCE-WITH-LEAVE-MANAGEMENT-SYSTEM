@@ -316,11 +316,11 @@ function AddEmployeeModal({
         {error && <p className="employee-form-error">{error}</p>}
 
         <div className="employee-form-actions">
-          <button type="button" className="outline-button" onClick={onClose} disabled={isSaving}>
-            Cancel
-          </button>
           <button type="submit" className="primary-button" disabled={isSaving}>
             {isSaving ? "Adding..." : "Add Employee"}
+          </button>
+          <button type="button" className="outline-button" onClick={onClose} disabled={isSaving}>
+            Cancel
           </button>
         </div>
       </form>
@@ -478,11 +478,11 @@ function EditEmployeeModal({
         {error && <p className="employee-form-error">{error}</p>}
 
         <div className="employee-form-actions">
-          <button type="button" className="outline-button" onClick={onClose} disabled={isSaving}>
-            Cancel
-          </button>
           <button type="submit" className="primary-button" disabled={isSaving}>
             {isSaving ? "Saving..." : "Save Changes"}
+          </button>
+          <button type="button" className="outline-button" onClick={onClose} disabled={isSaving}>
+            Cancel
           </button>
         </div>
       </form>
@@ -566,15 +566,15 @@ function ViewEmployeeModal({
             Archive Employee
           </button>
         )}
-        <button type="button" className="outline-button" onClick={onClose}>
-          Close
-        </button>
         {canWrite && (
           <button type="button" className="primary-button" onClick={onEdit}>
             <Pencil size={14} />
             Edit Employee
           </button>
         )}
+        <button type="button" className="outline-button" onClick={onClose}>
+          Close
+        </button>
       </div>
     </EmployeeModal>
   );

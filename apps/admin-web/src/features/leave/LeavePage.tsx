@@ -455,14 +455,14 @@ export function LeavePage() {
             </label>
 
             <div className="leave-detail-actions">
-              <button className="outline-button" onClick={() => setReviewRequest(null)} disabled={isSaving}>
-                Close
-              </button>
               <button className="leave-reject-button" onClick={() => reviewLeave("reject")} disabled={isSaving}>
                 Reject
               </button>
               <button className="primary-button" onClick={() => reviewLeave("approve")} disabled={isSaving}>
                 Approve
+              </button>
+              <button className="outline-button" onClick={() => setReviewRequest(null)} disabled={isSaving}>
+                Close
               </button>
             </div>
           </section>
@@ -532,18 +532,18 @@ export function LeavePage() {
 
             <div className="leave-detail-actions">
               <button
-                className="outline-button"
-                onClick={closeAddTypeModal}
-                disabled={isAddingType}
-              >
-                Cancel
-              </button>
-              <button
                 className="primary-button"
                 onClick={addLeaveType}
                 disabled={isAddingType || !newTypeName.trim() || !newTypeDays}
               >
                 {isAddingType ? "Saving…" : "Add Leave Type"}
+              </button>
+              <button
+                className="outline-button"
+                onClick={closeAddTypeModal}
+                disabled={isAddingType}
+              >
+                Cancel
               </button>
             </div>
           </section>

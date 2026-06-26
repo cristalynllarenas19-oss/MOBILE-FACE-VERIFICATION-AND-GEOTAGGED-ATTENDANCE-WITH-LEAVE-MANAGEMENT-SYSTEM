@@ -1,7 +1,7 @@
 import "leaflet/dist/leaflet.css";
 
 import { Component, FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Crosshair, Edit3, Eye, MapPin, Plus, Save, Search, Trash2, Users, X } from "lucide-react";
+import { AlertTriangle, ChevronDown, Edit3, Eye, MapPin, Plus, Save, Search, Trash2, Users, X } from "lucide-react";
 import L from "leaflet";
 import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
 import markerIconUrl from "leaflet/dist/images/marker-icon.png";
@@ -220,6 +220,8 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [employeeSearch, setEmployeeSearch] = useState("");
   const [departmentFilter, setDepartmentFilter] = useState("");
+  const [showDepartmentMenu, setShowDepartmentMenu] = useState(false);
+  const departmentMenuRef = useRef<HTMLDivElement>(null);
   const [assignmentError, setAssignmentError] = useState("");
   const [selectedLocationId, setSelectedLocationId] = useState("");
   const [editingLocationId, setEditingLocationId] = useState<string | null>(null);
@@ -235,6 +237,17 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
   const draftMarkerRef = useRef<L.Marker | null>(null);
   const draftCircleRef = useRef<L.Circle | null>(null);
   const savedLayerRef = useRef<L.LayerGroup | null>(null);
+
+  useEffect(() => {
+    if (!showDepartmentMenu) return;
+    function handleClickOutside(event: MouseEvent) {
+      if (departmentMenuRef.current && !departmentMenuRef.current.contains(event.target as Node)) {
+        setShowDepartmentMenu(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showDepartmentMenu]);
 
   useEffect(() => {
     let alive = true;
@@ -788,13 +801,12 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
               </label>
 
               <div className="geotagging-actions">
-                <button className="outline-button" type="button" onClick={startCreateMode}>
-                  <Crosshair size={14} />
-                  <span>New Area</span>
-                </button>
                 <button className="primary-button" type="submit" disabled={loading}>
                   <Plus size={14} />
                   <span>{editingLocationId ? "Save Changes" : "Add Area"}</span>
+                </button>
+                <button className="outline-button" type="button" onClick={startCreateMode}>
+                  <span>Cancel</span>
                 </button>
               </div>
             </form>
@@ -928,20 +940,61 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
                       />
                     </div>
                   </label>
-                  <label className="employee-assignment-label employee-department-label">
+                  <div className="employee-assignment-label employee-department-label">
                     Department
-                    <select
-                      value={departmentFilter}
-                      onChange={(event) => setDepartmentFilter(event.target.value)}
-                    >
-                      <option value="">All departments</option>
-                      {departmentOptions.map((name) => (
-                        <option key={name} value={name}>
-                          {name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                    <div className="department-filter-shell" ref={departmentMenuRef}>
+                      <button
+                        type="button"
+                        className={`department-filter-trigger ${departmentFilter ? "active" : ""}`}
+                        onClick={() => setShowDepartmentMenu((open) => !open)}
+                      >
+                        <span>{departmentFilter || "All departments"}</span>
+                        <ChevronDown size={15} className={showDepartmentMenu ? "department-filter-chevron open" : "department-filter-chevron"} />
+                      </button>
+                      {showDepartmentMenu && (
+                        <div className="department-filter-menu">
+                          <div className="department-filter-menu-header">
+                            <span>Filter by department</span>
+                            {departmentFilter && (
+                              <button
+                                type="button"
+                                className="department-filter-clear"
+                                onClick={() => {
+                                  setDepartmentFilter("");
+                                  setShowDepartmentMenu(false);
+                                }}
+                              >
+                                <X size={13} /> Clear
+                              </button>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            className={`department-filter-option ${!departmentFilter ? "active" : ""}`}
+                            onClick={() => {
+                              setDepartmentFilter("");
+                              setShowDepartmentMenu(false);
+                            }}
+                          >
+                            All departments
+                          </button>
+                          {departmentOptions.map((name) => (
+                            <button
+                              type="button"
+                              key={name}
+                              className={`department-filter-option ${departmentFilter === name ? "active" : ""}`}
+                              onClick={() => {
+                                setDepartmentFilter(name);
+                                setShowDepartmentMenu(false);
+                              }}
+                            >
+                              {name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               )}
               <small className="field-help">
@@ -1029,15 +1082,6 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
 
           {canWrite && (
             <div className="assignment-save-row">
-              {editingLocationId && (
-                <button
-                  className="outline-button"
-                  type="button"
-                  onClick={startCreateMode}
-                >
-                  <span>Cancel</span>
-                </button>
-              )}
               <button
                 className="primary-button"
                 type="button"
@@ -1047,6 +1091,15 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
                 <Save size={14} />
                 <span>{savingAssignments ? "Saving..." : "Save Assignments"}</span>
               </button>
+              {editingLocationId && (
+                <button
+                  className="outline-button"
+                  type="button"
+                  onClick={startCreateMode}
+                >
+                  <span>Cancel</span>
+                </button>
+              )}
             </div>
           )}
         </section>
