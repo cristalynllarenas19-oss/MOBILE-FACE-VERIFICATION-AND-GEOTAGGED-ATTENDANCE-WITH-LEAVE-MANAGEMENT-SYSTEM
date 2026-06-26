@@ -219,10 +219,10 @@ function AttendanceDetailsModal({
           )}
           {error && <p className="attendance-form-error">{error}</p>}
           <div>
-            <button className="outline-button" onClick={onClose} disabled={isSaving}>Close</button>
             {canWrite && (
               <button className="primary-button" onClick={() => updateStatus("approve")} disabled={isSaving}>Approve</button>
             )}
+            <button className="outline-button" onClick={onClose} disabled={isSaving}>Close</button>
           </div>
         </div>
       </section>

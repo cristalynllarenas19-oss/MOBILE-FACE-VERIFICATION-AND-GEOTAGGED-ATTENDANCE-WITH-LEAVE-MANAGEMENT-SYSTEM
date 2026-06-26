@@ -382,11 +382,11 @@ export function SchedulesPage({ user }: { user?: { permissions: PermissionCode[]
               </div>
 
               <div className="schedule-detail-actions">
-                <button type="button" className="outline-button" onClick={() => setShowAddShift(false)} disabled={isSaving}>
-                  Cancel
-                </button>
                 <button type="submit" className="add-schedule-button" disabled={isSaving || !shiftForm.name.trim() || !shiftForm.startTime || !shiftForm.endTime}>
                   {isSaving ? "Saving…" : "Create Shift"}
+                </button>
+                <button type="button" className="outline-button" onClick={() => setShowAddShift(false)} disabled={isSaving}>
+                  Cancel
                 </button>
               </div>
             </form>
