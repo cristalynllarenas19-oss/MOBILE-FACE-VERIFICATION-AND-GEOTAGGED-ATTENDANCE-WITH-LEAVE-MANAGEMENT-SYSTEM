@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import { BarChart3, CalendarClock, CheckCircle2, Clock, Download } from "lucide-react";
+import { StatCard } from "../../components/ui/StatCard";
 import { Badge } from "../../components/ui/Badge";
 import { apiRequest } from "../../lib/api";
 import "./ReportsPage.css";
@@ -87,16 +89,6 @@ export function ReportsPage() {
 
   const departments = useMemo(() => Array.from(new Set(employees.map((employee) => employee.department.name))).sort(), [employees]);
 
-  const statusSummary = useMemo(() => {
-    if (!data) return [];
-    return [
-      ["Attendance Records", data.totals.attendanceRecords],
-      ["Approved Leaves", data.totals.approvedLeaves],
-      ["Pending Leaves", data.totals.pendingLeaves],
-      ["Active Schedules", data.totals.activeSchedules],
-    ] as const;
-  }, [data]);
-
   if (!data) {
     return <section className="table-card reports-loading">Loading reports...</section>;
   }
@@ -120,12 +112,10 @@ export function ReportsPage() {
   return (
     <>
       <div className="reports-summary-grid">
-        {statusSummary.map(([label, value]) => (
-          <div className="reports-summary-card" key={label}>
-            <span>{label}</span>
-            <strong>{value}</strong>
-          </div>
-        ))}
+        <StatCard label="Attendance Records" value={data.totals.attendanceRecords} icon={BarChart3} tone="cyan" />
+        <StatCard label="Approved Leaves" value={data.totals.approvedLeaves} icon={CheckCircle2} tone="green" />
+        <StatCard label="Pending Leaves" value={data.totals.pendingLeaves} icon={Clock} tone="yellow" />
+        <StatCard label="Active Schedules" value={data.totals.activeSchedules} icon={CalendarClock} tone="blue" />
       </div>
 
       <div className="reports-toolbar">
@@ -144,8 +134,14 @@ export function ReportsPage() {
           <option value="ALL">All Departments</option>
           {departments.map((department) => <option key={department} value={department}>{department}</option>)}
         </select>
-        <button className="report-generate-button" onClick={loadReport}>Generate</button>
-        <button className="report-export-button" onClick={exportCsv}>Export CSV</button>
+        <button className="report-generate-button" onClick={loadReport}>
+          <BarChart3 size={16} />
+          <span>Generate</span>
+        </button>
+        <button className="report-export-button" onClick={exportCsv}>
+          <Download size={16} />
+          <span>Export CSV</span>
+        </button>
       </div>
 
       {tab === "attendance" && (
