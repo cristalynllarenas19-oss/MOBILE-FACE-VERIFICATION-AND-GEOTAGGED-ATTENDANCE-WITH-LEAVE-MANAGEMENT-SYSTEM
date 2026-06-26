@@ -428,28 +428,116 @@
   min-width: 0;
 }
 
-.employee-department-label select {
-  width: 100%;
-  border: 1.5px solid #e2eaf4;
-  border-radius: 8px;
-  background: #f8fafd;
-  color: #193d69;
-  padding: 9px 10px;
-  font-size: 11.5px;
-  font-family: inherit;
-  font-weight: 600;
-  text-transform: none;
-  letter-spacing: 0;
-  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
-  box-sizing: border-box;
-  cursor: pointer;
+.employee-department-label .department-filter-shell {
+  position: relative;
 }
 
-.employee-department-label select:focus {
-  outline: none;
-  border-color: #3b82f6;
+.employee-department-label .department-filter-trigger {
+  align-items: center;
   background: #ffffff;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.13);
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  color: #193d69;
+  cursor: pointer;
+  display: flex;
+  font-size: 11.5px;
+  font-weight: 700;
+  gap: 8px;
+  height: 36px;
+  justify-content: space-between;
+  padding: 0 14px;
+  text-transform: none;
+  letter-spacing: 0;
+  transition: background 0.18s ease, border-color 0.18s ease;
+  white-space: nowrap;
+  width: 100%;
+}
+
+.employee-department-label .department-filter-trigger:hover {
+  background: #f8fafc;
+  border-color: #94a3b8;
+}
+
+.employee-department-label .department-filter-trigger.active {
+  background: #eef4fb;
+  border-color: #1a3a5c;
+  color: #1a3a5c;
+}
+
+.employee-department-label .department-filter-chevron {
+  color: #94a3b8;
+  flex-shrink: 0;
+  transition: transform 0.18s ease;
+}
+
+.employee-department-label .department-filter-chevron.open {
+  transform: rotate(180deg);
+}
+
+.employee-department-label .department-filter-menu {
+  background: white;
+  border: 1px solid #dbe5ef;
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+  margin-top: 6px;
+  max-height: 280px;
+  overflow: auto;
+  padding: 8px;
+  position: absolute;
+  left: 0;
+  top: calc(100% + 4px);
+  width: 220px;
+  z-index: 30;
+}
+
+.employee-department-label .department-filter-menu-header {
+  align-items: center;
+  color: #64748b;
+  display: flex;
+  font-size: 11px;
+  font-weight: 800;
+  justify-content: space-between;
+  letter-spacing: 0.08em;
+  padding: 4px 8px 8px;
+  text-transform: uppercase;
+}
+
+.employee-department-label .department-filter-clear {
+  align-items: center;
+  background: none;
+  border: 0;
+  color: #ef4444;
+  cursor: pointer;
+  display: flex;
+  font-size: 11px;
+  font-weight: 700;
+  gap: 3px;
+  padding: 0;
+  text-transform: none;
+}
+
+.employee-department-label .department-filter-option {
+  background: none;
+  border: 0;
+  border-radius: 7px;
+  color: #1e293b;
+  cursor: pointer;
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 9px 10px;
+  text-align: left;
+  text-transform: none;
+  width: 100%;
+}
+
+.employee-department-label .department-filter-option:hover {
+  background: #eef4fb;
+}
+
+.employee-department-label .department-filter-option.active {
+  background: #1a3a5c;
+  color: white;
 }
 
 .employee-checklist {

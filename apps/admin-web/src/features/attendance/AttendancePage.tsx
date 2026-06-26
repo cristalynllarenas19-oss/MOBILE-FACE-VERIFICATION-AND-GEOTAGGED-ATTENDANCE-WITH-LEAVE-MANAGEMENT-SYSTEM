@@ -39,18 +39,7 @@ type EmployeeOption = {
 
 type Notification = { type: "success" | "error"; message: string } | null;
 
-// Quick date-range presets. "CUSTOM" means the user is using the exact-date picker instead.
-type DateRangeKey = "ALL" | "TODAY" | "YESTERDAY" | "LAST_7_DAYS" | "LAST_MONTH" | "CUSTOM";
-
 const statusOptions = ["PRESENT", "LATE", "ABSENT", "ON_LEAVE", "OFFICIAL_BUSINESS", "PENDING_REVIEW"];
-
-const dateRangePresets: { key: DateRangeKey; label: string }[] = [
-  { key: "ALL", label: "All" },
-  { key: "TODAY", label: "Today" },
-  { key: "YESTERDAY", label: "Yesterday" },
-  { key: "LAST_7_DAYS", label: "Last 7 Days" },
-  { key: "LAST_MONTH", label: "Last Month" },
-];
 
 function formatDate(value: string) {
   return new Date(value).toLocaleDateString();
@@ -87,40 +76,6 @@ function useNow() {
 
 function formatTodayLabel(date: Date) {
   return date.toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
-}
-
-// Converts a local Date into a YYYY-MM-DD string without UTC timezone drift.
-function toISODate(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-// Resolves a preset key into a concrete { from, to } date range, both inclusive.
-function resolveDateRange(key: DateRangeKey): { from: string; to: string } | null {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-  if (key === "TODAY") {
-    return { from: toISODate(today), to: toISODate(today) };
-  }
-  if (key === "YESTERDAY") {
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    return { from: toISODate(yesterday), to: toISODate(yesterday) };
-  }
-  if (key === "LAST_7_DAYS") {
-    const start = new Date(today);
-    start.setDate(start.getDate() - 6);
-    return { from: toISODate(start), to: toISODate(today) };
-  }
-  if (key === "LAST_MONTH") {
-    const start = new Date(today);
-    start.setMonth(start.getMonth() - 1);
-    return { from: toISODate(start), to: toISODate(today) };
-  }
-  return null;
 }
 
 function AttendanceDetailsModal({
@@ -219,10 +174,10 @@ function AttendanceDetailsModal({
           )}
           {error && <p className="attendance-form-error">{error}</p>}
           <div>
-            <button className="outline-button" onClick={onClose} disabled={isSaving}>Close</button>
-            {canWrite && (
+            {canWrite && record.status !== "PRESENT" && (
               <button className="primary-button" onClick={() => updateStatus("approve")} disabled={isSaving}>Approve</button>
             )}
+            <button className="outline-button" onClick={onClose} disabled={isSaving}>Close</button>
           </div>
         </div>
       </section>
@@ -236,9 +191,8 @@ export function AttendancePage({ user }: { user?: { permissions: PermissionCode[
   const [employeeOptions, setEmployeeOptions] = useState<EmployeeOption[]>([]);
   const [departmentFilter, setDepartmentFilter] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState("ALL");
-  const [dateFilter, setDateFilter] = useState("");
-  // Tracks which quick-filter preset is active. Picking an exact date in the calendar input switches this to "CUSTOM".
-  const [dateRangeKey, setDateRangeKey] = useState<DateRangeKey>("ALL");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [viewRecord, setViewRecord] = useState<AttendanceRecord | null>(null);
   const [notification, setNotification] = useState<Notification>(null);
   const now = useNow();
@@ -247,22 +201,14 @@ export function AttendancePage({ user }: { user?: { permissions: PermissionCode[
     const params = new URLSearchParams();
     if (departmentFilter !== "ALL") params.set("department", departmentFilter);
     if (statusFilter !== "ALL") params.set("status", statusFilter);
-
-    if (dateRangeKey === "CUSTOM" && dateFilter) {
-      params.set("date", dateFilter);
-    } else {
-      const range = resolveDateRange(dateRangeKey);
-      if (range) {
-        params.set("from", range.from);
-        params.set("to", range.to);
-      }
-    }
+    if (dateFrom) params.set("from", dateFrom);
+    if (dateTo) params.set("to", dateTo);
 
     const query = params.toString();
     apiRequest<AttendanceRecord[]>(`/attendance${query ? `?${query}` : ""}`).then(setRecords).catch(() => undefined);
   };
 
-  useEffect(loadRecords, [departmentFilter, statusFilter, dateFilter, dateRangeKey]);
+  useEffect(loadRecords, [departmentFilter, statusFilter, dateFrom, dateTo]);
 
   useEffect(() => {
     apiRequest<EmployeeOption[]>("/employees").then(setEmployeeOptions).catch(() => undefined);
@@ -285,16 +231,6 @@ export function AttendancePage({ user }: { user?: { permissions: PermissionCode[
     setNotification({ type: "success", message });
   };
 
-  const selectPreset = (key: DateRangeKey) => {
-    setDateRangeKey(key);
-    setDateFilter("");
-  };
-
-  const selectCustomDate = (value: string) => {
-    setDateFilter(value);
-    setDateRangeKey(value ? "CUSTOM" : "ALL");
-  };
-
   return (
     <>
       {notification && (
@@ -303,18 +239,6 @@ export function AttendancePage({ user }: { user?: { permissions: PermissionCode[
           <span>{notification.message}</span>
         </div>
       )}
-
-      <div className="attendance-segmented" role="group" aria-label="Date range presets">
-        {dateRangePresets.map((preset) => (
-          <button
-            key={preset.key}
-            className={dateRangeKey === preset.key ? "active" : ""}
-            onClick={() => selectPreset(preset.key)}
-          >
-            {preset.label}
-          </button>
-        ))}
-      </div>
 
       <div className="attendance-toolbar">
         <select value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)} aria-label="Department">
@@ -325,8 +249,15 @@ export function AttendancePage({ user }: { user?: { permissions: PermissionCode[
           <option value="ALL">All Status</option>
           {statusOptions.map((status) => <option key={status} value={status}>{getStatusLabel(status)}</option>)}
         </select>
-        <input type="date" value={dateFilter} onChange={(event) => selectCustomDate(event.target.value)} aria-label="Exact date" />
-        <button className="attendance-clear-button" onClick={() => { setDepartmentFilter("ALL"); setStatusFilter("ALL"); setDateFilter(""); setDateRangeKey("ALL"); }}>Reset</button>
+        <label className="attendance-date-range-field">
+          From
+          <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} aria-label="History from date" />
+        </label>
+        <label className="attendance-date-range-field">
+          To
+          <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} aria-label="History to date" />
+        </label>
+        <button className="attendance-clear-button" onClick={() => { setDepartmentFilter("ALL"); setStatusFilter("ALL"); setDateFrom(""); setDateTo(""); }}>Clear</button>
         <span className="attendance-today-badge">{formatTodayLabel(now)}</span>
       </div>
 

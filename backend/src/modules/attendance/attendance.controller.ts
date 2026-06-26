@@ -25,10 +25,12 @@ export class AttendanceController {
     @Query("department") department?: string,
     @Query("status") status?: string,
     @Query("date") date?: string,
+    @Query("from") from?: string,
+    @Query("to") to?: string,
   ) {
     const user = (request as any).user;
     const departmentId = user.role === "SUPERVISOR" ? user.departmentId : undefined;
-    return this.attendanceService.findAll({ department, departmentId, status, date });
+    return this.attendanceService.findAll({ department, departmentId, status, date, from, to });
   }
 
   @Get("today/:employeeId")

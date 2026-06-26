@@ -690,15 +690,15 @@ export function FaceRegistrationPage() {
             </div>
           ) : null}
           <div className="form-actions">
+            <button className="primary-button save-face-button" onClick={saveEnrollment} disabled={busy || descriptors.length < CAMERA_SAMPLE_TARGET || !selectedEmployee}>
+              {editingEnrollmentId ? "Save New Photo" : "Register Employee Face"}
+            </button>
             <button
               className="outline-button cancel-button"
               onClick={() => { setEditingEnrollmentId(null); setSelectedEmployee(null); setEmployeeSearch(""); resetCapture(); stopCamera(); }}
               disabled={busy}
             >
               Cancel
-            </button>
-            <button className="primary-button save-face-button" onClick={saveEnrollment} disabled={busy || descriptors.length < CAMERA_SAMPLE_TARGET || !selectedEmployee}>
-              {editingEnrollmentId ? "Save New Photo" : "Register Employee Face"}
             </button>
           </div>
         </section>
@@ -814,7 +814,6 @@ export function FaceRegistrationPage() {
         )}
       </section>
 
-      {/* View / Edit Profile Modal */}
       {viewProfile && (
         <div className="view-modal-overlay" onClick={closeViewModal}>
           <div className="view-modal" onClick={(event) => event.stopPropagation()}>
@@ -839,18 +838,17 @@ export function FaceRegistrationPage() {
               </div>
             </dl>
             <div className="view-modal-actions">
+              <button className="primary-button" onClick={() => editProfilePhoto(viewProfile)}>
+                <Pencil size={16} /> Re-register Face
+              </button>
               <button className="outline-button" onClick={closeViewModal}>
                 Close
-              </button>
-              <button className="primary-button" onClick={() => editProfilePhoto(viewProfile)}>
-                <Pencil size={16} /> Edit Photo
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
       {deleteTarget && (
         <div className="delete-modal-overlay" onClick={() => setDeleteTarget(null)}>
           <div className="delete-modal" onClick={(e) => e.stopPropagation()}>

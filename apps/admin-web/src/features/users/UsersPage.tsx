@@ -285,10 +285,10 @@ export function UsersPage() {
               {error && <p className="user-form-error">{error}</p>}
 
               <div className="user-form-actions">
-                <button type="button" className="outline-button" onClick={closeAddUser}>Cancel</button>
                 <button type="submit" className="primary-button" disabled={isSaving}>
                   {isSaving ? "Adding..." : "Add User"}
                 </button>
+                <button type="button" className="outline-button" onClick={closeAddUser}>Cancel</button>
               </div>
             </form>
           </section>
@@ -325,14 +325,6 @@ export function UsersPage() {
             <div className="confirm-modal-actions">
               <button
                 type="button"
-                className="outline-button"
-                onClick={() => setConfirmUser(null)}
-                disabled={updatingUserId === confirmUser.id}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
                 className={`primary-button ${confirmUser.status === "ACTIVE" ? "danger-action" : "confirm-action"}`}
                 onClick={updateUserStatus}
                 disabled={updatingUserId === confirmUser.id}
@@ -342,6 +334,14 @@ export function UsersPage() {
                   : confirmUser.status === "ACTIVE"
                     ? "Deactivate"
                     : "Activate"}
+              </button>
+              <button
+                type="button"
+                className="outline-button"
+                onClick={() => setConfirmUser(null)}
+                disabled={updatingUserId === confirmUser.id}
+              >
+                Cancel
               </button>
             </div>
           </section>

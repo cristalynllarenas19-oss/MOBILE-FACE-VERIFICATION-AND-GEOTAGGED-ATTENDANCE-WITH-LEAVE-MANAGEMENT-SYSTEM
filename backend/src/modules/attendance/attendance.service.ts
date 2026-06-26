@@ -10,7 +10,23 @@ type AttendanceFilters = {
   departmentId?: string;
   status?: string;
   date?: string;
+  from?: string;
+  to?: string;
 };
+
+// Parses a "YYYY-MM-DD" query param into a local-midnight Date, matching how
+// attendanceDate is written in submit() (new Date(year, month, day)). Using
+// `new Date(string)` instead would parse as UTC midnight and, on any server
+// not running in the UTC timezone, shift the day boundary and silently
+// exclude that day's records.
+function parseLocalDate(value: string | undefined, endOfDay = false): Date | undefined {
+  const match = value ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(value) : null;
+  if (!match) return undefined;
+  const [, year, month, day] = match;
+  return endOfDay
+    ? new Date(Number(year), Number(month) - 1, Number(day), 23, 59, 59, 999)
+    : new Date(Number(year), Number(month) - 1, Number(day));
+}
 
 @Injectable()
 export class AttendanceService {
@@ -21,11 +37,23 @@ export class AttendanceService {
   ) {}
 
   async findAll(filters: AttendanceFilters = {}) {
-    const attendanceDate = filters.date ? new Date(filters.date) : undefined;
+    const attendanceDate = parseLocalDate(filters.date);
+    const fromDate = parseLocalDate(filters.from);
+    const toDate = parseLocalDate(filters.to, true);
+
     const records = await this.prisma.attendanceRecord.findMany({
       where: {
         ...(filters.status && filters.status !== "ALL" ? { status: filters.status as any } : {}),
-        ...(attendanceDate && !Number.isNaN(attendanceDate.getTime()) ? { attendanceDate } : {}),
+        ...(attendanceDate
+          ? { attendanceDate }
+          : fromDate || toDate
+            ? {
+                attendanceDate: {
+                  ...(fromDate ? { gte: fromDate } : {}),
+                  ...(toDate ? { lte: toDate } : {}),
+                },
+              }
+            : {}),
         ...(filters.departmentId
           ? { employee: { departmentId: filters.departmentId } }
           : filters.department && filters.department !== "ALL"

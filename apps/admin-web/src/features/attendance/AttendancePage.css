@@ -1,36 +1,15 @@
-.attendance-segmented {
+.attendance-date-range-field {
   display: inline-flex;
-  flex-wrap: wrap;
-  gap: 2px;
-  padding: 3px;
-  background: #eef2f7;
-  border: 1px solid #dbe5ef;
-  border-radius: 11px;
-  margin-bottom: 12px;
-}
-
-.attendance-segmented button {
-  height: 32px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: #5b6b80;
-  padding: 0 14px;
+  align-items: center;
+  gap: 6px;
   font-size: 12px;
   font-weight: 700;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.15s ease, color 0.15s ease;
+  color: #5b6b80;
 }
 
-.attendance-segmented button:hover {
-  color: #1a3a5c;
-}
-
-.attendance-segmented button.active {
-  background: #1a3a5c;
-  color: #ffffff;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.18);
+.attendance-date-range-field input {
+  flex: 1;
+  min-width: 0;
 }
 
 .attendance-toolbar {
@@ -387,14 +366,6 @@
 }
 
 @media (max-width: 760px) {
-  .attendance-segmented {
-    width: 100%;
-  }
-
-  .attendance-segmented button {
-    flex: 1;
-  }
-
   .attendance-toolbar {
     align-items: stretch;
     flex-direction: column;
@@ -402,6 +373,7 @@
 
   .attendance-toolbar input,
   .attendance-toolbar select,
+  .attendance-date-range-field,
   .attendance-admin-actions > div {
     width: 100%;
   }
