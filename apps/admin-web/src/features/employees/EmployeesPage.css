@@ -199,6 +199,7 @@
 
 .employees-table-card th {
   color: #1a3a5c;
+  white-space: nowrap;
 }
 
 .employee-status-cell .badge {
