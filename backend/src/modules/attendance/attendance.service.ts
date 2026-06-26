@@ -259,8 +259,13 @@ export class AttendanceService {
         ? "PENDING_REVIEW"
         : "REJECTED";
 
-    const record =
-      await this.prisma.attendanceRecord.upsert({
+    // Neither a flat rejection nor a borderline/inconclusive match creates
+    // or touches the day's attendance record — only a fully approved scan
+    // does. Otherwise a failed or unsure attempt (bad lighting, a stranger
+    // trying the camera, a borderline face match) would falsely flag the
+    // whole day as "needs review" even though nothing legitimate happened.
+    const record = approved
+      ? await this.prisma.attendanceRecord.upsert({
         where: {
           employeeId_attendanceDate: {
             employeeId:
@@ -275,91 +280,58 @@ export class AttendanceService {
 
           attendanceDate,
 
-          status: approved
-            ? "PRESENT"
-            : "PENDING_REVIEW",
+          status: "PRESENT",
 
           timeInAt:
-            logType ===
-              "TIME_IN" &&
-            approved
+            logType === "TIME_IN"
               ? now
               : null,
 
           timeOutAt:
-            logType ===
-              "TIME_OUT" &&
-            approved
+            logType === "TIME_OUT"
               ? now
               : null,
         },
 
         update: {
-          status: approved
-            ? "PRESENT"
-            : existingRecord?.status ?? "PENDING_REVIEW",
+          status: "PRESENT",
 
-          ...(logType ===
-            "TIME_IN" &&
-          approved
+          ...(logType === "TIME_IN"
             ? { timeInAt: now }
             : {}),
 
           ...(logType ===
             "TIME_OUT" &&
-          approved &&
           existingRecord?.timeInAt
             ? { timeOutAt: now, totalMinutes: Math.round((now.getTime() - existingRecord.timeInAt.getTime()) / 60000) }
             : {}),
         },
+      })
+      : existingRecord;
+
+    // Rejected and pending-review attempts leave no trace at all now — only
+    // an approved Time In/Out is persisted, with its photo.
+    if (approved) {
+      await this.prisma.attendanceLog.create({
+        data: {
+          attendanceRecordId: record?.id ?? null,
+          employeeId: dto.employeeId,
+          logType,
+          latitude: dto.latitude,
+          longitude: dto.longitude,
+          gpsAccuracyMeters: dto.accuracyMeters,
+          distanceFromSiteMeters: geoResult.distanceMeters,
+          workLocationId: location.id,
+          faceLivenessScore: livenessScore,
+          faceSimilarityScore: similarityScore,
+          verificationStatus,
+          deviceId: dto.deviceId,
+          failureReason: faceResult.reason ?? geoResult.reason,
+          faceImageData: capturedImage.data,
+          faceImageMimeType: capturedImage.mimeType,
+        },
       });
-
-    await this.prisma.attendanceLog.create({
-      data: {
-        attendanceRecordId:
-          record.id,
-
-        employeeId:
-          dto.employeeId,
-
-        logType: approved
-          ? logType
-          : "FAILED_ATTEMPT",
-
-        latitude:
-          dto.latitude,
-
-        longitude:
-          dto.longitude,
-
-        gpsAccuracyMeters:
-          dto.accuracyMeters,
-
-        distanceFromSiteMeters:
-          geoResult.distanceMeters,
-
-        workLocationId:
-          location.id,
-
-        faceLivenessScore:
-          livenessScore,
-
-        faceSimilarityScore:
-          similarityScore,
-
-        verificationStatus,
-
-        deviceId:
-          dto.deviceId,
-
-        failureReason:
-          faceResult.reason ??
-          geoResult.reason,
-
-        faceImageData: capturedImage.data,
-        faceImageMimeType: capturedImage.mimeType,
-      },
-    });
+    }
 
     return {
       approved,
@@ -368,7 +340,7 @@ export class AttendanceService {
       faceResult,
       geoResult,
       attendanceRecordId:
-        record.id,
+        record?.id ?? null,
       similarityScore,
       faceImage: `data:${capturedImage.mimeType};base64,${capturedImage.data}`,
     };
