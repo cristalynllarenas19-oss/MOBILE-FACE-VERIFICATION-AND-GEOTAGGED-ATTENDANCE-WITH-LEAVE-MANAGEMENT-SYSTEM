@@ -5,9 +5,13 @@ import {
   StyleSheet,
   FlatList,
   RefreshControl,
+  Modal,
+  Image,
+  Pressable,
+  ScrollView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { AttendanceHistoryRecord, getAttendanceHistory } from "../api";
+import { AttendanceHistoryRecord, AttendanceLogPhoto, getAttendanceHistory } from "../api";
 
 type Props = {
   employeeId?: string;
@@ -31,6 +35,21 @@ function formatHoursRendered(totalMinutes: number) {
   return `${hours}h ${minutes}m`;
 }
 
+function photoUri(log: AttendanceLogPhoto) {
+  if (!log.faceImageData) return null;
+  return `data:${log.faceImageMimeType ?? "image/jpeg"};base64,${log.faceImageData}`;
+}
+
+function logLabel(log: AttendanceLogPhoto) {
+  if (log.logType === "TIME_IN") return "Time In";
+  if (log.logType === "TIME_OUT") return "Time Out";
+  return "Rejected Attempt";
+}
+
+function formatLogTime(value: string) {
+  return new Date(value).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" });
+}
+
 function statusTone(status: string) {
   if (status === "PRESENT") return { color: "#17A34A", bg: "#ECFDF3", icon: "checkmark-circle" as const };
   if (status === "LATE") return { color: "#D97706", bg: "#FFFBEB", icon: "alert-circle" as const };
@@ -44,6 +63,7 @@ export default function DTRScreen({ employeeId }: Props) {
   const [records, setRecords] = useState<AttendanceHistoryRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [selectedRecord, setSelectedRecord] = useState<AttendanceHistoryRecord | null>(null);
 
   const load = useCallback(async () => {
     if (!employeeId) return;
@@ -74,6 +94,7 @@ export default function DTRScreen({ employeeId }: Props) {
   const todayInProgress = Boolean(todayRecord?.timeInAt) && !todayRecord?.timeOutAt;
 
   return (
+    <>
     <FlatList
       data={records}
       keyExtractor={(item) => item.id}
@@ -107,11 +128,15 @@ export default function DTRScreen({ employeeId }: Props) {
         const tone = statusTone(item.status);
         const hoursRendered = formatHoursRendered(item.totalMinutes);
         const inProgress = Boolean(item.timeInAt) && !item.timeOutAt;
+        const hasPhotos = item.logs?.some((log) => log.faceImageData);
 
         return (
-          <View style={styles.row}>
+          <Pressable style={styles.row} onPress={() => setSelectedRecord(item)}>
             <View style={styles.rowTop}>
-              <Text style={styles.dateText}>{formatDate(item.attendanceDate)}</Text>
+              <View style={styles.dateRow}>
+                <Text style={styles.dateText}>{formatDate(item.attendanceDate)}</Text>
+                {hasPhotos && <Ionicons name="camera" size={13} color="#94A3B8" />}
+              </View>
               <View style={[styles.statusBadge, { backgroundColor: tone.bg }]}>
                 <Ionicons name={tone.icon} size={12} color={tone.color} />
                 <Text style={[styles.statusBadgeText, { color: tone.color }]}>{item.status.replace("_", " ")}</Text>
@@ -136,10 +161,61 @@ export default function DTRScreen({ employeeId }: Props) {
                 </Text>
               </View>
             </View>
-          </View>
+          </Pressable>
         );
       }}
     />
+
+    <Modal
+      visible={!!selectedRecord}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setSelectedRecord(null)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalCard}>
+          <Text style={styles.modalTitle}>
+            {selectedRecord ? formatDate(selectedRecord.attendanceDate) : ""}
+          </Text>
+
+          {selectedRecord && selectedRecord.logs.length === 0 && (
+            <Text style={styles.modalEmptyText}>No captured photo for this day.</Text>
+          )}
+
+          <ScrollView style={styles.modalPhotoScroll} contentContainerStyle={styles.modalPhotoList}>
+            {selectedRecord?.logs.map((log) => {
+              const uri = photoUri(log);
+              const isRejected = log.logType === "FAILED_ATTEMPT";
+              return (
+                <View key={log.id} style={styles.modalPhotoBlock}>
+                  <View style={styles.modalPhotoLabelRow}>
+                    <Text style={[styles.modalPhotoLabel, isRejected && styles.modalPhotoLabelRejected]}>
+                      {logLabel(log)}
+                    </Text>
+                    <Text style={styles.modalPhotoTime}>{formatLogTime(log.capturedAt)}</Text>
+                  </View>
+                  {uri ? (
+                    <Image source={{ uri }} style={styles.modalPhoto} resizeMode="contain" />
+                  ) : (
+                    <View style={[styles.modalPhoto, styles.modalPhotoPlaceholder]}>
+                      <Ionicons name="image-outline" size={28} color="#CBD5E1" />
+                    </View>
+                  )}
+                  {isRejected && log.failureReason && (
+                    <Text style={styles.modalPhotoReason}>{log.failureReason}</Text>
+                  )}
+                </View>
+              );
+            })}
+          </ScrollView>
+
+          <Pressable style={styles.modalCloseButton} onPress={() => setSelectedRecord(null)}>
+            <Text style={styles.modalCloseText}>Close</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+    </>
   );
 }
 
@@ -188,6 +264,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 10,
+  },
+  dateRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
   dateText: {
     color: "#062B59",
@@ -249,5 +330,91 @@ const styles = StyleSheet.create({
     color: "#94A3B8",
     fontSize: 13,
     fontWeight: "600",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(6, 43, 89, 0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 12,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 480,
+    maxHeight: "92%",
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    padding: 16,
+  },
+  modalTitle: {
+    color: "#062B59",
+    fontSize: 16,
+    fontWeight: "800",
+    marginBottom: 14,
+    textAlign: "center",
+  },
+  modalEmptyText: {
+    color: "#94A3B8",
+    fontSize: 13,
+    fontWeight: "600",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  modalPhotoScroll: {
+    marginBottom: 14,
+  },
+  modalPhotoList: {
+    gap: 20,
+  },
+  modalPhotoBlock: {
+    gap: 8,
+  },
+  modalPhotoLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  modalPhotoLabel: {
+    color: "#1E3A8A",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  modalPhotoLabelRejected: {
+    color: "#DC2626",
+  },
+  modalPhotoTime: {
+    color: "#94A3B8",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  modalPhotoReason: {
+    color: "#DC2626",
+    fontSize: 12,
+    fontWeight: "600",
+    lineHeight: 16,
+  },
+  // Full width, ratio-matched to the saved composite (no fixed square crop)
+  // so the GPS stamp baked into the bottom of the photo is never cut off.
+  modalPhoto: {
+    width: "100%",
+    aspectRatio: 3 / 4,
+    borderRadius: 14,
+    backgroundColor: "#F1F5F9",
+  },
+  modalPhotoPlaceholder: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalCloseButton: {
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: "#1680D8",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalCloseText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
   },
 });

@@ -1,5 +1,5 @@
 import React from "react";
-import { Modal, View, Text, Pressable, StyleSheet } from "react-native";
+import { Modal, View, Text, Image, Pressable, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
 export type ResultModalStatus = "approved" | "pending" | "rejected" | "error" | "info";
@@ -9,6 +9,7 @@ type Props = {
   status: ResultModalStatus;
   title: string;
   message: string;
+  photoUri?: string | null;
   onClose: () => void;
 };
 
@@ -23,16 +24,25 @@ const STATUS_CONFIG: Record<
   info: { icon: "information-circle", color: "#1680D8", bg: "#EFF6FF" },
 };
 
-export default function ResultModal({ visible, status, title, message, onClose }: Props) {
+export default function ResultModal({ visible, status, title, message, photoUri, onClose }: Props) {
   const config = STATUS_CONFIG[status];
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={styles.card}>
-          <View style={[styles.iconCircle, { backgroundColor: config.bg }]}>
-            <Ionicons name={config.icon} size={48} color={config.color} />
-          </View>
+          {photoUri ? (
+            <View style={styles.photoWrap}>
+              <Image source={{ uri: photoUri }} style={styles.photo} resizeMode="cover" />
+              <View style={[styles.photoBadge, { backgroundColor: config.bg }]}>
+                <Ionicons name={config.icon} size={20} color={config.color} />
+              </View>
+            </View>
+          ) : (
+            <View style={[styles.iconCircle, { backgroundColor: config.bg }]}>
+              <Ionicons name={config.icon} size={48} color={config.color} />
+            </View>
+          )}
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.message}>{message}</Text>
           <Pressable style={[styles.button, { backgroundColor: config.color }]} onPress={onClose}>
@@ -73,6 +83,30 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 18,
+  },
+  photoWrap: {
+    width: 140,
+    height: 140,
+    borderRadius: 20,
+    marginBottom: 18,
+    position: "relative",
+  },
+  photo: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 20,
+  },
+  photoBadge: {
+    position: "absolute",
+    bottom: -6,
+    right: -6,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#fff",
   },
   title: {
     fontSize: 20,

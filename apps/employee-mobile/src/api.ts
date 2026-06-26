@@ -34,6 +34,7 @@ export type MobileUser = {
   role: string;
   employeeId?: string;
   displayName: string;
+  mustChangePassword?: boolean;
 };
 export type TodayAttendance = {
   status: string;
@@ -47,6 +48,7 @@ export type AttendanceSubmitResult = {
   logType: "TIME_IN" | "TIME_OUT";
   geoResult: { reason?: string | null };
   faceResult: { reason?: string | null };
+  faceImage?: string | null;
 };
 
 export type SubmitAttendanceInput = {
@@ -60,6 +62,16 @@ export type SubmitAttendanceInput = {
   deviceId: string;
 };
 
+export type AttendanceLogPhoto = {
+  id: string;
+  logType: "TIME_IN" | "TIME_OUT" | "FAILED_ATTEMPT";
+  capturedAt: string;
+  verificationStatus: string;
+  failureReason: string | null;
+  faceImageData: string | null;
+  faceImageMimeType: string | null;
+};
+
 export type AttendanceHistoryRecord = {
   id: string;
   attendanceDate: string;
@@ -67,6 +79,7 @@ export type AttendanceHistoryRecord = {
   timeOutAt: string | null;
   status: string;
   totalMinutes: number;
+  logs: AttendanceLogPhoto[];
 };
 
 export type WorkLocation = {
@@ -258,6 +271,13 @@ export async function changePassword(currentPassword: string, newPassword: strin
   return apiRequest<{ message: string }>("/users/me/password", {
     method: "PATCH",
     body: JSON.stringify({ currentPassword, newPassword }),
+  });
+}
+
+export async function setInitialPassword(newPassword: string) {
+  return apiRequest<{ message: string }>("/users/me/password", {
+    method: "PATCH",
+    body: JSON.stringify({ newPassword }),
   });
 }
 

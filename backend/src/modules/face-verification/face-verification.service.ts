@@ -104,6 +104,86 @@ export class FaceVerificationService implements OnModuleInit {
     return result?.descriptor ?? null;
   }
 
+  // Front-camera selfies taken indoors with no flash are routinely
+  // underexposed, which both looks bad in the stored photo and starves
+  // face-api.js of contrast/detail it needs for an accurate descriptor
+  // (a likely cause of "can't recognize me" false rejections). This
+  // auto-levels the image using its own histogram: the 1st-99th percentile
+  // range is stretched to fill 0-255, and only if the photo is still dark
+  // on average after that (a genuinely underexposed shot, not just one
+  // lacking pure blacks/whites) is an extra midtone lift applied — so a
+  // normally-lit photo is left close to untouched while a dark one gets a
+  // real boost. Re-encodes as the buffer used for both matching and storage.
+  async brightenImage(buffer: Buffer): Promise<{ buffer: Buffer; data: string; mimeType: string }> {
+    const image = await canvasLib.loadImage(buffer);
+    const canvas = canvasLib.createCanvas(image.width, image.height);
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(image as any, 0, 0);
+
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const { data } = imageData;
+    const pixelCount = data.length / 4;
+
+    const luminanceOf = (i: number) => 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+
+    const histogram = new Array(256).fill(0);
+    for (let i = 0; i < data.length; i += 4) {
+      histogram[Math.round(luminanceOf(i))]++;
+    }
+
+    const clip = pixelCount * 0.01;
+
+    let low = 0;
+    let cumulative = 0;
+    for (let i = 0; i < 256; i++) {
+      cumulative += histogram[i];
+      if (cumulative >= clip) {
+        low = i;
+        break;
+      }
+    }
+
+    let high = 255;
+    cumulative = 0;
+    for (let i = 255; i >= 0; i--) {
+      cumulative += histogram[i];
+      if (cumulative >= clip) {
+        high = i;
+        break;
+      }
+    }
+
+    const range = high - low;
+    if (range > 10) {
+      for (let i = 0; i < data.length; i += 4) {
+        for (let channel = 0; channel < 3; channel++) {
+          data[i + channel] = Math.max(0, Math.min(255, Math.round(((data[i + channel] - low) / range) * 255)));
+        }
+      }
+
+      let sum = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        sum += luminanceOf(i);
+      }
+      const meanLuminance = sum / pixelCount;
+      const targetLuminance = 130;
+
+      if (meanLuminance > 0 && meanLuminance < targetLuminance) {
+        const gamma = Math.max(0.55, Math.log(targetLuminance / 255) / Math.log(meanLuminance / 255));
+        for (let i = 0; i < data.length; i += 4) {
+          for (let channel = 0; channel < 3; channel++) {
+            data[i + channel] = Math.round(255 * Math.pow(data[i + channel] / 255, gamma));
+          }
+        }
+      }
+
+      ctx.putImageData(imageData, 0, 0);
+    }
+
+    const out = canvas.toBuffer("image/jpeg", { quality: 0.92 });
+    return { buffer: out, data: out.toString("base64"), mimeType: "image/jpeg" };
+  }
+
   compareDescriptors(enrolled: number[], captured: Float32Array) {
     return faceapi.euclideanDistance(new Float32Array(enrolled), captured);
   }

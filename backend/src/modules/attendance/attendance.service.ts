@@ -203,9 +203,15 @@ export class AttendanceService {
       throw new NotFoundException("No active face profile is enrolled for this employee");
     }
 
-    const capturedDescriptor = await this.faceVerification.extractDescriptor(
+    // Auto-levels the capture before matching/storing it: front-camera
+    // selfies taken indoors with no flash are routinely underexposed, which
+    // both looks bad in the saved photo and starves the descriptor of the
+    // contrast it needs for an accurate match.
+    const capturedImage = await this.faceVerification.brightenImage(
       this.decodeImageBase64(dto.faceImageBase64),
     );
+
+    const capturedDescriptor = await this.faceVerification.extractDescriptor(capturedImage.buffer);
 
     const distance = capturedDescriptor
       ? this.faceVerification.compareDescriptors(enrolledDescriptor, capturedDescriptor)
@@ -349,6 +355,9 @@ export class AttendanceService {
         failureReason:
           faceResult.reason ??
           geoResult.reason,
+
+        faceImageData: capturedImage.data,
+        faceImageMimeType: capturedImage.mimeType,
       },
     });
 
@@ -361,6 +370,7 @@ export class AttendanceService {
       attendanceRecordId:
         record.id,
       similarityScore,
+      faceImage: `data:${capturedImage.mimeType};base64,${capturedImage.data}`,
     };
   }
 
@@ -369,6 +379,23 @@ export class AttendanceService {
       where: { employeeId },
       orderBy: { attendanceDate: "desc" },
       take: limit,
+      include: {
+        // Include every attempt for the day, not just the approved
+        // TIME_IN/TIME_OUT ones — rejected attempts still have a captured
+        // photo and the employee should be able to review it too.
+        logs: {
+          orderBy: { capturedAt: "asc" },
+          select: {
+            id: true,
+            logType: true,
+            capturedAt: true,
+            verificationStatus: true,
+            failureReason: true,
+            faceImageData: true,
+            faceImageMimeType: true,
+          },
+        },
+      },
     });
   }
 

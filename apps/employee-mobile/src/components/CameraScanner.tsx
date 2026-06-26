@@ -7,35 +7,12 @@ import {
   Pressable,
   Linking,
   Image,
-  LayoutAnimation,
-  Platform,
-  UIManager,
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
 import { captureRef } from "react-native-view-shot";
 import { detectFace, FaceBox } from "../api";
-
-if (Platform.OS === "android") {
-  UIManager.setLayoutAnimationEnabledExperimental?.(true);
-}
-
-// Smoothly glides the tracked box between detections instead of snapping,
-// since each new position only arrives every DETECT_POLL_MS.
-const BOX_TRANSITION = { duration: 180, update: { type: LayoutAnimation.Types.easeInEaseOut } };
-
-// LayoutAnimation can be unreliable under React Native's New Architecture
-// (the Expo SDK 54 default here). It must never be allowed to throw inside
-// the detection poll loop — that would land in the surrounding catch block
-// and incorrectly reset a real "face detected" result back to false.
-function configureBoxTransition() {
-  try {
-    LayoutAnimation.configureNext(BOX_TRANSITION);
-  } catch (error) {
-    // Best-effort animation only — safe to skip.
-  }
-}
 
 type CameraScannerProps = {
   logType: "TIME_IN" | "TIME_OUT";
@@ -61,19 +38,25 @@ type ScreenBox = { x: number; y: number; width: number; height: number };
 const GUIDE_BOX_COLOR = "#1D4ED8"; // matches the admin web face-registration guide box
 const LOCKED_COLOR = "#22C55E";
 
-const DETECT_POLL_MS = 400;
+// Matches admin web face-registration's own tracking loop interval
+// (FaceRegistrationPage.tsx's startFaceTracking polls every 250ms) as
+// closely as this architecture allows.
+const DETECT_POLL_MS = 250;
 const HOLD_TO_LOCK_MS = 1500;
 const TICK_MS = 100;
-const WATERMARK_WIDTH = 720;
+// Higher base resolution for the composited photo, since it's now shown
+// large (full width) in the DTR history view rather than as a tiny thumbnail.
+const WATERMARK_WIDTH = 1080;
 const TILE_SIZE = 256;
 const MAP_ZOOM = 16;
+// On-screen live verification stamp stays at its original, smaller size —
+// only the saved photo (baked in below, shown big in DTR) is enlarged.
 const MAP_THUMBNAIL_DISPLAY_SIZE = 90;
-
-const CAPTURE_STAGES = [
-  { title: "Look at the camera", helper: "Keep the face centered inside the guide." },
-  { title: "Hold steady...", helper: "Stay still while we verify it's you." },
-  { title: "Face locked!", helper: "Tagging your photo with time and location." },
-] as const;
+const SAVED_MAP_THUMBNAIL_DISPLAY_SIZE = 210;
+// How long the captured photo stays frozen on screen (with the GPS stamp
+// already baked in) before handing off, so the capture feels like a real
+// snapshot instead of the live preview just continuing to move.
+const FREEZE_DISPLAY_MS = 900;
 
 function getStageText(faceDetected: boolean, progress: number) {
   if (!faceDetected) return "No face detected — position your face inside the frame";
@@ -82,8 +65,10 @@ function getStageText(faceDetected: boolean, progress: number) {
 }
 
 // Maps the backend's relative (0-1) face box onto the on-screen camera
-// preview, replicating the same "object-fit: cover" + padding math the
-// admin web face-registration page uses to draw its face tracker rectangle.
+// preview. This is a direct port of admin web face-registration's own
+// startFaceTracking math (FaceRegistrationPage.tsx) — same "object-fit:
+// cover" scale, same 8%/12% padding, same raw-snap-every-tick update with
+// no extra smoothing — so the guide behaves identically on both surfaces.
 function computeFaceScreenBox(
   box: FaceBox | null,
   stageSize: { width: number; height: number },
@@ -102,8 +87,8 @@ function computeFaceScreenBox(
   const boxWidth = box.width * photoSize.width;
   const boxHeight = box.height * photoSize.height;
 
-  const padX = boxWidth * 0.03;
-  const padY = boxHeight * 0.03;
+  const padX = boxWidth * 0.08;
+  const padY = boxHeight * 0.12;
 
   const rawX = Math.max(0, boxX * scale - cropX - padX);
   const y = Math.max(0, boxY * scale - cropY - padY);
@@ -158,13 +143,13 @@ function formatAddress(addr: Location.LocationGeocodedAddress | null | undefined
 // only puts the pin near the middle by coincidence), this renders a 2x2 grid
 // of raw tiles clipped to a small window centered exactly on the captured
 // coordinate, so the pin can simply be drawn fixed in the middle.
-function buildMapGrid(latitude: number, longitude: number): MapGrid {
+function buildMapGrid(latitude: number, longitude: number, displaySize: number): MapGrid {
   const worldSize = TILE_SIZE * Math.pow(2, MAP_ZOOM);
   const globalX = ((longitude + 180) / 360) * worldSize;
   const latRad = (latitude * Math.PI) / 180;
   const globalY = ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * worldSize;
 
-  const half = MAP_THUMBNAIL_DISPLAY_SIZE / 2;
+  const half = displaySize / 2;
   const windowLeft = globalX - half;
   const windowTop = globalY - half;
 
@@ -178,7 +163,12 @@ function buildMapGrid(latitude: number, longitude: number): MapGrid {
       const ty = tileY0 + dy;
       cells.push({
         key: `${tx}_${ty}`,
-        url: `https://a.basemaps.cartocdn.com/rastertiles/voyager/${MAP_ZOOM}/${tx}/${ty}.png`,
+        // "@2x" requests Carto's retina tile (512x512px for the same
+        // geographic area as a normal 256x256 tile). The cell is still laid
+        // out at TILE_SIZE (256) style points below, so this just gives the
+        // image component more source pixels to downscale from instead of
+        // upscaling a 1x tile, which was the main source of map blur.
+        url: `https://a.basemaps.cartocdn.com/rastertiles/voyager/${MAP_ZOOM}/${tx}/${ty}@2x.png`,
         left: tx * TILE_SIZE - windowLeft,
         top: ty * TILE_SIZE - windowTop,
       });
@@ -217,18 +207,28 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
   const [liveCoords, setLiveCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [liveAddress, setLiveAddress] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
+  const [frozenPreviewUri, setFrozenPreviewUri] = useState<string | null>(null);
+  const [isFrozenStamped, setIsFrozenStamped] = useState(false);
+  const [frozenStamp, setFrozenStamp] = useState<{ date: Date; address: string | null; mapGrid: MapGrid } | null>(null);
 
   const isFinishingRef = useRef(false);
   const faceDetectedRef = useRef(false);
 
   const permissionsReady = permission?.granted && locationPermission?.granted;
   const isLocked = scanProgress >= 100;
-  const activeStage = CAPTURE_STAGES[isLocked ? 2 : faceDetected ? 1 : 0];
   const secondsLeft = faceDetected && !isLocked
     ? Math.max(1, Math.ceil(((100 - scanProgress) / 100) * (HOLD_TO_LOCK_MS / 1000)))
     : null;
   const screenBox = computeFaceScreenBox(faceBox, stageSize, photoSize);
-  const liveMapGrid = liveCoords ? buildMapGrid(liveCoords.latitude, liveCoords.longitude) : null;
+  const liveMapGrid = liveCoords
+    ? buildMapGrid(liveCoords.latitude, liveCoords.longitude, MAP_THUMBNAIL_DISPLAY_SIZE)
+    : null;
+  // Once a photo is captured, the on-screen stamp preview should hold still
+  // at the exact moment of capture instead of continuing to tick/update —
+  // it's standing in for a frozen snapshot, not a live readout.
+  const overlayDate = frozenStamp ? frozenStamp.date : now;
+  const overlayAddress = frozenStamp ? frozenStamp.address : liveAddress;
+  const overlayMapGrid = frozenStamp ? frozenStamp.mapGrid : liveMapGrid;
 
   // Live clock for the on-screen GPS-camera-style stamp preview.
   useEffect(() => {
@@ -319,7 +319,8 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
           faceDetectedRef.current = result.detected;
           setFaceDetected(result.detected);
           setConfidence(result.detected ? result.confidence : 0);
-          configureBoxTransition();
+          // Set the raw detection directly on every tick, same as admin
+          // web's tracking loop — no smoothing/interpolation layered on top.
           setFaceBox(result.detected ? result.box : null);
         }
       } catch (error) {
@@ -329,7 +330,6 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
         faceDetectedRef.current = false;
         setFaceDetected(false);
         setConfidence(0);
-        configureBoxTransition();
         setFaceBox(null);
       } finally {
         if (!cancelled) {
@@ -384,7 +384,7 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
       const targetWidth = WATERMARK_WIDTH;
       const targetHeight = Math.round((height / width) * targetWidth);
 
-      const mapGrid = buildMapGrid(location.coords.latitude, location.coords.longitude);
+      const mapGrid = buildMapGrid(location.coords.latitude, location.coords.longitude, SAVED_MAP_THUMBNAIL_DISPLAY_SIZE);
 
       const mainImageReady = createDeferred();
       const mapImageReady = createDeferred();
@@ -430,21 +430,36 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
     setIsScanning(true);
     setScanError(null);
     try {
+      // Capture the final photo first, before anything else — this is the
+      // moment face verification actually succeeds, so the freeze has to
+      // happen right here, not after the (often slow) GPS fix below.
+      const photo = await cameraRef.current?.takePictureAsync({
+        base64: true,
+        quality: 0.7,
+        shutterSound: false,
+      });
+      if (!photo?.uri) throw new Error("Failed to capture photo.");
+
+      setIsFrozenStamped(false);
+      setFrozenPreviewUri(photo.uri);
+      // Hold the on-screen stamp preview (map/time/address) at this exact
+      // instant — without this it kept ticking the live clock forward even
+      // though the photo itself had already frozen.
+      if (liveCoords) {
+        setFrozenStamp({
+          date: new Date(),
+          address: liveAddress,
+          mapGrid: buildMapGrid(liveCoords.latitude, liveCoords.longitude, MAP_THUMBNAIL_DISPLAY_SIZE),
+        });
+      }
+
       const location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
       });
-      const [photo, addressResults] = await Promise.all([
-        cameraRef.current?.takePictureAsync({
-          base64: true,
-          quality: 0.7,
-          shutterSound: false,
-        }),
-        Location.reverseGeocodeAsync({
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-        }).catch(() => []),
-      ]);
-      if (!photo?.uri) throw new Error("Failed to capture photo.");
+      const addressResults = await Location.reverseGeocodeAsync({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+      }).catch(() => []);
 
       const addressLabel =
         formatAddress(addressResults?.[0]) ?? formatStampCoords(location.coords.latitude, location.coords.longitude);
@@ -452,8 +467,24 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
 
       const watermarked = await applyWatermark(photo.uri, location, label, addressLabel);
       const finalImage = watermarked ?? (photo.base64 ? `data:image/jpeg;base64,${photo.base64}` : undefined);
+
+      // Swap in the fully GPS-stamped version once it's ready, and hold on
+      // it briefly so the snapshot actually registers as a still photo
+      // before handing off to the result screen. The live GPS overlay (see
+      // render below) stays visible on top of the frozen raw photo right up
+      // until this point, so the map/date/address are never missing from
+      // what's on screen, even during the brief gap while this composes.
+      if (watermarked) {
+        setFrozenPreviewUri(watermarked);
+        setIsFrozenStamped(true);
+      }
+      await new Promise((resolve) => setTimeout(resolve, FREEZE_DISPLAY_MS));
+
       onComplete(location, finalImage);
     } catch (error) {
+      setFrozenPreviewUri(null);
+      setIsFrozenStamped(false);
+      setFrozenStamp(null);
       console.error("Scan error", error);
       setScanError(error instanceof Error ? error.message : "Failed to capture location or photo.");
       setIsScanning(false);
@@ -469,6 +500,9 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
     setConfidence(0);
     setScanProgress(0);
     setScanError(null);
+    setFrozenPreviewUri(null);
+    setIsFrozenStamped(false);
+    setFrozenStamp(null);
   }
 
   if (!permission || !locationPermission) return <View style={styles.container} />;
@@ -536,7 +570,21 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
       {/* Capture Stage */}
       <View style={styles.stageWrapper}>
         <View
-          style={styles.captureStage}
+          style={[
+            styles.captureStage,
+            // Pin the stage to the captured photo's own aspect ratio (falling
+            // back to the common 3:4 phone-camera default before the first
+            // photo arrives). Without this, the stage's shape is whatever
+            // leftover flex space the screen layout happens to give it, which
+            // is usually much taller/narrower than the actual photo — the
+            // "cover" math then has to crop away a large slice of the frame
+            // to fill it, which inflates how big the face's box looks on
+            // screen even though its proportions in the source photo are
+            // unchanged. Matching the photo's real ratio removes that crop.
+            photoSize.width && photoSize.height
+              ? { aspectRatio: photoSize.width / photoSize.height }
+              : { aspectRatio: 3 / 4 },
+          ]}
           onLayout={(event) => setStageSize({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}
         >
           <CameraView
@@ -547,42 +595,55 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
             onCameraReady={() => setCameraReady(true)}
           >
             <View style={styles.stageOverlay}>
-              <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
-                {screenBox && (
-                  <>
-                    <View
-                      style={[
-                        styles.trackedBox,
-                        {
-                          left: screenBox.x,
-                          top: screenBox.y,
-                          width: screenBox.width,
-                          height: screenBox.height,
-                        },
-                      ]}
-                    >
-                      {isLocked && (
-                        <View style={styles.lockBadge}>
-                          <Ionicons name="checkmark-circle" size={28} color={LOCKED_COLOR} />
-                        </View>
-                      )}
-                    </View>
-                    <Text style={styles.confidenceLabel}>{Math.round(confidence * 100)}%</Text>
-                  </>
-                )}
-              </View>
+              {frozenPreviewUri && (
+                <Image
+                  source={{ uri: frozenPreviewUri }}
+                  style={StyleSheet.absoluteFillObject}
+                  resizeMode="cover"
+                />
+              )}
 
-              <View style={styles.captureHeader}>
-                <Text style={styles.captureHeaderTitle}>{activeStage.title}</Text>
-                <Text style={styles.captureHeaderCountdown}>{secondsLeft ?? ""}</Text>
-                <Text style={styles.captureHeaderHelper}>{activeStage.helper}</Text>
-              </View>
+              {!frozenPreviewUri && (
+                <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
+                  {screenBox && (
+                    <>
+                      <View
+                        style={[
+                          styles.trackedBox,
+                          {
+                            left: screenBox.x,
+                            top: screenBox.y,
+                            width: screenBox.width,
+                            height: screenBox.height,
+                          },
+                        ]}
+                      >
+                        {isLocked && (
+                          <View style={styles.lockBadge}>
+                            <Ionicons name="checkmark-circle" size={28} color={LOCKED_COLOR} />
+                          </View>
+                        )}
+                      </View>
+                      <Text style={styles.confidenceLabel}>{Math.round(confidence * 100)}%</Text>
+                    </>
+                  )}
+                </View>
+              )}
 
-              {/* Live preview of the geotag stamp that will be burned into the captured photo */}
-              {liveCoords && liveMapGrid && (
+              {secondsLeft != null && (
+                <View style={styles.captureHeader}>
+                  <Text style={styles.captureHeaderCountdown}>{secondsLeft}</Text>
+                </View>
+              )}
+
+              {/* Live preview of the geotag stamp that will be burned into the captured photo.
+                  Stays visible (now overlaid on the frozen still instead of live video) until
+                  the fully-stamped composite is ready, so the map/date/address are never
+                  missing from what's on screen during that brief gap. */}
+              {!isFrozenStamped && overlayMapGrid && (
                 <View style={styles.gpsWatermarkRow} pointerEvents="none">
                   <View style={styles.mapThumbnailWrap}>
-                    {liveMapGrid.cells.map((cell) => (
+                    {overlayMapGrid.cells.map((cell) => (
                       <Image
                         key={cell.key}
                         source={{ uri: cell.url }}
@@ -594,10 +655,10 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
                   <View style={styles.gpsTextColumn}>
                     <View style={styles.dateBadge}>
                       <Text style={styles.dateBadgeText}>
-                        {logType === "TIME_IN" ? "TIME IN" : "TIME OUT"} · {formatStampDate(now)}
+                        {logType === "TIME_IN" ? "TIME IN" : "TIME OUT"} · {formatStampDate(overlayDate)}
                       </Text>
                     </View>
-                    <Text style={styles.addressText} numberOfLines={2}>{liveAddress ?? "Locating..."}</Text>
+                    <Text style={styles.addressText} numberOfLines={2}>{overlayAddress ?? "Locating..."}</Text>
                   </View>
                 </View>
               )}
@@ -638,8 +699,8 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
               onLoadEnd={() => mainImageReadyRef.current?.()}
               onError={() => mainImageReadyRef.current?.()}
             />
-            <View style={styles.gpsWatermarkRow}>
-              <View style={styles.mapThumbnailWrap}>
+            <View style={styles.gpsWatermarkRowSaved}>
+              <View style={styles.mapThumbnailWrapSaved}>
                 {pendingCapture.mapGrid.cells.map((cell) => (
                   <Image
                     key={cell.key}
@@ -649,13 +710,13 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
                     onError={() => mapImageReadyRef.current?.()}
                   />
                 ))}
-                <Ionicons name="location" size={26} color="#DC2626" style={styles.mapPinIcon} />
+                <Ionicons name="location" size={50} color="#DC2626" style={styles.mapPinIconSaved} />
               </View>
-              <View style={styles.gpsTextColumn}>
-                <View style={styles.dateBadge}>
-                  <Text style={styles.dateBadgeText}>{pendingCapture.label} · {pendingCapture.dateLabel}</Text>
+              <View style={styles.gpsTextColumnSaved}>
+                <View style={styles.dateBadgeSaved}>
+                  <Text style={styles.dateBadgeTextSaved}>{pendingCapture.label} · {pendingCapture.dateLabel}</Text>
                 </View>
-                <Text style={styles.addressText} numberOfLines={3}>{pendingCapture.addressLabel}</Text>
+                <Text style={styles.addressTextSaved} numberOfLines={3}>{pendingCapture.addressLabel}</Text>
               </View>
             </View>
           </View>
@@ -725,9 +786,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 16,
     paddingBottom: 8,
+    justifyContent: "center",
   },
   captureStage: {
-    flex: 1,
+    width: "100%",
     borderRadius: 24,
     overflow: "hidden",
     backgroundColor: "#050816",
@@ -750,12 +812,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingTop: 18,
     paddingHorizontal: 20,
-    gap: 2,
-  },
-  captureHeaderTitle: {
-    color: "#fff",
-    fontSize: 15,
-    fontWeight: "700",
   },
   captureHeaderCountdown: {
     color: "#fff",
@@ -763,12 +819,6 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     lineHeight: 42,
     minHeight: 42,
-  },
-  captureHeaderHelper: {
-    color: "rgba(255,255,255,0.86)",
-    fontSize: 12,
-    fontWeight: "500",
-    textAlign: "center",
   },
   trackedBox: {
     position: "absolute",
@@ -823,8 +873,10 @@ const styles = StyleSheet.create({
   hiddenCaptureHost: {
     position: "absolute",
     top: 0,
-    left: -9999,
+    left: 0,
+    opacity: 0,
   },
+  // Live, on-screen verification stamp — original, smaller sizing.
   gpsWatermarkRow: {
     position: "absolute",
     left: 16,
@@ -881,6 +933,61 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     lineHeight: 17,
+    textShadowColor: "rgba(0,0,0,0.85)",
+    textShadowRadius: 4,
+    textShadowOffset: { width: 0, height: 1 },
+  },
+  // Saved/composited photo stamp (baked into the file shown in DTR) —
+  // enlarged so the map/date/address stay legible at the photo's full size.
+  gpsWatermarkRowSaved: {
+    position: "absolute",
+    left: 40,
+    right: 40,
+    bottom: 40,
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 26,
+  },
+  mapThumbnailWrapSaved: {
+    width: SAVED_MAP_THUMBNAIL_DISPLAY_SIZE,
+    height: SAVED_MAP_THUMBNAIL_DISPLAY_SIZE,
+    borderRadius: 28,
+    overflow: "hidden",
+    borderWidth: 4,
+    borderColor: "#FFFFFF",
+    backgroundColor: "#CBD5E1",
+    position: "relative",
+  },
+  mapPinIconSaved: {
+    position: "absolute",
+    left: SAVED_MAP_THUMBNAIL_DISPLAY_SIZE / 2 - 25,
+    top: SAVED_MAP_THUMBNAIL_DISPLAY_SIZE / 2 - 46,
+    textShadowColor: "#FFFFFF",
+    textShadowRadius: 3,
+    textShadowOffset: { width: 0, height: 0 },
+  },
+  gpsTextColumnSaved: {
+    flex: 1,
+    justifyContent: "flex-end",
+    gap: 12,
+  },
+  dateBadgeSaved: {
+    alignSelf: "flex-start",
+    backgroundColor: "#DC2626",
+    paddingHorizontal: 22,
+    paddingVertical: 12,
+    borderRadius: 13,
+  },
+  dateBadgeTextSaved: {
+    color: "#FFFFFF",
+    fontSize: 32,
+    fontWeight: "800",
+  },
+  addressTextSaved: {
+    color: "#FFFFFF",
+    fontSize: 31,
+    fontWeight: "700",
+    lineHeight: 38,
     textShadowColor: "rgba(0,0,0,0.85)",
     textShadowRadius: 4,
     textShadowOffset: { width: 0, height: 1 },
