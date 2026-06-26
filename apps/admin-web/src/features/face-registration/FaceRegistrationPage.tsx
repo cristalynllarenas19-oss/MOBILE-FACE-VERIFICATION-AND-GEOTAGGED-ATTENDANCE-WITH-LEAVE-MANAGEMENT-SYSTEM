@@ -1,5 +1,5 @@
 import * as faceapi from "face-api.js";
-import { Camera, CheckCircle2, Circle, RotateCcw, ScanFace, Trash2 } from "lucide-react";
+import { Camera, CheckCircle2, ChevronDown, Eye, Pencil, RotateCcw, ScanFace, Search, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { apiRequest } from "../../lib/api";
 import "./FaceRegistrationPage.css";
@@ -91,6 +91,21 @@ export function FaceRegistrationPage() {
   const [captureStepIndex, setCaptureStepIndex] = useState(0);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [faceFrame, setFaceFrame] = useState<FaceFrame | null>(null);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [lastRegisteredEmployee, setLastRegisteredEmployee] = useState<Employee | null>(null);
+  const [lastActionWasEdit, setLastActionWasEdit] = useState(false);
+  const [departmentFilter, setDepartmentFilter] = useState<string>("All");
+  const [showDepartmentMenu, setShowDepartmentMenu] = useState(false);
+  const departmentMenuRef = useRef<HTMLDivElement>(null);
+  const [listDepartmentFilter, setListDepartmentFilter] = useState<string>("All");
+  const [showListDepartmentMenu, setShowListDepartmentMenu] = useState(false);
+  const listDepartmentMenuRef = useRef<HTMLDivElement>(null);
+  const [viewProfile, setViewProfile] = useState<FaceProfile | null>(null);
+  const [editingEnrollmentId, setEditingEnrollmentId] = useState<string | null>(null);
+  const captureCardRef = useRef<HTMLDivElement>(null);
+
+  // Delete confirmation modal state
+  const [deleteTarget, setDeleteTarget] = useState<FaceProfile | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -104,7 +119,7 @@ export function FaceRegistrationPage() {
         setEmployees(employeeData);
         setEnrollments(faceProfiles);
         setModelsReady(true);
-        setMessage("Employee enrollment ready. Search for an employee, then start the camera.");
+        setMessage("");
       })
       .catch(() => setMessage("Employee or face models could not be loaded. Refresh the page and try again."));
 
@@ -125,6 +140,28 @@ export function FaceRegistrationPage() {
     }
   }, [cameraActive, modelsReady]);
 
+  useEffect(() => {
+    if (!showDepartmentMenu) return;
+    function handleClickOutside(event: MouseEvent) {
+      if (departmentMenuRef.current && !departmentMenuRef.current.contains(event.target as Node)) {
+        setShowDepartmentMenu(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showDepartmentMenu]);
+
+  useEffect(() => {
+    if (!showListDepartmentMenu) return;
+    function handleClickOutside(event: MouseEvent) {
+      if (listDepartmentMenuRef.current && !listDepartmentMenuRef.current.contains(event.target as Node)) {
+        setShowListDepartmentMenu(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showListDepartmentMenu]);
+
   async function startCamera() {
     if (!modelsReady) return;
     try {
@@ -140,7 +177,6 @@ export function FaceRegistrationPage() {
       setCaptureStepIndex(0);
       setCountdown(null);
       setFaceFrame(null);
-      setMessage("Camera ready. Begin the guided capture when the employee is positioned.");
     } catch {
       setMessage("Camera access was denied or no camera is available.");
     }
@@ -204,10 +240,6 @@ export function FaceRegistrationPage() {
         const renderedHeight = video.videoHeight * scale;
         const cropX = (renderedWidth - video.clientWidth) / 2;
         const cropY = (renderedHeight - video.clientHeight) / 2;
-        const toScreenPoint = (point: faceapi.Point) => ({
-          x: video.clientWidth - (point.x * scale - cropX),
-          y: point.y * scale - cropY,
-        });
         const box = result.detection.box;
         const padX = box.width * 0.08;
         const padY = box.height * 0.12;
@@ -345,16 +377,34 @@ export function FaceRegistrationPage() {
       return;
     }
     try {
-      apiRequest<FaceProfile>("/face-profiles", {
-        method: "POST",
-        body: JSON.stringify({
-          employeeId: selectedEmployee.id,
-          referenceImageData: preview,
-          descriptors,
-        }),
-      }).then((enrollment) => {
-        setEnrollments((current) => [enrollment, ...current]);
-      });
+      const employeeToRegister = selectedEmployee;
+      const enrollmentIdBeingEdited = editingEnrollmentId;
+      if (enrollmentIdBeingEdited) {
+        apiRequest<FaceProfile>(`/face-profiles/${enrollmentIdBeingEdited}`, {
+          method: "PATCH",
+          body: JSON.stringify({ referenceImageData: preview, descriptors }),
+        }).then((updated) => {
+          setEnrollments((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+          setLastRegisteredEmployee(employeeToRegister);
+          setLastActionWasEdit(true);
+          setShowSuccessModal(true);
+        });
+      } else {
+        apiRequest<FaceProfile>("/face-profiles", {
+          method: "POST",
+          body: JSON.stringify({
+            employeeId: selectedEmployee.id,
+            referenceImageData: preview,
+            descriptors,
+          }),
+        }).then((enrollment) => {
+          setEnrollments((current) => [enrollment, ...current]);
+          setLastRegisteredEmployee(employeeToRegister);
+          setLastActionWasEdit(false);
+          setShowSuccessModal(true);
+        });
+      }
+      setEditingEnrollmentId(null);
       setEmployeeSearch("");
       setSelectedEmployee(null);
       setDescriptors([]);
@@ -363,46 +413,88 @@ export function FaceRegistrationPage() {
       setCountdown(null);
       setFaceFrame(null);
       stopCamera();
-      setMessage("Employee face registered successfully!");
     } catch {
       setMessage("Unable to register the face profile. Check the backend connection and try again.");
     }
   }
 
   function removeEnrollment(id: string) {
-    if (!window.confirm("Delete this face registration?")) return;
     apiRequest(`/face-profiles/${id}`, { method: "DELETE" }).then(() => {
       setEnrollments((current) => current.filter((item) => item.id !== id));
+      setDeleteTarget(null);
     });
   }
 
+  function dismissSuccessModal() {
+    setShowSuccessModal(false);
+    setLastRegisteredEmployee(null);
+    setLastActionWasEdit(false);
+    setMessage("");
+  }
+
+  function openViewModal(profile: FaceProfile) {
+    setViewProfile(profile);
+  }
+
+  function closeViewModal() {
+    setViewProfile(null);
+  }
+
+  function editProfilePhoto(profile: FaceProfile) {
+    setViewProfile(null);
+    setEditingEnrollmentId(profile.id);
+    setSelectedEmployee(profile.employee);
+    setEmployeeSearch(`${employeeLabel(profile.employee)} · ${profile.employee.employeeNo}`);
+    setMessage(`Editing face photo for ${employeeLabel(profile.employee)}. Starting camera...`);
+    captureCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    startCamera();
+  }
+
+  const departmentOptions = Array.from(
+    new Set(employees.map((employee) => employee.department?.name).filter((name): name is string => Boolean(name))),
+  ).sort((a, b) => a.localeCompare(b));
+
+  const visibleEmployees = employees
+    .filter((employee) => {
+      const query = employeeSearch.trim().toLowerCase();
+      if (!query) return true;
+      return (
+        employee.employeeNo.toLowerCase().includes(query) ||
+        employeeLabel(employee).toLowerCase().includes(query) ||
+        employee.department?.name?.toLowerCase().includes(query)
+      );
+    })
+    .filter((employee) => departmentFilter === "All" || employee.department?.name === departmentFilter)
+    .slice(0, 8);
+
+  const enrollmentDepartmentOptions = Array.from(
+    new Set(enrollments.map((item) => item.employee.department?.name).filter((name): name is string => Boolean(name))),
+  ).sort((a, b) => a.localeCompare(b));
+
+  const visibleEnrollments = enrollments.filter(
+    (item) => listDepartmentFilter === "All" || item.employee.department?.name === listDepartmentFilter,
+  );
+
   return (
     <div className="face-page">
-      <header className="face-page-heading">
-        <div className="face-page-heading-text">
-          <h2>Face Registration</h2>
-          <p>Search by employee name or employee ID, then register a clean face capture.</p>
-        </div>
-        <div className="face-stats">
-          <div className="face-stat-card">
-            <span className="stat-value">{enrollments.length}</span>
-            <span className="stat-label">Registered</span>
-          </div>
-        </div>
-      </header>
-
       <div className="face-workspace">
-        <section className="face-card capture-card">
+        <section className="face-card capture-card" ref={captureCardRef}>
+          {/* Three-column summary row */}
           <div className="capture-summary">
             <div>
-              <p>Selected employee</p>
+              <p>{editingEnrollmentId ? "Editing photo for" : "Selected employee"}</p>
               <strong>{selectedEmployee ? `${employeeLabel(selectedEmployee)} · ${selectedEmployee.employeeNo}` : "None selected"}</strong>
             </div>
             <div>
               <p>Status</p>
               <strong>{selectedEmployee ? "Ready for capture" : "Choose an employee first"}</strong>
             </div>
+            <div className="stat-inline-card">
+              <span className="stat-value">{enrollments.length}</span>
+              <span className="stat-label">Registered Employees</span>
+            </div>
           </div>
+
           <div className="capture-stage">
             {cameraActive ? (
               <video ref={videoRef} autoPlay muted playsInline />
@@ -429,28 +521,37 @@ export function FaceRegistrationPage() {
                 <text x="14" y="24">{Math.round(faceFrame.confidence * 100)}%</text>
               </svg>
             )}
-            {cameraActive && (
+            {cameraActive && countdown !== null && (
               <div className="capture-overlay">
-                <span>{CAPTURE_STEPS[captureStepIndex].title}</span>
-                <strong>{countdown ?? ""}</strong>
+                <strong>{countdown}</strong>
                 <small>{CAPTURE_STEPS[captureStepIndex].helper}</small>
+              </div>
+            )}
+
+            {/* Success Modal overlaid on capture stage */}
+            {showSuccessModal && lastRegisteredEmployee && (
+              <div className="success-modal-overlay">
+                <div className="success-modal">
+                  <div className="success-modal-icon">
+                    <CheckCircle2 size={48} />
+                  </div>
+                  <h3>{lastActionWasEdit ? "Face Photo Updated" : "Face Registered Successfully"}</h3>
+                  <p className="success-modal-name">{employeeLabel(lastRegisteredEmployee)}</p>
+                  <p className="success-modal-sub">{lastRegisteredEmployee.employeeNo} · {lastRegisteredEmployee.department?.name ?? "No department"}</p>
+                  <p className="success-modal-desc">
+                    {lastActionWasEdit
+                      ? "The reference photo for face recognition has been updated."
+                      : "This employee can now use face recognition for attendance verification."}
+                  </p>
+                  <button className="primary-button success-modal-btn" onClick={dismissSuccessModal}>
+                    Done
+                  </button>
+                </div>
               </div>
             )}
           </div>
 
-          <div className="pose-steps" aria-label="Face capture steps">
-            {CAPTURE_STEPS.map((step, index) => {
-              const complete = descriptors.length > index;
-              const active = cameraActive && index === captureStepIndex && !complete;
-              return (
-                <div className={`pose-step ${complete ? "complete" : ""} ${active ? "active" : ""}`} key={step.key}>
-                  {complete ? <CheckCircle2 size={18} /> : <Circle size={18} />}
-                  <span>{step.title}</span>
-                </div>
-              );
-            })}
-          </div>
-
+          {message && <p className="capture-message" role="status">{message}</p>}
           <div className="capture-actions">
             <button className="primary-button" onClick={cameraActive ? startGuidedCapture : startCamera} disabled={!modelsReady || busy}>
               <Camera size={17} /> {busy ? "Capturing automatically..." : cameraActive ? "Start guided capture" : "Start camera"}
@@ -459,68 +560,126 @@ export function FaceRegistrationPage() {
               <RotateCcw size={17} /> Reset
             </button>
           </div>
-
-          <div className="sample-progress">{descriptors.length} / {CAMERA_SAMPLE_TARGET} face sample captured</div>
-          <p className="capture-message" role="status">{message}</p>
         </section>
 
         <section className="face-card enrollment-form">
           <div className="form-title-row">
             <div>
-              <p className="form-kicker">Step 1</p>
-              <h3>Select Employee</h3>
+              <p className="form-kicker">{editingEnrollmentId ? "Editing" : "Step 1"}</p>
+              <h3>{editingEnrollmentId ? "Update Face Photo" : "Select Employee"}</h3>
             </div>
-            <ScanFace size={18} />
+            {!editingEnrollmentId && (
+              <div className="department-filter-shell" ref={departmentMenuRef}>
+                <button
+                  type="button"
+                  className={`department-filter-trigger ${departmentFilter !== "All" ? "active" : ""}`}
+                  onClick={() => setShowDepartmentMenu((open) => !open)}
+                >
+                  <span>{departmentFilter === "All" ? "All Departments" : departmentFilter}</span>
+                  <ChevronDown size={15} className={showDepartmentMenu ? "department-filter-chevron open" : "department-filter-chevron"} />
+                </button>
+                {showDepartmentMenu && (
+                  <div className="department-filter-menu">
+                    <div className="department-filter-menu-header">
+                      <span>Filter by department</span>
+                      {departmentFilter !== "All" && (
+                        <button
+                          type="button"
+                          className="department-filter-clear"
+                          onClick={() => {
+                            setDepartmentFilter("All");
+                            setShowDepartmentMenu(false);
+                          }}
+                        >
+                          <X size={13} /> Clear
+                        </button>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      className={`department-filter-option ${departmentFilter === "All" ? "active" : ""}`}
+                      onClick={() => {
+                        setDepartmentFilter("All");
+                        setShowDepartmentMenu(false);
+                      }}
+                    >
+                      All departments
+                    </button>
+                    {departmentOptions.map((name) => (
+                      <button
+                        type="button"
+                        key={name}
+                        className={`department-filter-option ${departmentFilter === name ? "active" : ""}`}
+                        onClick={() => {
+                          setDepartmentFilter(name);
+                          setShowDepartmentMenu(false);
+                        }}
+                      >
+                        {name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
-          <label htmlFor="employee-search">Search by name or employee ID</label>
-          <div className="search-shell">
-            <input
-              id="employee-search"
-              value={employeeSearch}
-              onChange={(event) => setEmployeeSearch(event.target.value)}
-              placeholder="Type an employee name or ID"
-              maxLength={80}
-              autoComplete="off"
-            />
-          </div>
+          {editingEnrollmentId ? (
+            <p className="capture-message">Capture a new photo below for this employee, then save to replace their existing photo.</p>
+          ) : (
+            <>
+              <label htmlFor="employee-search">Search by name or employee ID</label>
+              <div className="search-shell">
+                <Search size={16} className="search-icon" />
+                <input
+                  id="employee-search"
+                  value={employeeSearch}
+                  onChange={(event) => setEmployeeSearch(event.target.value)}
+                  placeholder="Type an employee name or ID"
+                  maxLength={80}
+                  autoComplete="off"
+                />
+              </div>
 
-          <div className="employee-picks">
-            {employees
-              .filter((employee) => {
-                const query = employeeSearch.trim().toLowerCase();
-                if (!query) return true;
-                return (
-                  employee.employeeNo.toLowerCase().includes(query) ||
-                  employeeLabel(employee).toLowerCase().includes(query) ||
-                  employee.department?.name?.toLowerCase().includes(query)
-                );
-              })
-              .slice(0, 8)
-              .map((employee) => {
-                const active = selectedEmployee?.id === employee.id;
-                return (
-                  <button
-                    key={employee.id}
-                    type="button"
-                    className={`employee-pick ${active ? "active" : ""}`}
-                    onClick={() => {
-                      setSelectedEmployee(employee);
-                      setEmployeeSearch(`${employeeLabel(employee)} · ${employee.employeeNo}`);
-                    }}
-                  >
-                    <strong>{employeeLabel(employee)}</strong>
-                    <span>{employee.employeeNo}</span>
-                    <small>{employee.department?.name ?? "No department"}</small>
+              {departmentFilter !== "All" && (
+                <div className="department-filter-chip">
+                  <span>{departmentFilter}</span>
+                  <button type="button" onClick={() => setDepartmentFilter("All")} aria-label="Remove department filter">
+                    <X size={13} />
                   </button>
-                );
-              })}
-          </div>
+                </div>
+              )}
+
+              <div className="employee-picks">
+                {visibleEmployees.map((employee) => {
+                    const active = selectedEmployee?.id === employee.id;
+                    return (
+                      <button
+                        key={employee.id}
+                        type="button"
+                        className={`employee-pick ${active ? "active" : ""}`}
+                        onClick={() => {
+                          setSelectedEmployee(employee);
+                          setEmployeeSearch(`${employeeLabel(employee)} · ${employee.employeeNo}`);
+                        }}
+                      >
+                        <strong>{employeeLabel(employee)}</strong>
+                        <span>{employee.employeeNo}</span>
+                        <small>{employee.department?.name ?? "No department"}</small>
+                      </button>
+                    );
+                  })}
+                {visibleEmployees.length === 0 && (
+                  <p className="no-employee-matches">No employees match this search or filter.</p>
+                )}
+              </div>
+            </>
+          )}
 
           {selectedEmployee ? (
             <div className="selected-employee-card">
               <div>
-                <p>Selected employee</p>
+                <p>{editingEnrollmentId ? "Editing photo for" : "Selected employee"}</p>
                 <strong>{employeeLabel(selectedEmployee)}</strong>
                 <span>{selectedEmployee.employeeNo}</span>
               </div>
@@ -529,26 +688,98 @@ export function FaceRegistrationPage() {
                 <strong>{selectedEmployee.department?.name ?? "Unknown"}</strong>
               </div>
             </div>
-          ) : (
-            <div className="selected-employee-card empty">
-              <strong>No employee selected yet</strong>
-              <span>Search by name or employee ID to continue.</span>
-            </div>
-          )}
-          <button className="primary-button save-face-button" onClick={saveEnrollment} disabled={busy || descriptors.length < CAMERA_SAMPLE_TARGET || !selectedEmployee}>
-            Register Employee Face
-          </button>
+          ) : null}
+          <div className="form-actions">
+            <button
+              className="outline-button cancel-button"
+              onClick={() => { setEditingEnrollmentId(null); setSelectedEmployee(null); setEmployeeSearch(""); resetCapture(); stopCamera(); }}
+              disabled={busy}
+            >
+              Cancel
+            </button>
+            <button className="primary-button save-face-button" onClick={saveEnrollment} disabled={busy || descriptors.length < CAMERA_SAMPLE_TARGET || !selectedEmployee}>
+              {editingEnrollmentId ? "Save New Photo" : "Register Employee Face"}
+            </button>
+          </div>
         </section>
       </div>
 
       <section className="face-card enrollment-list">
-        <div className="list-heading"><h3>Registered Employees</h3><span>{enrollments.length} total</span></div>
+        <div className="list-heading">
+          <h3>Registered Employees</h3>
+          <div className="list-heading-right">
+            <div className="department-filter-shell" ref={listDepartmentMenuRef}>
+              <button
+                type="button"
+                className={`department-filter-trigger ${listDepartmentFilter !== "All" ? "active" : ""}`}
+                onClick={() => setShowListDepartmentMenu((open) => !open)}
+              >
+                <span>{listDepartmentFilter === "All" ? "All Departments" : listDepartmentFilter}</span>
+                <ChevronDown size={15} className={showListDepartmentMenu ? "department-filter-chevron open" : "department-filter-chevron"} />
+              </button>
+              {showListDepartmentMenu && (
+                <div className="department-filter-menu">
+                  <div className="department-filter-menu-header">
+                    <span>Filter by department</span>
+                    {listDepartmentFilter !== "All" && (
+                      <button
+                        type="button"
+                        className="department-filter-clear"
+                        onClick={() => {
+                          setListDepartmentFilter("All");
+                          setShowListDepartmentMenu(false);
+                        }}
+                      >
+                        <X size={13} /> Clear
+                      </button>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    className={`department-filter-option ${listDepartmentFilter === "All" ? "active" : ""}`}
+                    onClick={() => {
+                      setListDepartmentFilter("All");
+                      setShowListDepartmentMenu(false);
+                    }}
+                  >
+                    All departments
+                  </button>
+                  {enrollmentDepartmentOptions.map((name) => (
+                    <button
+                      type="button"
+                      key={name}
+                      className={`department-filter-option ${listDepartmentFilter === name ? "active" : ""}`}
+                      onClick={() => {
+                        setListDepartmentFilter(name);
+                        setShowListDepartmentMenu(false);
+                      }}
+                    >
+                      {name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <span>{visibleEnrollments.length} total</span>
+          </div>
+        </div>
         {enrollments.length === 0 ? (
           <p className="empty-enrollments">No employees have been registered yet.</p>
+        ) : visibleEnrollments.length === 0 ? (
+          <p className="empty-enrollments">No registered employees match this department filter.</p>
         ) : (
           <div className="face-grid">
-            {enrollments.map((item) => (
-              <article className="face-item" key={item.id}>
+            {visibleEnrollments.map((item) => (
+              <article
+                className="face-item"
+                key={item.id}
+                onClick={() => openViewModal(item)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") openViewModal(item);
+                }}
+              >
                 <img src={item.referenceImageData ?? ""} alt="" />
                 <div>
                   <strong>{employeeLabel(item.employee)}</strong>
@@ -556,12 +787,106 @@ export function FaceRegistrationPage() {
                   <small>{item.employee.department?.name ?? "Unknown department"}</small>
                   <small>{item.enrolledAt ? new Date(item.enrolledAt).toLocaleString() : "Pending"}</small>
                 </div>
-                <button onClick={() => removeEnrollment(item.id)} aria-label={`Delete ${employeeLabel(item.employee)}`}><Trash2 size={17} /></button>
+                <div className="face-item-actions">
+                  <button
+                    className="face-item-view"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openViewModal(item);
+                    }}
+                    aria-label={`View ${employeeLabel(item.employee)}`}
+                  >
+                    <Eye size={16} />
+                  </button>
+                  <button
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setDeleteTarget(item);
+                    }}
+                    aria-label={`Delete ${employeeLabel(item.employee)}`}
+                  >
+                    <Trash2 size={17} />
+                  </button>
+                </div>
               </article>
             ))}
           </div>
         )}
       </section>
+
+      {/* View / Edit Profile Modal */}
+      {viewProfile && (
+        <div className="view-modal-overlay" onClick={closeViewModal}>
+          <div className="view-modal" onClick={(event) => event.stopPropagation()}>
+            <button className="view-modal-close" onClick={closeViewModal} aria-label="Close">
+              <X size={18} />
+            </button>
+
+            <div className="view-modal-photo">
+              <img src={viewProfile.referenceImageData ?? ""} alt="" />
+            </div>
+
+            <h3>{employeeLabel(viewProfile.employee)}</h3>
+            <p className="view-modal-sub">{viewProfile.employee.employeeNo} · {viewProfile.employee.department?.name ?? "No department"}</p>
+            <dl className="view-modal-details">
+              <div>
+                <dt>Status</dt>
+                <dd>{viewProfile.enrollmentStatus}</dd>
+              </div>
+              <div>
+                <dt>Enrolled</dt>
+                <dd>{viewProfile.enrolledAt ? new Date(viewProfile.enrolledAt).toLocaleString() : "Pending"}</dd>
+              </div>
+            </dl>
+            <div className="view-modal-actions">
+              <button className="outline-button" onClick={closeViewModal}>
+                Close
+              </button>
+              <button className="primary-button" onClick={() => editProfilePhoto(viewProfile)}>
+                <Pencil size={16} /> Edit Photo
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteTarget && (
+        <div className="delete-modal-overlay" onClick={() => setDeleteTarget(null)}>
+          <div className="delete-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="delete-modal-icon">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
+                  fill="#fee2e2"
+                  stroke="#ef4444"
+                  strokeWidth="1.5"
+                  strokeLinejoin="round"
+                />
+                <line x1="12" y1="9" x2="12" y2="13" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round" />
+                <circle cx="12" cy="17" r="0.8" fill="#ef4444" />
+              </svg>
+            </div>
+            <h3>Delete Face Registration</h3>
+            <p className="delete-modal-message">
+              Are you sure you want to delete the face profile for{" "}
+              <strong>{employeeLabel(deleteTarget.employee)}</strong>?
+              <br />
+              <span className="delete-modal-id">
+                {deleteTarget.employee.employeeNo} · {deleteTarget.employee.department?.name ?? "No department"}
+              </span>
+            </p>
+            <div className="delete-modal-actions">
+              <button className="outline-button" onClick={() => setDeleteTarget(null)}>
+                Cancel
+              </button>
+              <button className="danger-button" onClick={() => removeEnrollment(deleteTarget.id)}>
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
