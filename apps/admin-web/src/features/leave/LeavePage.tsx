@@ -445,22 +445,28 @@ export function LeavePage() {
               <div><span>Latest Remarks</span><strong>{reviewRequest.adminRemarks?.remarks ?? "None"}</strong></div>
             </div>
 
-            <label className="leave-remarks-field">
-              Add Remarks
-              <textarea
-                value={remarks}
-                onChange={(e) => setRemarks(e.target.value)}
-                placeholder="Optional review notes"
-              />
-            </label>
+            {reviewRequest.status !== "REJECTED" && (
+              <label className="leave-remarks-field">
+                Add Remarks
+                <textarea
+                  value={remarks}
+                  onChange={(e) => setRemarks(e.target.value)}
+                  placeholder="Optional review notes"
+                />
+              </label>
+            )}
 
             <div className="leave-detail-actions">
-              <button className="leave-reject-button" onClick={() => reviewLeave("reject")} disabled={isSaving}>
-                Reject
-              </button>
-              <button className="primary-button" onClick={() => reviewLeave("approve")} disabled={isSaving}>
-                Approve
-              </button>
+              {reviewRequest.status !== "REJECTED" && (
+                <>
+                  <button className="leave-reject-button" onClick={() => reviewLeave("reject")} disabled={isSaving}>
+                    Reject
+                  </button>
+                  <button className="primary-button" onClick={() => reviewLeave("approve")} disabled={isSaving}>
+                    Approve
+                  </button>
+                </>
+              )}
               <button className="outline-button" onClick={() => setReviewRequest(null)} disabled={isSaving}>
                 Close
               </button>

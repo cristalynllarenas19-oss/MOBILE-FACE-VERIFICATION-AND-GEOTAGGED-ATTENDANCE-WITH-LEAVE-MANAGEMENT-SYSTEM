@@ -803,7 +803,7 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
               <div className="geotagging-actions">
                 <button className="primary-button" type="submit" disabled={loading}>
                   <Plus size={14} />
-                  <span>{editingLocationId ? "Save Changes" : "Add Area"}</span>
+                  <span>{editingLocationId ? "Save Changes" : "Add New Area"}</span>
                 </button>
                 <button className="outline-button" type="button" onClick={startCreateMode}>
                   <span>Cancel</span>

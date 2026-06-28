@@ -192,8 +192,8 @@
 .success-modal {
   background: #ffffff;
   border-radius: 16px;
-  padding: 32px 28px 28px;
-  max-width: 340px;
+  padding: 26px 22px 22px;
+  max-width: 300px;
   width: 90%;
   text-align: center;
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.36);
@@ -760,8 +760,8 @@
 .view-modal {
   background: #ffffff;
   border-radius: 16px;
-  padding: 28px;
-  max-width: 380px;
+  padding: 22px;
+  max-width: 340px;
   width: 100%;
   text-align: center;
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.32);
@@ -876,8 +876,8 @@
 .delete-modal {
   background: #ffffff;
   border-radius: 16px;
-  padding: 32px 28px 28px;
-  max-width: 380px;
+  padding: 26px 22px 22px;
+  max-width: 340px;
   width: 100%;
   text-align: center;
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.28);

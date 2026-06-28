@@ -997,8 +997,8 @@
 }
 
 .geotagging-modal {
-  width: min(520px, 100%);
-  max-height: min(640px, 90vh);
+  width: min(460px, 100%);
+  max-height: min(560px, 86vh);
   display: flex;
   flex-direction: column;
   background: #ffffff;
@@ -1031,10 +1031,30 @@
 }
 
 .geotagging-modal-body {
+  flex: 1 1 auto;
+  min-height: 0;
   padding: 16px 22px;
   overflow-y: auto;
   scrollbar-width: thin;
-  scrollbar-color: #cbd5e1 transparent;
+  scrollbar-color: #b8c7d8 #f4f7fb;
+}
+
+.geotagging-modal-body::-webkit-scrollbar {
+  width: 7px;
+}
+
+.geotagging-modal-body::-webkit-scrollbar-track {
+  background: #f4f7fb;
+  border-radius: 999px;
+}
+
+.geotagging-modal-body::-webkit-scrollbar-thumb {
+  background: #b8c7d8;
+  border-radius: 999px;
+}
+
+.geotagging-modal-body::-webkit-scrollbar-thumb:hover {
+  background: #8fa9c4;
 }
 
 .geotagging-modal-employee-list {
@@ -1101,7 +1121,7 @@
 
 
 .geotagging-confirm-modal {
-  width: min(400px, 100%);
+  width: min(360px, 100%);
   max-height: none;
   position: relative;
 }

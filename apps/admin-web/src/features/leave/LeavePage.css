@@ -264,8 +264,8 @@
 }
 
 .leave-modal {
-  width: min(640px, 100%);
-  max-height: min(92vh, 860px);
+  width: min(560px, 100%);
+  max-height: min(88vh, 720px);
   overflow-y: auto;
   background: #ffffff;
   border-radius: 14px;
@@ -273,7 +273,7 @@
 }
 
 .leave-modal--sm {
-  width: min(420px, 100%);
+  width: min(380px, 100%);
 }
 
 .leave-modal-header {

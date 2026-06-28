@@ -361,7 +361,7 @@
 }
 
 .schedule-modal {
-  width: min(640px, 100%);
+  width: min(560px, 100%);
   background: #ffffff;
   border-radius: 14px;
   box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);
@@ -369,7 +369,7 @@
 }
 
 .schedule-modal--sm {
-  width: min(460px, 100%);
+  width: min(400px, 100%);
 }
 
 .schedule-modal-header {

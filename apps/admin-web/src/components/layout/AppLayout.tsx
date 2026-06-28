@@ -11,6 +11,8 @@ import {
   UserSquare2,
   ScanFace,
   Menu,
+  Settings2,
+  Settings,
 } from "lucide-react";
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { PermissionCode, permissions } from "../../types/rbac";
@@ -44,6 +46,7 @@ export const navItems = [
   { id: "leave",      label: "Leave Management",      icon: ClipboardList,   permission: permissions.leaveRead },
   { id: "schedules",  label: "Schedule Management",   icon: CalendarClock,   permission: permissions.schedulesRead },
   { id: "reports",    label: "Reports",               icon: BarChart3,       permission: permissions.reportsRead },
+  { id: "utilities",    label: "Utilities",               icon: Settings,       permission: permissions.reportsRead },
 ];
 
 function getInitials(name: string): string {

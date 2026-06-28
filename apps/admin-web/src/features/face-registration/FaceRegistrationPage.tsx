@@ -875,11 +875,11 @@ export function FaceRegistrationPage() {
               </span>
             </p>
             <div className="delete-modal-actions">
-              <button className="outline-button" onClick={() => setDeleteTarget(null)}>
-                Cancel
-              </button>
               <button className="danger-button" onClick={() => removeEnrollment(deleteTarget.id)}>
                 Delete
+              </button>
+              <button className="outline-button" onClick={() => setDeleteTarget(null)}>
+                Cancel
               </button>
             </div>
           </div>

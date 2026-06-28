@@ -24,6 +24,10 @@ td {
   border-bottom: 1px solid var(--line);
 }
 
+td {
+  font-size: 12.5px;
+}
+
 .filter-tabs {
   display: flex;
   gap: 10px;

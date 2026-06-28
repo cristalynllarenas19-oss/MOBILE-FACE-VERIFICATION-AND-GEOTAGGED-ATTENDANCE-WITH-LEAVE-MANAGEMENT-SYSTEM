@@ -198,7 +198,7 @@
 }
 
 .user-modal {
-  width: min(600px, 100%);
+  width: min(520px, 100%);
   background: #ffffff;
   border-radius: 14px;
   box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);
@@ -206,7 +206,7 @@
 }
 
 .confirm-modal {
-  width: min(380px, 100%);
+  width: min(340px, 100%);
   background: #ffffff;
   border-radius: 12px;
   box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);

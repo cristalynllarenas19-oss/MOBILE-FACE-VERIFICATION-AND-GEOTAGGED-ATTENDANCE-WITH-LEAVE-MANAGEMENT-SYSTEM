@@ -119,21 +119,22 @@ export function ReportsPage() {
       </div>
 
       <div className="reports-toolbar">
-        <div className="filter-tabs">
-          <button className={tab === "attendance" ? "active" : ""} onClick={() => setTab("attendance")}>DTR Reports</button>
-          <button className={tab === "leave" ? "active" : ""} onClick={() => setTab("leave")}>Leave Reports</button>
-          <button className={tab === "schedules" ? "active" : ""} onClick={() => setTab("schedules")}>Schedule Reports</button>
-        </div>
+        <h2 className="reports-title">Reports</h2>
         <span>Generated {new Date(data.generatedAt).toLocaleString()}</span>
       </div>
 
       <div className="reports-filter-bar">
-        <input type="date" value={filters.from} onChange={(event) => setFilters((current) => ({ ...current, from: event.target.value }))} aria-label="Report start date" />
-        <input type="date" value={filters.to} onChange={(event) => setFilters((current) => ({ ...current, to: event.target.value }))} aria-label="Report end date" />
         <select value={filters.department} onChange={(event) => setFilters((current) => ({ ...current, department: event.target.value }))} aria-label="Report department">
           <option value="ALL">All Departments</option>
           {departments.map((department) => <option key={department} value={department}>{department}</option>)}
         </select>
+        <select value={tab} onChange={(event) => setTab(event.target.value as ReportTab)} aria-label="Report type">
+          <option value="attendance">DTR Reports</option>
+          <option value="leave">Leave Reports</option>
+          <option value="schedules">Schedule Reports</option>
+        </select>
+        <input type="date" value={filters.from} onChange={(event) => setFilters((current) => ({ ...current, from: event.target.value }))} aria-label="Report start date" />
+        <input type="date" value={filters.to} onChange={(event) => setFilters((current) => ({ ...current, to: event.target.value }))} aria-label="Report end date" />
         <button className="report-generate-button" onClick={loadReport}>
           <BarChart3 size={16} />
           <span>Generate</span>

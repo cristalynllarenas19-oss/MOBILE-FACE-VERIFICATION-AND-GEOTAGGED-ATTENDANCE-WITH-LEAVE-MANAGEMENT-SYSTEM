@@ -162,16 +162,6 @@ function AttendanceDetailsModal({
         </div>
 
         <div className="attendance-admin-actions">
-          {canWrite && (
-            <label>
-              Add Remarks
-              <textarea
-                value={remarks}
-                onChange={(event) => setRemarks(event.target.value)}
-                placeholder={record.adminRemarks?.remarks ?? "Optional review notes"}
-              />
-            </label>
-          )}
           {error && <p className="attendance-form-error">{error}</p>}
           <div>
             {canWrite && record.status !== "PRESENT" && (

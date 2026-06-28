@@ -60,26 +60,10 @@
   gap: 8px;
 }
 
-.reports-toolbar .filter-tabs {
-  align-items: center;
-  margin-bottom: 0;
-}
-
-.reports-toolbar .filter-tabs button {
-  border: 1px solid transparent;
-  background: #ffffff;
-  color: #41536b;
-  padding: 9px 15px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.reports-toolbar .filter-tabs button.active {
-  background: #dbeafe;
-  border-color: #93c5fd;
+.reports-title {
   color: #1a3a5c;
+  font-size: 16px;
+  font-weight: 700;
 }
 
 .reports-toolbar span {
