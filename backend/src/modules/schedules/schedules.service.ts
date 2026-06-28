@@ -54,8 +54,8 @@ export class SchedulesService {
     });
   }
 
-  createShift(dto: { name: string; startTime: string; endTime: string; gracePeriodMinutes?: number }) {
-    return this.prisma.shift.create({
+  async createShift(dto: { name: string; startTime: string; endTime: string; gracePeriodMinutes?: number }, actorUserId?: string) {
+    const created = await this.prisma.shift.create({
       data: {
         name: dto.name.trim(),
         startTime: dto.startTime,
@@ -63,5 +63,17 @@ export class SchedulesService {
         gracePeriodMinutes: dto.gracePeriodMinutes ?? 0,
       },
     });
+
+    await this.prisma.auditLog.create({
+      data: {
+        actorUserId,
+        action: "CREATE_SHIFT",
+        entityType: "Shift",
+        entityId: created.id,
+        newValues: { name: created.name, startTime: created.startTime, endTime: created.endTime, gracePeriodMinutes: created.gracePeriodMinutes },
+      },
+    });
+
+    return created;
   }
 }

@@ -167,11 +167,11 @@ export function UsersPage() {
           <thead>
             <tr>
               <th>ID</th>
-              <th>Name</th>
-              <th>Email</th>
-              <th>Role</th>
-              <th>Status</th>
-              <th>Action</th>
+              <th>NAME</th>
+              <th>EMAIL</th>
+              <th>ROLE</th>
+              <th>STATUS</th>
+              <th>ACTION</th>
             </tr>
           </thead>
           <tbody>

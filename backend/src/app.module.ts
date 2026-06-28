@@ -4,6 +4,7 @@ import { APP_GUARD } from "@nestjs/core";
 import { JwtAuthGuard } from "./common/guards/jwt-auth.guard";
 import { PermissionsGuard } from "./common/guards/permissions.guard";
 import { AttendanceModule } from "./modules/attendance/attendance.module";
+import { AuditLogsModule } from "./modules/audit-logs/audit-logs.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { EmployeesModule } from "./modules/employees/employees.module";
 import { FaceVerificationModule } from "./modules/face-verification/face-verification.module";
@@ -41,6 +42,7 @@ import { HealthController } from "./health.controller";
     NotificationsModule,
     SchedulesModule,
     ReportsModule,
+    AuditLogsModule,
   ],
   controllers: [HealthController],
   providers: [

@@ -1,11 +1,26 @@
 // pages/leave/LeavePage.tsx
-import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Eye, FileText, Paperclip, Plus, Search, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  AlertTriangle,
+  Calendar as CalendarIcon,
+  CheckCircle2,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  FileText,
+  Paperclip,
+  Search,
+  X,
+} from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
+import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { apiRequest } from "../../lib/api";
 import "./LeavePage.css";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
+
+type EmploymentStatus = "REGULAR" | "PROBATIONARY" | "CONTRACTUAL" | "SEPARATED";
 
 type LeaveType = {
   id: string;
@@ -29,6 +44,7 @@ type LeaveRequest = {
     id: string;
     firstName: string;
     lastName: string;
+    employmentStatus?: EmploymentStatus;
     department?: { name: string };
   };
   leaveType: { id: string; name: string };
@@ -41,6 +57,42 @@ type LeaveBalance = {
   earnedDays: number;
   usedDays: number;
   remainingDays: number;
+};
+
+type LeaveBalanceSummary = {
+  year: number;
+  byEmploymentStatus: {
+    employmentStatus: EmploymentStatus;
+    earnedDays: number;
+    usedDays: number;
+    remainingDays: number;
+    employeeCount: number;
+  }[];
+  byLeaveType: {
+    employmentStatus: EmploymentStatus;
+    leaveTypeId: string;
+    leaveTypeName: string;
+    earnedDays: number;
+    usedDays: number;
+    remainingDays: number;
+  }[];
+  byDepartment: {
+    departmentId: string;
+    departmentName: string;
+    earnedDays: number;
+    usedDays: number;
+    remainingDays: number;
+    employeeCount: number;
+  }[];
+};
+
+type DirectoryEmployee = {
+  id: string;
+  employeeNo: string;
+  firstName: string;
+  lastName: string;
+  employmentStatus: EmploymentStatus;
+  department?: { name: string } | null;
 };
 
 type Notification = { type: "success" | "error"; message: string } | null;
@@ -61,29 +113,453 @@ function formatDate(value: string) {
   return new Date(value).toLocaleDateString();
 }
 
-// ─── Component ───────────────────────────────────────────────────────────────
+function formatEmploymentStatus(status?: EmploymentStatus) {
+  if (!status) return "Unspecified";
+  return status.charAt(0) + status.slice(1).toLowerCase();
+}
+
+const EMPLOYMENT_STATUS_COLORS: Record<EmploymentStatus, string> = {
+  REGULAR: "#2979d0",
+  PROBATIONARY: "#d97706",
+  CONTRACTUAL: "#7c3aed",
+  SEPARATED: "#94a3b8",
+};
+
+const EMPLOYMENT_STATUS_OPTIONS = [
+  { value: "REGULAR", label: "Regular" },
+  { value: "PROBATIONARY", label: "Probationary" },
+  { value: "CONTRACTUAL", label: "Contractual" },
+  { value: "SEPARATED", label: "Separated" },
+];
+
+const LEAVE_TYPE_COLORS = ["#1baf7a", "#eda100", "#e34948", "#4a3aa7", "#2a78d6", "#0ea5b8", "#d6336c", "#7c3aed"];
+
+// ─── Donut chart (plain SVG, no chart library) ───────────────────────────────
+
+function LeaveStatusDonut({
+  employmentStatus,
+  earnedDays,
+  usedDays,
+  remainingDays,
+  employeeCount,
+  leaveTypeRows,
+}: {
+  employmentStatus: EmploymentStatus;
+  earnedDays: number;
+  usedDays: number;
+  remainingDays: number;
+  employeeCount: number;
+  leaveTypeRows: { leaveTypeId: string; leaveTypeName: string; remainingDays: number }[];
+}) {
+  const [showTypes, setShowTypes] = useState(false);
+  const typesRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showTypes) return;
+    function handleClickOutside(event: MouseEvent) {
+      if (typesRef.current && !typesRef.current.contains(event.target as Node)) setShowTypes(false);
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showTypes]);
+
+  const size = 132;
+  const stroke = 16;
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const usedRatio = earnedDays > 0 ? Math.min(1, usedDays / earnedDays) : 0;
+  const usedLength = circumference * usedRatio;
+  const usedPercent = Math.round(usedRatio * 100);
+  const color = EMPLOYMENT_STATUS_COLORS[employmentStatus];
+
+  return (
+    <>
+      {leaveTypeRows.length > 0 && (
+        <div className="leave-donut-types-shell" ref={typesRef}>
+          <button
+            type="button"
+            className={`leave-donut-types-trigger ${showTypes ? "open" : ""}`}
+            onClick={() => setShowTypes((current) => !current)}
+          >
+            All Leave Types
+            <ChevronDown size={13} className={showTypes ? "leave-donut-types-chevron open" : "leave-donut-types-chevron"} />
+          </button>
+          {showTypes && (
+            <div className="leave-donut-types-menu">
+              <div className="leave-donut-types-menu-header">All Leave Types</div>
+              <div className="leave-availability-list">
+                {leaveTypeRows.map((row) => (
+                  <div className="leave-availability-row" key={row.leaveTypeId}>
+                    <span>{row.leaveTypeName}</span>
+                    <strong>{row.remainingDays.toFixed(0)}</strong>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      <div className="leave-donut-card">
+        <div className="leave-donut-svg-wrap">
+          <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+            <circle
+              cx={size / 2}
+              cy={size / 2}
+              r={radius}
+              fill="none"
+              stroke="#eef2f7"
+              strokeWidth={stroke}
+            />
+            {usedLength > 0 && (
+              <circle
+                cx={size / 2}
+                cy={size / 2}
+                r={radius}
+                fill="none"
+                stroke={color}
+                strokeWidth={stroke}
+                strokeDasharray={`${usedLength} ${circumference - usedLength}`}
+                strokeLinecap="round"
+                transform={`rotate(-90 ${size / 2} ${size / 2})`}
+              />
+            )}
+          </svg>
+          <div className="leave-donut-center">
+            <strong>{remainingDays.toFixed(0)}</strong>
+            <span>days left</span>
+            <em className="leave-donut-pct">{usedPercent}% used</em>
+          </div>
+        </div>
+        <div className="leave-donut-meta">
+          <div className="leave-donut-label">
+            <span className="leave-donut-dot" style={{ background: color }} />
+            {formatEmploymentStatus(employmentStatus)}
+          </div>
+          <div className="leave-donut-stats">
+            <span>{usedDays.toFixed(0)} used</span>
+            <span>·</span>
+            <span>{earnedDays.toFixed(0)} earned</span>
+            <span>·</span>
+            <span>{employeeCount} {employeeCount === 1 ? "employee" : "employees"}</span>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ─── Single-employee donut (for the detailed lookup view) ───────────────────
+
+function EmployeeLeaveDonut({
+  firstName,
+  color,
+  earnedDays,
+  usedDays,
+  remainingDays,
+}: {
+  firstName: string;
+  color: string;
+  earnedDays: number;
+  usedDays: number;
+  remainingDays: number;
+}) {
+  const size = 132;
+  const stroke = 16;
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const usedRatio = earnedDays > 0 ? Math.min(1, usedDays / earnedDays) : 0;
+  const usedLength = circumference * usedRatio;
+  const usedPercent = Math.round(usedRatio * 100);
+
+  return (
+    <div className="employee-donut-card">
+      <div className="leave-donut-svg-wrap">
+        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+          <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#eef2f7" strokeWidth={stroke} />
+          {usedLength > 0 && (
+            <circle
+              cx={size / 2}
+              cy={size / 2}
+              r={radius}
+              fill="none"
+              stroke={color}
+              strokeWidth={stroke}
+              strokeDasharray={`${usedLength} ${circumference - usedLength}`}
+              strokeLinecap="round"
+              transform={`rotate(-90 ${size / 2} ${size / 2})`}
+            />
+          )}
+        </svg>
+        <div className="leave-donut-center">
+          <strong>{remainingDays.toFixed(0)}</strong>
+          <span>days left</span>
+          <em className="leave-donut-pct">{usedPercent}% used</em>
+        </div>
+      </div>
+      <span className="employee-donut-caption">{firstName.toUpperCase()}'S BALANCE</span>
+    </div>
+  );
+}
+
+// ─── Leave-type bar row (for the detailed lookup view) ──────────────────────
+
+function EmployeeLeaveTypeBar({
+  label,
+  earnedDays,
+  remainingDays,
+  color,
+}: {
+  label: string;
+  earnedDays: number;
+  remainingDays: number;
+  color: string;
+}) {
+  const ratio = earnedDays > 0 ? Math.min(1, remainingDays / earnedDays) : 0;
+  const isSickLeave = label.trim().toLowerCase() === "sick leave";
+  return (
+    <div className="employee-leave-bar-row">
+      <span className="employee-leave-bar-label">
+        <span className="employee-leave-bar-dot" style={{ background: color }} />
+        {label}
+      </span>
+      <div className="employee-leave-bar-track">
+        <div className="employee-leave-bar-fill" style={{ width: `${ratio * 100}%`, background: color }} />
+      </div>
+      {!isSickLeave && (
+        <span className="employee-leave-bar-value">
+          {remainingDays.toFixed(0)}/{earnedDays.toFixed(0)}
+        </span>
+      )}
+    </div>
+  );
+}
+
+
+function ClassificationChip({ status }: { status?: EmploymentStatus }) {
+  if (!status) return <span className="classification-chip neutral">Unspecified</span>;
+  const color = EMPLOYMENT_STATUS_COLORS[status];
+  return (
+    <span className="classification-chip" style={{ color, borderColor: `${color}55`, background: `${color}15` }}>
+      <span className="classification-chip-dot" style={{ background: color }} />
+      {formatEmploymentStatus(status)}
+    </span>
+  );
+}
+
+
+function EmployeeBalanceSearch({
+  employees,
+  selected,
+  onSelect,
+  openTrigger,
+}: {
+  employees: DirectoryEmployee[];
+  selected: DirectoryEmployee | null;
+  onSelect: (employee: DirectoryEmployee | null) => void;
+  openTrigger?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const shellRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClickOutside(event: MouseEvent) {
+      if (shellRef.current && !shellRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [open]);
+
+  
+  const previousOpenTrigger = useRef(openTrigger);
+  useEffect(() => {
+    if (openTrigger === undefined || openTrigger === previousOpenTrigger.current) return;
+    previousOpenTrigger.current = openTrigger;
+    setOpen(true);
+  }, [openTrigger]);
+
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return employees;
+    return employees.filter(
+      (e) =>
+        `${e.firstName} ${e.lastName}`.toLowerCase().includes(q) ||
+        e.employeeNo.toLowerCase().includes(q)
+    );
+  }, [employees, query]);
+
+  const displayValue = open ? query : selected ? `${selected.firstName} ${selected.lastName} · ${selected.employeeNo}` : query;
+  const showClear = Boolean(selected || query);
+
+  return (
+    <div className="employee-balance-search-shell" ref={shellRef}>
+      <div className="leave-search employee-balance-search">
+        <Search size={14} />
+        <input
+          type="text"
+          value={displayValue}
+          onFocus={() => setOpen(true)}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setOpen(true);
+          }}
+          placeholder="Search employee by name or department"
+          aria-label="Search employee for leave balance lookup"
+        />
+        {showClear && (
+          <button
+            type="button"
+            className="employee-balance-clear"
+            onClick={() => {
+              onSelect(null);
+              setQuery("");
+              setOpen(false);
+            }}
+            aria-label="Clear employee search"
+          >
+            <X size={14} />
+          </button>
+        )}
+      </div>
+      {open && (
+        <div className="employee-balance-menu">
+          {matches.length === 0 ? (
+            <p className="employee-balance-no-matches">No employees match this search.</p>
+          ) : (
+            matches.map((employee) => (
+              <button
+                type="button"
+                key={employee.id}
+                className={`employee-balance-option ${selected?.id === employee.id ? "active" : ""}`}
+                onClick={() => {
+                  onSelect(employee);
+                  setQuery("");
+                  setOpen(false);
+                }}
+              >
+                <strong>{employee.firstName} {employee.lastName}</strong>
+                <small>{formatEmploymentStatus(employee.employmentStatus)}</small>
+              </button>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+function YearCalendarPicker({ value, onChange }: { value: number; onChange: (year: number) => void }) {
+  const [open, setOpen] = useState(false);
+  const [pageStart, setPageStart] = useState(value - (value % 12));
+  const shellRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setPageStart(value - (value % 12));
+    function handleClickOutside(event: MouseEvent) {
+      if (shellRef.current && !shellRef.current.contains(event.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [open, value]);
+
+  const currentYear = new Date().getFullYear();
+  const yearGrid = Array.from({ length: 12 }, (_, i) => pageStart + i);
+
+  return (
+    <div className="cal-picker-shell" ref={shellRef}>
+      <button
+        type="button"
+        className="cal-picker-trigger"
+        onClick={() => setOpen((current) => !current)}
+        aria-label="Pick year"
+      >
+        <CalendarIcon size={14} />
+        <strong>{value}</strong>
+        <ChevronDown size={14} className={`cal-picker-chevron${open ? " open" : ""}`} />
+      </button>
+
+      {open && (
+        <div className="cal-picker-menu year-picker-menu">
+          <div className="cal-picker-year-row">
+            <button
+              type="button"
+              className="cal-picker-year-nav"
+              onClick={() => setPageStart((start) => start - 12)}
+              aria-label="Previous years"
+            >
+              <ChevronLeft size={14} />
+            </button>
+            <span className="cal-picker-year-label">{yearGrid[0]} – {yearGrid[yearGrid.length - 1]}</span>
+            <button
+              type="button"
+              className="cal-picker-year-nav"
+              onClick={() => setPageStart((start) => start + 12)}
+              aria-label="Next years"
+            >
+              <ChevronRight size={14} />
+            </button>
+          </div>
+
+          <div className="cal-picker-months year-picker-grid">
+            {yearGrid.map((year) => (
+              <button
+                key={year}
+                type="button"
+                className={`cal-picker-month${year === value ? " active" : ""}${year === currentYear ? " is-current" : ""}`}
+                onClick={() => {
+                  onChange(year);
+                  setOpen(false);
+                }}
+              >
+                {year}
+              </button>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            className="cal-picker-today-btn"
+            onClick={() => {
+              onChange(currentYear);
+              setOpen(false);
+            }}
+          >
+            Go to current year
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 
 export function LeavePage() {
-  // ── State ──────────────────────────────────────────────────────────────────
-  const [requests, setRequests]             = useState<LeaveRequest[]>([]);
-  const [leaveTypes, setLeaveTypes]         = useState<LeaveType[]>([]);
-  const [statusFilter, setStatusFilter]     = useState("ALL");
-  const [typeFilter, setTypeFilter]         = useState("ALL");
-  const [searchTerm, setSearchTerm]         = useState("");
-  const [reviewRequest, setReviewRequest]   = useState<LeaveRequest | null>(null);
-  const [remarks, setRemarks]               = useState("");
-  const [isSaving, setIsSaving]             = useState(false);
-  const [notification, setNotification]     = useState<Notification>(null);
-  const [reviewBalances, setReviewBalances] = useState<LeaveBalance[] | null>(null);
+  const [requests, setRequests]                 = useState<LeaveRequest[]>([]);
+  const [leaveTypes, setLeaveTypes]             = useState<LeaveType[]>([]);
+  const [statusFilter, setStatusFilter]         = useState("ALL");
+  const [typeFilter, setTypeFilter]             = useState("ALL");
+  const [departmentFilter, setDepartmentFilter] = useState("ALL");
+  const [employmentFilter, setEmploymentFilter] = useState("ALL");
+  const [searchTerm, setSearchTerm]             = useState("");
+  const [reviewRequest, setReviewRequest]       = useState<LeaveRequest | null>(null);
+  const [remarks, setRemarks]                   = useState("");
+  const [isSaving, setIsSaving]                 = useState(false);
+  const [notification, setNotification]         = useState<Notification>(null);
+  const [reviewBalances, setReviewBalances]     = useState<LeaveBalance[] | null>(null);
 
-  // Add Leave Type modal state
-  const [showAddType, setShowAddType]   = useState(false);
-  const [newTypeName, setNewTypeName]   = useState("");
-  const [newTypeDays, setNewTypeDays]   = useState("15");
-  const [newTypeDoc, setNewTypeDoc]     = useState(false);
-  const [isAddingType, setIsAddingType] = useState(false);
+  const [summary, setSummary]           = useState<LeaveBalanceSummary | null>(null);
+  const [summaryYear, setSummaryYear]   = useState(new Date().getFullYear());
 
-  // ── Data fetching ──────────────────────────────────────────────────────────
+  const [directory, setDirectory]                       = useState<DirectoryEmployee[]>([]);
+  const [balanceEmployee, setBalanceEmployee]           = useState<DirectoryEmployee | null>(null);
+  const [employeeBalances, setEmployeeBalances]         = useState<LeaveBalance[] | null>(null);
+  const [monitorClassification, setMonitorClassification] = useState("ALL");
+
 
   const loadRequests = () => {
     apiRequest<LeaveRequest[]>("/leave-requests")
@@ -97,17 +573,39 @@ export function LeavePage() {
       .catch(() => undefined);
   };
 
+  const loadSummary = () => {
+    apiRequest<LeaveBalanceSummary>(`/leave-balances/summary?year=${summaryYear}`)
+      .then(setSummary)
+      .catch(() => setSummary(null));
+  };
+
+  const loadDirectory = () => {
+    apiRequest<DirectoryEmployee[]>("/employees")
+      .then(setDirectory)
+      .catch(() => undefined);
+  };
+
   useEffect(loadRequests, []);
   useEffect(loadLeaveTypes, []);
+  useEffect(loadSummary, [summaryYear]);
+  useEffect(loadDirectory, []);
 
-  // Auto-dismiss notification after 3.5 s
+  useEffect(() => {
+    if (!balanceEmployee) {
+      setEmployeeBalances(null);
+      return;
+    }
+    apiRequest<LeaveBalance[]>(`/leave-balances/${balanceEmployee.id}?year=${summaryYear}`)
+      .then(setEmployeeBalances)
+      .catch(() => setEmployeeBalances(null));
+  }, [balanceEmployee, summaryYear]);
+
   useEffect(() => {
     if (!notification) return;
     const id = window.setTimeout(() => setNotification(null), 3500);
     return () => window.clearTimeout(id);
   }, [notification]);
 
-  // Fetch the reviewed employee's leave balances whenever the review modal opens
   useEffect(() => {
     if (!reviewRequest) {
       setReviewBalances(null);
@@ -121,7 +619,6 @@ export function LeavePage() {
       .catch(() => setReviewBalances(null));
   }, [reviewRequest]);
 
-  // ── Derived values ─────────────────────────────────────────────────────────
 
   const statusCounts = useMemo(() => {
     const counts = { ALL: requests.length, PENDING: 0, APPROVED: 0, REJECTED: 0 };
@@ -133,6 +630,16 @@ export function LeavePage() {
     return counts;
   }, [requests]);
 
+  const departmentOptions = useMemo(() => {
+    const names = new Set<string>();
+    for (const r of requests) {
+      if (r.employee.department?.name) names.add(r.employee.department.name);
+    }
+    return Array.from(names)
+      .sort((a, b) => a.localeCompare(b))
+      .map((name) => ({ value: name, label: name }));
+  }, [requests]);
+
   const visibleRequests = useMemo(
     () =>
       requests.filter((r) => {
@@ -140,14 +647,18 @@ export function LeavePage() {
           statusFilter === "ALL" || r.status === statusFilter;
         const matchesType =
           typeFilter === "ALL" || r.leaveType.id === typeFilter;
+        const matchesDepartment =
+          departmentFilter === "ALL" || r.employee.department?.name === departmentFilter;
+        const matchesEmployment =
+          employmentFilter === "ALL" || r.employee.employmentStatus === employmentFilter;
         const matchesSearch =
           !searchTerm.trim() ||
           getEmployeeName(r)
             .toLowerCase()
             .includes(searchTerm.trim().toLowerCase());
-        return matchesStatus && matchesType && matchesSearch;
+        return matchesStatus && matchesType && matchesDepartment && matchesEmployment && matchesSearch;
       }),
-    [requests, statusFilter, typeFilter, searchTerm]
+    [requests, statusFilter, typeFilter, departmentFilter, employmentFilter, searchTerm]
   );
 
   const selectedLeaveType = reviewRequest
@@ -166,7 +677,39 @@ export function LeavePage() {
       Number(reviewRequest.totalDays) > matchingBalance.remainingDays
   );
 
-  // ── Actions ────────────────────────────────────────────────────────────────
+ 
+  const leaveTypeRowsByStatus = useMemo(() => {
+    const map = new Map<EmploymentStatus, { leaveTypeId: string; leaveTypeName: string; remainingDays: number }[]>();
+    if (!summary) return map;
+    for (const row of summary.byLeaveType) {
+      if (row.earnedDays <= 0) continue;
+      const rows = map.get(row.employmentStatus) ?? [];
+      rows.push({ leaveTypeId: row.leaveTypeId, leaveTypeName: row.leaveTypeName, remainingDays: row.remainingDays });
+      map.set(row.employmentStatus, rows);
+    }
+    return map;
+  }, [summary]);
+
+  const directoryForSearch = useMemo(
+    () =>
+      monitorClassification === "ALL"
+        ? directory
+        : directory.filter((employee) => employee.employmentStatus === monitorClassification),
+    [directory, monitorClassification]
+  );
+
+  const employeeTotals = useMemo(() => {
+    const rows = employeeBalances ?? [];
+    return rows.reduce(
+      (acc, row) => ({
+        earnedDays: acc.earnedDays + row.earnedDays,
+        usedDays: acc.usedDays + row.usedDays,
+        remainingDays: acc.remainingDays + row.remainingDays,
+      }),
+      { earnedDays: 0, usedDays: 0, remainingDays: 0 }
+    );
+  }, [employeeBalances]);
+
 
   const reviewLeave = async (action: "approve" | "reject") => {
     if (!reviewRequest) return;
@@ -183,6 +726,7 @@ export function LeavePage() {
         message: `Leave request was ${action === "approve" ? "approved" : "rejected"}.`,
       });
       loadRequests();
+      loadSummary();
     } catch (err) {
       setNotification({
         type: "error",
@@ -193,47 +737,9 @@ export function LeavePage() {
     }
   };
 
-  const addLeaveType = async () => {
-    const name = newTypeName.trim();
-    if (!name || !newTypeDays) return;
-    setIsAddingType(true);
-    try {
-      await apiRequest("/leave-types", {
-        method: "POST",
-        body: JSON.stringify({
-          name,
-          defaultDays: Number(newTypeDays),
-          requiresDocument: newTypeDoc,
-        }),
-      });
-      setShowAddType(false);
-      setNewTypeName("");
-      setNewTypeDays("15");
-      setNewTypeDoc(false);
-      setNotification({ type: "success", message: `"${name}" leave type added.` });
-      loadLeaveTypes();
-    } catch (err) {
-      setNotification({
-        type: "error",
-        message: err instanceof Error ? err.message : "Failed to add leave type.",
-      });
-    } finally {
-      setIsAddingType(false);
-    }
-  };
-
-  const closeAddTypeModal = () => {
-    setShowAddType(false);
-    setNewTypeName("");
-    setNewTypeDays("15");
-    setNewTypeDoc(false);
-  };
-
-  // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
     <>
-      {/* ── Toast notification ── */}
       {notification && (
         <div className={`leave-notification ${notification.type}`} role="status">
           {notification.type === "success"
@@ -243,7 +749,106 @@ export function LeavePage() {
         </div>
       )}
 
-      {/* ── Toolbar ── */}
+      <section className="leave-summary-card">
+        <div className="leave-summary-header">
+          <div>
+            <h2>Leave Balances Overview</h2>
+            <p>Earned vs. used leave credits grouped by employment classification.</p>
+          </div>
+          <div className="leave-summary-controls">
+            <EmployeeBalanceSearch
+              employees={directoryForSearch}
+              selected={balanceEmployee}
+              onSelect={setBalanceEmployee}
+              openTrigger={monitorClassification}
+            />
+            <DropdownFilter
+              className="leave-select"
+              value={monitorClassification}
+              onChange={setMonitorClassification}
+              options={EMPLOYMENT_STATUS_OPTIONS}
+              allLabel="All Classifications"
+              menuLabel="Filter by employment classification"
+              ariaLabel="Filter employee search by classification"
+            />
+            <YearCalendarPicker value={summaryYear} onChange={setSummaryYear} />
+          </div>
+        </div>
+
+        {balanceEmployee ? (
+          <div className="employee-detail-section">
+            <h3 className="employee-detail-heading">Detailed Employee Leave Monitoring ({summaryYear})</h3>
+
+            {!employeeBalances ? (
+              <p className="leave-summary-empty">Loading leave balance…</p>
+            ) : employeeBalances.length === 0 ? (
+              <p className="leave-summary-empty">No leave balance records for this employee.</p>
+            ) : (
+              <div className="leave-employee-grid">
+                <EmployeeLeaveDonut
+                  firstName={balanceEmployee.firstName}
+                  color={EMPLOYMENT_STATUS_COLORS[balanceEmployee.employmentStatus]}
+                  earnedDays={employeeTotals.earnedDays}
+                  usedDays={employeeTotals.usedDays}
+                  remainingDays={employeeTotals.remainingDays}
+                />
+
+                <div className="leave-employee-info">
+                  <div className="employee-balance-result-header">
+                    <div>
+                      <strong>{balanceEmployee.firstName} {balanceEmployee.lastName}</strong>
+                      <span>{balanceEmployee.employeeNo} · {balanceEmployee.department?.name ?? "Unassigned"}</span>
+                    </div>
+                    <div className="employee-total-balance">
+                      <button
+                        type="button"
+                        className="employee-total-balance-close"
+                        onClick={() => setBalanceEmployee(null)}
+                        aria-label="Close employee leave detail"
+                      >
+                        <X size={13} />
+                      </button>
+                      <span>Total Balance</span>
+                      <strong>{employeeTotals.remainingDays.toFixed(0)}/{employeeTotals.earnedDays.toFixed(0)}</strong>
+                      <ClassificationChip status={balanceEmployee.employmentStatus} />
+                    </div>
+                  </div>
+
+                  <div className="employee-leave-bar-list">
+                    {employeeBalances.map((b, index) => (
+                      <EmployeeLeaveTypeBar
+                        key={b.leaveTypeId}
+                        label={b.leaveTypeName}
+                        earnedDays={b.earnedDays}
+                        remainingDays={b.remainingDays}
+                        color={LEAVE_TYPE_COLORS[index % LEAVE_TYPE_COLORS.length]}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : !summary || summary.byEmploymentStatus.length === 0 ? (
+          <p className="leave-summary-empty">No leave balance records yet for {summaryYear}.</p>
+        ) : (
+          <div className="leave-donut-row">
+            {summary.byEmploymentStatus.map((row) => (
+              <div key={row.employmentStatus} className="leave-donut-tile">
+                <LeaveStatusDonut
+                  employmentStatus={row.employmentStatus}
+                  earnedDays={row.earnedDays}
+                  usedDays={row.usedDays}
+                  remainingDays={row.remainingDays}
+                  employeeCount={row.employeeCount}
+                  leaveTypeRows={leaveTypeRowsByStatus.get(row.employmentStatus) ?? []}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
       <div className="leave-toolbar">
         <div className="filter-tabs">
           {(["ALL", "PENDING", "APPROVED", "REJECTED"] as const).map((tab) => (
@@ -271,30 +876,43 @@ export function LeavePage() {
             />
           </div>
 
-          {/* Leave type filter + add button */}
+          {/* Leave type filter */}
           <div className="leave-type-filter-row">
-            <select
+            <DropdownFilter
               className="leave-select"
               value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-              aria-label="Filter by leave type"
-            >
-              <option value="ALL">All Leave Types</option>
-              {leaveTypes.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </select>
+              onChange={setTypeFilter}
+              options={leaveTypes.map((t) => ({ value: t.id, label: t.name }))}
+              allLabel="All Leave Types"
+              menuLabel="Filter by leave type"
+              ariaLabel="Filter by leave type"
+            />
+          </div>
 
-            <button
-              className="add-leave-type-btn"
-              onClick={() => setShowAddType(true)}
-              aria-label="Add leave type"
-              title="Add leave type"
-            >
-              <Plus size={16} />
-            </button>
+          {/* Department filter */}
+          <div className="leave-type-filter-row">
+            <DropdownFilter
+              className="leave-select"
+              value={departmentFilter}
+              onChange={setDepartmentFilter}
+              options={departmentOptions}
+              allLabel="All Departments"
+              menuLabel="Filter by department"
+              ariaLabel="Filter by department"
+            />
+          </div>
+
+          {/* Employment status filter */}
+          <div className="leave-type-filter-row">
+            <DropdownFilter
+              className="leave-select"
+              value={employmentFilter}
+              onChange={setEmploymentFilter}
+              options={EMPLOYMENT_STATUS_OPTIONS}
+              allLabel="All Classifications"
+              menuLabel="Filter by employment status"
+              ariaLabel="Filter by employment status"
+            />
           </div>
         </div>
       </div>
@@ -304,19 +922,20 @@ export function LeavePage() {
         <table>
           <thead>
             <tr>
-              <th>Employee</th>
-              <th>Department</th>
-              <th>Leave Type</th>
-              <th>Dates</th>
-              <th>Days</th>
-              <th>Status</th>
-              <th>Action</th>
+              <th>EMPLOYEE</th>
+              <th>DEPARTMENT</th>
+              <th>CLASSIFICATION</th>
+              <th>LEAVE TYPE</th>
+              <th>DATES</th>
+              <th>DAYS</th>
+              <th>STATUS</th>
+              <th>ACTIONS</th>
             </tr>
           </thead>
           <tbody>
             {visibleRequests.length === 0 ? (
               <tr>
-                <td colSpan={7} className="leave-empty-state">
+                <td colSpan={8} className="leave-empty-state">
                   {requests.length === 0
                     ? "No leave requests found."
                     : "No leave requests match your current filters."}
@@ -327,6 +946,7 @@ export function LeavePage() {
                 <tr key={r.id}>
                   <td data-label="Employee">{getEmployeeName(r)}</td>
                   <td data-label="Department">{r.employee.department?.name ?? "Unassigned"}</td>
+                  <td data-label="Classification">{formatEmploymentStatus(r.employee.employmentStatus)}</td>
                   <td data-label="Leave Type">{r.leaveType.name}</td>
                   <td data-label="Dates">
                     {formatDate(r.startDate)} – {formatDate(r.endDate)}
@@ -376,6 +996,7 @@ export function LeavePage() {
             <div className="leave-detail-grid">
               <div><span>Employee</span><strong>{getEmployeeName(reviewRequest)}</strong></div>
               <div><span>Department</span><strong>{reviewRequest.employee.department?.name ?? "Unassigned"}</strong></div>
+              <div><span>Classification</span><strong>{formatEmploymentStatus(reviewRequest.employee.employmentStatus)}</strong></div>
               <div><span>Leave Type</span><strong>{reviewRequest.leaveType.name}</strong></div>
               <div>
                 <span>Date Range</span>
@@ -391,7 +1012,7 @@ export function LeavePage() {
                 <div>
                   <span>Leave Balance ({matchingBalance.year})</span>
                   <strong className={wouldExceedBalance ? "leave-balance-warning" : ""}>
-                    {matchingBalance.remainingDays} of {matchingBalance.earnedDays} days remaining
+                    {formatEmploymentStatus(reviewRequest.employee.employmentStatus)} — {matchingBalance.remainingDays} of {matchingBalance.earnedDays} days remaining
                   </strong>
                 </div>
               )}
@@ -469,87 +1090,6 @@ export function LeavePage() {
               )}
               <button className="outline-button" onClick={() => setReviewRequest(null)} disabled={isSaving}>
                 Close
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
-
-      {/* ── Add Leave Type modal ── */}
-      {showAddType && (
-        <div className="leave-modal-backdrop" role="presentation">
-          <section
-            className="leave-modal leave-modal--sm"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="add-type-title"
-          >
-            <div className="leave-modal-header">
-              <div>
-                <h2 id="add-type-title">Add Leave Type</h2>
-                <p>New type will appear in the filter immediately</p>
-              </div>
-              <button
-                className="icon-button"
-                onClick={closeAddTypeModal}
-                aria-label="Close"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="add-type-body">
-              <label className="add-type-field">
-                <span className="add-type-label">
-                  Leave Type Name <span className="add-type-required">*</span>
-                </span>
-                <input
-                  className="add-type-input"
-                  type="text"
-                  value={newTypeName}
-                  onChange={(e) => setNewTypeName(e.target.value)}
-                  placeholder="e.g. Emergency Leave"
-                  autoFocus
-                />
-              </label>
-
-              <label className="add-type-field">
-                <span className="add-type-label">
-                  Default Days per Year <span className="add-type-required">*</span>
-                </span>
-                <input
-                  className="add-type-input"
-                  type="number"
-                  min={1}
-                  value={newTypeDays}
-                  onChange={(e) => setNewTypeDays(e.target.value)}
-                />
-              </label>
-
-              <label className="add-type-checkbox">
-                <input
-                  type="checkbox"
-                  checked={newTypeDoc}
-                  onChange={(e) => setNewTypeDoc(e.target.checked)}
-                />
-                <span>Requires supporting document</span>
-              </label>
-            </div>
-
-            <div className="leave-detail-actions">
-              <button
-                className="primary-button"
-                onClick={addLeaveType}
-                disabled={isAddingType || !newTypeName.trim() || !newTypeDays}
-              >
-                {isAddingType ? "Saving…" : "Add Leave Type"}
-              </button>
-              <button
-                className="outline-button"
-                onClick={closeAddTypeModal}
-                disabled={isAddingType}
-              >
-                Cancel
               </button>
             </div>
           </section>

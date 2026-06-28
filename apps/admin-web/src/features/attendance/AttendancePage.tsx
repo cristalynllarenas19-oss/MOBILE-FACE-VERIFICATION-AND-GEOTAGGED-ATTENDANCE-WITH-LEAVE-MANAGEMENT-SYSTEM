@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Eye, MapPin, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
+import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { apiRequest } from "../../lib/api";
 import { PermissionCode, permissions } from "../../types/rbac";
 import "./AttendancePage.css";
@@ -63,8 +64,6 @@ function getStatusLabel(status: string) {
   return status.replace(/_/g, " ");
 }
 
-// Returns the current Date, re-rendering automatically when the calendar day changes
-// (checked every minute, which is cheap and frequent enough for a date display).
 function useNow() {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -231,14 +230,24 @@ export function AttendancePage({ user }: { user?: { permissions: PermissionCode[
       )}
 
       <div className="attendance-toolbar">
-        <select value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)} aria-label="Department">
-          <option value="ALL">All Departments</option>
-          {departments.map((department) => <option key={department} value={department}>{department}</option>)}
-        </select>
-        <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} aria-label="Status">
-          <option value="ALL">All Status</option>
-          {statusOptions.map((status) => <option key={status} value={status}>{getStatusLabel(status)}</option>)}
-        </select>
+        <DropdownFilter
+          className="attendance-filter"
+          value={departmentFilter}
+          onChange={setDepartmentFilter}
+          options={departments.map((department) => ({ value: department, label: department }))}
+          allLabel="All Departments"
+          menuLabel="Filter by department"
+          ariaLabel="Department"
+        />
+        <DropdownFilter
+          className="attendance-filter"
+          value={statusFilter}
+          onChange={setStatusFilter}
+          options={statusOptions.map((status) => ({ value: status, label: getStatusLabel(status) }))}
+          allLabel="All Status"
+          menuLabel="Filter by status"
+          ariaLabel="Status"
+        />
         <label className="attendance-date-range-field">
           From
           <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} aria-label="History from date" />
@@ -247,7 +256,12 @@ export function AttendancePage({ user }: { user?: { permissions: PermissionCode[
           To
           <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} aria-label="History to date" />
         </label>
-        <button className="attendance-clear-button" onClick={() => { setDepartmentFilter("ALL"); setStatusFilter("ALL"); setDateFrom(""); setDateTo(""); }}>Clear</button>
+        <button
+          className="attendance-clear-button"
+          onClick={() => { setDepartmentFilter("ALL"); setStatusFilter("ALL"); setDateFrom(""); setDateTo(""); }}
+        >
+          <X size={13} /> Clear
+        </button>
         <span className="attendance-today-badge">{formatTodayLabel(now)}</span>
       </div>
 
@@ -255,13 +269,13 @@ export function AttendancePage({ user }: { user?: { permissions: PermissionCode[
         <table>
           <thead>
             <tr>
-              <th>Employee</th>
-              <th>Department</th>
-              <th>Date</th>
-              <th>Time In</th>
-              <th>Time Out</th>
-              <th>Status</th>
-              <th>Action</th>
+              <th>EMPLOYEE</th>
+              <th>DEPARTMENT</th>
+              <th>DATE</th>
+              <th>TIME IN</th>
+              <th>TIME OUT</th>
+              <th>STATUS</th>
+              <th>ACTION</th>
             </tr>
           </thead>
           <tbody>

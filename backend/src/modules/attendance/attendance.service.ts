@@ -79,7 +79,7 @@ export class AttendanceService {
     }));
   }
 
-  async updateStatus(id: string, status: "PRESENT" | "OFFICIAL_BUSINESS", remarks?: string) {
+  async updateStatus(id: string, status: "PRESENT" | "OFFICIAL_BUSINESS", remarks?: string, actorUserId?: string) {
     const record = await this.prisma.attendanceRecord.update({
       where: { id },
       data: { status },
@@ -92,6 +92,7 @@ export class AttendanceService {
     if (remarks?.trim()) {
       await this.prisma.auditLog.create({
         data: {
+          actorUserId,
           action: status === "PRESENT" ? "APPROVE_ATTENDANCE" : "MARK_OFFICIAL_BUSINESS",
           entityType: "AttendanceRecord",
           entityId: id,

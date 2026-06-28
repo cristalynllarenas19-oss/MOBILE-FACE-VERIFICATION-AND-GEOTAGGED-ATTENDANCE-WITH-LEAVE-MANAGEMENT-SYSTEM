@@ -2,6 +2,7 @@ import axios from "axios";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { AlertTriangle, Archive, CheckCircle2, Eye, Pencil, Plus, Search, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
+import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { apiRequest } from "../../lib/api";
 import { PermissionCode, permissions } from "../../types/rbac";
 import "./EmployeesPage.css";
@@ -80,7 +81,7 @@ function formatArchiveDate(value?: string) {
   const exact = date.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
   const relative = formatRelativeTime(value);
 
-  return relative ? `${exact} \u00b7 ${relative}` : exact;
+  return relative ? `${exact} · ${relative}` : exact;
 }
 
 function getStatusTone(status: Employee["employmentStatus"]) {
@@ -89,7 +90,6 @@ function getStatusTone(status: Employee["employmentStatus"]) {
   return "warning";
 }
 
-// FIX 1: Show archiveType label instead of "SEPARATED" for archived employees
 function getStatusLabel(employee: Employee) {
   if (employee.employmentStatus === "SEPARATED" && employee.archiveType) {
     return employee.archiveType;
@@ -124,15 +124,22 @@ function EmployeeModal({
   description,
   children,
   onClose,
+  small,
 }: {
   title: string;
   description?: string;
   children: ReactNode;
   onClose: () => void;
+  small?: boolean;
 }) {
   return (
     <div className="employee-modal-backdrop" role="presentation">
-      <section className="employee-modal" role="dialog" aria-modal="true" aria-labelledby="employee-modal-title">
+      <section
+        className={`employee-modal${small ? " employee-modal--archive" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="employee-modal-title"
+      >
         <div className="employee-modal-header">
           <div>
             {title && <h2 id="employee-modal-title">{title}</h2>}
@@ -235,7 +242,6 @@ function AddEmployeeModal({
             First Name
             <input type="text" value={form.firstName} onChange={updateField("firstName")} placeholder="Juan" required />
           </label>
-
           <label>
             Last Name
             <input type="text" value={form.lastName} onChange={updateField("lastName")} placeholder="Dela Cruz" required />
@@ -247,7 +253,6 @@ function AddEmployeeModal({
             Email
             <input type="email" value={form.email} onChange={updateField("email")} placeholder="employee@example.com" required />
           </label>
-
           <label>
             Password
             <input
@@ -278,7 +283,6 @@ function AddEmployeeModal({
               ))}
             </datalist>
           </label>
-
           <label>
             Position
             <input
@@ -306,7 +310,6 @@ function AddEmployeeModal({
               <option value="CONTRACTUAL">Contractual</option>
             </select>
           </label>
-
           <label>
             Hire Date
             <input type="date" value={form.hireDate} onChange={updateField("hireDate")} />
@@ -423,7 +426,6 @@ function EditEmployeeModal({
             First Name
             <input type="text" value={form.firstName} onChange={updateField("firstName")} required />
           </label>
-
           <label>
             Last Name
             <input type="text" value={form.lastName} onChange={updateField("lastName")} required />
@@ -435,7 +437,6 @@ function EditEmployeeModal({
             Email
             <input type="email" value={form.email} onChange={updateField("email")} required />
           </label>
-
           <label>
             Employment Status
             <select value={form.employmentStatus} onChange={updateField("employmentStatus")}>
@@ -456,7 +457,6 @@ function EditEmployeeModal({
               ))}
             </datalist>
           </label>
-
           <label>
             Position
             <input type="text" value={form.position} onChange={updateField("position")} list="edit-employee-positions" required />
@@ -524,14 +524,12 @@ function ViewEmployeeModal({
         </div>
         <div>
           <span>Status</span>
-          {/* FIX 1: Show archiveType instead of "SEPARATED" */}
           <Badge tone={getStatusTone(employee.employmentStatus)}>
             {getStatusLabel(employee)}
           </Badge>
         </div>
       </div>
 
-      {/* FIX 2: Always show archive details block for SEPARATED employees */}
       {employee.employmentStatus === "SEPARATED" && (
         <div className="employee-archive-details">
           <h3>Archive Details</h3>
@@ -614,13 +612,13 @@ function ArchiveEmployeeModal({
     }
   };
 
-  // Step 1: Confirmation dialog
+  // Step 1: Confirmation dialog — small modal
   if (!confirmed) {
     return (
-      <EmployeeModal title="" onClose={onClose}>
+      <EmployeeModal title="" onClose={onClose} small>
         <div className="employee-confirm-body">
           <div className="employee-confirm-icon">
-            <AlertTriangle size={28} />
+            <AlertTriangle size={24} />
           </div>
           <h2 className="employee-confirm-title">Archive Employee</h2>
           <p className="employee-confirm-message">
@@ -630,11 +628,11 @@ function ArchiveEmployeeModal({
             Their login will be deactivated.
           </p>
           <div className="employee-confirm-actions">
-            <button type="button" className="outline-button" onClick={onClose}>
-              Cancel
-            </button>
             <button type="button" className="employee-archive-action" onClick={() => setConfirmed(true)}>
               Archive Employee
+            </button>
+            <button type="button" className="outline-button" onClick={onClose}>
+              Cancel
             </button>
           </div>
         </div>
@@ -642,9 +640,9 @@ function ArchiveEmployeeModal({
     );
   }
 
-  // Step 2: Archive details form
+  // Step 2: Archive details form — small modal
   return (
-    <EmployeeModal title="Archive Employee" description={getEmployeeName(employee)} onClose={onClose}>
+    <EmployeeModal title="Archive Employee" description={getEmployeeName(employee)} onClose={onClose} small>
       <form className="employee-form" onSubmit={handleArchive}>
         <div className="employee-form-grid">
           <label>
@@ -668,15 +666,19 @@ function ArchiveEmployeeModal({
         </div>
         <label className="employee-full-field">
           Reason / Remarks
-          <textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Reason for resignation, retirement, or separation" />
+          <textarea
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            placeholder="Reason for resignation, retirement, or separation"
+          />
         </label>
         {error && <p className="employee-form-error">{error}</p>}
         <div className="employee-form-actions">
-          <button type="button" className="outline-button" onClick={onClose} disabled={isSaving}>
-            Cancel
-          </button>
           <button type="submit" className="employee-archive-action" disabled={isSaving}>
             {isSaving ? "Archiving..." : "Archive Employee"}
+          </button>
+          <button type="button" className="outline-button" onClick={onClose} disabled={isSaving}>
+            Cancel
           </button>
         </div>
       </form>
@@ -704,7 +706,6 @@ export function EmployeesPage({ user }: { user?: { permissions: PermissionCode[]
 
   useEffect(() => {
     if (!notification) return;
-
     const timeoutId = window.setTimeout(() => setNotification(null), 3500);
     return () => window.clearTimeout(timeoutId);
   }, [notification]);
@@ -712,6 +713,7 @@ export function EmployeesPage({ user }: { user?: { permissions: PermissionCode[]
   const departments = Array.from(new Set(employees.map((employee) => employee.department.name))).sort();
   const positions = Array.from(new Set(employees.map((employee) => employee.position.title))).sort();
   const activeEmployeeCount = employees.filter((employee) => employee.employmentStatus !== "SEPARATED").length;
+
   const visibleEmployees = employees.filter((employee) => {
     if (departmentFilter !== "ALL" && employee.department.name !== departmentFilter) return false;
     if (showArchivedOnly) {
@@ -724,14 +726,18 @@ export function EmployeesPage({ user }: { user?: { permissions: PermissionCode[]
   });
 
   const handleEmployeeCreated = (employee: Employee) => {
-    setEmployees((current) => [...current, employee].sort((a, b) => a.lastName.localeCompare(b.lastName)));
+    setEmployees((current) =>
+      [...current, employee].sort((a, b) => a.lastName.localeCompare(b.lastName)),
+    );
     setIsAddOpen(false);
     setNotification({ type: "success", message: "Employee was added successfully." });
   };
 
   const handleEmployeeUpdated = (employee: Employee) => {
     setEmployees((current) =>
-      current.map((item) => (item.id === employee.id ? employee : item)).sort((a, b) => a.lastName.localeCompare(b.lastName)),
+      current
+        .map((item) => (item.id === employee.id ? employee : item))
+        .sort((a, b) => a.lastName.localeCompare(b.lastName)),
     );
     setViewEmployee((current) => (current?.id === employee.id ? employee : current));
     setEditEmployee(null);
@@ -768,19 +774,15 @@ export function EmployeesPage({ user }: { user?: { permissions: PermissionCode[]
             All Employees ({activeEmployeeCount})
           </button>
 
-          <select
+          <DropdownFilter
             className="department-select"
             value={departmentFilter}
-            onChange={(event) => setDepartmentFilter(event.target.value)}
-            aria-label="Filter employees by department"
-          >
-            <option value="ALL">All Departments</option>
-            {departments.map((department) => (
-              <option key={department} value={department}>
-                {department}
-              </option>
-            ))}
-          </select>
+            onChange={setDepartmentFilter}
+            options={departments.map((department) => ({ value: department, label: department }))}
+            allLabel="All Departments"
+            menuLabel="Filter by department"
+            ariaLabel="Filter employees by department"
+          />
 
           <button
             className={showArchivedOnly ? "active" : ""}
@@ -825,13 +827,13 @@ export function EmployeesPage({ user }: { user?: { permissions: PermissionCode[]
         <table>
           <thead>
             <tr>
-              <th>Employee No.</th>
-              <th>Name</th>
-              <th>Email</th>
-              <th>Department</th>
-              <th>Position</th>
-              <th>Status</th>
-              <th>Action</th>
+              <th>EMPLOYEE NO.</th>
+              <th>NAME</th>
+              <th>EMAIL</th>
+              <th>DEPARTMENT</th>
+              <th>POSITION</th>
+              <th>STATUS</th>
+              <th>ACTION</th>
             </tr>
           </thead>
           <tbody>
@@ -850,14 +852,16 @@ export function EmployeesPage({ user }: { user?: { permissions: PermissionCode[]
                   <td data-label="Department">{employee.department.name}</td>
                   <td data-label="Position">{employee.position.title}</td>
                   <td data-label="Status" className="employee-status-cell">
-                    {/* FIX 1: Use getStatusLabel to show archiveType instead of "SEPARATED" */}
                     <Badge tone={getStatusTone(employee.employmentStatus)}>
                       {getStatusLabel(employee)}
                     </Badge>
                   </td>
                   <td data-label="Action">
                     <div className="employee-action-group">
-                      <button className="employee-view-button" onClick={() => setViewEmployee(employee)}>
+                      <button
+                        className="employee-view-button"
+                        onClick={() => setViewEmployee(employee)}
+                      >
                         <Eye size={14} />
                         View
                       </button>

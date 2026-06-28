@@ -47,7 +47,8 @@ export class SchedulesController {
       endTime: string;
       gracePeriodMinutes?: number;
     },
+    @Req() request: Request,
   ) {
-    return this.schedulesService.createShift(dto);
+    return this.schedulesService.createShift(dto, (request as any).user?.userId);
   }
 }

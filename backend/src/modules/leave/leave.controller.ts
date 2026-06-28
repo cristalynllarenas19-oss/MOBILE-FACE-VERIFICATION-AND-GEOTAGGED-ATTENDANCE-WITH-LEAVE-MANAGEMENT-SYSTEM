@@ -24,13 +24,13 @@ export class LeaveController {
 
   @Patch(":id/approve")
   @RequirePermissions("leave:write")
-  approve(@Param("id") id: string, @Body() body: { remarks?: string }) {
-    return this.leaveService.updateStatus(id, "APPROVED", body.remarks);
+  approve(@Param("id") id: string, @Body() body: { remarks?: string }, @Req() request: Request) {
+    return this.leaveService.updateStatus(id, "APPROVED", body.remarks, (request as any).user?.userId);
   }
 
   @Patch(":id/reject")
   @RequirePermissions("leave:write")
-  reject(@Param("id") id: string, @Body() body: { remarks?: string }) {
-    return this.leaveService.updateStatus(id, "REJECTED", body.remarks);
+  reject(@Param("id") id: string, @Body() body: { remarks?: string }, @Req() request: Request) {
+    return this.leaveService.updateStatus(id, "REJECTED", body.remarks, (request as any).user?.userId);
   }
 }

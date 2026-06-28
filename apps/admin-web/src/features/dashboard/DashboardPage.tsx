@@ -11,8 +11,8 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
-import { BarChart } from "../../components/ui/BarChart";
+import { useEffect, useRef, useState } from "react";
+import { BarChart, DeptAttendanceRow } from "../../components/ui/BarChart";
 import { Card } from "../../components/ui/Card";
 import { StatCard } from "../../components/ui/StatCard";
 import { apiRequest } from "../../lib/api";
@@ -20,11 +20,16 @@ import "./DashboardPage.css";
 
 const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+const MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
 const STATUS_COLORS = {
-  present: "#1a8a4a",
-  absent: "#c0392b",
-  onLeave: "#7c3aed",
-  officialBusiness: "#1a90aa",
+  present: "#1baf7a",
+  absent: "#e34948",
+  onLeave: "#4a3aa7",
+  officialBusiness: "#2a78d6",
 };
 
 type CalendarDay = {
@@ -35,6 +40,7 @@ type CalendarDay = {
   absent: number;
   onLeave: number;
   officialBusiness: number;
+  departments: DeptAttendanceRow[];
 };
 
 type DashboardSummary = {
@@ -104,9 +110,9 @@ function formatFullDate(isoDate: string) {
 
 function DayMiniBar({ day }: { day: CalendarDay }) {
   const segments = [
-    { key: "present", value: day.present, color: STATUS_COLORS.present },
-    { key: "absent", value: day.absent, color: STATUS_COLORS.absent },
-    { key: "onLeave", value: day.onLeave, color: STATUS_COLORS.onLeave },
+    { key: "present",          value: day.present,          color: STATUS_COLORS.present },
+    { key: "absent",           value: day.absent,           color: STATUS_COLORS.absent },
+    { key: "onLeave",          value: day.onLeave,          color: STATUS_COLORS.onLeave },
     { key: "officialBusiness", value: day.officialBusiness, color: STATUS_COLORS.officialBusiness },
   ];
   const total = segments.reduce((sum, s) => sum + s.value, 0);
@@ -131,13 +137,8 @@ function DayMiniBar({ day }: { day: CalendarDay }) {
 }
 
 function DayDetailModal({ day, onClose }: { day: CalendarDay; onClose: () => void }) {
-  const total = day.present + day.absent + day.onLeave + day.officialBusiness;
-  const chartData = [
-    { label: "Present", value: day.present, color: STATUS_COLORS.present },
-    { label: "Absent", value: day.absent, color: STATUS_COLORS.absent },
-    { label: "On Leave", value: day.onLeave, color: STATUS_COLORS.onLeave },
-    { label: "Official Business", value: day.officialBusiness, color: STATUS_COLORS.officialBusiness },
-  ];
+  const total = day.present + day.late + day.absent + day.onLeave + day.officialBusiness;
+  const hasDepts = day.departments && day.departments.length > 0;
 
   return (
     <div className="day-modal-backdrop" role="presentation" onClick={onClose}>
@@ -151,21 +152,42 @@ function DayDetailModal({ day, onClose }: { day: CalendarDay; onClose: () => voi
         <div className="day-modal-header">
           <div>
             <h2 id="day-modal-title">{formatFullDate(day.date)}</h2>
-            <p>Attendance breakdown for this date</p>
+            <p>Attendance breakdown by department</p>
           </div>
           <button className="icon-button" onClick={onClose} aria-label="Close date details">
             <X size={18} />
           </button>
         </div>
         <div className="day-modal-body">
-          <div className="day-modal-total">
-            <span>Total recorded</span>
-            <strong>{total}</strong>
+          <div className="day-modal-pills">
+            <span className="day-modal-pill pill-present">
+              <span className="pill-dot" style={{ background: STATUS_COLORS.present }} />
+              {day.present} Present
+            </span>
+            <span className="day-modal-pill pill-late">
+              <span className="pill-dot" style={{ background: "#eda100" }} />
+              {day.late} Late
+            </span>
+            <span className="day-modal-pill pill-absent">
+              <span className="pill-dot" style={{ background: STATUS_COLORS.absent }} />
+              {day.absent} Absent
+            </span>
+            <span className="day-modal-pill pill-leave">
+              <span className="pill-dot" style={{ background: STATUS_COLORS.onLeave }} />
+              {day.onLeave} On leave
+            </span>
+            <span className="day-modal-pill pill-ob">
+              <span className="pill-dot" style={{ background: STATUS_COLORS.officialBusiness }} />
+              {day.officialBusiness} Official business
+            </span>
           </div>
+
           {total === 0 ? (
             <p className="day-modal-empty">No attendance records for this date yet.</p>
+          ) : hasDepts ? (
+            <BarChart mode="department" data={day.departments} />
           ) : (
-            <BarChart data={chartData} />
+            <p className="day-modal-empty">No department breakdown available.</p>
           )}
         </div>
       </section>
@@ -173,9 +195,112 @@ function DayDetailModal({ day, onClose }: { day: CalendarDay; onClose: () => voi
   );
 }
 
+// ── Month/Year picker dropdown ───────────────────────────────────────────────
+function CalendarPicker({
+  month,
+  year,
+  onChange,
+}: {
+  month: number;
+  year: number;
+  onChange: (month: number, year: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [pickerYear, setPickerYear] = useState(year);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setPickerYear(year);
+    function handleOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [open, year]);
+
+  const currentYear = new Date().getFullYear();
+  const yearRange = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
+
+  return (
+    <div className="cal-picker-shell" ref={ref}>
+      <button
+        type="button"
+        className="cal-picker-trigger"
+        onClick={() => setOpen((o) => !o)}
+        aria-label="Pick month and year"
+      >
+        <strong>{MONTHS[month]} {year}</strong>
+        <ChevronRight
+          size={14}
+          className={`cal-picker-chevron${open ? " open" : ""}`}
+        />
+      </button>
+
+      {open && (
+        <div className="cal-picker-menu">
+          {/* Year row */}
+          <div className="cal-picker-year-row">
+            <button
+              type="button"
+              className="cal-picker-year-nav"
+              onClick={() => setPickerYear((y) => y - 1)}
+              aria-label="Previous year"
+            >
+              <ChevronLeft size={14} />
+            </button>
+            <span className="cal-picker-year-label">{pickerYear}</span>
+            <button
+              type="button"
+              className="cal-picker-year-nav"
+              onClick={() => setPickerYear((y) => y + 1)}
+              aria-label="Next year"
+            >
+              <ChevronRight size={14} />
+            </button>
+          </div>
+
+          {/* Month grid */}
+          <div className="cal-picker-months">
+            {MONTHS.map((name, idx) => {
+              const isActive = idx === month && pickerYear === year;
+              return (
+                <button
+                  key={name}
+                  type="button"
+                  className={`cal-picker-month${isActive ? " active" : ""}`}
+                  onClick={() => {
+                    onChange(idx, pickerYear);
+                    setOpen(false);
+                  }}
+                >
+                  {name.slice(0, 3)}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Quick-jump to current month */}
+          <button
+            type="button"
+            className="cal-picker-today-btn"
+            onClick={() => {
+              const now = new Date();
+              onChange(now.getMonth(), now.getFullYear());
+              setOpen(false);
+            }}
+          >
+            Go to current month
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function DashboardPage() {
   const now = new Date();
-  const [calendarMonth, setCalendarMonth] = useState(now.getMonth()); // 0-indexed
+  const [calendarMonth, setCalendarMonth] = useState(now.getMonth());
   const [calendarYear, setCalendarYear] = useState(now.getFullYear());
   const [summary, setSummary] = useState(initialSummary);
   const [calendarLoading, setCalendarLoading] = useState(false);
@@ -194,7 +319,6 @@ export function DashboardPage() {
 
   useEffect(() => {
     setCalendarLoading(true);
-    // month param is 1-indexed for the API
     apiRequest<DashboardSummary>(
       `/dashboard/summary?month=${calendarMonth + 1}&year=${calendarYear}`
     )
@@ -218,17 +342,13 @@ export function DashboardPage() {
   }, [calendarMonth, calendarYear]);
 
   function prevMonth() {
-    setCalendarMonth((m) => {
-      if (m === 0) { setCalendarYear((y) => y - 1); return 11; }
-      return m - 1;
-    });
+    if (calendarMonth === 0) { setCalendarYear((y) => y - 1); setCalendarMonth(11); }
+    else setCalendarMonth((m) => m - 1);
   }
 
   function nextMonth() {
-    setCalendarMonth((m) => {
-      if (m === 11) { setCalendarYear((y) => y + 1); return 0; }
-      return m + 1;
-    });
+    if (calendarMonth === 11) { setCalendarYear((y) => y + 1); setCalendarMonth(0); }
+    else setCalendarMonth((m) => m + 1);
   }
 
   return (
@@ -236,11 +356,11 @@ export function DashboardPage() {
       {loadError && <p className="dashboard-error">{loadError}</p>}
 
       <div className="stats-grid">
-        <StatCard label="Total Employees" value={summary.stats.totalEmployees} icon={Users} tone="blue" />
-        <StatCard label="Present Today" value={summary.stats.presentToday} icon={CheckCircle2} tone="green" />
-        <StatCard label="Late Today" value={summary.stats.lateToday} icon={Clock} tone="yellow" />
-        <StatCard label="Absent Today" value={summary.stats.absentToday} icon={AlertTriangle} tone="red" />
-        <StatCard label="Geotagged Logs" value={summary.stats.geotaggedLogs} icon={MapPin} tone="cyan" />
+        <StatCard label="Total Employees"  value={summary.stats.totalEmployees}  icon={Users}         tone="blue"   />
+        <StatCard label="Present Today"    value={summary.stats.presentToday}    icon={CheckCircle2}  tone="green"  />
+        <StatCard label="Late Today"       value={summary.stats.lateToday}       icon={Clock}         tone="yellow" />
+        <StatCard label="Absent Today"     value={summary.stats.absentToday}     icon={AlertTriangle} tone="red"    />
+        <StatCard label="Geotagged Logs"   value={summary.stats.geotaggedLogs}   icon={MapPin}        tone="cyan"   />
         <StatCard
           label="Face Enrollment"
           value={`${summary.enrollment.enrolled}/${summary.enrollment.total}`}
@@ -256,43 +376,53 @@ export function DashboardPage() {
       </div>
 
       <div className="dashboard-grid">
-        <Card className={`calendar-card${calendarLoading ? " calendar-loading" : ""}`}>
-          <div className="card-heading">
-            <h3>Attendance Calendar and Availability</h3>
-          </div>
-          <div className="calendar-header">
-            <button className="cal-nav-btn" onClick={prevMonth} aria-label="Previous month">
-              <ChevronLeft size={16} />
-            </button>
-            <strong>{summary.calendar?.monthLabel ?? ""}</strong>
-            <button className="cal-nav-btn" onClick={nextMonth} aria-label="Next month">
-              <ChevronRight size={16} />
-            </button>
-            <span className="cal-hint">Click a date to view its breakdown</span>
-          </div>
-          <div className="calendar-grid">
-            {days.map((day) => (
-              <span key={day}>{day}</span>
-            ))}
-            {(summary.calendar?.days ?? []).map((day) => (
-              <button
-                type="button"
-                className={[
-                  day.absent >= 3 ? "hot" : day.absent > 0 ? "warm" : "",
-                  isToday(day.date) ? "today" : "",
-                ]
-                  .filter(Boolean)
-                  .join(" ")}
-                key={day.day}
-                onClick={() => setSelectedDay(day)}
-              >
-                <strong>{day.day}</strong>
-                <DayMiniBar day={day} />
-                <small>{day.absent} absent</small>
+        <div className="left-col">
+          <Card className={`calendar-card${calendarLoading ? " calendar-loading" : ""}`}>
+            <div className="card-heading calendar-heading-row">
+              <h3>Attendance Calendar</h3>
+              <span className="cal-hint">Click a date to view its breakdown</span>
+            </div>
+
+            <div className="calendar-header">
+              <button className="cal-nav-btn" onClick={prevMonth} aria-label="Previous month">
+                <ChevronLeft size={16} />
               </button>
-            ))}
-          </div>
-        </Card>
+
+              <CalendarPicker
+                month={calendarMonth}
+                year={calendarYear}
+                onChange={(m, y) => { setCalendarMonth(m); setCalendarYear(y); }}
+              />
+
+              <button className="cal-nav-btn" onClick={nextMonth} aria-label="Next month">
+                <ChevronRight size={16} />
+              </button>
+            </div>
+
+            <div className="calendar-grid">
+              {days.map((day) => (
+                <span key={day}>{day}</span>
+              ))}
+              {(summary.calendar?.days ?? []).map((day) => (
+                <button
+                  type="button"
+                  className={[
+                    day.absent >= 3 ? "hot" : day.absent > 0 ? "warm" : "",
+                    isToday(day.date) ? "today" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                  key={day.day}
+                  onClick={() => setSelectedDay(day)}
+                >
+                  <strong>{day.day}</strong>
+                  <DayMiniBar day={day} />
+                  <small>{day.absent} absent</small>
+                </button>
+              ))}
+            </div>
+          </Card>
+        </div>
 
         <aside className="side-stack">
           <Card className="side-card">

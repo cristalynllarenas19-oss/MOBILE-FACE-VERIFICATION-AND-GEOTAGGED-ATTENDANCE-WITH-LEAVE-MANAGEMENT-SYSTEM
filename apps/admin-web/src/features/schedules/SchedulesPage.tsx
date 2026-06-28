@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { AlertTriangle, CheckCircle2, Eye, Plus, Settings, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { AlertTriangle, CheckCircle2, ChevronDown, Eye, Plus, Search, X } from "lucide-react";
 import { apiRequest } from "../../lib/api";
 import { PermissionCode, permissions } from "../../types/rbac";
 import "./SchedulesPage.css";
@@ -38,6 +38,150 @@ function formatDate(value?: string | null) {
   return value ? new Date(value).toLocaleDateString() : "Ongoing";
 }
 
+const emptyForm = { employeeId: "", shiftId: "", startsOn: "", endsOn: "" };
+
+// ── Shared floating-panel dropdown ──
+const SEARCH_THRESHOLD = 6;
+
+function FormDropdown({
+  label,
+  placeholder,
+  value,
+  options,
+  onChange,
+  required,
+  clearValue,
+}: {
+  label: string;
+  placeholder: string;
+  value: string;
+  options: { value: string; label: string; sub?: string }[];
+  onChange: (value: string) => void;
+  required?: boolean;
+  clearValue?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  const selected = options.find((o) => o.value === value) ?? null;
+  const showSearch = options.length > SEARCH_THRESHOLD;
+  const filteredOptions = useMemo(() => {
+    if (!showSearch || !query.trim()) return options;
+    const needle = query.trim().toLowerCase();
+    return options.filter(
+      (o) => o.label.toLowerCase().includes(needle) || o.sub?.toLowerCase().includes(needle),
+    );
+  }, [options, query, showSearch]);
+
+  useEffect(() => {
+    if (!open) {
+      setQuery("");
+      return;
+    }
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    if (showSearch) searchRef.current?.focus();
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open, showSearch]);
+
+  return (
+    <div className="schedule-field" ref={ref}>
+      <label className="schedule-field-label">{label}</label>
+      {/* Hidden native select for form validation */}
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        required={required}
+        tabIndex={-1}
+        aria-hidden="true"
+        className="sfd-hidden-select"
+      >
+        <option value="" />
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+
+      <button
+        type="button"
+        className={`sfd-trigger ${open ? "open" : ""} ${!value ? "sfd-placeholder" : ""}`}
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <span className="sfd-trigger-text">
+          {selected ? selected.label : placeholder}
+        </span>
+        <ChevronDown size={13} className="sfd-chevron" />
+      </button>
+
+      {open && (
+        <div className="sfd-menu" role="listbox">
+          <div className="sfd-menu-header">
+            <span className="sfd-menu-label">{label}</span>
+            {clearValue !== undefined && value !== clearValue && (
+              <button
+                type="button"
+                className="sfd-clear"
+                onClick={() => {
+                  onChange(clearValue);
+                  setOpen(false);
+                }}
+              >
+                <X size={12} /> Clear
+              </button>
+            )}
+          </div>
+
+          {showSearch && (
+            <div className="sfd-search-wrap">
+              <Search size={13} className="sfd-search-icon" />
+              <input
+                ref={searchRef}
+                type="text"
+                className="sfd-search-input"
+                placeholder={`Search ${label.toLowerCase()}...`}
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+              />
+            </div>
+          )}
+
+          <div className="sfd-options-list">
+            {filteredOptions.length === 0 ? (
+              <div className="sfd-no-results">No matches found.</div>
+            ) : (
+              filteredOptions.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  role="option"
+                  aria-selected={opt.value === value}
+                  className={`sfd-option ${opt.value === value ? "selected" : ""}`}
+                  onClick={() => {
+                    onChange(opt.value);
+                    setOpen(false);
+                  }}
+                >
+                  {opt.label}
+                  {opt.sub && <span className="sfd-option-sub">{opt.sub}</span>}
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SchedulesPage({ user }: { user?: { permissions: PermissionCode[] } }) {
   const canWrite = user?.permissions.includes(permissions.schedulesWrite) ?? true;
   const [schedules, setSchedules] = useState<Schedule[]>([]);
@@ -47,9 +191,7 @@ export function SchedulesPage({ user }: { user?: { permissions: PermissionCode[]
   const [shiftFilter, setShiftFilter] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState("ACTIVE");
   const [viewSchedule, setViewSchedule] = useState<Schedule | null>(null);
-  const [showAddShift, setShowAddShift] = useState(false);
-  const [form, setForm] = useState({ employeeId: "", shiftId: "", startsOn: "", endsOn: "" });
-  const [shiftForm, setShiftForm] = useState({ name: "", startTime: "", endTime: "", gracePeriodMinutes: "0" });
+  const [form, setForm] = useState(emptyForm);
   const [isSaving, setIsSaving] = useState(false);
   const [notification, setNotification] = useState<Notification>(null);
 
@@ -68,11 +210,6 @@ export function SchedulesPage({ user }: { user?: { permissions: PermissionCode[]
         setSchedules(scheduleRows);
         setEmployees(employeeRows);
         setShifts(shiftRows);
-        setForm((current) => ({
-          ...current,
-          employeeId: current.employeeId || employeeRows[0]?.id || "",
-          shiftId: current.shiftId || shiftRows[0]?.id || "",
-        }));
       })
       .catch(() => undefined);
   };
@@ -104,94 +241,66 @@ export function SchedulesPage({ user }: { user?: { permissions: PermissionCode[]
         }),
       });
       setSchedules((current) => [created, ...current]);
+      setForm(emptyForm);
       setNotification({ type: "success", message: "Schedule assignment added successfully." });
     } catch (err) {
-      setNotification({ type: "error", message: err instanceof Error ? err.message : "Unable to add schedule." });
+      setNotification({
+        type: "error",
+        message: err instanceof Error ? err.message : "Unable to add schedule.",
+      });
     } finally {
       setIsSaving(false);
     }
   };
 
-  const createShift = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setIsSaving(true);
-    try {
-      const created = await apiRequest<Shift>("/schedules/shifts", {
-        method: "POST",
-        body: JSON.stringify({
-          name: shiftForm.name.trim(),
-          startTime: shiftForm.startTime,
-          endTime: shiftForm.endTime,
-          gracePeriodMinutes: Number(shiftForm.gracePeriodMinutes || 0),
-        }),
-      });
-      setShifts((current) => [...current, created].sort((a, b) => a.startTime.localeCompare(b.startTime)));
-      setShiftForm({ name: "", startTime: "", endTime: "", gracePeriodMinutes: "0" });
-      setShowAddShift(false);
-      setNotification({ type: "success", message: `"${created.name}" shift added successfully.` });
-    } catch (err) {
-      setNotification({ type: "error", message: err instanceof Error ? err.message : "Unable to add shift." });
-    } finally {
-      setIsSaving(false);
-    }
-  };
+  const isAllActive =
+    departmentFilter === "ALL" && shiftFilter === "ALL" && statusFilter === "ALL";
 
   return (
     <>
-      {/* ── Toast ── */}
       {notification && (
         <div className={`schedules-notification ${notification.type}`} role="status">
-          {notification.type === "success" ? <CheckCircle2 size={17} /> : <AlertTriangle size={17} />}
+          {notification.type === "success" ? (
+            <CheckCircle2 size={17} />
+          ) : (
+            <AlertTriangle size={17} />
+          )}
           <span>{notification.message}</span>
         </div>
       )}
 
-      {/* ── Assign Shift Card ── */}
       {canWrite && (
         <section className="schedule-form-card">
           <div className="schedule-form-card-header">
             <h3 className="schedule-form-card-title">Assign Shift to Employee</h3>
-            <button
-              type="button"
-              className="manage-shifts-btn"
-              onClick={() => setShowAddShift(true)}
-              title="Manage shift types"
-            >
-              <Settings size={14} />
-              Manage Shifts
-            </button>
           </div>
 
           <form className="schedule-form" onSubmit={createSchedule}>
-            <div className="schedule-field">
-              <label className="schedule-field-label">Employee</label>
-              <select
-                value={form.employeeId}
-                onChange={(e) => setForm((c) => ({ ...c, employeeId: e.target.value }))}
-                required
-              >
-                <option value="" disabled>Select employee…</option>
-                {employees.map((emp) => (
-                  <option key={emp.id} value={emp.id}>{getName(emp)}</option>
-                ))}
-              </select>
-            </div>
+            <FormDropdown
+              label="Employee"
+              placeholder="Select employee…"
+              value={form.employeeId}
+              onChange={(v) => setForm((c) => ({ ...c, employeeId: v }))}
+              required
+              options={employees.map((emp) => ({
+                value: emp.id,
+                label: getName(emp),
+                sub: `${emp.department.name} · ${emp.position.title}`,
+              }))}
+            />
 
-            <div className="schedule-field">
-              <label className="schedule-field-label">Shift</label>
-              <select
-                value={form.shiftId}
-                onChange={(e) => setForm((c) => ({ ...c, shiftId: e.target.value }))}
-                required
-              >
-                <option value="" disabled>Select shift…</option>
-                {shifts.map((shift) => (
-                  <option key={shift.id} value={shift.id}>
-                    {shift.name} ({shift.startTime} – {shift.endTime})
-                  </option>
-                ))}
-              </select>
-            </div>
+            <FormDropdown
+              label="Shift"
+              placeholder="Select shift…"
+              value={form.shiftId}
+              onChange={(v) => setForm((c) => ({ ...c, shiftId: v }))}
+              required
+              options={shifts.map((s) => ({
+                value: s.id,
+                label: s.name,
+                sub: `${s.startTime} – ${s.endTime}`,
+              }))}
+            />
 
             <div className="schedule-field">
               <label className="schedule-field-label">Start Date</label>
@@ -204,7 +313,9 @@ export function SchedulesPage({ user }: { user?: { permissions: PermissionCode[]
             </div>
 
             <div className="schedule-field">
-              <label className="schedule-field-label">End Date <span className="optional-tag">optional</span></label>
+              <label className="schedule-field-label">
+                End Date <span className="optional-tag">optional</span>
+              </label>
               <input
                 type="date"
                 value={form.endsOn}
@@ -214,36 +325,74 @@ export function SchedulesPage({ user }: { user?: { permissions: PermissionCode[]
 
             <div className="schedule-field schedule-field--action">
               <label className="schedule-field-label">&nbsp;</label>
-              <button className="add-schedule-button" disabled={isSaving}>
-                <Plus size={15} /> Assign Shift
+              <button
+                className="add-schedule-button"
+                disabled={isSaving || !form.employeeId || !form.shiftId || !form.startsOn}
+              >
+                <Plus size={15} /> {isSaving ? "Saving…" : "Assign Shift"}
               </button>
             </div>
           </form>
         </section>
       )}
 
-      {/* ── Filters + Table ── */}
+      {/* ── Toolbar with panel-style dropdowns ── */}
       <div className="schedules-toolbar">
         <div className="filter-tabs">
           <button
-            className={departmentFilter === "ALL" && shiftFilter === "ALL" && statusFilter === "ALL" ? "active" : ""}
-            onClick={() => { setDepartmentFilter("ALL"); setShiftFilter("ALL"); setStatusFilter("ALL"); }}
+            className={isAllActive ? "active" : ""}
+            onClick={() => {
+              setDepartmentFilter("ALL");
+              setShiftFilter("ALL");
+              setStatusFilter("ALL");
+            }}
           >
             All Schedules
           </button>
-          <select className="schedule-select" value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)}>
-            <option value="ALL">All Departments</option>
-            {departments.map((d) => <option key={d} value={d}>{d}</option>)}
-          </select>
-          <select className="schedule-select" value={shiftFilter} onChange={(e) => setShiftFilter(e.target.value)}>
-            <option value="ALL">All Shifts</option>
-            {shifts.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-          <select className="schedule-select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-            <option value="ALL">All Status</option>
-            <option value="ACTIVE">Active</option>
-            <option value="ENDED">Ended</option>
-          </select>
+
+          {/* Department dropdown — panel style */}
+          <FormDropdown
+            label="Department"
+            placeholder="All Departments"
+            value={departmentFilter}
+            onChange={setDepartmentFilter}
+            clearValue="ALL"
+            options={[
+              { value: "ALL", label: "All Departments" },
+              ...departments.map((d) => ({ value: d, label: d })),
+            ]}
+          />
+
+          {/* Shift dropdown — panel style */}
+          <FormDropdown
+            label="Shift"
+            placeholder="All Shifts"
+            value={shiftFilter}
+            onChange={setShiftFilter}
+            clearValue="ALL"
+            options={[
+              { value: "ALL", label: "All Shifts" },
+              ...shifts.map((s) => ({
+                value: s.id,
+                label: s.name,
+                sub: `${s.startTime} – ${s.endTime}`,
+              })),
+            ]}
+          />
+
+          {/* Status dropdown — panel style */}
+          <FormDropdown
+            label="Status"
+            placeholder="All Status"
+            value={statusFilter}
+            onChange={setStatusFilter}
+            clearValue="ALL"
+            options={[
+              { value: "ALL", label: "All Status" },
+              { value: "ACTIVE", label: "Active" },
+              { value: "ENDED", label: "Ended" },
+            ]}
+          />
         </div>
       </div>
 
@@ -263,7 +412,11 @@ export function SchedulesPage({ user }: { user?: { permissions: PermissionCode[]
           </thead>
           <tbody>
             {schedules.length === 0 ? (
-              <tr><td colSpan={8} className="schedules-empty-state">No schedule assignments found.</td></tr>
+              <tr>
+                <td colSpan={8} className="schedules-empty-state">
+                  No schedule assignments found.
+                </td>
+              </tr>
             ) : (
               schedules.map((schedule) => (
                 <tr key={schedule.id}>
@@ -271,11 +424,18 @@ export function SchedulesPage({ user }: { user?: { permissions: PermissionCode[]
                   <td data-label="Department">{schedule.employee.department.name}</td>
                   <td data-label="Position">{schedule.employee.position.title}</td>
                   <td data-label="Shift">{schedule.shift.name}</td>
-                  <td data-label="Time">{schedule.shift.startTime} – {schedule.shift.endTime}</td>
+                  <td data-label="Time">
+                    {schedule.shift.startTime} – {schedule.shift.endTime}
+                  </td>
                   <td data-label="Grace Period">{schedule.shift.gracePeriodMinutes} min</td>
-                  <td data-label="Effective Dates">{formatDate(schedule.startsOn)} – {formatDate(schedule.endsOn)}</td>
+                  <td data-label="Effective Dates">
+                    {formatDate(schedule.startsOn)} – {formatDate(schedule.endsOn)}
+                  </td>
                   <td data-label="Action">
-                    <button className="schedule-view-button" onClick={() => setViewSchedule(schedule)}>
+                    <button
+                      className="schedule-view-button"
+                      onClick={() => setViewSchedule(schedule)}
+                    >
                       <Eye size={14} /> View
                     </button>
                   </td>
@@ -289,107 +449,68 @@ export function SchedulesPage({ user }: { user?: { permissions: PermissionCode[]
       {/* ── View Schedule Modal ── */}
       {viewSchedule && (
         <div className="schedule-modal-backdrop" role="presentation">
-          <section className="schedule-modal" role="dialog" aria-modal="true" aria-labelledby="schedule-modal-title">
+          <section
+            className="schedule-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="schedule-modal-title"
+          >
             <div className="schedule-modal-header">
               <div>
                 <h2 id="schedule-modal-title">Schedule Details</h2>
                 <p>{getName(viewSchedule.employee)}</p>
               </div>
-              <button className="icon-button" onClick={() => setViewSchedule(null)} aria-label="Close">
+              <button
+                className="icon-button"
+                onClick={() => setViewSchedule(null)}
+                aria-label="Close"
+              >
                 <X size={18} />
               </button>
             </div>
             <div className="schedule-detail-grid">
-              <div><span>Employee</span><strong>{getName(viewSchedule.employee)}</strong></div>
-              <div><span>Department</span><strong>{viewSchedule.employee.department.name}</strong></div>
-              <div><span>Position</span><strong>{viewSchedule.employee.position.title}</strong></div>
-              <div><span>Shift</span><strong>{viewSchedule.shift.name}</strong></div>
-              <div><span>Time</span><strong>{viewSchedule.shift.startTime} – {viewSchedule.shift.endTime}</strong></div>
-              <div><span>Grace Period</span><strong>{viewSchedule.shift.gracePeriodMinutes} minutes</strong></div>
-              <div><span>Effective Dates</span><strong>{formatDate(viewSchedule.startsOn)} – {formatDate(viewSchedule.endsOn)}</strong></div>
+              <div>
+                <span>Employee</span>
+                <strong>{getName(viewSchedule.employee)}</strong>
+              </div>
+              <div>
+                <span>Department</span>
+                <strong>{viewSchedule.employee.department.name}</strong>
+              </div>
+              <div>
+                <span>Position</span>
+                <strong>{viewSchedule.employee.position.title}</strong>
+              </div>
+              <div>
+                <span>Shift</span>
+                <strong>{viewSchedule.shift.name}</strong>
+              </div>
+              <div>
+                <span>Time</span>
+                <strong>
+                  {viewSchedule.shift.startTime} – {viewSchedule.shift.endTime}
+                </strong>
+              </div>
+              <div>
+                <span>Grace Period</span>
+                <strong>{viewSchedule.shift.gracePeriodMinutes} minutes</strong>
+              </div>
+              <div>
+                <span>Effective Dates</span>
+                <strong>
+                  {formatDate(viewSchedule.startsOn)} – {formatDate(viewSchedule.endsOn)}
+                </strong>
+              </div>
             </div>
             <div className="schedule-detail-actions">
-              <button type="button" className="outline-button" onClick={() => setViewSchedule(null)}>Close</button>
-            </div>
-          </section>
-        </div>
-      )}
-
-      {/* ── Add Shift Type Modal ── */}
-      {canWrite && showAddShift && (
-        <div className="schedule-modal-backdrop" role="presentation">
-          <section className="schedule-modal schedule-modal--sm" role="dialog" aria-modal="true" aria-labelledby="add-shift-title">
-            <div className="schedule-modal-header">
-              <div>
-                <h2 id="add-shift-title">Create Shift Type</h2>
-                <p>New shift will be available to assign immediately</p>
-              </div>
-              <button className="icon-button" onClick={() => setShowAddShift(false)} aria-label="Close">
-                <X size={18} />
+              <button
+                type="button"
+                className="outline-button"
+                onClick={() => setViewSchedule(null)}
+              >
+                Close
               </button>
             </div>
-
-            <form onSubmit={createShift}>
-              <div className="add-shift-body">
-                <div className="add-shift-field">
-                  <label className="add-shift-label">Shift Name <span className="add-type-required">*</span></label>
-                  <input
-                    className="add-shift-input"
-                    type="text"
-                    value={shiftForm.name}
-                    onChange={(e) => setShiftForm((c) => ({ ...c, name: e.target.value }))}
-                    placeholder="e.g. Morning Shift"
-                    required
-                    autoFocus
-                  />
-                </div>
-
-                <div className="add-shift-row">
-                  <div className="add-shift-field">
-                    <label className="add-shift-label">Start Time <span className="add-type-required">*</span></label>
-                    <input
-                      className="add-shift-input"
-                      type="time"
-                      value={shiftForm.startTime}
-                      onChange={(e) => setShiftForm((c) => ({ ...c, startTime: e.target.value }))}
-                      required
-                    />
-                  </div>
-                  <div className="add-shift-field">
-                    <label className="add-shift-label">End Time <span className="add-type-required">*</span></label>
-                    <input
-                      className="add-shift-input"
-                      type="time"
-                      value={shiftForm.endTime}
-                      onChange={(e) => setShiftForm((c) => ({ ...c, endTime: e.target.value }))}
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="add-shift-field">
-                  <label className="add-shift-label">Grace Period (minutes)</label>
-                  <input
-                    className="add-shift-input"
-                    type="number"
-                    min="0"
-                    value={shiftForm.gracePeriodMinutes}
-                    onChange={(e) => setShiftForm((c) => ({ ...c, gracePeriodMinutes: e.target.value }))}
-                    placeholder="0"
-                  />
-                  <span className="add-shift-hint">How many minutes late is still considered on time</span>
-                </div>
-              </div>
-
-              <div className="schedule-detail-actions">
-                <button type="submit" className="add-schedule-button" disabled={isSaving || !shiftForm.name.trim() || !shiftForm.startTime || !shiftForm.endTime}>
-                  {isSaving ? "Saving…" : "Create Shift"}
-                </button>
-                <button type="button" className="outline-button" onClick={() => setShowAddShift(false)} disabled={isSaving}>
-                  Cancel
-                </button>
-              </div>
-            </form>
           </section>
         </div>
       )}

@@ -1,11 +1,24 @@
-import { Controller, Get, Post, Body, UseGuards } from "@nestjs/common";
+import { Controller, Get, Post, Body, Req, UseGuards } from "@nestjs/common";
+import { EmploymentStatus } from "@prisma/client";
+import { IsArray, IsBoolean, IsEnum, IsNumber, IsOptional, IsString } from "class-validator";
 import { LeaveTypesService } from "./leave-types.service";
 import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
 
 export class CreateLeaveTypeDto {
+  @IsString()
   name!: string;
+
+  @IsNumber()
   defaultDays!: number;
+
+  @IsOptional()
+  @IsBoolean()
   requiresDocument?: boolean;
+
+  @IsOptional()
+  @IsArray()
+  @IsEnum(EmploymentStatus, { each: true })
+  applicableStatuses?: EmploymentStatus[];
 }
 
 
@@ -20,7 +33,7 @@ export class LeaveTypesController {
   }
 
   @Post()
-  create(@Body() dto: CreateLeaveTypeDto) {
-    return this.leaveTypesService.create(dto);
+  create(@Body() dto: CreateLeaveTypeDto, @Req() request: Request) {
+    return this.leaveTypesService.create(dto, (request as any).user?.userId);
   }
 }

@@ -7,6 +7,7 @@ import { LoginPage } from "../features/login/LoginPage";
 import { ReportsPage } from "../features/reports/ReportsPage";
 import { SchedulesPage } from "../features/schedules/SchedulesPage";
 import { UsersPage } from "../features/users/UsersPage";
+import { UtilitiesPage } from "../features/utilities/UtilitiesPage";
 import { FaceRegistrationPage } from "../features/face-registration/FaceRegistrationPage";
 import { GeotaggingPage } from "../features/geotagging/GeotaggingPage";
 import { AppLayout, navItems } from "../components/layout/AppLayout";
@@ -55,6 +56,7 @@ export default function App() {
       {renderPage === "leave" && <LeavePage />}
       {renderPage === "schedules" && <SchedulesPage user={user} />}
       {renderPage === "reports" && <ReportsPage />}
+      {renderPage === "utilities" && <UtilitiesPage user={user} />}
     </AppLayout>
   );
 }

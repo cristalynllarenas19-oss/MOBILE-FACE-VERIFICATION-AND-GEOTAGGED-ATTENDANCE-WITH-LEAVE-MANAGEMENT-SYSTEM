@@ -91,7 +91,7 @@ export class EmployeesService {
     });
   }
 
-  async archive(id: string, dto: { reason?: string; archiveType?: string }) {
+  async archive(id: string, dto: { reason?: string; archiveType?: string }, actorUserId?: string) {
     const employee = await this.prisma.employee.findUniqueOrThrow({
       where: { id },
       include: { user: true },
@@ -110,6 +110,7 @@ export class EmployeesService {
 
     await this.prisma.auditLog.create({
       data: {
+        actorUserId,
         action: "ARCHIVE_EMPLOYEE",
         entityType: "Employee",
         entityId: id,

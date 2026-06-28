@@ -37,7 +37,7 @@ export class EmployeesController {
 
   @Patch(":id/archive")
   @RequirePermissions("employees:write")
-  archive(@Param("id") id: string, @Body() dto: { reason?: string; archiveType?: string }) {
-    return this.employeesService.archive(id, dto);
+  archive(@Param("id") id: string, @Body() dto: { reason?: string; archiveType?: string }, @Req() request: Request) {
+    return this.employeesService.archive(id, dto, (request as any).user?.userId);
   }
 }

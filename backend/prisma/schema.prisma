@@ -71,6 +71,9 @@ model User {
   email        String      @unique
   passwordHash String      @map("password_hash")
   status       UserStatus  @default(ACTIVE)
+  // Pre-existing live-DB column not originally tracked in this schema file (see the
+  // `divisions`/`sections` note below) — mirrored as-is so `prisma db push` does not drop it.
+  mustChangePassword Boolean @default(false) @map("must_change_password")
   lastLoginAt  DateTime?   @map("last_login_at")
   createdAt    DateTime    @default(now()) @map("created_at")
   updatedAt    DateTime    @updatedAt @map("updated_at")
@@ -282,6 +285,8 @@ model AttendanceLog {
   verificationStatus      VerificationStatus @map("verification_status")
   deviceId                String             @map("device_id")
   failureReason           String?            @map("failure_reason")
+  faceImageData           String?            @map("face_image_data")
+  faceImageMimeType       String?            @map("face_image_mime_type")
   attendanceRecord        AttendanceRecord?  @relation(fields: [attendanceRecordId], references: [id])
   employee                Employee           @relation(fields: [employeeId], references: [id])
   workLocation            WorkLocation?      @relation(fields: [workLocationId], references: [id])
@@ -309,12 +314,13 @@ model FaceProfile {
 }
 
 model LeaveType {
-  id              String          @id @default(uuid())
-  name            String          @unique
-  defaultDays     Decimal         @map("default_days")
-  requiresDocument Boolean        @default(false) @map("requires_document")
-  leaveRequests   LeaveRequest[]
-  leaveBalances   LeaveBalance[]
+  id                 String             @id @default(uuid())
+  name               String             @unique
+  defaultDays        Decimal            @map("default_days")
+  requiresDocument   Boolean            @default(false) @map("requires_document")
+  applicableStatuses EmploymentStatus[] @default([]) @map("applicable_statuses")
+  leaveRequests      LeaveRequest[]
+  leaveBalances      LeaveBalance[]
 
   @@map("leave_types")
 }

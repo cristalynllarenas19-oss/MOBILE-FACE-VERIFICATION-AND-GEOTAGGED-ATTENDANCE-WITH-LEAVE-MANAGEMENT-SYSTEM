@@ -19,8 +19,7 @@
   flex-shrink: 0;
 }
 
-.employees-toolbar .filter-tabs button,
-.department-select {
+.employees-toolbar .filter-tabs > button {
   border: 1px solid transparent;
   background: #ffffff;
   color: #41536b;
@@ -31,7 +30,7 @@
   cursor: pointer;
 }
 
-.employees-toolbar .filter-tabs button.active {
+.employees-toolbar .filter-tabs > button.active {
   background: #dbeafe;
   border-color: #93c5fd;
   color: #1a3a5c;
@@ -39,13 +38,6 @@
 
 .department-select {
   min-width: 178px;
-  border-color: #dbe5ef;
-  outline: none;
-}
-
-.department-select:focus {
-  border-color: #1a3a5c;
-  box-shadow: 0 0 0 3px rgba(26, 58, 92, 0.1);
 }
 
 .employee-search {
@@ -297,12 +289,17 @@
   overflow: hidden;
 }
 
+/* ── Smaller archive modal ── */
+.employee-modal--archive {
+  width: min(380px, 100%);
+}
+
 .employee-modal-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 22px 24px 18px;
+  padding: 18px 20px 14px;
   border-bottom: 1px solid var(--line);
 }
 
@@ -313,26 +310,26 @@
 
 .employee-modal-header h2 {
   color: #193d69;
-  font-size: 20px;
+  font-size: 18px;
   line-height: 1.2;
 }
 
 .employee-modal-header p {
   color: #7b8794;
   font-size: 12px;
-  margin-top: 5px;
+  margin-top: 4px;
 }
 
 .employee-form {
   display: grid;
-  gap: 16px;
-  padding: 20px 24px 24px;
+  gap: 14px;
+  padding: 16px 20px 20px;
 }
 
 .employee-form-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 14px;
+  gap: 12px;
 }
 
 .employee-form-grid.single-field {
@@ -341,22 +338,23 @@
 
 .employee-form label {
   display: grid;
-  gap: 7px;
+  gap: 6px;
   color: #334155;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
 }
 
 .employee-form input,
 .employee-form select {
   width: 100%;
-  height: 44px;
+  height: 38px;
   border: 1px solid #dbe5ef;
-  border-radius: 10px;
+  border-radius: 8px;
   background: #ffffff;
   color: #0f172a;
-  padding: 0 12px;
+  padding: 0 11px;
   outline: none;
+  font-size: 13px;
 }
 
 .employee-form input:focus,
@@ -407,9 +405,9 @@
 }
 
 .employee-archive-action {
-  min-height: 40px;
+  min-height: 38px;
   border-radius: 7px;
-  padding: 0 16px;
+  padding: 0 14px;
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
@@ -420,20 +418,21 @@
 
 .employee-full-field {
   display: grid;
-  gap: 7px;
+  gap: 6px;
   color: #334155;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
 }
 
 .employee-full-field textarea {
-  min-height: 88px;
+  min-height: 72px;
   resize: vertical;
   border: 1px solid #dbe5ef;
-  border-radius: 10px;
-  padding: 10px 12px;
+  border-radius: 8px;
+  padding: 9px 11px;
   color: #0f172a;
   outline: none;
+  font-size: 13px;
 }
 
 .employee-form-actions .outline-button:hover:not(:disabled),
@@ -526,34 +525,34 @@
   flex-direction: column;
   align-items: center;
   text-align: center;
-  padding: 32px 28px 32px;
+  padding: 24px 22px 24px;
 }
 
 .employee-confirm-icon {
-  width: 60px;
-  height: 60px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
   background: #fee2e2;
   color: #dc2626;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: 18px;
+  margin-bottom: 14px;
   flex-shrink: 0;
 }
 
 .employee-confirm-title {
   color: #193d69;
-  font-size: 20px;
+  font-size: 17px;
   font-weight: 700;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .employee-confirm-message {
   color: #41536b;
   font-size: 13px;
-  line-height: 1.65;
-  margin-bottom: 28px;
+  line-height: 1.6;
+  margin-bottom: 22px;
 }
 
 .employee-confirm-message strong {
@@ -569,7 +568,7 @@
 
 .employee-confirm-actions .outline-button {
   flex: 1;
-  height: 42px;
+  height: 38px;
   border: 1.5px solid #dbe5ef;
   border-radius: 7px;
   background: #ffffff;
@@ -586,7 +585,7 @@
 
 .employee-confirm-actions .employee-archive-action {
   flex: 1;
-  height: 42px;
+  height: 38px;
   justify-content: center;
 }
 

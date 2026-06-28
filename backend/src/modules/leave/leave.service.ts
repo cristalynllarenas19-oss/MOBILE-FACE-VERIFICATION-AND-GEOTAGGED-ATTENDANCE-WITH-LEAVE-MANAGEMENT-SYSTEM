@@ -84,7 +84,7 @@ export class LeaveService {
     });
   }
 
-  async updateStatus(id: string, status: "APPROVED" | "REJECTED", remarks?: string) {
+  async updateStatus(id: string, status: "APPROVED" | "REJECTED", remarks?: string, actorUserId?: string) {
     // Load the request first so we know its *current* status before changing anything.
     // This is what lets us tell "first time being approved" apart from "already approved,
     // admin clicked again" — without this check, usedDays could be deducted more than once
@@ -126,6 +126,7 @@ export class LeaveService {
     if (remarks?.trim()) {
       await this.prisma.auditLog.create({
         data: {
+          actorUserId,
           action: status === "APPROVED" ? "APPROVE_LEAVE" : "REJECT_LEAVE",
           entityType: "LeaveRequest",
           entityId: id,
