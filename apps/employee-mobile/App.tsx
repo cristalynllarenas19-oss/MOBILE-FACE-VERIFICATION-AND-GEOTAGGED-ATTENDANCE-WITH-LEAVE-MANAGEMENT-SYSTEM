@@ -7,6 +7,7 @@ import LoginScreen from "./src/screens/LoginScreen";
 import MainScreen from "./src/screens/MainScreen";
 import CameraScanner from "./src/components/CameraScanner";
 import ResultModal, { ResultModalStatus } from "./src/components/ResultModal";
+import SitePickerModal from "./src/components/SitePickerModal";
 import VerifyOtpScreen from "./src/screens/VerifyOtpScreen";
 import NewPasswordScreen from "./src/screens/NewPasswordScreen";
 import SplashScreen from "./src/screens/SplashScreen";
@@ -14,6 +15,7 @@ import SplashScreen from "./src/screens/SplashScreen";
 import {
   MobileUser,
   TodayAttendance,
+  WorkLocation,
   login,
   logout,
   restoreSession,
@@ -21,6 +23,7 @@ import {
   getTodayAttendance,
   submitAttendance,
   getMyWorkLocation,
+  getMyWorkLocations,
   forgotPassword,
 } from "./src/api";
 import { getFriendlyReason } from "./src/utils/attendanceMessages";
@@ -50,6 +53,13 @@ export default function App() {
 
   const [scanType, setScanType] = useState<"TIME_IN" | "TIME_OUT" | null>(null);
   const [resultModal, setResultModal] = useState<ResultModalState | null>(null);
+
+  // FIELD-employee site visit state: which site they're about to start a
+  // visit at (carried through to the camera capture and the submission),
+  // and the picker listing their assigned sites when there's more than one.
+  const [selectedWorkLocation, setSelectedWorkLocation] = useState<WorkLocation | null>(null);
+  const [sitePickerSites, setSitePickerSites] = useState<WorkLocation[]>([]);
+  const [isSitePickerVisible, setIsSitePickerVisible] = useState(false);
 
   const [authView, setAuthView] = useState<AuthView>("login");
   const [resetEmail, setResetEmail] = useState("");
@@ -166,6 +176,11 @@ export default function App() {
       return;
     }
 
+    if (user.attendanceMode === "FIELD") {
+      await startFieldScan(type);
+      return;
+    }
+
     if (type === "TIME_IN" && todayAttendance?.timeInAt) {
       setResultModal({
         status: "info",
@@ -209,6 +224,64 @@ export default function App() {
     setScanType(type);
   }
 
+  // FIELD employees have no single fixed time-in/out pair — sequencing
+  // (can't start a new visit while one's still open) is enforced by the
+  // server, not re-derived here. Starting a visit needs the technician to
+  // pick which assigned site they're at; ending one doesn't, since the
+  // server resolves the site from whichever visit is currently open.
+  async function startFieldScan(type: "TIME_IN" | "TIME_OUT") {
+    if (type === "TIME_OUT") {
+      setScanType("TIME_OUT");
+      return;
+    }
+
+    try {
+      const sites = await getMyWorkLocations();
+      if (sites.length === 0) {
+        setResultModal({
+          status: "error",
+          title: "No Assigned Sites",
+          message: "You don't have any assigned work sites yet. Contact your supervisor.",
+        });
+        return;
+      }
+
+      if (sites.length === 1) {
+        await handleSiteSelected(sites[0]);
+        return;
+      }
+
+      setSitePickerSites(sites);
+      setIsSitePickerVisible(true);
+    } catch (error) {
+      setResultModal({
+        status: "error",
+        title: "Failed to Load Sites",
+        message: error instanceof Error ? error.message : "Please try again.",
+      });
+    }
+  }
+
+  async function handleSiteSelected(site: WorkLocation) {
+    setIsSitePickerVisible(false);
+    setSelectedWorkLocation(site);
+
+    const isOutsideSite = await checkOutsideSite(site);
+    if (isOutsideSite) {
+      Alert.alert(
+        "Outside Work Area",
+        "You appear to be outside this site's geotagged area. You can still continue, but your attendance may be flagged for review.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Continue Anyway", onPress: () => setScanType("TIME_IN") },
+        ],
+      );
+      return;
+    }
+
+    setScanType("TIME_IN");
+  }
+
   async function checkOutsideWorkArea() {
     try {
       const [workLocation, position] = await Promise.all([
@@ -232,6 +305,22 @@ export default function App() {
     }
   }
 
+  async function checkOutsideSite(site: WorkLocation) {
+    try {
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const distance = distanceInMeters(
+        position.coords.latitude,
+        position.coords.longitude,
+        Number(site.latitude),
+        Number(site.longitude),
+      );
+      return distance > Number(site.radiusMeters);
+    } catch (error) {
+      console.error("Failed to check site area before scan", error);
+      return false;
+    }
+  }
+
   async function handleScanComplete(location: Location.LocationObject, faceBase64?: string) {
     if (!scanType || !user?.employeeId) return;
 
@@ -248,10 +337,21 @@ export default function App() {
         similarityScore: 100,
         faceImageBase64: faceBase64 ?? "",
         deviceId: "expo-demo-device",
+        // Only sent when starting a new FIELD visit — ending one and every
+        // FIXED-employee submission resolve their site without this.
+        workLocationId:
+          user.attendanceMode === "FIELD" && scanType === "TIME_IN" ? selectedWorkLocation?.id : undefined,
       });
 
       // The server is the authority on whether this was a Time In or Time Out.
-      const actionLabel = result.logType === "TIME_IN" ? "Time In" : "Time Out";
+      const actionLabel =
+        user.attendanceMode === "FIELD"
+          ? result.logType === "TIME_IN"
+            ? "Visit Start"
+            : "Visit End"
+          : result.logType === "TIME_IN"
+            ? "Time In"
+            : "Time Out";
       const reason = result.faceResult.reason ?? result.geoResult.reason;
       const friendlyMessage = getFriendlyReason(reason, result.verificationStatus);
       const timestamp = new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
@@ -288,6 +388,7 @@ export default function App() {
       });
     } finally {
       setIsLoading(false);
+      setSelectedWorkLocation(null);
     }
   }
 
@@ -326,7 +427,10 @@ export default function App() {
         <CameraScanner
           logType={scanType}
           onComplete={handleScanComplete}
-          onCancel={() => setScanType(null)}
+          onCancel={() => {
+            setScanType(null);
+            setSelectedWorkLocation(null);
+          }}
         />
       ) : (
         <MainScreen
@@ -338,6 +442,13 @@ export default function App() {
           onTimeOut={() => startScan("TIME_OUT")}
         />
       )}
+
+      <SitePickerModal
+        visible={isSitePickerVisible}
+        sites={sitePickerSites}
+        onSelect={handleSiteSelected}
+        onCancel={() => setIsSitePickerVisible(false)}
+      />
 
       <ResultModal
         visible={!!resultModal}

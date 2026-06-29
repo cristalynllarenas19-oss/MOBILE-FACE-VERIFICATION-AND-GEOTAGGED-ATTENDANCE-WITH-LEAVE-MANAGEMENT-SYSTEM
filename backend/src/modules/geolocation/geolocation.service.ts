@@ -250,6 +250,32 @@ export class GeolocationService {
     };
   }
 
+  async getLocationsForEmployee(employeeId: string) {
+    if (await this.hasJoinTable()) {
+      return this.prisma.workLocation.findMany({
+        where: { isActive: true, employees: { some: { employeeId } } },
+        orderBy: { name: "asc" },
+      });
+    }
+
+    // The pre-join-table schema only ever supported a single employee_id
+    // column on work_locations, which by construction cannot represent
+    // multi-site assignment — field technicians require the join table.
+    return [];
+  }
+
+  async findLocationForFieldVisit(employeeId: string, workLocationId?: string) {
+    if (!workLocationId) return null;
+    return this.prisma.workLocation.findFirst({
+      where: { id: workLocationId, isActive: true, employees: { some: { employeeId } } },
+    });
+  }
+
+  async getLocationById(id?: string | null) {
+    if (!id) return null;
+    return this.prisma.workLocation.findUnique({ where: { id } });
+  }
+
   private async replaceAssignments(
     tx: Prisma.TransactionClient,
     locationId: string,
@@ -298,6 +324,17 @@ export class GeolocationService {
     employeeId: string,
     locationId: string,
   ) {
+    const employee = await tx.employee.findUnique({
+      where: { id: employeeId },
+      select: { attendanceMode: true },
+    });
+
+    // Field technicians are allowed to be assigned to many sites at once —
+    // only FIXED employees are restricted to a single geotagged area.
+    if (employee?.attendanceMode === "FIELD") {
+      return;
+    }
+
     const existingAssignment = await tx.workLocationEmployee.findFirst({
       where: { employeeId, NOT: { workLocationId: locationId } },
     });

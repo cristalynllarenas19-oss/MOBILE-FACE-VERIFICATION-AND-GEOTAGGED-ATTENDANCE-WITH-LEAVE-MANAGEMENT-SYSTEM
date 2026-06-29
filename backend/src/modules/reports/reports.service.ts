@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
+import { dedupeToLatestVisitPerEmployeeDay } from "../attendance/attendance-dedup.util";
 
 type ReportFilters = {
   from?: string;
@@ -39,10 +40,17 @@ export class ReportsService {
       }),
     ]);
 
-    const attendanceByStatus = attendance.reduce<Record<string, number>>((totals, record) => {
-      totals[record.status] = (totals[record.status] ?? 0) + 1;
-      return totals;
-    }, {});
+    // Status tallies count employees, not visits — a FIELD employee's
+    // several same-day visit rows are collapsed to their latest one first.
+    // Row-level data below (attendance.length, the attendance array itself,
+    // hours/CSV export) intentionally stays one row per visit.
+    const attendanceByStatus = dedupeToLatestVisitPerEmployeeDay(attendance).reduce<Record<string, number>>(
+      (totals, record) => {
+        totals[record.status] = (totals[record.status] ?? 0) + 1;
+        return totals;
+      },
+      {},
+    );
 
     const leaveByStatus = leaves.reduce<Record<string, number>>((totals, request) => {
       totals[request.status] = (totals[request.status] ?? 0) + 1;

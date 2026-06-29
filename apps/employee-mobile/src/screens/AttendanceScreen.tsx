@@ -41,23 +41,40 @@ export default function AttendanceScreen({
     }
   );
 
+  const isField = user?.attendanceMode === "FIELD";
+
   const hasTimedIn = Boolean(todayAttendance?.timeInAt);
   const hasTimedOut = Boolean(todayAttendance?.timeOutAt);
+  // For FIELD employees, todayAttendance is the latest visit of the day —
+  // an "open" visit is one that's started but hasn't been ended yet.
+  const hasOpenVisit = hasTimedIn && !hasTimedOut;
 
-  const statusLabel = hasTimedOut
-    ? "Day Completed"
-    : hasTimedIn
-      ? "Timed In"
-      : "Not Timed In";
+  const statusLabel = isField
+    ? hasOpenVisit
+      ? "Visit In Progress"
+      : hasTimedIn
+        ? "No Active Visit"
+        : "No Visit Started"
+    : hasTimedOut
+      ? "Day Completed"
+      : hasTimedIn
+        ? "Timed In"
+        : "Not Timed In";
 
-  const statusColor = hasTimedOut
-    ? "#17A34A"
-    : hasTimedIn
+  const statusColor = isField
+    ? hasOpenVisit
       ? "#1680D8"
-      : "#EF4444";
+      : hasTimedIn
+        ? "#17A34A"
+        : "#EF4444"
+    : hasTimedOut
+      ? "#17A34A"
+      : hasTimedIn
+        ? "#1680D8"
+        : "#EF4444";
 
-  const timeInDisabled = isLoading || hasTimedIn;
-  const timeOutDisabled = isLoading || !hasTimedIn || hasTimedOut;
+  const timeInDisabled = isLoading || (isField ? hasOpenVisit : hasTimedIn);
+  const timeOutDisabled = isField ? isLoading || !hasOpenVisit : isLoading || !hasTimedIn || hasTimedOut;
 
   return (
     <View style={styles.container}>
@@ -90,7 +107,7 @@ export default function AttendanceScreen({
 
         <View style={styles.timeRow}>
           <Text style={styles.timeLabel}>
-            Time In
+            {isField ? "Visit Start" : "Time In"}
           </Text>
 
           <Text style={styles.timeValue}>
@@ -100,7 +117,7 @@ export default function AttendanceScreen({
 
         <View style={styles.timeRow}>
           <Text style={styles.timeLabel}>
-            Time Out
+            {isField ? "Visit End" : "Time Out"}
           </Text>
 
           <Text style={styles.timeValue}>
@@ -126,7 +143,9 @@ export default function AttendanceScreen({
         <Text style={styles.buttonText}>
           {isLoading
             ? "Loading..."
-            : "TIME IN"}
+            : isField
+              ? "START VISIT"
+              : "TIME IN"}
         </Text>
       </Pressable>
 
@@ -152,7 +171,7 @@ export default function AttendanceScreen({
             { color: timeOutDisabled ? "#94A3B8" : "#FFFFFF" },
           ]}
         >
-          TIME OUT
+          {isField ? "END VISIT" : "TIME OUT"}
         </Text>
       </Pressable>
 

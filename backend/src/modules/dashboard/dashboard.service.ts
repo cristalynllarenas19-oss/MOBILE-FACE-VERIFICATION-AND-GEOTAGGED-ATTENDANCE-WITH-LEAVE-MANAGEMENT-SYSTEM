@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
+import { dedupeToLatestVisitPerEmployeeDay } from "../attendance/attendance-dedup.util";
 
 @Injectable()
 export class DashboardService {
@@ -25,27 +26,26 @@ export class DashboardService {
 
     const [
       employees,
-      presentToday,
-      lateToday,
-      absentToday,
+      todayAttendanceRows,
       pendingLeaves,
       geotaggedLogs,
       pendingReview,
       vacationType,
       sickType,
       specialType,
-      monthAttendance,
+      monthAttendanceRaw,
       enrolledEmployees,
-      assignedEmployees,
-      weekAttendance,
-      realMonthAttendance,
+      assignedEmployeeRows,
+      weekAttendanceRaw,
+      realMonthAttendanceRaw,
     ] = await Promise.all([
       this.prisma.employee.findMany({
         select: { id: true, hireDate: true, department: { select: { name: true } } },
       }),
-      this.prisma.attendanceRecord.count({ where: { attendanceDate, status: "PRESENT" } }),
-      this.prisma.attendanceRecord.count({ where: { attendanceDate, status: "LATE" } }),
-      this.prisma.attendanceRecord.count({ where: { attendanceDate, status: "ABSENT" } }),
+      this.prisma.attendanceRecord.findMany({
+        where: { attendanceDate },
+        select: { employeeId: true, attendanceDate: true, timeInAt: true, status: true },
+      }),
       this.prisma.leaveRequest.count({ where: { status: "PENDING" } }),
       this.prisma.attendanceLog.count({ where: { capturedAt: { gte: attendanceDate } } }),
       this.prisma.attendanceLog.count({ where: { verificationStatus: "PENDING_REVIEW" } }),
@@ -62,7 +62,13 @@ export class DashboardService {
         distinct: ["employeeId"],
         select: { employeeId: true },
       }),
-      this.prisma.workLocationEmployee.count(),
+      // distinct, not count() — a FIELD employee can now have several
+      // WorkLocationEmployee rows (one per assigned site), so a raw count
+      // would inflate "assigned employees" past the real headcount.
+      this.prisma.workLocationEmployee.findMany({
+        distinct: ["employeeId"],
+        select: { employeeId: true },
+      }),
       this.prisma.attendanceRecord.findMany({
         where: { attendanceDate: { gte: weekStart, lte: weekEnd } },
         include: { employee: { include: { department: true } } },
@@ -72,6 +78,19 @@ export class DashboardService {
         include: { employee: { include: { department: true } } },
       }),
     ]);
+
+    // A FIELD employee can have several visit rows for the same day — collapse
+    // each employee+day down to their latest visit before tallying statuses,
+    // so multi-visit days aren't counted more than once per employee.
+    const dedupedTodayStatus = dedupeToLatestVisitPerEmployeeDay(todayAttendanceRows);
+    const presentToday = dedupedTodayStatus.filter((r) => r.status === "PRESENT").length;
+    const lateToday = dedupedTodayStatus.filter((r) => r.status === "LATE").length;
+    const absentToday = dedupedTodayStatus.filter((r) => r.status === "ABSENT").length;
+
+    const assignedEmployees = assignedEmployeeRows.length;
+    const monthAttendance = dedupeToLatestVisitPerEmployeeDay(monthAttendanceRaw);
+    const weekAttendance = dedupeToLatestVisitPerEmployeeDay(weekAttendanceRaw);
+    const realMonthAttendance = dedupeToLatestVisitPerEmployeeDay(realMonthAttendanceRaw);
 
     const totalEmployees = employees.length;
     const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];

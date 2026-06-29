@@ -6,6 +6,11 @@ export enum CreateEmployeeEmploymentStatus {
   CONTRACTUAL = "CONTRACTUAL",
 }
 
+export enum CreateEmployeeAttendanceMode {
+  FIXED = "FIXED",
+  FIELD = "FIELD",
+}
+
 export class CreateEmployeeDto {
   @IsString()
   firstName!: string;
@@ -32,6 +37,10 @@ export class CreateEmployeeDto {
 
   @IsEnum(CreateEmployeeEmploymentStatus)
   employmentStatus!: CreateEmployeeEmploymentStatus;
+
+  @IsOptional()
+  @IsEnum(CreateEmployeeAttendanceMode)
+  attendanceMode?: CreateEmployeeAttendanceMode;
 }
 
 export class UpdateEmployeeDto {
@@ -62,4 +71,8 @@ export class UpdateEmployeeDto {
   @IsOptional()
   @IsEnum(CreateEmployeeEmploymentStatus)
   employmentStatus?: CreateEmployeeEmploymentStatus;
+
+  @IsOptional()
+  @IsEnum(CreateEmployeeAttendanceMode)
+  attendanceMode?: CreateEmployeeAttendanceMode;
 }

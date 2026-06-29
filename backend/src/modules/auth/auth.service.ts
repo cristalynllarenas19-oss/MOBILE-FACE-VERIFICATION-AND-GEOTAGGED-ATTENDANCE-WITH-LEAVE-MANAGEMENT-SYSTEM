@@ -82,6 +82,7 @@ export class AuthService {
         departmentId: user.employee?.departmentId,
         department: user.employee?.department?.name,
         displayName,
+        attendanceMode: user.employee?.attendanceMode,
       },
     };
   }

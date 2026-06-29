@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import type { AttendanceRecord } from "@prisma/client";
 import { randomUUID } from "crypto";
 import { PrismaService } from "../../prisma/prisma.service";
 import { FaceVerificationService } from "../face-verification/face-verification.service";
@@ -62,9 +63,10 @@ export class AttendanceService {
       },
       include: {
         employee: { include: { department: true, faceProfiles: { orderBy: { enrolledAt: "desc" }, take: 1 } } },
+        workLocation: { select: { name: true } },
         logs: { orderBy: { capturedAt: "desc" } },
       },
-      orderBy: { attendanceDate: "desc" },
+      orderBy: [{ attendanceDate: "desc" }, { visitNumber: "asc" }],
       take: 100,
     });
 
@@ -118,15 +120,14 @@ export class AttendanceService {
     now.getDate(),
   );
 
-  const record =
-    await this.prisma.attendanceRecord.findUnique({
-      where: {
-        employeeId_attendanceDate: {
-          employeeId,
-          attendanceDate,
-        },
-      },
-    });
+  // findFirst ordered by visitNumber desc, rather than findUnique on
+  // visitNumber 1, so a FIELD employee's most recent visit today is
+  // returned — for FIXED employees (always visitNumber 1) this returns
+  // the exact same single row findUnique would have.
+  const record = await this.prisma.attendanceRecord.findFirst({
+    where: { employeeId, attendanceDate },
+    orderBy: { visitNumber: "desc" },
+  });
 
   return (
     record ?? {
@@ -162,34 +163,70 @@ export class AttendanceService {
 
     const now = new Date();
     const attendanceDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    // recordType is implied entirely by the employee's mode — FIXED
+    // employees only ever produce OFFICE records, FIELD employees only
+    // ever produce FIELD ones. Kept as its own column (rather than derived
+    // on read) so the DTR screen's Office/Field tabs are a simple query.
+    const isField = employee.attendanceMode === "FIELD";
+    const recordType: "OFFICE" | "FIELD" = isField ? "FIELD" : "OFFICE";
 
-    const existingRecord = await this.prisma.attendanceRecord.findUnique({
-      where: {
-        employeeId_attendanceDate: {
-          employeeId: dto.employeeId,
-          attendanceDate,
+    let existingRecord: AttendanceRecord | null;
+    let logType: "TIME_IN" | "TIME_OUT" | null;
+    let visitNumber: number;
+
+    if (isField) {
+      // Field technicians may log several sequential site visits per day —
+      // the latest visit (highest visitNumber) decides whether this scan
+      // opens a new visit or closes the one already in progress.
+      const latestVisit = await this.prisma.attendanceRecord.findFirst({
+        where: { employeeId: dto.employeeId, attendanceDate },
+        orderBy: { visitNumber: "desc" },
+      });
+
+      const hasOpenVisit = Boolean(latestVisit?.timeInAt && !latestVisit?.timeOutAt);
+
+      existingRecord = hasOpenVisit ? latestVisit : null;
+      logType = hasOpenVisit ? "TIME_OUT" : "TIME_IN";
+      visitNumber = hasOpenVisit ? latestVisit!.visitNumber : (latestVisit?.visitNumber ?? 0) + 1;
+    } else {
+      existingRecord = await this.prisma.attendanceRecord.findUnique({
+        where: {
+          employeeId_attendanceDate_recordType_visitNumber: {
+            employeeId: dto.employeeId,
+            attendanceDate,
+            recordType: "OFFICE",
+            visitNumber: 1,
+          },
         },
-      },
-    });
+      });
 
-    // The server, not the button the employee tapped, is the authority on whether
-    // this scan is a Time In or Time Out, derived from the latest attendance entry.
-    const logType = !existingRecord?.timeInAt
-      ? "TIME_IN"
-      : !existingRecord?.timeOutAt
-        ? "TIME_OUT"
-        : null;
+      // The server, not the button the employee tapped, is the authority on whether
+      // this scan is a Time In or Time Out, derived from the latest attendance entry.
+      logType = !existingRecord?.timeInAt
+        ? "TIME_IN"
+        : !existingRecord?.timeOutAt
+          ? "TIME_OUT"
+          : null;
+      visitNumber = 1;
 
-    if (!logType) {
-      throw new BadRequestException("You have already completed your attendance for today.");
+      if (!logType) {
+        throw new BadRequestException("You have already completed your attendance for today.");
+      }
     }
 
-    const location =
-      await this.geolocation.getLocationForEmployee(dto.employeeId);
+    const location = isField
+      ? logType === "TIME_OUT"
+        // Ending a visit re-resolves the site from the open record itself,
+        // rather than trusting the client to resend the same workLocationId.
+        ? await this.geolocation.getLocationById(existingRecord?.workLocationId)
+        : await this.resolveFieldVisitLocation(dto.employeeId, dto.workLocationId)
+      : await this.geolocation.getLocationForEmployee(dto.employeeId);
 
     if (!location) {
       throw new NotFoundException(
-        "No active work location is assigned to this employee",
+        isField
+          ? "Select one of your assigned client/work sites for this visit"
+          : "No active work location is assigned to this employee",
       );
     }
 
@@ -268,10 +305,12 @@ export class AttendanceService {
     const record = approved
       ? await this.prisma.attendanceRecord.upsert({
         where: {
-          employeeId_attendanceDate: {
+          employeeId_attendanceDate_recordType_visitNumber: {
             employeeId:
               dto.employeeId,
             attendanceDate,
+            recordType,
+            visitNumber,
           },
         },
 
@@ -280,6 +319,9 @@ export class AttendanceService {
             dto.employeeId,
 
           attendanceDate,
+          recordType,
+          visitNumber,
+          workLocationId: location.id,
 
           status: "PRESENT",
 
@@ -347,12 +389,26 @@ export class AttendanceService {
     };
   }
 
+  // Resolves which assigned site a FIELD employee is starting a new visit
+  // at: the explicitly selected site if one was sent, otherwise — to stay
+  // robust during a mobile-app rollout window where an older build might
+  // omit it — the technician's sole assigned site, if they only have one.
+  private async resolveFieldVisitLocation(employeeId: string, workLocationId?: string) {
+    if (workLocationId) {
+      return this.geolocation.findLocationForFieldVisit(employeeId, workLocationId);
+    }
+
+    const assignedLocations = await this.geolocation.getLocationsForEmployee(employeeId);
+    return assignedLocations.length === 1 ? assignedLocations[0] : null;
+  }
+
   async getHistory(employeeId: string, limit = 30) {
     return this.prisma.attendanceRecord.findMany({
       where: { employeeId },
-      orderBy: { attendanceDate: "desc" },
+      orderBy: [{ attendanceDate: "desc" }, { visitNumber: "asc" }],
       take: limit,
       include: {
+        workLocation: { select: { name: true } },
         // Include every attempt for the day, not just the approved
         // TIME_IN/TIME_OUT ones — rejected attempts still have a captured
         // photo and the employee should be able to review it too.

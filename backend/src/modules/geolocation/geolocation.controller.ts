@@ -19,6 +19,12 @@ export class GeolocationController {
     return this.geolocationService.getLocationForEmployee(employeeId);
   }
 
+  @Get("my-locations")
+  getMyLocations(@Req() request: Request) {
+    const employeeId = (request as any).user.employeeId;
+    return this.geolocationService.getLocationsForEmployee(employeeId);
+  }
+
   @Post("locations")
   @RequirePermissions("geolocation:write")
   createLocation(@Body() data: any) {

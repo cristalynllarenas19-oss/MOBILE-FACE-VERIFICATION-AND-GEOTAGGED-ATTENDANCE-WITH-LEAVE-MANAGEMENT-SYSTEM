@@ -24,6 +24,8 @@ type AttendanceRecord = {
   timeInAt?: string | null;
   timeOutAt?: string | null;
   status: AttendanceStatus;
+  visitNumber?: number;
+  workLocation?: { name: string } | null;
   employee: {
     firstName: string;
     lastName: string;
@@ -128,6 +130,7 @@ function AttendanceDetailsModal({
         <div className="attendance-detail-grid attendance-modal-main-grid">
           <div><span>Employee Name</span><strong>{getName(record)}</strong></div>
           <div><span>Department</span><strong>{record.employee.department.name}</strong></div>
+          <div><span>Site</span><strong>{record.workLocation?.name ?? "—"}</strong></div>
           <div><span>Date</span><strong>{formatDate(record.attendanceDate)}</strong></div>
           <div><span>Time In</span><strong>{formatTime(record.timeInAt)}</strong></div>
           <div><span>Time Out</span><strong>{formatTime(record.timeOutAt)}</strong></div>
@@ -283,6 +286,7 @@ export function AttendancePage({ user }: { user?: { permissions: PermissionCode[
             <tr>
               <th>EMPLOYEE</th>
               <th>DEPARTMENT</th>
+              <th>SITE</th>
               <th>DATE</th>
               <th>TIME IN</th>
               <th>TIME OUT</th>
@@ -292,12 +296,13 @@ export function AttendancePage({ user }: { user?: { permissions: PermissionCode[
           </thead>
           <tbody>
             {records.length === 0 ? (
-              <tr><td colSpan={7} className="attendance-empty-state">No attendance records found.</td></tr>
+              <tr><td colSpan={8} className="attendance-empty-state">No attendance records found.</td></tr>
             ) : (
               records.map((record) => (
                 <tr key={record.id}>
                   <td data-label="Employee">{getName(record)}</td>
                   <td data-label="Department">{record.employee.department.name}</td>
+                  <td data-label="Site">{record.workLocation?.name ?? "—"}</td>
                   <td data-label="Date">{formatDate(record.attendanceDate)}</td>
                   <td data-label="Time In">{formatTime(record.timeInAt)}</td>
                   <td data-label="Time Out">{formatTime(record.timeOutAt)}</td>

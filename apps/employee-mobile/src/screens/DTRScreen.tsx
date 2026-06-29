@@ -16,6 +16,13 @@ type Props = {
   employeeId?: string;
 };
 
+type Tab = "office" | "field";
+
+function isMorning(value: string | null) {
+  if (!value) return true;
+  return new Date(value).getHours() < 12;
+}
+
 function formatDate(value: string) {
   return new Date(value).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
@@ -52,12 +59,27 @@ function statusTone(status: string) {
   return { color: "#94A3B8", bg: "#F8FAFC", icon: "time" as const };
 }
 
+function latestOf(records: AttendanceHistoryRecord[]) {
+  const todayKey = new Date().toDateString();
+  const todays = records.filter((r) => new Date(r.attendanceDate).toDateString() === todayKey);
+  if (!todays.length) return null;
+  return todays.reduce((latest, record) => ((record.visitNumber ?? 1) > (latest.visitNumber ?? 1) ? record : latest));
+}
+
+// DTR for every employee — one screen, two tabs (mirroring the Leave
+// screen's Balance/Request tabs): Office (Time In/Time Out) and Field
+// (Start/End Visit). Every employee sees both tabs regardless of which
+// attendance mode they're assigned — a Fixed employee's Field tab (or a
+// Field employee's Office tab) is simply empty, rather than being a
+// different screen per mode.
 export default function DTRScreen({ employeeId }: Props) {
   const [records, setRecords] = useState<AttendanceHistoryRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [activeTab, setActiveTab] = useState<Tab>("office");
   const [selectedRecord, setSelectedRecord] = useState<AttendanceHistoryRecord | null>(null);
   const [photoTab, setPhotoTab] = useState<"TIME_IN" | "TIME_OUT">("TIME_IN");
+  const [amPmFilter, setAmPmFilter] = useState<"ALL" | "AM" | "PM">("ALL");
 
   const load = useCallback(async () => {
     if (!employeeId) return;
@@ -80,40 +102,88 @@ export default function DTRScreen({ employeeId }: Props) {
     setIsRefreshing(false);
   }
 
-  const todayRecord = useMemo(() => {
-    const todayKey = new Date().toDateString();
-    return records.find((record) => new Date(record.attendanceDate).toDateString() === todayKey) ?? null;
-  }, [records]);
+  const officeRecords = useMemo(() => records.filter((r) => r.recordType !== "FIELD"), [records]);
+  const fieldRecords = useMemo(() => records.filter((r) => r.recordType === "FIELD"), [records]);
 
+  const filteredFieldRecords = useMemo(() => {
+    if (amPmFilter === "ALL") return fieldRecords;
+    return fieldRecords.filter((record) => isMorning(record.timeInAt) === (amPmFilter === "AM"));
+  }, [fieldRecords, amPmFilter]);
+
+  const todayOfficeRecord = useMemo(() => latestOf(officeRecords), [officeRecords]);
+  const todayFieldRecord = useMemo(() => latestOf(fieldRecords), [fieldRecords]);
+
+  const isOfficeTab = activeTab === "office";
+  const todayRecord = isOfficeTab ? todayOfficeRecord : todayFieldRecord;
   const todayInProgress = Boolean(todayRecord?.timeInAt) && !todayRecord?.timeOutAt;
+  const listData = isOfficeTab ? officeRecords : filteredFieldRecords;
 
   return (
     <>
     <FlatList
-      data={records}
+      data={listData}
       keyExtractor={(item) => item.id}
       refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} colors={["#1680D8"]} />}
       ListHeaderComponent={
         <>
           <Text style={styles.cardTitle}>Daily Time Record</Text>
+
+          <View style={styles.tabSwitcher}>
+            <Pressable
+              style={[styles.tabButton, isOfficeTab && styles.tabButtonActive]}
+              onPress={() => setActiveTab("office")}
+            >
+              <Text style={[styles.tabButtonText, isOfficeTab && styles.tabButtonTextActive]}>Office</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.tabButton, !isOfficeTab && styles.tabButtonActive]}
+              onPress={() => setActiveTab("field")}
+            >
+              <Text style={[styles.tabButtonText, !isOfficeTab && styles.tabButtonTextActive]}>Field</Text>
+            </Pressable>
+          </View>
+
           <View style={styles.summaryCard}>
             <Ionicons name="time" size={22} color="#1680D8" />
             <View style={{ flex: 1 }}>
-              <Text style={styles.summaryLabel}>Today's Hours Rendered</Text>
+              <Text style={styles.summaryLabel}>
+                {isOfficeTab ? "Today's Hours Rendered" : "Today's Hours Rendered (Latest Visit)"}
+              </Text>
               <Text style={styles.summaryValue}>
                 {todayRecord
                   ? formatHoursRendered(todayRecord.totalMinutes) ?? (todayInProgress ? "In progress" : "--")
-                  : "Not yet timed in"}
+                  : isOfficeTab
+                    ? "Not yet timed in"
+                    : "No visit started"}
               </Text>
             </View>
           </View>
+
+          {!isOfficeTab && (
+            <View style={styles.filterRow}>
+              {(["ALL", "AM", "PM"] as const).map((option) => {
+                const isActive = amPmFilter === option;
+                return (
+                  <Pressable
+                    key={option}
+                    style={[styles.filterChip, isActive && styles.filterChipActive]}
+                    onPress={() => setAmPmFilter(option)}
+                  >
+                    <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>{option}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
         </>
       }
       ListEmptyComponent={
         !isLoading ? (
           <View style={styles.emptyState}>
             <Ionicons name="document-text-outline" size={36} color="#CBD5E1" />
-            <Text style={styles.emptyText}>No attendance records yet.</Text>
+            <Text style={styles.emptyText}>
+              {isOfficeTab ? "No office attendance records yet." : "No visit records yet."}
+            </Text>
           </View>
         ) : null
       }
@@ -135,6 +205,9 @@ export default function DTRScreen({ employeeId }: Props) {
             <View style={styles.rowTop}>
               <View style={styles.dateRow}>
                 <Text style={styles.dateText}>{formatDate(item.attendanceDate)}</Text>
+                {!isOfficeTab && item.workLocation?.name && (
+                  <Text style={styles.siteNameText}>· {item.workLocation.name}</Text>
+                )}
                 {hasPhotos && <Ionicons name="camera" size={13} color="#94A3B8" />}
               </View>
               <View style={[styles.statusBadge, { backgroundColor: tone.bg }]}>
@@ -145,12 +218,12 @@ export default function DTRScreen({ employeeId }: Props) {
 
             <View style={styles.rowBody}>
               <View style={styles.timeBlock}>
-                <Text style={styles.timeLabel}>Time In</Text>
+                <Text style={styles.timeLabel}>{isOfficeTab ? "Time In" : "Visit Start"}</Text>
                 <Text style={styles.timeValue}>{formatTime(item.timeInAt)}</Text>
               </View>
               <Ionicons name="arrow-forward" size={14} color="#CBD5E1" />
               <View style={styles.timeBlock}>
-                <Text style={styles.timeLabel}>Time Out</Text>
+                <Text style={styles.timeLabel}>{isOfficeTab ? "Time Out" : "Visit End"}</Text>
                 <Text style={styles.timeValue}>{formatTime(item.timeOutAt)}</Text>
               </View>
 
@@ -176,6 +249,7 @@ export default function DTRScreen({ employeeId }: Props) {
         <View style={styles.modalCard}>
           <Text style={styles.modalTitle}>
             {selectedRecord ? formatDate(selectedRecord.attendanceDate) : ""}
+            {!isOfficeTab && selectedRecord?.workLocation?.name ? ` · ${selectedRecord.workLocation.name}` : ""}
           </Text>
 
           <View style={styles.photoTabSwitcher}>
@@ -183,13 +257,17 @@ export default function DTRScreen({ employeeId }: Props) {
               style={[styles.photoTabButton, photoTab === "TIME_IN" && styles.photoTabButtonActive]}
               onPress={() => setPhotoTab("TIME_IN")}
             >
-              <Text style={[styles.photoTabText, photoTab === "TIME_IN" && styles.photoTabTextActive]}>Time In</Text>
+              <Text style={[styles.photoTabText, photoTab === "TIME_IN" && styles.photoTabTextActive]}>
+                {isOfficeTab ? "Time In" : "Visit Start"}
+              </Text>
             </Pressable>
             <Pressable
               style={[styles.photoTabButton, photoTab === "TIME_OUT" && styles.photoTabButtonActive]}
               onPress={() => setPhotoTab("TIME_OUT")}
             >
-              <Text style={[styles.photoTabText, photoTab === "TIME_OUT" && styles.photoTabTextActive]}>Time Out</Text>
+              <Text style={[styles.photoTabText, photoTab === "TIME_OUT" && styles.photoTabTextActive]}>
+                {isOfficeTab ? "Time Out" : "Visit End"}
+              </Text>
             </Pressable>
           </View>
 
@@ -200,7 +278,11 @@ export default function DTRScreen({ employeeId }: Props) {
               <View style={styles.modalPhotoBlock}>
                 {log && (
                   <View style={styles.modalPhotoLabelRow}>
-                    <Text style={styles.modalPhotoLabel}>{photoTab === "TIME_IN" ? "Time In" : "Time Out"}</Text>
+                    <Text style={styles.modalPhotoLabel}>
+                      {isOfficeTab
+                        ? photoTab === "TIME_IN" ? "Time In" : "Time Out"
+                        : photoTab === "TIME_IN" ? "Visit Start" : "Visit End"}
+                    </Text>
                     <Text style={styles.modalPhotoTime}>{formatLogTime(log.capturedAt)}</Text>
                   </View>
                 )}
@@ -241,6 +323,30 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     marginBottom: 14,
   },
+  tabSwitcher: {
+    flexDirection: "row",
+    backgroundColor: "#F1F5F9",
+    borderRadius: 14,
+    padding: 4,
+    marginBottom: 14,
+  },
+  tabButton: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 11,
+    alignItems: "center",
+  },
+  tabButtonActive: {
+    backgroundColor: "#062B59",
+  },
+  tabButtonText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#64748B",
+  },
+  tabButtonTextActive: {
+    color: "#FFFFFF",
+  },
   summaryCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -260,6 +366,33 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: "800",
     marginTop: 2,
+  },
+  filterRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 14,
+  },
+  filterChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: "#F1F5F9",
+  },
+  filterChipActive: {
+    backgroundColor: "#062B59",
+  },
+  filterChipText: {
+    color: "#64748B",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  filterChipTextActive: {
+    color: "#FFFFFF",
+  },
+  siteNameText: {
+    color: "#64748B",
+    fontSize: 12,
+    fontWeight: "600",
   },
   row: {
     paddingVertical: 12,

@@ -28,6 +28,9 @@ function getApiBaseUrl() {
 
 const API_BASE_URL = getApiBaseUrl();
 
+export type AttendanceMode = "FIXED" | "FIELD";
+export type AttendanceRecordType = "OFFICE" | "FIELD";
+
 export type MobileUser = {
   id: string;
   email: string;
@@ -35,11 +38,17 @@ export type MobileUser = {
   employeeId?: string;
   displayName: string;
   mustChangePassword?: boolean;
+  // Optional so a stale cached session from before this field existed still
+  // type-checks; anywhere this is read, treat undefined the same as "FIXED".
+  attendanceMode?: AttendanceMode;
 };
 export type TodayAttendance = {
   status: string;
   timeInAt: string | null;
   timeOutAt: string | null;
+  visitNumber?: number;
+  workLocationId?: string | null;
+  recordType?: AttendanceRecordType;
 };
 
 export type AttendanceSubmitResult = {
@@ -60,6 +69,10 @@ export type SubmitAttendanceInput = {
   similarityScore: number;
   faceImageBase64: string;
   deviceId: string;
+  // Which assigned site this visit is at — required when starting a new
+  // visit as a FIELD employee, omitted for FIXED employees and for ending
+  // a visit (the server resolves the site from the open record itself).
+  workLocationId?: string;
 };
 
 export type AttendanceLogPhoto = {
@@ -79,6 +92,10 @@ export type AttendanceHistoryRecord = {
   timeOutAt: string | null;
   status: string;
   totalMinutes: number;
+  visitNumber?: number;
+  workLocationId?: string | null;
+  workLocation?: { name: string } | null;
+  recordType?: AttendanceRecordType;
   logs: AttendanceLogPhoto[];
 };
 
@@ -261,6 +278,10 @@ export async function getAttendanceHistory(employeeId: string, limit = 30) {
 
 export async function getMyWorkLocation() {
   return apiRequest<WorkLocation | null>("/geolocation/my-location");
+}
+
+export async function getMyWorkLocations() {
+  return apiRequest<WorkLocation[]>("/geolocation/my-locations");
 }
 
 export async function getMyProfile() {

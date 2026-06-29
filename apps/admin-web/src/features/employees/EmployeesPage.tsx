@@ -15,6 +15,7 @@ type Employee = {
   firstName: string;
   lastName: string;
   employmentStatus: "REGULAR" | "PROBATIONARY" | "CONTRACTUAL" | "SEPARATED";
+  attendanceMode: "FIXED" | "FIELD";
   hireDate?: string;
   archiveType?: string;
   archiveReason?: string;
@@ -33,6 +34,7 @@ type EmployeeForm = {
   position: string;
   hireDate: string;
   employmentStatus: "REGULAR" | "PROBATIONARY" | "CONTRACTUAL";
+  attendanceMode: "FIXED" | "FIELD";
 };
 
 type EditEmployeeForm = Omit<EmployeeForm, "password">;
@@ -48,6 +50,7 @@ const initialForm: EmployeeForm = {
   position: "",
   hireDate: "",
   employmentStatus: "REGULAR",
+  attendanceMode: "FIXED",
 };
 
 function getDateInputValue(value?: string) {
@@ -88,6 +91,15 @@ function getStatusTone(status: Employee["employmentStatus"]) {
   if (status === "REGULAR") return "success";
   if (status === "SEPARATED") return "danger";
   return "warning";
+}
+
+function getAttendanceModeTone(mode: Employee["attendanceMode"]) {
+  return mode === "FIELD" ? "role" : "neutral";
+}
+
+function getAttendanceModeLabel(mode: Employee["attendanceMode"], short = false) {
+  if (mode === "FIELD") return short ? "Field" : "Field Technician";
+  return "Fixed";
 }
 
 function getStatusLabel(employee: Employee) {
@@ -210,6 +222,7 @@ function AddEmployeeModal({
           department: form.department.trim(),
           position: form.position.trim(),
           employmentStatus: form.employmentStatus,
+          attendanceMode: form.attendanceMode,
           ...(form.hireDate ? { hireDate: form.hireDate } : {}),
         },
         {
@@ -316,6 +329,16 @@ function AddEmployeeModal({
           </label>
         </div>
 
+        <div className="employee-form-grid single-field">
+          <label>
+            Attendance Mode
+            <select value={form.attendanceMode} onChange={updateField("attendanceMode")}>
+              <option value="FIXED">Fixed (office/site)</option>
+              <option value="FIELD">Field Technician (multi-site)</option>
+            </select>
+          </label>
+        </div>
+
         {error && <p className="employee-form-error">{error}</p>}
 
         <div className="employee-form-actions">
@@ -352,6 +375,7 @@ function EditEmployeeModal({
     position: employee.position.title,
     hireDate: getDateInputValue(employee.hireDate),
     employmentStatus: employee.employmentStatus === "SEPARATED" ? "REGULAR" : employee.employmentStatus,
+    attendanceMode: employee.attendanceMode ?? "FIXED",
   });
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
@@ -394,6 +418,7 @@ function EditEmployeeModal({
           department: form.department.trim(),
           position: form.position.trim(),
           employmentStatus: form.employmentStatus,
+          attendanceMode: form.attendanceMode,
           ...(form.hireDate ? { hireDate: form.hireDate } : {}),
         },
         {
@@ -468,10 +493,17 @@ function EditEmployeeModal({
           </label>
         </div>
 
-        <div className="employee-form-grid single-field">
+        <div className="employee-form-grid">
           <label>
             Hire Date
             <input type="date" value={form.hireDate} onChange={updateField("hireDate")} />
+          </label>
+          <label>
+            Attendance Mode
+            <select value={form.attendanceMode} onChange={updateField("attendanceMode")}>
+              <option value="FIXED">Fixed (office/site)</option>
+              <option value="FIELD">Field Technician (multi-site)</option>
+            </select>
           </label>
         </div>
 
@@ -526,6 +558,12 @@ function ViewEmployeeModal({
           <span>Status</span>
           <Badge tone={getStatusTone(employee.employmentStatus)}>
             {getStatusLabel(employee)}
+          </Badge>
+        </div>
+        <div>
+          <span>Attendance Mode</span>
+          <Badge tone={getAttendanceModeTone(employee.attendanceMode)}>
+            {getAttendanceModeLabel(employee.attendanceMode)}
           </Badge>
         </div>
       </div>
@@ -845,13 +883,14 @@ export function EmployeesPage({ user }: { user?: { permissions: PermissionCode[]
               <th>DEPARTMENT</th>
               <th>POSITION</th>
               <th>STATUS</th>
+              <th>MODE</th>
               <th>ACTION</th>
             </tr>
           </thead>
           <tbody>
             {visibleEmployees.length === 0 ? (
               <tr>
-                <td colSpan={7} className="employees-empty-state">
+                <td colSpan={8} className="employees-empty-state">
                   No employees found.
                 </td>
               </tr>
@@ -866,6 +905,11 @@ export function EmployeesPage({ user }: { user?: { permissions: PermissionCode[]
                   <td data-label="Status" className="employee-status-cell">
                     <Badge tone={getStatusTone(employee.employmentStatus)}>
                       {getStatusLabel(employee)}
+                    </Badge>
+                  </td>
+                  <td data-label="Mode" className="employee-status-cell">
+                    <Badge tone={getAttendanceModeTone(employee.attendanceMode)}>
+                      {getAttendanceModeLabel(employee.attendanceMode, true)}
                     </Badge>
                   </td>
                   <td data-label="Action">

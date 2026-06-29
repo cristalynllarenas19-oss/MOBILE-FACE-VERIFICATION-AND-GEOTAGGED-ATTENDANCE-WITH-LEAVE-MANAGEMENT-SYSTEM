@@ -18,6 +18,7 @@ type EmployeeOption = {
   department: { name: string };
   position?: { title: string };
   user?: { email?: string };
+  attendanceMode?: "FIXED" | "FIELD";
 };
 
 type GeotaggedLocation = {
@@ -382,11 +383,12 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
       });
   }, [currentLocationAssignedIds, departmentFilter, employeeSearch, employees]);
 
-  // Employees in the current filtered list that can be toggled (assigned here or not assigned anywhere)
+  // Employees in the current filtered list that can be toggled (assigned here,
+  // not assigned anywhere, or a Field Technician — who may have many sites)
   const selectableEmployeeIds = useMemo(
     () =>
       employeeRows
-        .filter((e) => currentLocationAssignedIds.has(e.id) || !assignedEmployees.has(e.id))
+        .filter((e) => currentLocationAssignedIds.has(e.id) || !assignedEmployees.has(e.id) || e.attendanceMode === "FIELD")
         .map((e) => e.id),
     [employeeRows, currentLocationAssignedIds, assignedEmployees],
   );
@@ -705,7 +707,10 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
       return;
     }
 
-    if (assignedEmployees.has(employeeId)) {
+    // Field technicians may be assigned to many sites at once — only
+    // employees on Fixed attendance are restricted to a single site.
+    const isField = employeesById.get(employeeId)?.attendanceMode === "FIELD";
+    if (assignedEmployees.has(employeeId) && !isField) {
       return;
     }
 
@@ -1063,7 +1068,8 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
               ) : (
                 employeeRows.map((employee) => {
                   const isSelected = currentLocationAssignedIds.has(employee.id);
-                  const isAssignedElsewhere = assignedEmployees.has(employee.id) && !isSelected;
+                  const isAssignedElsewhere =
+                    assignedEmployees.has(employee.id) && !isSelected && employee.attendanceMode !== "FIELD";
 
                   if (!canWrite) {
                     if (!isSelected) return null;
@@ -1107,7 +1113,10 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
                           <span className="employee-checklist-name">
                             {employee.firstName} {employee.lastName}
                           </span>
-                          <span className="employee-checklist-meta">{employee.department?.name}</span>
+                          <span className="employee-checklist-meta">
+                            {employee.department?.name}
+                            {employee.attendanceMode === "FIELD" ? " · Field Technician" : ""}
+                          </span>
                           {isAssignedElsewhere && (
                             <span className="employee-assigned-note">
                               Already assigned to another geotagged area

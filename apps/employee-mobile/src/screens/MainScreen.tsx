@@ -88,11 +88,14 @@ export default function MainScreen({
         )}
 
         {tab === "dtr" && (
+          // Every employee gets the same Office/Field tabbed DTR screen,
+          // regardless of attendance mode — a Fixed employee's Field tab
+          // (and a Field employee's Office tab) will just be empty.
           <DTRScreen employeeId={user?.employeeId} />
         )}
 
         {tab === "workarea" && (
-          <WorkAreaScreen employeeId={user?.employeeId} />
+          <WorkAreaScreen employeeId={user?.employeeId} attendanceMode={user?.attendanceMode} />
         )}
 
         {tab === "settings" && (

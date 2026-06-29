@@ -195,7 +195,14 @@ async function main() {
   const today = new Date();
   const attendanceDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   await prisma.attendanceRecord.upsert({
-    where: { employeeId_attendanceDate: { employeeId: employee.id, attendanceDate } },
+    where: {
+      employeeId_attendanceDate_recordType_visitNumber: {
+        employeeId: employee.id,
+        attendanceDate,
+        recordType: "OFFICE",
+        visitNumber: 1,
+      },
+    },
     update: {},
     create: {
       employeeId: employee.id,

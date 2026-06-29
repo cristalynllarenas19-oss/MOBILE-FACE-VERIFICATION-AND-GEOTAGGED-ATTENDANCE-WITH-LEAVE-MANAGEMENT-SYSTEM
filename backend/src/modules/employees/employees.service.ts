@@ -51,6 +51,7 @@ export class EmployeesService {
         positionId: position.id,
         hireDate: dto.hireDate ? new Date(dto.hireDate) : new Date(),
         employmentStatus: dto.employmentStatus,
+        attendanceMode: dto.attendanceMode ?? "FIXED",
       },
       include: { user: true, department: true, position: true },
     });
@@ -86,6 +87,7 @@ export class EmployeesService {
         ...(position ? { positionId: position.id } : {}),
         ...(dto.hireDate ? { hireDate: new Date(dto.hireDate) } : {}),
         ...(dto.employmentStatus ? { employmentStatus: dto.employmentStatus } : {}),
+        ...(dto.attendanceMode ? { attendanceMode: dto.attendanceMode } : {}),
       },
       include: { user: true, department: true, position: true },
     });

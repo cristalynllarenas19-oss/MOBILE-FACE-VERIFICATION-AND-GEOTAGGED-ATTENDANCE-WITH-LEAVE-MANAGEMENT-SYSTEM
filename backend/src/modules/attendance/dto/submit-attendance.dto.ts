@@ -37,4 +37,8 @@ export class SubmitAttendanceDto {
 
   @IsString()
   deviceId!: string;
+
+  @IsOptional()
+  @IsString()
+  workLocationId?: string;
 }

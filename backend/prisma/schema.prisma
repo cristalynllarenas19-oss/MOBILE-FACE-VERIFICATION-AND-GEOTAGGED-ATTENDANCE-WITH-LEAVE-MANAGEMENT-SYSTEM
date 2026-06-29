@@ -26,6 +26,22 @@ enum EmploymentStatus {
   SEPARATED
 }
 
+enum AttendanceMode {
+  FIXED
+  FIELD
+}
+
+// Tags an attendance record as the regular office routine vs a field visit —
+// implied entirely by the employee's AttendanceMode (FIXED employees only
+// ever produce OFFICE records, FIELD employees only ever produce FIELD
+// ones). Kept as its own column, rather than just derived from the
+// employee's mode, so the DTR screen's Office/Field tabs are a simple query
+// regardless of which mode an employee was assigned at the time.
+enum AttendanceRecordType {
+  OFFICE
+  FIELD
+}
+
 enum AttendanceStatus {
   PRESENT
   LATE
@@ -201,6 +217,7 @@ model Employee {
   departmentId     String             @map("department_id")
   positionId       String             @map("position_id")
   employmentStatus EmploymentStatus   @default(REGULAR) @map("employment_status")
+  attendanceMode   AttendanceMode     @default(FIXED) @map("attendance_mode")
   hireDate         DateTime           @map("hire_date")
   supervisorId     String?            @map("supervisor_id")
   contactNumber        String?        @map("contact_number")
@@ -239,6 +256,7 @@ model WorkLocation {
   isActive              Boolean  @default(true) @map("is_active")
   employees             WorkLocationEmployee[]
   attendanceLogs        AttendanceLog[]
+  attendanceRecords     AttendanceRecord[]
 
   @@map("work_locations")
 }
@@ -246,31 +264,40 @@ model WorkLocation {
 model WorkLocationEmployee {
   id             String       @id @default(uuid())
   workLocationId String       @map("work_location_id")
-  employeeId     String       @unique @map("employee_id")
+  employeeId     String       @map("employee_id")
   assigned_at    DateTime     @default(now())
   workLocation   WorkLocation @relation(fields: [workLocationId], references: [id], onDelete: Cascade)
   employee       Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 
   @@unique([workLocationId, employeeId])
   @@index([workLocationId])
+  @@index([employeeId])
   @@map("work_location_employees")
 }
 
 model AttendanceRecord {
-  id               String             @id @default(uuid())
-  employeeId       String             @map("employee_id")
-  attendanceDate   DateTime           @map("attendance_date")
-  timeInAt         DateTime?          @map("time_in_at")
-  timeOutAt        DateTime?          @map("time_out_at")
-  status           AttendanceStatus   @default(PENDING_REVIEW)
-  totalMinutes     Int                @default(0) @map("total_minutes")
-  lateMinutes      Int                @default(0) @map("late_minutes")
-  undertimeMinutes Int                @default(0) @map("undertime_minutes")
-  employee         Employee           @relation(fields: [employeeId], references: [id])
+  id               String               @id @default(uuid())
+  employeeId       String               @map("employee_id")
+  attendanceDate   DateTime             @map("attendance_date")
+  // Scopes visit sequencing per kind of attendance — a BOTH-mode employee's
+  // single daily office record and however many field visits that same day
+  // each number their own visitNumber starting at 1, without colliding.
+  recordType       AttendanceRecordType @default(OFFICE)
+  visitNumber      Int                  @default(1) @map("visit_number")
+  workLocationId   String?              @map("work_location_id")
+  timeInAt         DateTime?            @map("time_in_at")
+  timeOutAt        DateTime?            @map("time_out_at")
+  status           AttendanceStatus     @default(PENDING_REVIEW)
+  totalMinutes     Int                  @default(0) @map("total_minutes")
+  lateMinutes      Int                  @default(0) @map("late_minutes")
+  undertimeMinutes Int                  @default(0) @map("undertime_minutes")
+  employee         Employee             @relation(fields: [employeeId], references: [id])
+  workLocation     WorkLocation?        @relation(fields: [workLocationId], references: [id])
   logs             AttendanceLog[]
 
-  @@unique([employeeId, attendanceDate])
+  @@unique([employeeId, attendanceDate, recordType, visitNumber])
   @@index([attendanceDate])
+  @@index([workLocationId])
   @@map("attendance_records")
 }
 
