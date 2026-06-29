@@ -18,6 +18,7 @@ export class LeaveService {
       include: {
         employee: { include: { department: true } },
         leaveType: true,
+        reviewer: { include: { employee: true } },
       },
       orderBy: { startDate: "desc" },
     });
@@ -98,10 +99,11 @@ export class LeaveService {
 
     const request = await this.prisma.leaveRequest.update({
       where: { id },
-      data: { status, reviewedAt: new Date() },
+      data: { status, reviewedAt: new Date(), reviewedBy: actorUserId },
       include: {
         employee: { include: { department: true } },
         leaveType: true,
+        reviewer: { include: { employee: true } },
       },
     });
 

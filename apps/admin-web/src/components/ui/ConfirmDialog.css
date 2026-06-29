@@ -1,0 +1,113 @@
+.confirm-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+}
+
+.confirm-dialog {
+  width: min(420px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+  background: #ffffff;
+  border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);
+  padding: 28px 26px 24px;
+}
+
+.confirm-dialog-icon-wrap {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  margin-bottom: 10px;
+}
+
+.confirm-dialog-icon-wrap.danger {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.confirm-dialog-icon-wrap.primary {
+  background: #dbeafe;
+  color: #1a3a5c;
+}
+
+.confirm-dialog-title {
+  color: #193d69;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.confirm-dialog-description {
+  color: #7b8794;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.5;
+  margin-top: 4px;
+}
+
+.confirm-dialog-footer {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 22px;
+  width: 100%;
+}
+
+.confirm-dialog-cancel-button,
+.confirm-dialog-confirm-button {
+  flex: 1 1 auto;
+  height: 40px;
+  border-radius: 8px;
+  padding: 0 16px;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.confirm-dialog-cancel-button {
+  border: 1.5px solid #b8c7d8;
+  background: #ffffff;
+  color: #1a3a5c;
+}
+
+.confirm-dialog-cancel-button:hover {
+  background: #f1f5f9;
+}
+
+.confirm-dialog-confirm-button {
+  border: 1.5px solid transparent;
+  color: #ffffff;
+}
+
+.confirm-dialog-confirm-button.danger {
+  background: #b91c1c;
+}
+
+.confirm-dialog-confirm-button.danger:hover {
+  background: #991616;
+}
+
+.confirm-dialog-confirm-button.primary {
+  background: #1a3a5c;
+}
+
+.confirm-dialog-confirm-button.primary:hover {
+  background: #2979d0;
+}
+
+@media (max-width: 480px) {
+  .confirm-dialog-footer {
+    flex-direction: column-reverse;
+  }
+}

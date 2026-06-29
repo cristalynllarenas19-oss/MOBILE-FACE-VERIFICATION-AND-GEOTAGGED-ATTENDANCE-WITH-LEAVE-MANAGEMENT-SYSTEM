@@ -1,3 +1,57 @@
+.leave-section-tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 28px;
+  border-bottom: 1px solid #e3e9f0;
+  margin-bottom: 18px;
+}
+
+.leave-section-tabs button {
+  position: relative;
+  flex: 0 0 auto;
+  border: none;
+  background: none;
+  padding: 4px 2px 14px;
+  color: #7b8794;
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.leave-section-tabs button:hover {
+  color: #1a3a5c;
+}
+
+.leave-section-tabs button.active {
+  color: #1a3a5c;
+}
+
+.leave-section-tabs button.active::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: #2979d0;
+  border-radius: 2px 2px 0 0;
+}
+
+.leave-table-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.leave-table-toolbar-left {
+  flex: 0 0 auto;
+  justify-content: flex-start;
+}
+
 .leave-toolbar {
   display: flex;
   align-items: center;
@@ -39,13 +93,6 @@
   color: #1a3a5c;
 }
 
-.leave-toolbar-secondary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
 .leave-search {
   display: flex;
   align-items: center;
@@ -80,12 +127,6 @@
   font-weight: 600;
 }
 
-
-.leave-type-filter-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
 
 .leave-select {
   min-width: 178px;
@@ -346,10 +387,16 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  border: none;
+  background: none;
+  padding: 0;
   color: #2979d0;
+  font: inherit;
   font-size: 12.5px;
   font-weight: 700;
   text-decoration: none;
+  text-align: left;
+  cursor: pointer;
   max-width: 220px;
 }
 
@@ -464,32 +511,19 @@
 /* ── Responsive ── */
 
 @media (max-width: 640px) {
-  .leave-toolbar {
-    align-items: stretch;
-    flex-direction: column-reverse;
-  }
-
   .leave-toolbar .filter-tabs {
     display: grid;
     grid-template-columns: 1fr 1fr;
   }
 
-  .leave-toolbar-secondary {
+  .leave-table-toolbar {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .leave-search {
+  .leave-table-toolbar .leave-select,
+  .leave-table-toolbar .leave-search {
     width: 100%;
-  }
-
-  .leave-type-filter-row {
-    width: 100%;
-  }
-
-  .leave-type-filter-row .leave-select {
-    flex: 1;
-    min-width: 0;
   }
 
   .leave-detail-actions {
@@ -910,6 +944,68 @@
   background: #d0e8f8;
 }
 
+/* ── Day-level date picker (date filed filter) ── */
+
+.date-picker-menu {
+  width: 248px;
+}
+
+.date-picker-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  margin-bottom: 4px;
+}
+
+.date-picker-weekdays span {
+  text-align: center;
+  color: #9aa9bb;
+  font-size: 10.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.date-picker-days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  margin-bottom: 10px;
+}
+
+.date-picker-day {
+  width: 100%;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: #41536b;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.date-picker-day.empty {
+  cursor: default;
+}
+
+.date-picker-day:not(.empty):hover {
+  background: #f0f5fb;
+  color: #1a3a5c;
+}
+
+.date-picker-day.is-today {
+  border-color: #93c5fd;
+}
+
+.date-picker-day.active {
+  background: #1a3a5c;
+  color: #ffffff;
+  border-color: #1a3a5c;
+}
+
 /* ── Search employee + clear icon ── */
 
 .employee-balance-search-shell {
@@ -1217,4 +1313,46 @@
   .employee-leave-bar-label {
     width: 100px;
   }
+}
+
+/* ── Attachment image lightbox ── */
+
+.leave-image-lightbox-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: rgba(15, 23, 42, 0.82);
+  cursor: zoom-out;
+}
+
+.leave-image-lightbox-img {
+  max-width: min(90vw, 900px);
+  max-height: 88vh;
+  border-radius: 10px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
+  cursor: default;
+}
+
+.leave-image-lightbox-close {
+  position: fixed;
+  top: 20px;
+  right: 24px;
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.leave-image-lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.22);
 }

@@ -483,6 +483,34 @@
   border-color: #2979d0;
 }
 
+.schedule-edit-trigger-button {
+  height: 38px;
+  border: 1.5px solid #1a3a5c;
+  border-radius: 8px;
+  background: #1a3a5c;
+  color: #ffffff;
+  padding: 0 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.schedule-edit-trigger-button:hover {
+  background: #2979d0;
+  border-color: #2979d0;
+}
+
+.schedule-edit-form {
+  grid-template-columns: 1fr;
+  padding: 20px 24px 4px;
+  gap: 16px;
+}
+
 .schedules-empty-state {
   color: #7b8794;
   font-size: 13px;

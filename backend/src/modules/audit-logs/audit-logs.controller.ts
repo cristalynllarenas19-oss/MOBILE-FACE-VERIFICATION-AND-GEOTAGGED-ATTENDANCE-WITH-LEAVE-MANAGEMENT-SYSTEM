@@ -11,6 +11,8 @@ export class AuditLogsController {
   findAll(
     @Query("action") action?: string,
     @Query("entityType") entityType?: string,
+    @Query("module") module?: string,
+    @Query("actorUserId") actorUserId?: string,
     @Query("search") search?: string,
     @Query("from") from?: string,
     @Query("to") to?: string,
@@ -20,11 +22,27 @@ export class AuditLogsController {
     return this.auditLogsService.findAll({
       action,
       entityType,
+      module,
+      actorUserId,
       search,
       from,
       to,
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
     });
+  }
+
+  @Get("export")
+  @RequirePermissions("reports:read")
+  findForExport(
+    @Query("action") action?: string,
+    @Query("entityType") entityType?: string,
+    @Query("module") module?: string,
+    @Query("actorUserId") actorUserId?: string,
+    @Query("search") search?: string,
+    @Query("from") from?: string,
+    @Query("to") to?: string,
+  ) {
+    return this.auditLogsService.findForExport({ action, entityType, module, actorUserId, search, from, to });
   }
 }

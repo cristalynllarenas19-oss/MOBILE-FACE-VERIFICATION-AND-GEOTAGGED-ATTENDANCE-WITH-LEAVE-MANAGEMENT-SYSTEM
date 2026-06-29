@@ -36,6 +36,7 @@ type LeaveRequest = {
   totalDays: string;
   status: string;
   reason: string;
+  createdAt: string;
   adminRemarks?: { remarks?: string } | null;
   attachmentName?: string | null;
   attachmentMimeType?: string | null;
@@ -48,6 +49,10 @@ type LeaveRequest = {
     department?: { name: string };
   };
   leaveType: { id: string; name: string };
+  reviewer?: {
+    email: string;
+    employee?: { firstName: string; lastName: string } | null;
+  } | null;
 };
 
 type LeaveBalance = {
@@ -111,6 +116,19 @@ function getLeaveTone(status: string) {
 
 function formatDate(value: string) {
   return new Date(value).toLocaleDateString();
+}
+
+function dateKey(value: string | Date) {
+  const d = typeof value === "string" ? new Date(value) : value;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function reviewerName(request: LeaveRequest) {
+  if (!request.reviewer) return "—";
+  if (request.reviewer.employee) {
+    return `${request.reviewer.employee.firstName} ${request.reviewer.employee.lastName}`;
+  }
+  return request.reviewer.email;
 }
 
 function formatEmploymentStatus(status?: EmploymentStatus) {
@@ -538,15 +556,127 @@ function YearCalendarPicker({ value, onChange }: { value: number; onChange: (yea
 }
 
 
+const WEEKDAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
+
+function DateFiledPicker({ value, onChange }: { value: string | null; onChange: (date: string | null) => void }) {
+  const [open, setOpen] = useState(false);
+  const [viewDate, setViewDate] = useState(() => (value ? new Date(value) : new Date()));
+  const shellRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClickOutside(event: MouseEvent) {
+      if (shellRef.current && !shellRef.current.contains(event.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [open]);
+
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+  const firstWeekday = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const todayKey = dateKey(new Date());
+
+  const cells: (number | null)[] = [
+    ...Array.from({ length: firstWeekday }, () => null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
+
+  return (
+    <div className="cal-picker-shell" ref={shellRef}>
+      <button
+        type="button"
+        className="cal-picker-trigger"
+        onClick={() => setOpen((current) => !current)}
+        aria-label="Filter by date filed"
+      >
+        <CalendarIcon size={14} />
+        <strong>{value ? formatDate(value) : "Filed on..."}</strong>
+        <ChevronDown size={14} className={`cal-picker-chevron${open ? " open" : ""}`} />
+      </button>
+
+      {open && (
+        <div className="cal-picker-menu date-picker-menu">
+          <div className="cal-picker-year-row">
+            <button
+              type="button"
+              className="cal-picker-year-nav"
+              onClick={() => setViewDate(new Date(year, month - 1, 1))}
+              aria-label="Previous month"
+            >
+              <ChevronLeft size={14} />
+            </button>
+            <span className="cal-picker-year-label">
+              {viewDate.toLocaleDateString(undefined, { month: "long", year: "numeric" })}
+            </span>
+            <button
+              type="button"
+              className="cal-picker-year-nav"
+              onClick={() => setViewDate(new Date(year, month + 1, 1))}
+              aria-label="Next month"
+            >
+              <ChevronRight size={14} />
+            </button>
+          </div>
+
+          <div className="date-picker-weekdays">
+            {WEEKDAY_LABELS.map((label, index) => (
+              <span key={index}>{label}</span>
+            ))}
+          </div>
+
+          <div className="date-picker-days">
+            {cells.map((day, index) => {
+              if (day === null) return <span key={index} className="date-picker-day empty" />;
+              const key = dateKey(new Date(year, month, day));
+              return (
+                <button
+                  key={index}
+                  type="button"
+                  className={`date-picker-day${value === key ? " active" : ""}${key === todayKey ? " is-today" : ""}`}
+                  onClick={() => {
+                    onChange(key);
+                    setOpen(false);
+                  }}
+                >
+                  {day}
+                </button>
+              );
+            })}
+          </div>
+
+          {value && (
+            <button
+              type="button"
+              className="cal-picker-today-btn"
+              onClick={() => {
+                onChange(null);
+                setOpen(false);
+              }}
+            >
+              Clear date filter
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 export function LeavePage() {
   const [requests, setRequests]                 = useState<LeaveRequest[]>([]);
   const [leaveTypes, setLeaveTypes]             = useState<LeaveType[]>([]);
+  const [topTab, setTopTab]                     = useState<"requests" | "history">("requests");
   const [statusFilter, setStatusFilter]         = useState("ALL");
   const [typeFilter, setTypeFilter]             = useState("ALL");
-  const [departmentFilter, setDepartmentFilter] = useState("ALL");
-  const [employmentFilter, setEmploymentFilter] = useState("ALL");
+  const [historyDepartmentFilter, setHistoryDepartmentFilter] = useState("ALL");
+  const [dateFiledFilter, setDateFiledFilter]   = useState<string | null>(null);
   const [searchTerm, setSearchTerm]             = useState("");
   const [reviewRequest, setReviewRequest]       = useState<LeaveRequest | null>(null);
+  const [historyViewOnly, setHistoryViewOnly]   = useState(false);
+  const [imagePreview, setImagePreview]         = useState<{ src: string; name: string } | null>(null);
   const [remarks, setRemarks]                   = useState("");
   const [isSaving, setIsSaving]                 = useState(false);
   const [notification, setNotification]         = useState<Notification>(null);
@@ -630,7 +760,24 @@ export function LeavePage() {
     return counts;
   }, [requests]);
 
-  const departmentOptions = useMemo(() => {
+  const visibleRequests = useMemo(
+    () =>
+      requests.filter((r) => {
+        const matchesStatus =
+          statusFilter === "ALL" || r.status === statusFilter;
+        const matchesType =
+          typeFilter === "ALL" || r.leaveType.id === typeFilter;
+        const matchesSearch =
+          !searchTerm.trim() ||
+          getEmployeeName(r)
+            .toLowerCase()
+            .includes(searchTerm.trim().toLowerCase());
+        return matchesStatus && matchesType && matchesSearch;
+      }),
+    [requests, statusFilter, typeFilter, searchTerm]
+  );
+
+  const historyDepartmentOptions = useMemo(() => {
     const names = new Set<string>();
     for (const r of requests) {
       if (r.employee.department?.name) names.add(r.employee.department.name);
@@ -640,25 +787,25 @@ export function LeavePage() {
       .map((name) => ({ value: name, label: name }));
   }, [requests]);
 
-  const visibleRequests = useMemo(
+  const visibleHistoryRequests = useMemo(
     () =>
-      requests.filter((r) => {
-        const matchesStatus =
-          statusFilter === "ALL" || r.status === statusFilter;
-        const matchesType =
-          typeFilter === "ALL" || r.leaveType.id === typeFilter;
-        const matchesDepartment =
-          departmentFilter === "ALL" || r.employee.department?.name === departmentFilter;
-        const matchesEmployment =
-          employmentFilter === "ALL" || r.employee.employmentStatus === employmentFilter;
-        const matchesSearch =
-          !searchTerm.trim() ||
-          getEmployeeName(r)
-            .toLowerCase()
-            .includes(searchTerm.trim().toLowerCase());
-        return matchesStatus && matchesType && matchesDepartment && matchesEmployment && matchesSearch;
-      }),
-    [requests, statusFilter, typeFilter, departmentFilter, employmentFilter, searchTerm]
+      requests
+        .filter((r) => {
+          const matchesType =
+            typeFilter === "ALL" || r.leaveType.id === typeFilter;
+          const matchesDepartment =
+            historyDepartmentFilter === "ALL" || r.employee.department?.name === historyDepartmentFilter;
+          const matchesDate =
+            !dateFiledFilter || dateKey(r.createdAt) === dateFiledFilter;
+          const matchesSearch =
+            !searchTerm.trim() ||
+            getEmployeeName(r)
+              .toLowerCase()
+              .includes(searchTerm.trim().toLowerCase());
+          return matchesType && matchesDepartment && matchesDate && matchesSearch;
+        })
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    [requests, typeFilter, historyDepartmentFilter, dateFiledFilter, searchTerm]
   );
 
   const selectedLeaveType = reviewRequest
@@ -849,126 +996,200 @@ export function LeavePage() {
         )}
       </section>
 
-      <div className="leave-toolbar">
-        <div className="filter-tabs">
-          {(["ALL", "PENDING", "APPROVED", "REJECTED"] as const).map((tab) => (
-            <button
-              key={tab}
-              className={statusFilter === tab ? "active" : ""}
-              onClick={() => setStatusFilter(tab)}
-            >
-              {tab === "ALL" ? "All Leave" : tab.charAt(0) + tab.slice(1).toLowerCase()}
-              {" "}({statusCounts[tab]})
-            </button>
-          ))}
-        </div>
-
-        <div className="leave-toolbar-secondary">
-          {/* Search */}
-          <div className="leave-search">
-            <Search size={14} />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search employee..."
-              aria-label="Search by employee name"
-            />
-          </div>
-
-          {/* Leave type filter */}
-          <div className="leave-type-filter-row">
-            <DropdownFilter
-              className="leave-select"
-              value={typeFilter}
-              onChange={setTypeFilter}
-              options={leaveTypes.map((t) => ({ value: t.id, label: t.name }))}
-              allLabel="All Leave Types"
-              menuLabel="Filter by leave type"
-              ariaLabel="Filter by leave type"
-            />
-          </div>
-
-          {/* Department filter */}
-          <div className="leave-type-filter-row">
-            <DropdownFilter
-              className="leave-select"
-              value={departmentFilter}
-              onChange={setDepartmentFilter}
-              options={departmentOptions}
-              allLabel="All Departments"
-              menuLabel="Filter by department"
-              ariaLabel="Filter by department"
-            />
-          </div>
-
-          {/* Employment status filter */}
-          <div className="leave-type-filter-row">
-            <DropdownFilter
-              className="leave-select"
-              value={employmentFilter}
-              onChange={setEmploymentFilter}
-              options={EMPLOYMENT_STATUS_OPTIONS}
-              allLabel="All Classifications"
-              menuLabel="Filter by employment status"
-              ariaLabel="Filter by employment status"
-            />
-          </div>
-        </div>
+      <div className="leave-section-tabs">
+        <button className={topTab === "requests" ? "active" : ""} onClick={() => setTopTab("requests")}>
+          Leave Requests
+        </button>
+        <button className={topTab === "history" ? "active" : ""} onClick={() => setTopTab("history")}>
+          Leave History
+        </button>
       </div>
 
-      {/* ── Table ── */}
-      <section className="table-card leave-table-card">
-        <table>
-          <thead>
-            <tr>
-              <th>EMPLOYEE</th>
-              <th>DEPARTMENT</th>
-              <th>CLASSIFICATION</th>
-              <th>LEAVE TYPE</th>
-              <th>DATES</th>
-              <th>DAYS</th>
-              <th>STATUS</th>
-              <th>ACTIONS</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visibleRequests.length === 0 ? (
-              <tr>
-                <td colSpan={8} className="leave-empty-state">
-                  {requests.length === 0
-                    ? "No leave requests found."
-                    : "No leave requests match your current filters."}
-                </td>
-              </tr>
-            ) : (
-              visibleRequests.map((r) => (
-                <tr key={r.id}>
-                  <td data-label="Employee">{getEmployeeName(r)}</td>
-                  <td data-label="Department">{r.employee.department?.name ?? "Unassigned"}</td>
-                  <td data-label="Classification">{formatEmploymentStatus(r.employee.employmentStatus)}</td>
-                  <td data-label="Leave Type">{r.leaveType.name}</td>
-                  <td data-label="Dates">
-                    {formatDate(r.startDate)} – {formatDate(r.endDate)}
-                  </td>
-                  <td data-label="Days">{r.totalDays}</td>
-                  <td data-label="Status">
-                    <Badge tone={getLeaveTone(r.status)}>{r.status}</Badge>
-                  </td>
-                  <td data-label="Action">
-                    <button
-                      className="leave-view-button"
-                      onClick={() => { setReviewRequest(r); setRemarks(""); }}
-                    >
-                      <Eye size={14} /> Review
-                    </button>
-                  </td>
+      {topTab === "requests" && (
+        <>
+          <div className="leave-toolbar">
+            <div className="filter-tabs">
+              {(["ALL", "PENDING", "APPROVED", "REJECTED"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  className={statusFilter === tab ? "active" : ""}
+                  onClick={() => setStatusFilter(tab)}
+                >
+                  {tab === "ALL" ? "All Leave" : tab.charAt(0) + tab.slice(1).toLowerCase()}
+                  {" "}({statusCounts[tab]})
+                </button>
+              ))}
+            </div>
+
+            <div className="leave-table-toolbar">
+              <DropdownFilter
+                className="leave-select"
+                value={typeFilter}
+                onChange={setTypeFilter}
+                options={leaveTypes.map((t) => ({ value: t.id, label: t.name }))}
+                allLabel="All Leave Types"
+                menuLabel="Filter by leave type"
+                ariaLabel="Filter by leave type"
+              />
+              <div className="leave-search">
+                <Search size={14} />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Search employee..."
+                  aria-label="Search by employee name"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* ── Table ── */}
+          <section className="table-card leave-table-card">
+            <table>
+              <thead>
+                <tr>
+                  <th>EMPLOYEE</th>
+                  <th>DEPARTMENT</th>
+                  <th>CLASSIFICATION</th>
+                  <th>LEAVE TYPE</th>
+                  <th>DATES</th>
+                  <th>DAYS</th>
+                  <th>STATUS</th>
+                  <th>ACTIONS</th>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </section>
+              </thead>
+              <tbody>
+                {visibleRequests.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="leave-empty-state">
+                      {requests.length === 0
+                        ? "No leave requests found."
+                        : "No leave requests match your current filters."}
+                    </td>
+                  </tr>
+                ) : (
+                  visibleRequests.map((r) => (
+                    <tr key={r.id}>
+                      <td data-label="Employee">{getEmployeeName(r)}</td>
+                      <td data-label="Department">{r.employee.department?.name ?? "Unassigned"}</td>
+                      <td data-label="Classification">{formatEmploymentStatus(r.employee.employmentStatus)}</td>
+                      <td data-label="Leave Type">{r.leaveType.name}</td>
+                      <td data-label="Dates">
+                        {formatDate(r.startDate)} – {formatDate(r.endDate)}
+                      </td>
+                      <td data-label="Days">{r.totalDays}</td>
+                      <td data-label="Status">
+                        <Badge tone={getLeaveTone(r.status)}>{r.status}</Badge>
+                      </td>
+                      <td data-label="Action">
+                        <button
+                          className="leave-view-button"
+                          onClick={() => { setReviewRequest(r); setRemarks(""); setHistoryViewOnly(false); }}
+                        >
+                          <Eye size={14} /> Review
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </section>
+        </>
+      )}
+
+      {topTab === "history" && (
+        <>
+          <div className="leave-toolbar">
+            <div className="leave-table-toolbar leave-table-toolbar-left">
+              <DropdownFilter
+                className="leave-select"
+                value={historyDepartmentFilter}
+                onChange={setHistoryDepartmentFilter}
+                options={historyDepartmentOptions}
+                allLabel="All Departments"
+                menuLabel="Filter by department"
+                ariaLabel="Filter by department"
+              />
+              <DropdownFilter
+                className="leave-select"
+                value={typeFilter}
+                onChange={setTypeFilter}
+                options={leaveTypes.map((t) => ({ value: t.id, label: t.name }))}
+                allLabel="All Leave Types"
+                menuLabel="Filter by leave type"
+                ariaLabel="Filter by leave type"
+              />
+            </div>
+
+            <div className="leave-table-toolbar">
+              <DateFiledPicker value={dateFiledFilter} onChange={setDateFiledFilter} />
+              <div className="leave-search">
+                <Search size={14} />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Search employee..."
+                  aria-label="Search by employee name"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* ── History table ── */}
+          <section className="table-card leave-table-card">
+            <table>
+              <thead>
+                <tr>
+                  <th>EMPLOYEE</th>
+                  <th>DEPARTMENT</th>
+                  <th>CLASSIFICATION</th>
+                  <th>LEAVE TYPE</th>
+                  <th>DATE FILED</th>
+                  <th>DAYS</th>
+                  <th>STATUS</th>
+                  <th>ACTIONS</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleHistoryRequests.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="leave-empty-state">
+                      {requests.length === 0
+                        ? "No leave history found."
+                        : "No leave history matches your current filters."}
+                    </td>
+                  </tr>
+                ) : (
+                  visibleHistoryRequests.map((r) => (
+                    <tr key={r.id}>
+                      <td data-label="Employee">{getEmployeeName(r)}</td>
+                      <td data-label="Department">{r.employee.department?.name ?? "Unassigned"}</td>
+                      <td data-label="Classification">{formatEmploymentStatus(r.employee.employmentStatus)}</td>
+                      <td data-label="Leave Type">{r.leaveType.name}</td>
+                      <td data-label="Date Filed">{formatDate(r.createdAt)}</td>
+                      <td data-label="Days">{r.totalDays}</td>
+                      <td data-label="Status">
+                        <Badge tone={getLeaveTone(r.status)}>{r.status}</Badge>
+                      </td>
+                      <td data-label="Action">
+                        <button
+                          className="leave-view-button"
+                          onClick={() => { setReviewRequest(r); setRemarks(""); setHistoryViewOnly(true); }}
+                        >
+                          <Eye size={14} /> View
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </section>
+        </>
+      )}
 
       {/* ── Review modal ── */}
       {reviewRequest && (
@@ -986,7 +1207,7 @@ export function LeavePage() {
               </div>
               <button
                 className="icon-button"
-                onClick={() => setReviewRequest(null)}
+                onClick={() => { setReviewRequest(null); setHistoryViewOnly(false); }}
                 aria-label="Close leave review"
               >
                 <X size={18} />
@@ -998,6 +1219,7 @@ export function LeavePage() {
               <div><span>Department</span><strong>{reviewRequest.employee.department?.name ?? "Unassigned"}</strong></div>
               <div><span>Classification</span><strong>{formatEmploymentStatus(reviewRequest.employee.employmentStatus)}</strong></div>
               <div><span>Leave Type</span><strong>{reviewRequest.leaveType.name}</strong></div>
+              <div><span>Date Filed</span><strong>{formatDate(reviewRequest.createdAt)}</strong></div>
               <div>
                 <span>Date Range</span>
                 <strong>{formatDate(reviewRequest.startDate)} – {formatDate(reviewRequest.endDate)}</strong>
@@ -1007,6 +1229,9 @@ export function LeavePage() {
                 <span>Status</span>
                 <Badge tone={getLeaveTone(reviewRequest.status)}>{reviewRequest.status}</Badge>
               </div>
+              {reviewRequest.status !== "PENDING" && (
+                <div><span>Reviewed By</span><strong>{reviewerName(reviewRequest)}</strong></div>
+              )}
 
               {matchingBalance && (
                 <div>
@@ -1035,18 +1260,22 @@ export function LeavePage() {
                 <span>Supporting Document</span>
                 {reviewRequest.attachmentData ? (
                   reviewRequest.attachmentMimeType?.startsWith("image/") ? (
-                    <a
+                    <button
+                      type="button"
                       className="leave-attachment-preview"
-                      href={`data:${reviewRequest.attachmentMimeType};base64,${reviewRequest.attachmentData}`}
-                      target="_blank"
-                      rel="noreferrer"
+                      onClick={() =>
+                        setImagePreview({
+                          src: `data:${reviewRequest.attachmentMimeType};base64,${reviewRequest.attachmentData}`,
+                          name: reviewRequest.attachmentName ?? "Supporting document",
+                        })
+                      }
                     >
                       <img
                         src={`data:${reviewRequest.attachmentMimeType};base64,${reviewRequest.attachmentData}`}
                         alt={reviewRequest.attachmentName ?? "Supporting document"}
                       />
                       <span><Paperclip size={13} /> {reviewRequest.attachmentName ?? "View attachment"}</span>
-                    </a>
+                    </button>
                   ) : (
                     <a
                       className="leave-attachment-link"
@@ -1066,7 +1295,7 @@ export function LeavePage() {
               <div><span>Latest Remarks</span><strong>{reviewRequest.adminRemarks?.remarks ?? "None"}</strong></div>
             </div>
 
-            {reviewRequest.status !== "REJECTED" && (
+            {!historyViewOnly && reviewRequest.status === "PENDING" && (
               <label className="leave-remarks-field">
                 Add Remarks
                 <textarea
@@ -1078,7 +1307,7 @@ export function LeavePage() {
             )}
 
             <div className="leave-detail-actions">
-              {reviewRequest.status !== "REJECTED" && (
+              {!historyViewOnly && reviewRequest.status === "PENDING" && (
                 <>
                   <button className="leave-reject-button" onClick={() => reviewLeave("reject")} disabled={isSaving}>
                     Reject
@@ -1088,11 +1317,39 @@ export function LeavePage() {
                   </button>
                 </>
               )}
-              <button className="outline-button" onClick={() => setReviewRequest(null)} disabled={isSaving}>
+              <button
+                className="outline-button"
+                onClick={() => { setReviewRequest(null); setHistoryViewOnly(false); }}
+                disabled={isSaving}
+              >
                 Close
               </button>
             </div>
           </section>
+        </div>
+      )}
+
+      {/* ── Attachment image lightbox ── */}
+      {imagePreview && (
+        <div
+          className="leave-image-lightbox-backdrop"
+          role="presentation"
+          onClick={() => setImagePreview(null)}
+        >
+          <button
+            type="button"
+            className="leave-image-lightbox-close"
+            onClick={() => setImagePreview(null)}
+            aria-label="Close image preview"
+          >
+            <X size={20} />
+          </button>
+          <img
+            className="leave-image-lightbox-img"
+            src={imagePreview.src}
+            alt={imagePreview.name}
+            onClick={(e) => e.stopPropagation()}
+          />
         </div>
       )}
     </>

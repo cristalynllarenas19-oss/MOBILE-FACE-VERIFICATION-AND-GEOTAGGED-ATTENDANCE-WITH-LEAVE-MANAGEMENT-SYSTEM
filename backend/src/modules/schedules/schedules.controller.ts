@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, Req } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post, Query, Req } from "@nestjs/common";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
 import { SchedulesService } from "./schedules.service";
 
@@ -37,6 +37,20 @@ export class SchedulesController {
     return this.schedulesService.createAssignment(dto);
   }
 
+  @Patch(":id")
+  @RequirePermissions("schedules:write")
+  updateAssignment(
+    @Param("id") id: string,
+    @Body()
+    dto: {
+      shiftId?: string;
+      startsOn?: string;
+      endsOn?: string | null;
+    },
+  ) {
+    return this.schedulesService.updateAssignment(id, dto);
+  }
+
   @Post("shifts")
   @RequirePermissions("schedules:write")
   createShift(
@@ -50,5 +64,31 @@ export class SchedulesController {
     @Req() request: Request,
   ) {
     return this.schedulesService.createShift(dto, (request as any).user?.userId);
+  }
+
+  @Patch("shifts/:id")
+  @RequirePermissions("schedules:write")
+  updateShift(
+    @Param("id") id: string,
+    @Body()
+    dto: {
+      name?: string;
+      startTime?: string;
+      endTime?: string;
+      gracePeriodMinutes?: number;
+    },
+    @Req() request: Request,
+  ) {
+    return this.schedulesService.updateShift(id, dto, (request as any).user?.userId);
+  }
+
+  @Patch("shifts/:id/status")
+  @RequirePermissions("schedules:write")
+  setShiftStatus(
+    @Param("id") id: string,
+    @Body() dto: { isActive: boolean },
+    @Req() request: Request,
+  ) {
+    return this.schedulesService.setShiftStatus(id, dto.isActive, (request as any).user?.userId);
   }
 }

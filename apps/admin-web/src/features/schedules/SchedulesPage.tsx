@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { AlertTriangle, CheckCircle2, ChevronDown, Eye, Plus, Search, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, Eye, Pencil, Plus, Search, X } from "lucide-react";
 import { apiRequest } from "../../lib/api";
 import { PermissionCode, permissions } from "../../types/rbac";
 import "./SchedulesPage.css";
@@ -38,7 +38,12 @@ function formatDate(value?: string | null) {
   return value ? new Date(value).toLocaleDateString() : "Ongoing";
 }
 
+function toDateInputValue(value?: string | null) {
+  return value ? new Date(value).toISOString().slice(0, 10) : "";
+}
+
 const emptyForm = { employeeId: "", shiftId: "", startsOn: "", endsOn: "" };
+const emptyEditForm = { shiftId: "", startsOn: "", endsOn: "" };
 
 // ── Shared floating-panel dropdown ──
 const SEARCH_THRESHOLD = 6;
@@ -191,8 +196,11 @@ export function SchedulesPage({ user }: { user?: { permissions: PermissionCode[]
   const [shiftFilter, setShiftFilter] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState("ACTIVE");
   const [viewSchedule, setViewSchedule] = useState<Schedule | null>(null);
+  const [editSchedule, setEditSchedule] = useState<Schedule | null>(null);
+  const [editForm, setEditForm] = useState(emptyEditForm);
   const [form, setForm] = useState(emptyForm);
   const [isSaving, setIsSaving] = useState(false);
+  const [isEditSaving, setIsEditSaving] = useState(false);
   const [notification, setNotification] = useState<Notification>(null);
 
   const loadData = () => {
@@ -250,6 +258,41 @@ export function SchedulesPage({ user }: { user?: { permissions: PermissionCode[]
       });
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const openEdit = (schedule: Schedule) => {
+    setEditSchedule(schedule);
+    setEditForm({
+      shiftId: schedule.shift.id,
+      startsOn: toDateInputValue(schedule.startsOn),
+      endsOn: toDateInputValue(schedule.endsOn),
+    });
+  };
+
+  const saveEdit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!editSchedule) return;
+    setIsEditSaving(true);
+    try {
+      const updated = await apiRequest<Schedule>(`/schedules/${editSchedule.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          shiftId: editForm.shiftId,
+          startsOn: editForm.startsOn,
+          endsOn: editForm.endsOn || null,
+        }),
+      });
+      setSchedules((current) => current.map((s) => (s.id === updated.id ? updated : s)));
+      setEditSchedule(null);
+      setNotification({ type: "success", message: "Schedule updated successfully." });
+    } catch (err) {
+      setNotification({
+        type: "error",
+        message: err instanceof Error ? err.message : "Unable to update schedule.",
+      });
+    } finally {
+      setIsEditSaving(false);
     }
   };
 
@@ -503,6 +546,18 @@ export function SchedulesPage({ user }: { user?: { permissions: PermissionCode[]
               </div>
             </div>
             <div className="schedule-detail-actions">
+              {canWrite && (
+                <button
+                  type="button"
+                  className="schedule-edit-trigger-button"
+                  onClick={() => {
+                    openEdit(viewSchedule);
+                    setViewSchedule(null);
+                  }}
+                >
+                  <Pencil size={14} /> Edit
+                </button>
+              )}
               <button
                 type="button"
                 className="outline-button"
@@ -511,6 +566,87 @@ export function SchedulesPage({ user }: { user?: { permissions: PermissionCode[]
                 Close
               </button>
             </div>
+          </section>
+        </div>
+      )}
+
+      {/* ── Edit Schedule Modal ── */}
+      {editSchedule && (
+        <div className="schedule-modal-backdrop" role="presentation">
+          <section
+            className="schedule-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="schedule-edit-modal-title"
+          >
+            <div className="schedule-modal-header">
+              <div>
+                <h2 id="schedule-edit-modal-title">Edit Shift Assignment</h2>
+                <p>{getName(editSchedule.employee)}</p>
+              </div>
+              <button
+                className="icon-button"
+                onClick={() => setEditSchedule(null)}
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={saveEdit}>
+              <div className="schedule-form schedule-edit-form">
+                <FormDropdown
+                  label="Shift"
+                  placeholder="Select shift…"
+                  value={editForm.shiftId}
+                  onChange={(v) => setEditForm((c) => ({ ...c, shiftId: v }))}
+                  required
+                  options={shifts.map((s) => ({
+                    value: s.id,
+                    label: s.name,
+                    sub: `${s.startTime} – ${s.endTime}`,
+                  }))}
+                />
+
+                <div className="schedule-field">
+                  <label className="schedule-field-label">Start Date</label>
+                  <input
+                    type="date"
+                    value={editForm.startsOn}
+                    onChange={(e) => setEditForm((c) => ({ ...c, startsOn: e.target.value }))}
+                    required
+                  />
+                </div>
+
+                <div className="schedule-field">
+                  <label className="schedule-field-label">
+                    End Date <span className="optional-tag">optional</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={editForm.endsOn}
+                    onChange={(e) => setEditForm((c) => ({ ...c, endsOn: e.target.value }))}
+                  />
+                </div>
+              </div>
+
+              <div className="schedule-detail-actions">
+                <button
+                  type="button"
+                  className="outline-button"
+                  onClick={() => setEditSchedule(null)}
+                  disabled={isEditSaving}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="add-schedule-button"
+                  disabled={isEditSaving || !editForm.shiftId || !editForm.startsOn}
+                >
+                  {isEditSaving ? "Saving…" : "Save Changes"}
+                </button>
+              </div>
+            </form>
           </section>
         </div>
       )}

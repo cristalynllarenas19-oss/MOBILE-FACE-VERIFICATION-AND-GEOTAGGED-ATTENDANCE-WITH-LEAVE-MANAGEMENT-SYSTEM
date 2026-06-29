@@ -82,6 +82,11 @@ model User {
   auditLogs    AuditLog[]
   notifications Notification[]
   passwordResetOtps PasswordResetOtp[]
+  reviewedLeaveRequests LeaveRequest[]
+  createdLeaveTypes LeaveType[] @relation("LeaveTypeCreatedBy")
+  updatedLeaveTypes LeaveType[] @relation("LeaveTypeUpdatedBy")
+  createdShifts     Shift[]     @relation("ShiftCreatedBy")
+  updatedShifts     Shift[]     @relation("ShiftUpdatedBy")
 
   @@map("users")
 }
@@ -319,8 +324,16 @@ model LeaveType {
   defaultDays        Decimal            @map("default_days")
   requiresDocument   Boolean            @default(false) @map("requires_document")
   applicableStatuses EmploymentStatus[] @default([]) @map("applicable_statuses")
+  isActive           Boolean            @default(true) @map("is_active")
+  isUnlimitedDays    Boolean            @default(false) @map("is_unlimited_days")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+  createdBy          String?            @map("created_by")
+  updatedBy          String?            @map("updated_by")
   leaveRequests      LeaveRequest[]
   leaveBalances      LeaveBalance[]
+  createdByUser      User?              @relation("LeaveTypeCreatedBy", fields: [createdBy], references: [id])
+  updatedByUser      User?              @relation("LeaveTypeUpdatedBy", fields: [updatedBy], references: [id])
 
   @@map("leave_types")
 }
@@ -336,12 +349,14 @@ model LeaveRequest {
   status      LeaveStatus @default(PENDING)
   reviewedBy  String?     @map("reviewed_by")
   reviewedAt  DateTime?   @map("reviewed_at")
+  createdAt   DateTime    @default(now()) @map("created_at")
   attachmentPath String?  @map("attachment_path")
   attachmentName String?  @map("attachment_name")
   attachmentMimeType String? @map("attachment_mime_type")
   attachmentData String?  @map("attachment_data")
   employee    Employee    @relation(fields: [employeeId], references: [id])
   leaveType   LeaveType   @relation(fields: [leaveTypeId], references: [id])
+  reviewer    User?       @relation(fields: [reviewedBy], references: [id])
 
   @@index([employeeId, status])
   @@index([startDate])
@@ -368,7 +383,14 @@ model Shift {
   startTime           String             @map("start_time")
   endTime             String             @map("end_time")
   gracePeriodMinutes  Int                @default(0) @map("grace_period_minutes")
+  isActive            Boolean            @default(true) @map("is_active")
+  createdAt           DateTime           @default(now()) @map("created_at")
+  updatedAt           DateTime           @updatedAt @map("updated_at")
+  createdBy           String?            @map("created_by")
+  updatedBy           String?            @map("updated_by")
   schedules           EmployeeSchedule[]
+  createdByUser       User?              @relation("ShiftCreatedBy", fields: [createdBy], references: [id])
+  updatedByUser       User?              @relation("ShiftUpdatedBy", fields: [updatedBy], references: [id])
 
   @@map("shifts")
 }

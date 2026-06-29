@@ -15,9 +15,7 @@
   overflow: hidden;
 }
 
-/* ━━━━━━━━━━━━━━━━━━━━━━━━━
-   SIDEBAR
-━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
 .sidebar {
   width: 240px;
   flex: 0 0 240px;
@@ -77,7 +75,6 @@
   font-weight: 600;
 }
 
-/* ── NAV LIST FIXED ALIGNMENT ── */
 .nav-list {
   margin-top: 16px;
   display: flex;
@@ -94,7 +91,6 @@
   gap: 12px;
   width: 100%;
   
-  /* FIXED UNIFORM HEIGHT FOR ALL PILLS */
   height: 54px !important; 
   min-height: 54px !important;
   
@@ -112,11 +108,10 @@
   box-sizing: border-box;
 }
 
-/* Text child wrapper layout styling — shrunken to wrap "User Management" */
 .nav-link span {
   line-height: 1.25;
   display: inline-block;
-  max-width: 110px; /* Reduced from 150px to force all multi-word titles onto two lines */
+  max-width: 110px; 
 }
 
 .nav-link svg {
@@ -149,9 +144,7 @@
   color: #41536b !important;
 }
 
-/* ━━━━━━━━━━━━━━━━━━━━━━━━━
-   MAIN AREA & HEADER
-━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
 .main-area {
   flex: 1;
   min-width: 0;
