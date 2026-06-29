@@ -20,8 +20,17 @@ async function bootstrap() {
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
 console.log("🔥 MAIN.TS LOADED");
 
-  const origins =
-    process.env.WEB_ORIGIN?.split(",") ?? [];
+  const origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    ...(process.env.WEB_ORIGIN?.split(",") ?? []),
+  ].map((origin) => origin.trim()).filter(Boolean);
+
+  const isLocalDevOrigin = (origin: string) =>
+    /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin) ||
+    /^http:\/\/(10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+|192\.168\.\d+\.\d+):\d+$/.test(origin);
 
   console.log("ALLOWED ORIGINS:");
   console.log(origins);
@@ -31,7 +40,7 @@ console.log("🔥 MAIN.TS LOADED");
       origin: string | undefined,
       callback: (err: Error | null, allow?: boolean) => void,
     ) => {
-      if (!origin || origins.length === 0 || origins.includes(origin)) {
+      if (!origin || origins.includes(origin) || isLocalDevOrigin(origin)) {
         callback(null, true);
       } else {
         callback(new Error("Not allowed by CORS"));

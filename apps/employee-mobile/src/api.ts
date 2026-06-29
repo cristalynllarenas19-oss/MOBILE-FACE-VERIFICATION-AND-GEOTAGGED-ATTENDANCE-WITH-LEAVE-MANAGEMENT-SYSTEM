@@ -1,7 +1,7 @@
 import * as SecureStore from "expo-secure-store";
 import Constants from "expo-constants";
 
-const DEFAULT_API_BASE_URL ="http://192.168.1.117:3001/api/v1";
+const DEFAULT_API_BASE_URL ="http://192.168.68.116:3001/api/v1";
 
 function getApiBaseUrl() {
   const configuredUrl =
