@@ -382,6 +382,38 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
       });
   }, [currentLocationAssignedIds, departmentFilter, employeeSearch, employees]);
 
+  // Employees in the current filtered list that can be toggled (assigned here or not assigned anywhere)
+  const selectableEmployeeIds = useMemo(
+    () =>
+      employeeRows
+        .filter((e) => currentLocationAssignedIds.has(e.id) || !assignedEmployees.has(e.id))
+        .map((e) => e.id),
+    [employeeRows, currentLocationAssignedIds, assignedEmployees],
+  );
+
+  const allSelectableSelected = useMemo(
+    () =>
+      selectableEmployeeIds.length > 0 &&
+      selectableEmployeeIds.every((id) => currentLocationAssignedIds.has(id)),
+    [selectableEmployeeIds, currentLocationAssignedIds],
+  );
+
+  function toggleSelectAll() {
+    if (editingIsGlobalZone) return;
+    if (allSelectableSelected) {
+      setForm((current) => ({
+        ...current,
+        employeeIds: current.employeeIds.filter((id) => !selectableEmployeeIds.includes(id)),
+      }));
+    } else {
+      const toAdd = selectableEmployeeIds.filter((id) => !currentLocationAssignedIds.has(id));
+      setForm((current) => ({
+        ...current,
+        employeeIds: [...current.employeeIds, ...toAdd],
+      }));
+    }
+  }
+
   const normalizedLocations = useMemo(
     () =>
       locations.map((location) => ({
@@ -872,7 +904,6 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
                       </small>
                     </button>
                     <div className="assigned-location-actions">
-                      {/* View button */}
                       <button
                         className="icon-button location-action-btn location-action-btn--view"
                         type="button"
@@ -881,7 +912,6 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
                       >
                         <Eye size={14} />
                       </button>
-                      {/* Edit button */}
                       <button
                         className="icon-button location-action-btn location-action-btn--edit"
                         type="button"
@@ -890,7 +920,6 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
                       >
                         <Edit3 size={14} />
                       </button>
-                      {/* Delete button */}
                       {canWrite && (
                         <button
                           className="icon-button location-action-btn location-action-btn--delete"
@@ -997,6 +1026,25 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
                   </div>
                 </div>
               )}
+
+              {/* Select / Unselect All — only shown when canWrite and not a Global Zone */}
+              {canWrite && !editingIsGlobalZone && (
+                <div className="select-all-row">
+                  <button
+                    type="button"
+                    className={`select-all-button${allSelectableSelected ? " active" : ""}`}
+                    onClick={toggleSelectAll}
+                    disabled={selectableEmployeeIds.length === 0}
+                    aria-label={allSelectableSelected ? "Unselect all visible employees" : "Select all visible employees"}
+                  >
+                    {allSelectableSelected ? "Unselect All" : "Select All"}
+                    {selectableEmployeeIds.length > 0 && (
+                      <span className="select-all-count">{selectableEmployeeIds.length}</span>
+                    )}
+                  </button>
+                </div>
+              )}
+
               <small className="field-help">
                 {!canWrite
                   ? "Employees assigned to this area."
@@ -1041,13 +1089,13 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
                             </span>
                             <span className="employee-checklist-meta">{employee.department?.name}</span>
                           </span>
-                            <button
-                              type="button"
-                              className="employee-unassign-button"
-                              onClick={() => removeEmployeeFromCurrentLocation(employee.id)}
-                            >
-                              Unassign
-                            </button>
+                          <button
+                            type="button"
+                            className="employee-unassign-button"
+                            onClick={() => removeEmployeeFromCurrentLocation(employee.id)}
+                          >
+                            Unassign
+                          </button>
                         </div>
                       ) : null
                     ) : (

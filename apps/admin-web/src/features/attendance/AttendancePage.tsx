@@ -229,40 +229,52 @@ export function AttendancePage({ user }: { user?: { permissions: PermissionCode[
         </div>
       )}
 
-      <div className="attendance-toolbar">
-        <DropdownFilter
-          className="attendance-filter"
-          value={departmentFilter}
-          onChange={setDepartmentFilter}
-          options={departments.map((department) => ({ value: department, label: department }))}
-          allLabel="All Departments"
-          menuLabel="Filter by department"
-          ariaLabel="Department"
-        />
-        <DropdownFilter
-          className="attendance-filter"
-          value={statusFilter}
-          onChange={setStatusFilter}
-          options={statusOptions.map((status) => ({ value: status, label: getStatusLabel(status) }))}
-          allLabel="All Status"
-          menuLabel="Filter by status"
-          ariaLabel="Status"
-        />
-        <label className="attendance-date-range-field">
-          From
+      <div className="attendance-filter-bar">
+        <div className="attendance-filter-group">
+          <label className="attendance-filter-label">Department</label>
+          <DropdownFilter
+            className="attendance-filter"
+            value={departmentFilter}
+            onChange={setDepartmentFilter}
+            options={departments.map((department) => ({ value: department, label: department }))}
+            allLabel="All Departments"
+            menuLabel="Filter by department"
+            ariaLabel="Department"
+          />
+        </div>
+
+        <div className="attendance-filter-group">
+          <label className="attendance-filter-label">Status</label>
+          <DropdownFilter
+            className="attendance-filter"
+            value={statusFilter}
+            onChange={setStatusFilter}
+            options={statusOptions.map((status) => ({ value: status, label: getStatusLabel(status) }))}
+            allLabel="All Status"
+            menuLabel="Filter by status"
+            ariaLabel="Status"
+          />
+        </div>
+
+        <div className="attendance-filter-group">
+          <label className="attendance-filter-label">From</label>
           <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} aria-label="History from date" />
-        </label>
-        <label className="attendance-date-range-field">
-          To
+        </div>
+
+        <div className="attendance-filter-group">
+          <label className="attendance-filter-label">To</label>
           <input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} aria-label="History to date" />
-        </label>
-        <button
-          className="attendance-clear-button"
-          onClick={() => { setDepartmentFilter("ALL"); setStatusFilter("ALL"); setDateFrom(""); setDateTo(""); }}
-        >
-          <X size={13} /> Clear
-        </button>
-        <span className="attendance-today-badge">{formatTodayLabel(now)}</span>
+        </div>
+
+        <div className="attendance-filter-actions">
+          <button
+            className="attendance-clear-button"
+            onClick={() => { setDepartmentFilter("ALL"); setStatusFilter("ALL"); setDateFrom(""); setDateTo(""); }}
+          >
+            <X size={13} /> Clear
+          </button>
+          <span className="attendance-today-badge">{formatTodayLabel(now)}</span>
+        </div>
       </div>
 
       <section className="table-card attendance-table-card">

@@ -1,13 +1,38 @@
-.users-toolbar {
+.users-filter-bar {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  align-items: flex-end;
+  flex-wrap: wrap;
   gap: 14px;
   margin-bottom: 16px;
+  padding: 10px 14px;
+  background: #f7fafd;
+  border: 1px solid #e3eaf2;
+  border-radius: 12px;
 }
 
-.users-toolbar .filter-tabs {
+.users-filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.users-filter-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #8fa5bc;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding-left: 4px;
+}
+
+.users-filter-bar .filter-tabs {
   margin-bottom: 0;
+}
+
+.users-filter-actions {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
 }
 
 .add-user-button {
@@ -444,14 +469,23 @@
     max-width: none;
   }
 
-  .users-toolbar {
+  .users-filter-bar {
     align-items: stretch;
-    flex-direction: column-reverse;
+    flex-direction: column;
   }
 
-  .users-toolbar .filter-tabs {
+  .users-filter-group {
+    width: 100%;
+  }
+
+  .users-filter-bar .filter-tabs {
     overflow-x: auto;
     padding-bottom: 2px;
+  }
+
+  .users-filter-actions {
+    margin-left: 0;
+    width: 100%;
   }
 
   .add-user-button {

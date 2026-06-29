@@ -1,41 +1,55 @@
-.attendance-date-range-field {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 700;
-  color: #5b6b80;
-}
-
-.attendance-date-range-field input {
-  flex: 1;
-  min-width: 0;
-}
-
-.attendance-toolbar {
+.attendance-filter-bar {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 18px;
+  padding: 10px 14px;
+  background: #f7fafd;
+  border: 1px solid #e3eaf2;
+  border-radius: 12px;
 }
 
-.attendance-toolbar input {
+.attendance-filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.attendance-filter-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #8fa5bc;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding-left: 4px;
+}
+
+.attendance-filter-bar input {
   min-width: 132px;
   height: 34px;
   box-sizing: border-box;
-  border: 1px solid #e3e9f0;
+  border: 1px solid #d4dfe9;
   border-radius: 8px;
   background: #ffffff;
-  color: #5b6b80;
+  color: #2d4a65;
   padding: 0 12px;
   font-size: 12px;
   font-weight: 600;
   outline: none;
+  transition: border-color 0.15s;
 }
 
 .attendance-filter {
   min-width: 132px;
+}
+
+.attendance-filter-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  padding-bottom: 1px;
 }
 
 .attendance-clear-button {
@@ -43,13 +57,13 @@
   height: 34px;
   box-sizing: border-box;
   background: #ffffff;
-  border: 1.5px solid #e3e9f0;
+  border: 1.5px solid #c8d6e6;
   border-radius: 8px;
-  color: #5b6b80;
+  color: #1a3a5c;
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
-  padding: 0 12px;
+  padding: 0 14px;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -62,9 +76,9 @@
   color: #c0392b;
 }
 
-.attendance-toolbar input:focus {
-  border-color: #2979d0;
-  box-shadow: 0 0 0 3px rgba(41, 121, 208, 0.12);
+.attendance-filter-bar input:focus {
+  border-color: #1a3a5c;
+  box-shadow: 0 0 0 3px rgba(26, 58, 92, 0.08);
 }
 
 .attendance-today-badge {
@@ -75,13 +89,12 @@
   box-sizing: border-box;
   border: 1px solid #dbe5ef;
   border-radius: 999px;
-  background: #f4f7fb;
+  background: #ffffff;
   color: #1a3a5c;
-  padding: 0 20px;
-  font-size: 13px;
+  padding: 0 18px;
+  font-size: 12.5px;
   font-weight: 800;
   white-space: nowrap;
-  margin-left: auto;
 }
 
 .attendance-table-card {
@@ -398,24 +411,25 @@
 }
 
 @media (max-width: 760px) {
-  .attendance-toolbar {
+  .attendance-filter-bar {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .attendance-toolbar input,
+  .attendance-filter-group,
+  .attendance-filter-bar input,
   .attendance-filter,
-  .attendance-date-range-field,
   .attendance-admin-actions > div {
     width: 100%;
   }
 
-  .attendance-clear-button {
-    align-self: flex-end;
+  .attendance-filter-actions {
+    margin-left: 0;
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .attendance-today-badge {
-    margin-left: 0;
     width: 100%;
     justify-content: center;
   }

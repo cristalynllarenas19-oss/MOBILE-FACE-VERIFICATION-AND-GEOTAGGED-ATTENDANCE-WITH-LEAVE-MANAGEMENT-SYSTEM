@@ -612,7 +612,6 @@ function ArchiveEmployeeModal({
     }
   };
 
-  // Step 1: Confirmation dialog — small modal
   if (!confirmed) {
     return (
       <EmployeeModal title="" onClose={onClose} small>
@@ -640,7 +639,6 @@ function ArchiveEmployeeModal({
     );
   }
 
-  // Step 2: Archive details form — small modal
   return (
     <EmployeeModal title="Archive Employee" description={getEmployeeName(employee)} onClose={onClose} small>
       <form className="employee-form" onSubmit={handleArchive}>
@@ -765,15 +763,35 @@ export function EmployeesPage({ user }: { user?: { permissions: PermissionCode[]
         </div>
       )}
 
-      <div className="employees-toolbar">
-        <div className="filter-tabs">
-          <button
-            className={!showArchivedOnly ? "active" : ""}
-            onClick={() => setShowArchivedOnly(false)}
-          >
-            All Employees ({activeEmployeeCount})
-          </button>
+      <div className="employees-filter-bar">
+        {/* VIEW — Active employees tab */}
+        <div className="employees-filter-group">
+          <span className="employees-filter-label">View</span>
+          <div className="filter-tabs">
+            <button
+              className={!showArchivedOnly ? "active" : ""}
+              onClick={() => setShowArchivedOnly(false)}
+            >
+              All Employees ({activeEmployeeCount})
+            </button>
+          </div>
+        </div>
 
+        {/* ARCHIVE — Archived employees tab */}
+        <div className="employees-filter-group">
+          <span className="employees-filter-label">Archive</span>
+          <div className="filter-tabs">
+            <button
+              className={showArchivedOnly ? "active" : ""}
+              onClick={() => setShowArchivedOnly(true)}
+            >
+              Archived Employees
+            </button>
+          </div>
+        </div>
+
+        <div className="employees-filter-group">
+          <label className="employees-filter-label">Department</label>
           <DropdownFilter
             className="department-select"
             value={departmentFilter}
@@ -783,16 +801,10 @@ export function EmployeesPage({ user }: { user?: { permissions: PermissionCode[]
             menuLabel="Filter by department"
             ariaLabel="Filter employees by department"
           />
-
-          <button
-            className={showArchivedOnly ? "active" : ""}
-            onClick={() => setShowArchivedOnly(true)}
-          >
-            Archived Employees
-          </button>
         </div>
 
-        <div className="employees-toolbar-actions">
+        <div className="employees-filter-group employees-filter-search-group">
+          <label className="employees-filter-label">Search</label>
           <div className="employee-search">
             <Search size={14} className="employee-search-icon" />
             <input
@@ -802,18 +814,18 @@ export function EmployeesPage({ user }: { user?: { permissions: PermissionCode[]
               placeholder="Search employees..."
               aria-label="Search employees"
             />
-            {searchQuery && (
-              <button
-                type="button"
-                className="employee-search-clear"
-                onClick={() => setSearchQuery("")}
-                aria-label="Clear search"
-              >
-                <X size={13} />
-              </button>
-            )}
+            <button
+              type="button"
+              className="employee-search-clear"
+              onClick={() => setSearchQuery("")}
+              aria-label="Clear search"
+            >
+              <X size={13} />
+            </button>
           </div>
+        </div>
 
+        <div className="employees-filter-actions">
           {canWrite && (
             <button className="add-employee-button" onClick={() => setIsAddOpen(true)}>
               <Plus size={15} />

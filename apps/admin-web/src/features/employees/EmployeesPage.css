@@ -1,25 +1,48 @@
-.employees-toolbar {
+.employees-filter-bar {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  align-items: flex-end;
+  flex-wrap: wrap;
   gap: 14px;
   margin-bottom: 16px;
+  padding: 10px 14px;
+  background: #f7fafd;
+  border: 1px solid #e3eaf2;
+  border-radius: 12px;
 }
 
-.employees-toolbar .filter-tabs {
+.employees-filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.employees-filter-search-group {
+  flex: 0 0 220px;
+}
+
+.employees-filter-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: #8fa5bc;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding-left: 4px;
+}
+
+.employees-filter-bar .filter-tabs {
   align-items: center;
   margin-bottom: 0;
   flex-wrap: wrap;
 }
 
-.employees-toolbar-actions {
+.employees-filter-actions {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex-shrink: 0;
+  margin-left: auto;
 }
 
-.employees-toolbar .filter-tabs > button {
+.employees-filter-bar .filter-tabs > button {
   border: 1px solid transparent;
   background: #ffffff;
   color: #41536b;
@@ -30,7 +53,7 @@
   cursor: pointer;
 }
 
-.employees-toolbar .filter-tabs > button.active {
+.employees-filter-bar .filter-tabs > button.active {
   background: #dbeafe;
   border-color: #93c5fd;
   color: #1a3a5c;
@@ -44,6 +67,7 @@
   position: relative;
   display: inline-flex;
   align-items: center;
+  width: 100%;
   min-width: 220px;
 }
 
@@ -597,25 +621,33 @@
     max-width: none;
   }
 
-  .employees-toolbar {
+  .employees-filter-bar {
     align-items: stretch;
-    flex-direction: column-reverse;
+    flex-direction: column;
   }
 
-  .employees-toolbar .filter-tabs {
+  .employees-filter-group {
+    width: 100%;
+  }
+
+  .employees-filter-bar .filter-tabs {
     display: grid;
     grid-template-columns: 1fr;
   }
 
-  .employees-toolbar-actions {
-    flex-direction: column-reverse;
-    align-items: stretch;
-    gap: 10px;
+  .employees-filter-actions {
+    margin-left: 0;
+    width: 100%;
   }
 
   .department-select,
   .add-employee-button,
   .employee-search {
+    width: 100%;
+  }
+
+  .employees-filter-search-group {
+    flex: 1 1 auto;
     width: 100%;
   }
 

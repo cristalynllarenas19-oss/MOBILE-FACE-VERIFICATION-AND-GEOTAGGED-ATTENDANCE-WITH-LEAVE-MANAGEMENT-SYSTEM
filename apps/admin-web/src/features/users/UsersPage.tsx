@@ -149,17 +149,22 @@ export function UsersPage() {
         </div>
       )}
 
-      <div className="users-toolbar">
-        <div className="filter-tabs">
-          <button className={filter === "ALL" ? "active" : ""} onClick={() => setFilter("ALL")}>All Users ({users.length})</button>
-          <button className={filter === "ACTIVE" ? "active" : ""} onClick={() => setFilter("ACTIVE")}>Active ({activeCount})</button>
-          <button className={filter === "INACTIVE" ? "active" : ""} onClick={() => setFilter("INACTIVE")}>Inactive ({inactiveCount})</button>
+      <div className="users-filter-bar">
+        <div className="users-filter-group">
+          <span className="users-filter-label">View</span>
+          <div className="filter-tabs">
+            <button className={filter === "ALL" ? "active" : ""} onClick={() => setFilter("ALL")}>All Users ({users.length})</button>
+            <button className={filter === "ACTIVE" ? "active" : ""} onClick={() => setFilter("ACTIVE")}>Active ({activeCount})</button>
+            <button className={filter === "INACTIVE" ? "active" : ""} onClick={() => setFilter("INACTIVE")}>Inactive ({inactiveCount})</button>
+          </div>
         </div>
 
-        <button className="add-user-button" onClick={() => setIsAddOpen(true)}>
-          <Plus size={15} />
-          Add User
-        </button>
+        <div className="users-filter-actions">
+          <button className="add-user-button" onClick={() => setIsAddOpen(true)}>
+            <Plus size={15} />
+            Add User
+          </button>
+        </div>
       </div>
 
       <section className="table-card users-table-card">

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronDown, Eye, Filter, FileSpreadsheet, FileText, Printer, X } from "lucide-react";
+import { ChevronDown, Eye, Filter, FileSpreadsheet, FileText, Printer, Search, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { apiRequest } from "../../lib/api";
@@ -209,6 +209,11 @@ export function AuditLogsTab({
     }
   };
 
+  const clearAuditSearch = () => {
+    setAuditSearch("");
+    loadAuditLogs(1, false);
+  };
+
   const changeRows = viewLog ? buildChangeRows(viewLog) : [];
   const hasRawJson = viewLog && (viewLog.oldValues != null || viewLog.newValues != null);
 
@@ -227,16 +232,29 @@ export function AuditLogsTab({
       <div className="utilities-filter-bar">
         <div className="utilities-filter-group">
           <label className="utilities-filter-label">Search</label>
-          <input
-            type="text"
-            value={auditSearch}
-            onChange={(e) => setAuditSearch(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") loadAuditLogs(1, false);
-            }}
-            placeholder="Actor name or email"
-            aria-label="Search audit logs by actor"
-          />
+          <div className="utilities-search-input-wrap">
+            <Search size={14} className="utilities-search-icon" />
+            <input
+              type="text"
+              value={auditSearch}
+              onChange={(e) => setAuditSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") loadAuditLogs(1, false);
+              }}
+              placeholder="Actor name or email"
+              aria-label="Search audit logs by actor"
+            />
+            {auditSearch && (
+              <button
+                type="button"
+                className="utilities-search-clear"
+                onClick={clearAuditSearch}
+                aria-label="Clear search"
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="utilities-filter-group">
@@ -316,7 +334,9 @@ export function AuditLogsTab({
                   <td data-label="Actor">{actorName(log)}</td>
                   <td data-label="Module">{moduleLabel(log.entityType)}</td>
                   <td data-label="Action">
-                    <Badge tone={actionTone(log.action)}>{formatAction(log.action)}</Badge>
+                    <div className="utilities-action-cell">
+                      <Badge tone={actionTone(log.action)}>{formatAction(log.action)}</Badge>
+                    </div>
                   </td>
                   <td data-label="Affected Record">{affectedRecordLabel(log)}</td>
                   <td data-label="Details">

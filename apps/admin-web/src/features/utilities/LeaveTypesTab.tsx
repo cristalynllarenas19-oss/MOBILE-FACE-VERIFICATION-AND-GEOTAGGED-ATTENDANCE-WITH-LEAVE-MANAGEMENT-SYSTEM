@@ -44,13 +44,6 @@ const EMPLOYMENT_STATUS_OPTIONS: { value: EmploymentStatus; label: string }[] = 
 // additional classifications also get it.
 const OPTIONAL_STATUS_OPTIONS = EMPLOYMENT_STATUS_OPTIONS.filter((o) => o.value !== "REGULAR");
 
-const EMPLOYMENT_STATUS_COLORS: Record<EmploymentStatus, string> = {
-  REGULAR: "#2979d0",
-  PROBATIONARY: "#d97706",
-  CONTRACTUAL: "#7c3aed",
-  SEPARATED: "#94a3b8",
-};
-
 const PAGE_SIZE = 10;
 
 function formatEmploymentStatus(status: EmploymentStatus) {
@@ -70,18 +63,6 @@ function actorDisplayName(actor: ActorRef | undefined) {
   if (!actor) return null;
   if (actor.employee) return `${actor.employee.firstName} ${actor.employee.lastName}`;
   return actor.email;
-}
-
-function ClassificationChip({ status }: { status: EmploymentStatus }) {
-  const color = EMPLOYMENT_STATUS_COLORS[status];
-  return (
-    <span
-      className="utilities-classification-chip"
-      style={{ color, borderColor: `${color}55`, background: `${color}15` }}
-    >
-      {formatEmploymentStatus(status)}
-    </span>
-  );
 }
 
 const emptyForm = {
@@ -307,7 +288,6 @@ export function LeaveTypesTab({
             <tr>
               <th>NAME</th>
               <th>DEFAULT DAYS/YEAR</th>
-              <th>CLASSIFICATION</th>
               <th>STATUS</th>
               <th>LAST UPDATED</th>
               <th>ACTIONS</th>
@@ -316,7 +296,7 @@ export function LeaveTypesTab({
           <tbody>
             {pagedLeaveTypes.length === 0 ? (
               <tr>
-                <td colSpan={6} className="utilities-empty-state">
+                <td colSpan={5} className="utilities-empty-state">
                   {leaveTypes.length === 0 ? (
                     <div className="utilities-empty-block">
                       <ClipboardList size={28} />
@@ -332,13 +312,6 @@ export function LeaveTypesTab({
                 <tr key={type.id}>
                   <td data-label="Name">{type.name}</td>
                   <td data-label="Default Days/Year">{formatDefaultDays(type)}</td>
-                  <td data-label="Classification">
-                    <div className="utilities-classification-chips">
-                      {type.applicableStatuses.map((status) => (
-                        <ClassificationChip key={status} status={status} />
-                      ))}
-                    </div>
-                  </td>
                   <td data-label="Status">
                     <Badge tone={type.isActive ? "success" : "neutral"}>
                       {type.isActive ? "Active" : "Inactive"}
@@ -514,6 +487,10 @@ export function LeaveTypesTab({
                   <strong>{formatDefaultDays(viewLeaveType)}</strong>
                 </div>
                 <div>
+                  <span>Applicable Classifications</span>
+                  <strong>{viewLeaveType.applicableStatuses.map(formatEmploymentStatus).join(", ")}</strong>
+                </div>
+                <div>
                   <span>Requires Document</span>
                   <Badge tone={viewLeaveType.requiresDocument ? "warning" : "neutral"}>
                     {viewLeaveType.requiresDocument ? "Required" : "Not required"}
@@ -538,15 +515,6 @@ export function LeaveTypesTab({
                     {formatDate(viewLeaveType.updatedAt)}
                     {actorDisplayName(viewLeaveType.updatedByUser) ? ` — ${actorDisplayName(viewLeaveType.updatedByUser)}` : ""}
                   </strong>
-                </div>
-              </div>
-
-              <div className="utilities-field">
-                <span className="utilities-field-label">Applicable Classifications</span>
-                <div className="utilities-classification-chips">
-                  {viewLeaveType.applicableStatuses.map((status) => (
-                    <ClassificationChip key={status} status={status} />
-                  ))}
                 </div>
               </div>
             </div>

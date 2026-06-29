@@ -185,25 +185,7 @@
   gap: 10px;
 }
 
-/* ── Leave type classification chips/options ── */
-
-.utilities-classification-chips {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 5px;
-}
-
-.utilities-classification-chip {
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid;
-  border-radius: 999px;
-  padding: 3px 10px;
-  font-size: 10.5px;
-  font-weight: 800;
-  white-space: nowrap;
-}
+/* ── Leave type classification options ── */
 
 .utilities-classification-options {
   display: flex;
@@ -865,6 +847,69 @@
   word-break: break-word;
 }
 
+/* ── Action column: fixed-width badge wrapper ── */
+
+.utilities-action-cell {
+  display: flex;
+  justify-content: center;
+}
+
+.utilities-action-cell .badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 170px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Search input with leading icon + clear (x) button ── */
+
+.utilities-search-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.utilities-search-input-wrap svg.utilities-search-icon {
+  position: absolute;
+  top: 50%;
+  left: 11px;
+  transform: translateY(-50%);
+  color: #9aa9bb;
+  pointer-events: none;
+}
+
+.utilities-search-input-wrap input {
+  padding-left: 32px !important;
+  padding-right: 30px !important;
+}
+
+.utilities-search-clear {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #9aa9bb;
+  cursor: pointer;
+  z-index: 1;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.utilities-search-clear:hover {
+  background: #eef3f8;
+  color: #41536b;
+}
 
 @media (max-width: 640px) {
   .utilities-stats-row {
