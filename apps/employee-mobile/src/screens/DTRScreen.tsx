@@ -8,7 +8,6 @@ import {
   Modal,
   Image,
   Pressable,
-  ScrollView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { AttendanceHistoryRecord, AttendanceLogPhoto, getAttendanceHistory } from "../api";
@@ -40,12 +39,6 @@ function photoUri(log: AttendanceLogPhoto) {
   return `data:${log.faceImageMimeType ?? "image/jpeg"};base64,${log.faceImageData}`;
 }
 
-function logLabel(log: AttendanceLogPhoto) {
-  if (log.logType === "TIME_IN") return "Time In";
-  if (log.logType === "TIME_OUT") return "Time Out";
-  return "Rejected Attempt";
-}
-
 function formatLogTime(value: string) {
   return new Date(value).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" });
 }
@@ -64,6 +57,7 @@ export default function DTRScreen({ employeeId }: Props) {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedRecord, setSelectedRecord] = useState<AttendanceHistoryRecord | null>(null);
+  const [photoTab, setPhotoTab] = useState<"TIME_IN" | "TIME_OUT">("TIME_IN");
 
   const load = useCallback(async () => {
     if (!employeeId) return;
@@ -131,7 +125,13 @@ export default function DTRScreen({ employeeId }: Props) {
         const hasPhotos = item.logs?.some((log) => log.faceImageData);
 
         return (
-          <Pressable style={styles.row} onPress={() => setSelectedRecord(item)}>
+          <Pressable
+            style={styles.row}
+            onPress={() => {
+              setSelectedRecord(item);
+              setPhotoTab("TIME_IN");
+            }}
+          >
             <View style={styles.rowTop}>
               <View style={styles.dateRow}>
                 <Text style={styles.dateText}>{formatDate(item.attendanceDate)}</Text>
@@ -178,36 +178,43 @@ export default function DTRScreen({ employeeId }: Props) {
             {selectedRecord ? formatDate(selectedRecord.attendanceDate) : ""}
           </Text>
 
-          {selectedRecord && selectedRecord.logs.length === 0 && (
-            <Text style={styles.modalEmptyText}>No captured photo for this day.</Text>
-          )}
+          <View style={styles.photoTabSwitcher}>
+            <Pressable
+              style={[styles.photoTabButton, photoTab === "TIME_IN" && styles.photoTabButtonActive]}
+              onPress={() => setPhotoTab("TIME_IN")}
+            >
+              <Text style={[styles.photoTabText, photoTab === "TIME_IN" && styles.photoTabTextActive]}>Time In</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.photoTabButton, photoTab === "TIME_OUT" && styles.photoTabButtonActive]}
+              onPress={() => setPhotoTab("TIME_OUT")}
+            >
+              <Text style={[styles.photoTabText, photoTab === "TIME_OUT" && styles.photoTabTextActive]}>Time Out</Text>
+            </Pressable>
+          </View>
 
-          <ScrollView style={styles.modalPhotoScroll} contentContainerStyle={styles.modalPhotoList}>
-            {selectedRecord?.logs.map((log) => {
-              const uri = photoUri(log);
-              const isRejected = log.logType === "FAILED_ATTEMPT";
-              return (
-                <View key={log.id} style={styles.modalPhotoBlock}>
+          {(() => {
+            const log = selectedRecord?.logs.find((l) => l.logType === photoTab);
+            const uri = log ? photoUri(log) : null;
+            return (
+              <View style={styles.modalPhotoBlock}>
+                {log && (
                   <View style={styles.modalPhotoLabelRow}>
-                    <Text style={[styles.modalPhotoLabel, isRejected && styles.modalPhotoLabelRejected]}>
-                      {logLabel(log)}
-                    </Text>
+                    <Text style={styles.modalPhotoLabel}>{photoTab === "TIME_IN" ? "Time In" : "Time Out"}</Text>
                     <Text style={styles.modalPhotoTime}>{formatLogTime(log.capturedAt)}</Text>
                   </View>
-                  {uri ? (
-                    <Image source={{ uri }} style={styles.modalPhoto} resizeMode="contain" />
-                  ) : (
-                    <View style={[styles.modalPhoto, styles.modalPhotoPlaceholder]}>
-                      <Ionicons name="image-outline" size={28} color="#CBD5E1" />
-                    </View>
-                  )}
-                  {isRejected && log.failureReason && (
-                    <Text style={styles.modalPhotoReason}>{log.failureReason}</Text>
-                  )}
-                </View>
-              );
-            })}
-          </ScrollView>
+                )}
+                {uri ? (
+                  <Image source={{ uri }} style={styles.modalPhoto} resizeMode="contain" />
+                ) : (
+                  <View style={[styles.modalPhoto, styles.modalPhotoPlaceholder]}>
+                    <Ionicons name="image-outline" size={28} color="#CBD5E1" />
+                    <Text style={styles.modalEmptyText}>No photo captured</Text>
+                  </View>
+                )}
+              </View>
+            );
+          })()}
 
           <Pressable style={styles.modalCloseButton} onPress={() => setSelectedRecord(null)}>
             <Text style={styles.modalCloseText}>Close</Text>
@@ -360,14 +367,33 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginBottom: 8,
   },
-  modalPhotoScroll: {
+  photoTabSwitcher: {
+    flexDirection: "row",
+    backgroundColor: "#F1F5F9",
+    borderRadius: 12,
+    padding: 4,
     marginBottom: 14,
   },
-  modalPhotoList: {
-    gap: 20,
+  photoTabButton: {
+    flex: 1,
+    paddingVertical: 9,
+    borderRadius: 9,
+    alignItems: "center",
+  },
+  photoTabButtonActive: {
+    backgroundColor: "#062B59",
+  },
+  photoTabText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#64748B",
+  },
+  photoTabTextActive: {
+    color: "#FFFFFF",
   },
   modalPhotoBlock: {
     gap: 8,
+    marginBottom: 14,
   },
   modalPhotoLabelRow: {
     flexDirection: "row",
@@ -379,19 +405,10 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
   },
-  modalPhotoLabelRejected: {
-    color: "#DC2626",
-  },
   modalPhotoTime: {
     color: "#94A3B8",
     fontSize: 12,
     fontWeight: "600",
-  },
-  modalPhotoReason: {
-    color: "#DC2626",
-    fontSize: 12,
-    fontWeight: "600",
-    lineHeight: 16,
   },
   // Full width, ratio-matched to the saved composite (no fixed square crop)
   // so the GPS stamp baked into the bottom of the photo is never cut off.
@@ -404,6 +421,7 @@ const styles = StyleSheet.create({
   modalPhotoPlaceholder: {
     alignItems: "center",
     justifyContent: "center",
+    gap: 8,
   },
   modalCloseButton: {
     height: 46,

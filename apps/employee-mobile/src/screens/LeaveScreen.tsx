@@ -16,6 +16,7 @@ import DateTimePickerModal from "react-native-modal-datetime-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { File } from "expo-file-system";
 import ResultModal, { ResultModalStatus } from "../components/ResultModal";
+import LeaveBalanceChart from "../components/LeaveBalanceChart";
 import {
   LeaveType,
   LeaveBalance,
@@ -75,8 +76,8 @@ export default function LeaveScreen({ employeeId }: Props) {
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [isPickingFile, setIsPickingFile] = useState(false);
 
-  const [showBalance, setShowBalance] = useState(false);
   const [showPending, setShowPending] = useState(false);
+  const [activeTab, setActiveTab] = useState<"balance" | "request">("balance");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resultModal, setResultModal] = useState<{ status: ResultModalStatus; title: string; message: string } | null>(null);
 
@@ -86,10 +87,6 @@ export default function LeaveScreen({ employeeId }: Props) {
   );
 
   const pendingRequests = useMemo(() => requests.filter((r) => r.status === "PENDING"), [requests]);
-  const totalRemainingDays = useMemo(
-    () => balances.reduce((sum, balance) => sum + balance.remainingDays, 0),
-    [balances]
-  );
 
   useEffect(() => {
     loadData();
@@ -250,196 +247,185 @@ export default function LeaveScreen({ employeeId }: Props) {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView contentContainerStyle={styles.mainContainer} keyboardShouldPersistTaps="handled">
+      <View style={styles.tabSwitcher}>
+        <Pressable
+          style={[styles.tabButton, activeTab === "balance" && styles.tabButtonActive]}
+          onPress={() => setActiveTab("balance")}
+        >
+          <Text style={[styles.tabButtonText, activeTab === "balance" && styles.tabButtonTextActive]}>Balance</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.tabButton, activeTab === "request" && styles.tabButtonActive]}
+          onPress={() => setActiveTab("request")}
+        >
+          <Text style={[styles.tabButtonText, activeTab === "request" && styles.tabButtonTextActive]}>Request</Text>
+        </Pressable>
+      </View>
 
-        <View style={styles.summaryRow}>
-          <Pressable style={styles.summaryCard} onPress={() => setShowBalance(true)}>
-            <Ionicons name="wallet-outline" size={20} color="#1680D8" />
-            <Text style={styles.summaryLabel}>Leave Balance</Text>
-            <Text style={styles.summaryValue}>{isLoadingData ? "…" : totalRemainingDays}</Text>
-            <Text style={styles.tapText}>Tap to view</Text>
-          </Pressable>
-
-          <Pressable style={styles.summaryCard} onPress={() => setShowPending(true)}>
-            <Ionicons name="time-outline" size={20} color="#F59E0B" />
-            <Text style={styles.summaryLabel}>Pending Leave</Text>
-            <Text style={styles.summaryValue}>{isLoadingData ? "…" : pendingRequests.length}</Text>
-            <Text style={styles.tapText}>Tap to view</Text>
-          </Pressable>
+      {activeTab === "balance" ? (
+        <View style={[styles.tabContentPad, { flex: 1 }]}>
+          <LeaveBalanceChart
+            balances={balances}
+            loading={isLoadingData}
+            pendingCount={pendingRequests.length}
+            onPressPending={() => setShowPending(true)}
+          />
         </View>
+      ) : (
+        <ScrollView
+          contentContainerStyle={[styles.tabContentPad, { flexGrow: 1 }]}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.card}>
+            <View style={styles.formHeader}>
+              <Ionicons color="#DC2777" name="document-text-outline" size={32} />
+              <Text style={styles.cardTitle}>Leave Request</Text>
+            </View>
 
-        <View style={styles.card}>
-          <View style={styles.formHeader}>
-            <Ionicons color="#DC2777" name="document-text-outline" size={32} />
-            <Text style={styles.cardTitle}>Leave Request</Text>
-          </View>
+            <Text style={styles.label}>Leave Type</Text>
+            <View style={styles.dropdownWrapper}>
+              <Pressable
+                style={[styles.dropdownButton, isDropdownOpen && { borderColor: "#062B59" }]}
+                onPress={() => {
+                  setIsDropdownOpen(!isDropdownOpen);
+                  setSearchLeave("");
+                }}
+              >
+                <Text style={[styles.dropdownText, !leaveTypeId && { color: "#94A3B8" }]}>
+                  {selectedLeaveType?.name || (isLoadingData ? "Loading leave types…" : "Select Leave Type")}
+                </Text>
+                <Ionicons name={isDropdownOpen ? "chevron-up" : "chevron-down"} size={20} color="#64748B" />
+              </Pressable>
 
-          <Text style={styles.label}>Leave Type</Text>
-          <View style={styles.dropdownWrapper}>
-            <Pressable
-              style={[styles.dropdownButton, isDropdownOpen && { borderColor: "#062B59" }]}
-              onPress={() => {
-                setIsDropdownOpen(!isDropdownOpen);
-                setSearchLeave("");
-              }}
-            >
-              <Text style={[styles.dropdownText, !leaveTypeId && { color: "#94A3B8" }]}>
-                {selectedLeaveType?.name || (isLoadingData ? "Loading leave types…" : "Select Leave Type")}
-              </Text>
-              <Ionicons name={isDropdownOpen ? "chevron-up" : "chevron-down"} size={20} color="#64748B" />
-            </Pressable>
+              {isDropdownOpen && (
+                <View style={styles.inlineDropdownContainer}>
+                  <View style={styles.searchBarWrapper}>
+                    <Ionicons name="search-outline" size={16} color="#94A3B8" style={styles.searchIcon} />
+                    <TextInput
+                      placeholder="Search leave type..."
+                      value={searchLeave}
+                      onChangeText={setSearchLeave}
+                      style={styles.inlineSearchInput}
+                      autoFocus={true}
+                    />
+                  </View>
 
-            {isDropdownOpen && (
-              <View style={styles.inlineDropdownContainer}>
-                <View style={styles.searchBarWrapper}>
-                  <Ionicons name="search-outline" size={16} color="#94A3B8" style={styles.searchIcon} />
-                  <TextInput
-                    placeholder="Search leave type..."
-                    value={searchLeave}
-                    onChangeText={setSearchLeave}
-                    style={styles.inlineSearchInput}
-                    autoFocus={true}
-                  />
+                  <ScrollView style={{ maxHeight: 160 }}>
+                    {filteredLeaveTypes.length > 0 ? (
+                      filteredLeaveTypes.map((item) => (
+                        <Pressable
+                          key={item.id}
+                          style={styles.inlineItem}
+                          onPress={() => {
+                            setLeaveTypeId(item.id);
+                            setIsDropdownOpen(false);
+                            setSearchLeave("");
+                          }}
+                        >
+                          <Text style={[styles.inlineItemText, leaveTypeId === item.id && styles.selectedItemText]}>
+                            {item.name}
+                            {item.requiresDocument ? " (document required)" : ""}
+                          </Text>
+                        </Pressable>
+                      ))
+                    ) : (
+                      <View style={styles.noResultsBox}>
+                        <Text style={styles.noResultsText}>No leave types found</Text>
+                      </View>
+                    )}
+                  </ScrollView>
                 </View>
+              )}
+            </View>
 
-                <ScrollView style={{ maxHeight: 160 }}>
-                  {filteredLeaveTypes.length > 0 ? (
-                    filteredLeaveTypes.map((item) => (
-                      <Pressable
-                        key={item.id}
-                        style={styles.inlineItem}
-                        onPress={() => {
-                          setLeaveTypeId(item.id);
-                          setIsDropdownOpen(false);
-                          setSearchLeave("");
-                        }}
-                      >
-                        <Text style={[styles.inlineItemText, leaveTypeId === item.id && styles.selectedItemText]}>
-                          {item.name}
-                          {item.requiresDocument ? " (document required)" : ""}
-                        </Text>
-                      </Pressable>
-                    ))
-                  ) : (
-                    <View style={styles.noResultsBox}>
-                      <Text style={styles.noResultsText}>No leave types found</Text>
-                    </View>
-                  )}
-                </ScrollView>
-              </View>
-            )}
-          </View>
+            <Text style={styles.label}>Leave Duration</Text>
+            <View style={styles.dateRow}>
+              <Pressable style={styles.dateBox} onPress={() => setStartPickerVisibility(true)}>
+                <Text style={[styles.dateText, !startDateSelected && { color: "#94A3B8" }]}>
+                  {startDateSelected ? formatDate(startDate) : "Start Date"}
+                </Text>
+                <Ionicons name="calendar-outline" size={20} color="#64748B" />
+              </Pressable>
 
-          <Text style={styles.label}>Leave Duration</Text>
-          <View style={styles.dateRow}>
-            <Pressable style={styles.dateBox} onPress={() => setStartPickerVisibility(true)}>
-              <Text style={[styles.dateText, !startDateSelected && { color: "#94A3B8" }]}>
-                {startDateSelected ? formatDate(startDate) : "Start Date"}
-              </Text>
-              <Ionicons name="calendar-outline" size={20} color="#64748B" />
-            </Pressable>
-
-            <Pressable style={styles.dateBox} onPress={() => setEndPickerVisibility(true)}>
-              <Text style={[styles.dateText, !endDateSelected && { color: "#94A3B8" }]}>
-                {endDateSelected ? formatDate(endDate) : "End Date"}
-              </Text>
-              <Ionicons name="calendar-outline" size={20} color="#64748B" />
-            </Pressable>
-          </View>
-          {startDateSelected && endDateSelected && (
-            <Text style={styles.totalDaysText}>{totalDays} day{totalDays === 1 ? "" : "s"} total</Text>
-          )}
-
-          <DateTimePickerModal
-            isVisible={isStartPickerVisible}
-            mode="date"
-            onConfirm={handleStartDateConfirm}
-            onCancel={() => setStartPickerVisibility(false)}
-          />
-
-          <DateTimePickerModal
-            isVisible={isEndPickerVisible}
-            mode="date"
-            minimumDate={startDateSelected ? startDate : undefined}
-            onConfirm={handleEndDateConfirm}
-            onCancel={() => setEndPickerVisibility(false)}
-          />
-
-          <Text style={styles.label}>
-            Supporting Document{selectedLeaveType?.requiresDocument ? " (required)" : " (optional)"}
-          </Text>
-          {attachment ? (
-            <View style={styles.attachmentChip}>
-              <Ionicons
-                name={attachment.mimeType.startsWith("image/") ? "image-outline" : "document-outline"}
-                size={18}
-                color="#1680D8"
-              />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.attachmentName} numberOfLines={1}>{attachment.name}</Text>
-                <Text style={styles.attachmentSize}>{formatBytes(attachment.sizeBytes)}</Text>
-              </View>
-              <Pressable onPress={() => setAttachment(null)} style={styles.attachmentRemove}>
-                <Ionicons name="close" size={16} color="#64748B" />
+              <Pressable style={styles.dateBox} onPress={() => setEndPickerVisibility(true)}>
+                <Text style={[styles.dateText, !endDateSelected && { color: "#94A3B8" }]}>
+                  {endDateSelected ? formatDate(endDate) : "End Date"}
+                </Text>
+                <Ionicons name="calendar-outline" size={20} color="#64748B" />
               </Pressable>
             </View>
-          ) : (
-            <Pressable style={styles.attachmentPicker} onPress={pickAttachment} disabled={isPickingFile}>
-              {isPickingFile ? (
-                <ActivityIndicator size="small" color="#1680D8" />
-              ) : (
-                <Ionicons name="attach-outline" size={20} color="#1680D8" />
-              )}
-              <Text style={styles.attachmentPickerText}>
-                {isPickingFile ? "Opening…" : "Tap to attach a photo or PDF"}
-              </Text>
-            </Pressable>
-          )}
-          {attachmentError && <Text style={styles.attachmentErrorText}>{attachmentError}</Text>}
+            {startDateSelected && endDateSelected && (
+              <Text style={styles.totalDaysText}>{totalDays} day{totalDays === 1 ? "" : "s"} total</Text>
+            )}
 
-          <Text style={styles.label}>Reason</Text>
-          <View style={styles.textAreaContainer}>
-            <TextInput
-              placeholder="Enter reason"
-              multiline
-              value={reason}
-              onChangeText={setReason}
-              style={styles.textAreaInput}
+            <DateTimePickerModal
+              isVisible={isStartPickerVisible}
+              mode="date"
+              onConfirm={handleStartDateConfirm}
+              onCancel={() => setStartPickerVisibility(false)}
             />
-          </View>
 
-          <Pressable style={[styles.button, isSubmitting && styles.buttonDisabled]} onPress={handleSubmit} disabled={isSubmitting}>
-            {isSubmitting ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <Text style={styles.buttonText}>Submit Leave Request</Text>
-            )}
-          </Pressable>
-        </View>
-      </ScrollView>
+            <DateTimePickerModal
+              isVisible={isEndPickerVisible}
+              mode="date"
+              minimumDate={startDateSelected ? startDate : undefined}
+              onConfirm={handleEndDateConfirm}
+              onCancel={() => setEndPickerVisibility(false)}
+            />
 
-      <Modal visible={showBalance} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Leave Balance ({new Date().getFullYear()})</Text>
-            {balances.length === 0 ? (
-              <Text style={styles.modalEmptyText}>No balance data yet.</Text>
-            ) : (
-              balances.map((balance) => (
-                <View key={balance.leaveTypeId} style={styles.balanceRow}>
-                  <Text>{balance.leaveTypeName}</Text>
-                  <Text style={{ fontWeight: "700", color: "#062B59" }}>
-                    {balance.remainingDays} / {balance.earnedDays} days
-                  </Text>
+            <Text style={styles.label}>
+              Supporting Document{selectedLeaveType?.requiresDocument ? " (required)" : " (optional)"}
+            </Text>
+            {attachment ? (
+              <View style={styles.attachmentChip}>
+                <Ionicons
+                  name={attachment.mimeType.startsWith("image/") ? "image-outline" : "document-outline"}
+                  size={18}
+                  color="#1680D8"
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.attachmentName} numberOfLines={1}>{attachment.name}</Text>
+                  <Text style={styles.attachmentSize}>{formatBytes(attachment.sizeBytes)}</Text>
                 </View>
-              ))
+                <Pressable onPress={() => setAttachment(null)} style={styles.attachmentRemove}>
+                  <Ionicons name="close" size={16} color="#64748B" />
+                </Pressable>
+              </View>
+            ) : (
+              <Pressable style={styles.attachmentPicker} onPress={pickAttachment} disabled={isPickingFile}>
+                {isPickingFile ? (
+                  <ActivityIndicator size="small" color="#1680D8" />
+                ) : (
+                  <Ionicons name="attach-outline" size={20} color="#1680D8" />
+                )}
+                <Text style={styles.attachmentPickerText}>
+                  {isPickingFile ? "Opening…" : "Tap to attach a photo or PDF"}
+                </Text>
+              </Pressable>
             )}
-            <Pressable style={styles.closeButton} onPress={() => setShowBalance(false)}>
-              <Text style={styles.closeText}>Close</Text>
+            {attachmentError && <Text style={styles.attachmentErrorText}>{attachmentError}</Text>}
+
+            <Text style={styles.label}>Reason</Text>
+            <View style={styles.textAreaContainer}>
+              <TextInput
+                placeholder="Enter reason"
+                multiline
+                value={reason}
+                onChangeText={setReason}
+                style={styles.textAreaInput}
+              />
+            </View>
+
+            <Pressable style={[styles.button, isSubmitting && styles.buttonDisabled]} onPress={handleSubmit} disabled={isSubmitting}>
+              {isSubmitting ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={styles.buttonText}>Submit Leave Request</Text>
+              )}
             </Pressable>
           </View>
-        </View>
-      </Modal>
+        </ScrollView>
+      )}
 
       <Modal visible={showPending} transparent animationType="slide">
         <View style={styles.modalOverlay}>
@@ -494,43 +480,36 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#FFFFFF"
   },
-  mainContainer: {
-    flexGrow: 1,
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: SCREEN_HEIGHT < 700 ? 16 : 24,
-  },
-  summaryRow: {
+  tabSwitcher: {
     flexDirection: "row",
-    gap: 12,
-    marginBottom: SCREEN_HEIGHT < 700 ? 10 : 16,
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 4,
+    backgroundColor: "#F1F5F9",
+    borderRadius: 14,
+    padding: 4,
   },
-  summaryCard: {
+  tabButton: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 18,
-    paddingVertical: SCREEN_HEIGHT < 700 ? 8 : 12,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-    alignItems: "center"
+    paddingVertical: 10,
+    borderRadius: 11,
+    alignItems: "center",
   },
-  summaryLabel: {
-    color: "#64748B",
-    fontSize: 12,
-    marginTop: 4,
+  tabButtonActive: {
+    backgroundColor: "#062B59",
   },
-  summaryValue: {
-    fontSize: 20,
+  tabButtonText: {
+    fontSize: 14,
     fontWeight: "700",
-    color: "#062B59",
-    marginTop: 2,
+    color: "#64748B",
   },
-  tapText: {
-    marginTop: 2,
-    color: "#1680D8",
-    fontSize: 11,
-    fontWeight: "600"
+  tabButtonTextActive: {
+    color: "#FFFFFF",
+  },
+  tabContentPad: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: SCREEN_HEIGHT < 700 ? 16 : 24,
   },
   card: {
     backgroundColor: "#FFFFFF",
@@ -735,7 +714,6 @@ const styles = StyleSheet.create({
   modalCard: { width: "88%", maxHeight: "80%", backgroundColor: "#FFFFFF", borderRadius: 18, padding: 20 },
   modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 16, color: "#062B59" },
   modalEmptyText: { color: "#94A3B8", fontSize: 13, textAlign: "center", paddingVertical: 12 },
-  balanceRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 12 },
   requestCard: { backgroundColor: "#F8FAFC", borderRadius: 12, padding: 14, marginBottom: 12 },
   requestTitle: { fontWeight: "700", marginBottom: 4 },
   requestAttachmentRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
