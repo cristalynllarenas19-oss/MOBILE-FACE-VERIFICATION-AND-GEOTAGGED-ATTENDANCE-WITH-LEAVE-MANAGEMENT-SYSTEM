@@ -9,6 +9,7 @@ export type AuthUser = {
   departmentId?: string;
   department?: string;
   displayName: string;
+  attendanceMode?: "FIXED" | "FIELD";
 };
 
 export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -51,3 +52,21 @@ export function logout() {
   localStorage.removeItem("refreshToken");
   localStorage.removeItem("authUser");
 }
+
+export const forgotPassword = (email: string) =>
+  apiRequest<{ message: string }>("/auth/forgot-password", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+
+export const verifyResetOtp = (email: string, otp: string) =>
+  apiRequest<{ resetToken: string }>("/auth/reset-password/verify-otp", {
+    method: "POST",
+    body: JSON.stringify({ email, otp }),
+  });
+
+export const resetPassword = (resetToken: string, newPassword: string) =>
+  apiRequest<{ message: string }>("/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify({ resetToken, newPassword }),
+  });

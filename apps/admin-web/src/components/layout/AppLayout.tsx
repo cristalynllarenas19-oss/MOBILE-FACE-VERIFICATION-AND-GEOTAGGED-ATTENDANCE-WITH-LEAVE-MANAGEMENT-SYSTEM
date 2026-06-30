@@ -47,6 +47,13 @@ export const navItems = [
   { id: "schedules",  label: "Schedule Management",   icon: CalendarClock,   permission: permissions.schedulesRead },
   { id: "reports",    label: "Reports",               icon: BarChart3,       permission: permissions.reportsRead },
   { id: "utilities",    label: "Utilities",               icon: Settings,       permission: permissions.reportsRead },
+
+  // Employee self-service nav items (mirrors employee-mobile bottom tabs)
+  { id: "employee-attendance", label: "Attendance", icon: CheckSquare,   permission: permissions.employeeAttendanceView },
+  { id: "employee-leave",      label: "Leave",       icon: ClipboardList, permission: permissions.employeeLeaveView },
+  { id: "employee-dtr",        label: "DTR",         icon: CalendarClock, permission: permissions.employeeDtrView },
+  { id: "employee-work-area",  label: "Work Area",   icon: MapPin,        permission: permissions.employeeWorkAreaView },
+  { id: "employee-settings",   label: "Settings",    icon: Settings2,     permission: permissions.employeeSettingsView },
 ];
 
 function getInitials(name: string): string {
@@ -78,9 +85,11 @@ export function AppLayout({
   const [notifLoading, setNotifLoading] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
 
-  const visibleItems = navItems.filter((item) =>
-    user.permissions.includes(item.permission)
-  );
+  // EMPLOYEE role always sees only the 5 self-service tabs, never admin pages,
+  // regardless of what permissions the backend happens to send.
+  const visibleItems = user.role === "EMPLOYEE"
+    ? navItems.filter((item) => item.id.startsWith("employee-"))
+    : navItems.filter((item) => user.permissions.includes(item.permission));
 
   useEffect(() => {
     const refreshUnreadCount = () => {

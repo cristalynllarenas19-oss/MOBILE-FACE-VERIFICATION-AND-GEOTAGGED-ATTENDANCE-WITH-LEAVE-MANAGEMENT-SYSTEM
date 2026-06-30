@@ -2,6 +2,7 @@
   "expo": {
     "name": "Universal Leaf Attendance",
     "slug": "universal-leaf-attendance",
+    "owner": "unileaf",
     "version": "0.1.0",
     "orientation": "portrait",
     "scheme": "ulattendance",
@@ -18,13 +19,28 @@
       "permissions": [
         "CAMERA",
         "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "CAMERA",
+        "ACCESS_FINE_LOCATION",
         "ACCESS_COARSE_LOCATION"
-      ]
+      ],
+      "package": "com.unileaf.employeeattendance"
     },
     "plugins": [
       "@react-native-community/datetimepicker",
       "expo-secure-store",
       "expo-asset"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "28b70400-a43e-4a99-b3c4-b8bbb5fdc35d"
+      }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/28b70400-a43e-4a99-b3c4-b8bbb5fdc35d"
+    }
   }
 }

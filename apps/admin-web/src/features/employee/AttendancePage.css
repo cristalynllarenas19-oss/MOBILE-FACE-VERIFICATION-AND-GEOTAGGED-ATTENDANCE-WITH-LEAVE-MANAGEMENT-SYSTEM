@@ -1,0 +1,94 @@
+/* ── Desktop: two-column grid — attendance dominates ── */
+.att-grid {
+  display: grid;
+  grid-template-columns: minmax(520px, 620px) 1fr;
+  gap: 28px;
+  align-items: start;
+}
+
+/* Right column stacked vertically on desktop */
+.att-right {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ── ≤900px: single column, stat cards go side-by-side below the left block ── */
+@media (max-width: 900px) {
+  .att-grid {
+    grid-template-columns: 1fr;
+    max-width: 680px;
+    margin: 0 auto;
+    align-items: start;
+  }
+
+  /* Stat cards sit side-by-side */
+  .att-right {
+    flex-direction: row;
+    gap: 10px;
+    align-items: flex-start; /* natural height — no stretching */
+  }
+
+  .att-right > * {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* Shrink the attendance card */
+  .att-card {
+    padding: 16px !important;
+  }
+
+  .att-date {
+    margin-bottom: 10px !important;
+  }
+
+  .att-heading {
+    font-size: 17px !important;
+    margin-bottom: 8px !important;
+  }
+
+  .att-status-row {
+    margin-bottom: 8px !important;
+  }
+
+  .att-welcome {
+    font-size: 13px !important;
+    margin-bottom: 14px !important;
+  }
+
+  /* Shrink the hero time display */
+  .att-time-hero {
+    padding: 10px 14px !important;
+    gap: 8px !important;
+    margin-bottom: 0 !important;
+  }
+
+  .att-time-val {
+    font-size: 21px !important;
+  }
+
+  /* Shrink the action buttons */
+  .att-btn {
+    height: 44px !important;
+    margin-top: 10px !important;
+    font-size: 13px !important;
+  }
+
+  /* Shrink the info note */
+  .att-info {
+    padding: 10px 12px !important;
+    margin-top: 10px !important;
+  }
+}
+
+/* ── ≤480px: full width ── */
+@media (max-width: 480px) {
+  .att-grid {
+    max-width: 100%;
+  }
+
+  .att-right {
+    gap: 8px;
+  }
+}

@@ -17,6 +17,13 @@ export const permissions = {
   schedulesWrite: "schedules:write",
   reportsRead: "reports:read",
   geolocationWrite: "geolocation:write",
+
+  // Employee self-service permissions (mirrors employee-mobile)
+  employeeAttendanceView: "employee-attendance:view",
+  employeeLeaveView:      "employee-leave:view",
+  employeeDtrView:        "employee-dtr:view",
+  employeeWorkAreaView:   "employee-work-area:view",
+  employeeSettingsView:   "employee-settings:view",
 } as const;
 
 export type PermissionCode = (typeof permissions)[keyof typeof permissions];
