@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, UnauthorizedException } from "@nestjs/common";
 import * as argon2 from "argon2";
 import { PrismaService } from "../../prisma/prisma.service";
 import { CreateUserDto } from "./dto/create-user.dto";
@@ -42,6 +42,53 @@ export class UsersService {
   async create(dto: CreateUserDto) {
     const role = await this.prisma.role.findUniqueOrThrow({ where: { code: dto.role } });
     const passwordHash = await argon2.hash(dto.password);
+
+    if (dto.employeeId) {
+      const employee = await this.prisma.employee.findUnique({
+        where: { id: dto.employeeId },
+        select: { userId: true },
+      });
+
+      if (!employee) {
+        throw new BadRequestException("Selected employee does not exist.");
+      }
+
+      if (!employee.userId) {
+        throw new BadRequestException("Selected employee does not have a linked user account.");
+      }
+
+      const employeeUserId = employee.userId;
+      const duplicateEmailUser = await this.prisma.user.findUnique({ where: { email: dto.email } });
+      if (duplicateEmailUser && duplicateEmailUser.id !== employeeUserId) {
+        throw new ConflictException("Email is already used by another user account.");
+      }
+
+      return this.prisma.$transaction(async (tx) => {
+        await tx.userRole.deleteMany({ where: { userId: employeeUserId } });
+
+        return tx.user.update({
+          where: { id: employeeUserId },
+          data: {
+            email: dto.email,
+            passwordHash,
+            userRoles: { create: { roleId: role.id } },
+          },
+          select: {
+            id: true,
+            email: true,
+            status: true,
+            userRoles: { include: { role: true } },
+            employee: true,
+          },
+        });
+      });
+    }
+
+    const existingEmail = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    if (existingEmail) {
+      throw new ConflictException("Email is already used by another user account.");
+    }
+
     const department = await this.prisma.department.upsert({
       where: { name: "Human Resources" },
       update: {},

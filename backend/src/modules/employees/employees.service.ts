@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import * as argon2 from "argon2";
 import { PrismaService } from "../../prisma/prisma.service";
 import { CreateEmployeeDto, UpdateEmployeeDto } from "./dto/create-employee.dto";
@@ -72,6 +72,10 @@ export class EmployeesService {
       : null;
 
     if (dto.email) {
+      if (!employee.userId) {
+        throw new BadRequestException("Cannot update login email because this employee has no user account.");
+      }
+
       await this.prisma.user.update({
         where: { id: employee.userId },
         data: { email: dto.email },
@@ -99,10 +103,12 @@ export class EmployeesService {
       include: { user: true },
     });
 
-    await this.prisma.user.update({
-      where: { id: employee.userId },
-      data: { status: "INACTIVE" },
-    });
+    if (employee.userId) {
+      await this.prisma.user.update({
+        where: { id: employee.userId },
+        data: { status: "INACTIVE" },
+      });
+    }
 
     const archived = await this.prisma.employee.update({
       where: { id },

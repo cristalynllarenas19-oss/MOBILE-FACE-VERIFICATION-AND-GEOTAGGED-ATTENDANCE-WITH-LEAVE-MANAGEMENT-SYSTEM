@@ -66,7 +66,7 @@ export class LeaveService {
     id: string;
     startDate: Date;
     endDate: Date;
-    employee: { userId: string; firstName: string; lastName: string; supervisor: { userId: string } | null };
+    employee: { userId: string | null; firstName: string; lastName: string; supervisor: { userId: string | null } | null };
     leaveType: { name: string };
   }) {
     const adminUserIds = await this.notifications.adminUserIds();
@@ -107,12 +107,14 @@ export class LeaveService {
       },
     });
 
-    await this.notifications.notifyUsers([request.employee.userId], {
-      title: status === "APPROVED" ? "Leave Request Approved" : "Leave Request Rejected",
-      message: `Your ${request.leaveType.name} request for ${request.startDate.toLocaleDateString()} - ${request.endDate.toLocaleDateString()} was ${status === "APPROVED" ? "approved" : "rejected"}.${remarks?.trim() ? ` Remarks: ${remarks.trim()}` : ""}`,
-      type: status === "APPROVED" ? "LEAVE_APPROVED" : "LEAVE_REJECTED",
-      entityId: request.id,
-    });
+    if (request.employee.userId) {
+      await this.notifications.notifyUsers([request.employee.userId], {
+        title: status === "APPROVED" ? "Leave Request Approved" : "Leave Request Rejected",
+        message: `Your ${request.leaveType.name} request for ${request.startDate.toLocaleDateString()} - ${request.endDate.toLocaleDateString()} was ${status === "APPROVED" ? "approved" : "rejected"}.${remarks?.trim() ? ` Remarks: ${remarks.trim()}` : ""}`,
+        type: status === "APPROVED" ? "LEAVE_APPROVED" : "LEAVE_REJECTED",
+        entityId: request.id,
+      });
+    }
 
     // Only touch the balance when the approval state is actually changing:
     // - PENDING/REJECTED -> APPROVED: deduct the days.

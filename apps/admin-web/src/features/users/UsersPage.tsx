@@ -25,6 +25,7 @@ type Notification = { type: "success" | "error"; message: string } | null;
 
 const initialForm = {
   email: "",
+  employeeId: "",
   firstName: "",
   lastName: "",
   hireDate: "",
@@ -118,6 +119,7 @@ export function UsersPage() {
     setEmployeeSearch(`${employee.firstName} ${employee.lastName}`);
     setForm((current) => ({
       ...current,
+      employeeId: employee.id,
       firstName: employee.firstName,
       lastName: employee.lastName,
       email: employee.user?.email ?? current.email,
@@ -129,6 +131,7 @@ export function UsersPage() {
   const clearEmployeeSearch = () => {
     setEmployeeSearch("");
     setIsEmployeeSearchOpen(false);
+    setForm((current) => ({ ...current, employeeId: "" }));
   };
 
   const openStatusConfirmation = (user: UserRow) => {
@@ -144,6 +147,7 @@ export function UsersPage() {
     try {
       const payload = {
         email: form.email.trim(),
+        ...(form.employeeId ? { employeeId: form.employeeId } : {}),
         firstName: form.firstName.trim(),
         lastName: form.lastName.trim(),
         password: form.password,
