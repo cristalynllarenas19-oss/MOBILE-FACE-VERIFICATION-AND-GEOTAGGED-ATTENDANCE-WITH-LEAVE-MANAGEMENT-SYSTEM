@@ -9,11 +9,9 @@
   ],
   "scripts": {
     "dev:admin": "npm run dev -w apps/admin-web",
-    "dev:employee-web": "npm run dev -w apps/employee-web",
     "dev:mobile": "npm run start -w apps/employee-mobile",
     "dev:api": "npm run start:dev -w backend",
     "build:admin": "npm run build -w apps/admin-web",
-    "build:employee-web": "npm run build -w apps/employee-web",
     "build:api": "npm run build -w backend",
     "prisma:generate": "npm run prisma:generate -w backend",
     "prisma:migrate": "npm run prisma:migrate -w backend",
