@@ -12,6 +12,14 @@ type UserRow = {
   userRoles: { role: { name: string; code: string } }[];
 };
 
+type EmployeeOption = {
+  id: string;
+  employeeNo: string;
+  firstName: string;
+  lastName: string;
+  user?: { email?: string } | null;
+};
+
 type UserFilter = "ALL" | "ACTIVE" | "INACTIVE";
 type Notification = { type: "success" | "error"; message: string } | null;
 
@@ -44,6 +52,11 @@ export function UsersPage() {
   const [filter, setFilter] = useState<UserFilter>("ALL");
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [form, setForm] = useState(initialForm);
+  const [employeeSearch, setEmployeeSearch] = useState("");
+  const [employees, setEmployees] = useState<EmployeeOption[]>([]);
+  const [isLoadingEmployees, setIsLoadingEmployees] = useState(false);
+  const [employeeError, setEmployeeError] = useState("");
+  const [isEmployeeSearchOpen, setIsEmployeeSearchOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
   const [confirmUser, setConfirmUser] = useState<UserRow | null>(null);
@@ -55,6 +68,18 @@ export function UsersPage() {
   };
 
   useEffect(loadUsers, []);
+
+  useEffect(() => {
+    if (!isAddOpen) return;
+
+    setIsLoadingEmployees(true);
+    setEmployeeError("");
+
+    apiRequest<EmployeeOption[]>("/employees")
+      .then(setEmployees)
+      .catch((err) => setEmployeeError(err instanceof Error ? err.message : "Unable to load employees."))
+      .finally(() => setIsLoadingEmployees(false));
+  }, [isAddOpen]);
 
   useEffect(() => {
     if (!notification) return;
@@ -73,7 +98,37 @@ export function UsersPage() {
   const closeAddUser = () => {
     setIsAddOpen(false);
     setForm(initialForm);
+    setEmployeeSearch("");
+    setEmployeeError("");
+    setIsEmployeeSearchOpen(false);
     setError("");
+  };
+
+  const visibleEmployeeOptions = employeeSearch.trim()
+    ? employees
+        .filter((employee) => {
+          const query = employeeSearch.trim().toLowerCase();
+          const fullName = `${employee.firstName} ${employee.lastName}`.toLowerCase();
+          return fullName.includes(query) || employee.employeeNo.toLowerCase().includes(query);
+        })
+        .slice(0, 6)
+    : [];
+
+  const selectEmployee = (employee: EmployeeOption) => {
+    setEmployeeSearch(`${employee.firstName} ${employee.lastName}`);
+    setForm((current) => ({
+      ...current,
+      firstName: employee.firstName,
+      lastName: employee.lastName,
+      email: employee.user?.email ?? current.email,
+      password: `Emp${employee.employeeNo.replace(/[^a-z0-9]/gi, "")}@12345`,
+    }));
+    setIsEmployeeSearchOpen(false);
+  };
+
+  const clearEmployeeSearch = () => {
+    setEmployeeSearch("");
+    setIsEmployeeSearchOpen(false);
   };
 
   const openStatusConfirmation = (user: UserRow) => {
@@ -216,6 +271,54 @@ export function UsersPage() {
             </div>
 
             <form className="user-form" onSubmit={handleCreateUser}>
+              <label className="employee-search-field">
+                Employee
+                <div className="employee-search-control">
+                  <input
+                    type="text"
+                    value={employeeSearch}
+                    onFocus={() => setIsEmployeeSearchOpen(true)}
+                    onChange={(event) => {
+                      setEmployeeSearch(event.target.value);
+                      setIsEmployeeSearchOpen(true);
+                    }}
+                    placeholder="Search by employee name or ID"
+                    autoComplete="off"
+                  />
+                  <button
+                    type="button"
+                    className="employee-search-clear"
+                    onClick={clearEmployeeSearch}
+                    aria-label="Clear employee search"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+                {isEmployeeSearchOpen && employeeSearch.trim() && (
+                  <div className="employee-suggestions" role="listbox">
+                    {isLoadingEmployees && <div className="employee-suggestion-state">Loading employees...</div>}
+                    {!isLoadingEmployees && employeeError && (
+                      <div className="employee-suggestion-state error">{employeeError}</div>
+                    )}
+                    {!isLoadingEmployees && !employeeError && visibleEmployeeOptions.length === 0 && (
+                      <div className="employee-suggestion-state">No matching employees found.</div>
+                    )}
+                    {!isLoadingEmployees && !employeeError && visibleEmployeeOptions.map((employee) => (
+                      <button
+                        type="button"
+                        key={employee.id}
+                        className="employee-suggestion"
+                        onClick={() => selectEmployee(employee)}
+                        role="option"
+                      >
+                        <span>{employee.firstName} {employee.lastName}</span>
+                        <small>{employee.employeeNo}</small>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </label>
+
               <div className="add-user-form-grid">
                 <label>
                   First Name
