@@ -15,6 +15,7 @@ import {
   Settings,
 } from "lucide-react";
 import { ReactNode, useEffect, useRef, useState } from "react";
+import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { PermissionCode, permissions } from "../../types/rbac";
 import logo from "../../assets/unileaf-logo.png"; // ← add this
 import {
@@ -80,6 +81,7 @@ export function AppLayout({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifLoading, setNotifLoading] = useState(false);
@@ -183,7 +185,7 @@ export function AppLayout({
             className="nav-link logout-link"
             onClick={() => {
               setMenuOpen(false);
-              onLogout();
+              setShowLogoutConfirm(true);
             }}
           >
             <LogOut size={17} />
@@ -191,6 +193,19 @@ export function AppLayout({
           </button>
         </div>
       </aside>
+
+      {showLogoutConfirm && (
+        <ConfirmDialog
+          config={{
+            title: "Log Out",
+            description: "Are you sure you want to log out?",
+            confirmLabel: "Log Out",
+            tone: "danger",
+            onConfirm: onLogout,
+          }}
+          onCancel={() => setShowLogoutConfirm(false)}
+        />
+      )}
 
       <main className="main-area">
         <header className="topbar">

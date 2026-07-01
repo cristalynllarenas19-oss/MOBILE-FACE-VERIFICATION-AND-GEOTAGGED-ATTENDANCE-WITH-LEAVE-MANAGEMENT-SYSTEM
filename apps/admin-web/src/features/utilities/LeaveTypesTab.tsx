@@ -335,21 +335,18 @@ export function LeaveTypesTab({
             )}
           </tbody>
         </table>
+        {pageCount > 1 && (
+          <div className="utilities-pagination utilities-pagination-footer">
+            <button className="outline-button" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+              Previous
+            </button>
+            <span>Page {page} of {pageCount}</span>
+            <button className="outline-button" disabled={page >= pageCount} onClick={() => setPage((p) => p + 1)}>
+              Next
+            </button>
+          </div>
+        )}
       </section>
-
-      {visibleLeaveTypes.length > 0 && (
-        <div className="utilities-pagination">
-          <button className="outline-button" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-            Previous
-          </button>
-          <span>
-            Page {page} of {pageCount}
-          </span>
-          <button className="outline-button" disabled={page >= pageCount} onClick={() => setPage((p) => p + 1)}>
-            Next
-          </button>
-        </div>
-      )}
 
       {/* ── Add/Edit Leave Type modal ── */}
       {formOpen && (

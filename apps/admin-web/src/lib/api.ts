@@ -12,6 +12,16 @@ export type AuthUser = {
   attendanceMode?: "FIXED" | "FIELD";
 };
 
+export class SessionExpiredError extends Error {
+  constructor() {
+    super("Session expired");
+    this.name = "SessionExpiredError";
+  }
+}
+
+let _onSessionExpired: (() => void) | null = null;
+export function setOnSessionExpired(cb: () => void) { _onSessionExpired = cb; }
+
 export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem("accessToken");
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -24,6 +34,10 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
   });
 
   if (!response.ok) {
+    if (response.status === 401) {
+      _onSessionExpired?.();
+      throw new SessionExpiredError();
+    }
     const message = await response.text();
     throw new Error(message || `Request failed with status ${response.status}`);
   }
@@ -32,12 +46,11 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
 }
 
 export async function login(email: string, password: string) {
-  const data = await apiRequest<{ accessToken: string; refreshToken: string; user: AuthUser }>("/auth/login", {
+  const data = await apiRequest<{ accessToken: string; user: AuthUser }>("/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
   localStorage.setItem("accessToken", data.accessToken);
-  localStorage.setItem("refreshToken", data.refreshToken);
   localStorage.setItem("authUser", JSON.stringify(data.user));
   return data.user;
 }
@@ -49,7 +62,6 @@ export function getStoredUser() {
 
 export function logout() {
   localStorage.removeItem("accessToken");
-  localStorage.removeItem("refreshToken");
   localStorage.removeItem("authUser");
 }
 

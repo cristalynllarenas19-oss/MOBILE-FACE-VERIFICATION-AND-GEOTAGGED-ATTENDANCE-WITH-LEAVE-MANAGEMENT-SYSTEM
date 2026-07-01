@@ -169,18 +169,6 @@ function LeaveStatusDonut({
   employeeCount: number;
   leaveTypeRows: { leaveTypeId: string; leaveTypeName: string; remainingDays: number }[];
 }) {
-  const [showTypes, setShowTypes] = useState(false);
-  const typesRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!showTypes) return;
-    function handleClickOutside(event: MouseEvent) {
-      if (typesRef.current && !typesRef.current.contains(event.target as Node)) setShowTypes(false);
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [showTypes]);
-
   const size = 132;
   const stroke = 16;
   const radius = (size - stroke) / 2;
@@ -189,80 +177,75 @@ function LeaveStatusDonut({
   const usedLength = circumference * usedRatio;
   const usedPercent = Math.round(usedRatio * 100);
   const color = EMPLOYMENT_STATUS_COLORS[employmentStatus];
+  const [showTypes, setShowTypes] = useState(false);
+  const typesRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showTypes) return;
+    function handleOutside(e: MouseEvent) {
+      if (typesRef.current && !typesRef.current.contains(e.target as Node)) setShowTypes(false);
+    }
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [showTypes]);
 
   return (
-    <>
+    <div className="leave-donut-card">
+      <div className="leave-donut-svg-wrap">
+        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+          <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#eef2f7" strokeWidth={stroke} />
+          {usedLength > 0 && (
+            <circle
+              cx={size / 2} cy={size / 2} r={radius}
+              fill="none" stroke={color} strokeWidth={stroke}
+              strokeDasharray={`${usedLength} ${circumference - usedLength}`}
+              strokeLinecap="round"
+              transform={`rotate(-90 ${size / 2} ${size / 2})`}
+            />
+          )}
+        </svg>
+        <div className="leave-donut-center">
+          <strong>{remainingDays.toFixed(0)}</strong>
+          <span>days left</span>
+          <em className="leave-donut-pct">{usedPercent}% used</em>
+        </div>
+      </div>
       {leaveTypeRows.length > 0 && (
-        <div className="leave-donut-types-shell" ref={typesRef}>
+        <div className="leave-donut-types-wrap" ref={typesRef}>
           <button
             type="button"
-            className={`leave-donut-types-trigger ${showTypes ? "open" : ""}`}
-            onClick={() => setShowTypes((current) => !current)}
+            className="leave-donut-types-trigger"
+            onClick={() => setShowTypes((prev) => !prev)}
           >
             All Leave Types
-            <ChevronDown size={13} className={showTypes ? "leave-donut-types-chevron open" : "leave-donut-types-chevron"} />
+            <ChevronDown size={11} className={`leave-donut-types-chevron${showTypes ? " open" : ""}`} />
           </button>
           {showTypes && (
             <div className="leave-donut-types-menu">
-              <div className="leave-donut-types-menu-header">All Leave Types</div>
-              <div className="leave-availability-list">
-                {leaveTypeRows.map((row) => (
-                  <div className="leave-availability-row" key={row.leaveTypeId}>
-                    <span>{row.leaveTypeName}</span>
-                    <strong>{row.remainingDays.toFixed(0)}</strong>
-                  </div>
-                ))}
-              </div>
+              {leaveTypeRows.map((row) => (
+                <div key={row.leaveTypeId} className="leave-donut-type-row">
+                  <span className="leave-donut-type-name">{row.leaveTypeName}</span>
+                  <span className="leave-donut-type-value">{row.remainingDays.toFixed(0)}</span>
+                </div>
+              ))}
             </div>
           )}
         </div>
       )}
-      <div className="leave-donut-card">
-        <div className="leave-donut-svg-wrap">
-          <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-            <circle
-              cx={size / 2}
-              cy={size / 2}
-              r={radius}
-              fill="none"
-              stroke="#eef2f7"
-              strokeWidth={stroke}
-            />
-            {usedLength > 0 && (
-              <circle
-                cx={size / 2}
-                cy={size / 2}
-                r={radius}
-                fill="none"
-                stroke={color}
-                strokeWidth={stroke}
-                strokeDasharray={`${usedLength} ${circumference - usedLength}`}
-                strokeLinecap="round"
-                transform={`rotate(-90 ${size / 2} ${size / 2})`}
-              />
-            )}
-          </svg>
-          <div className="leave-donut-center">
-            <strong>{remainingDays.toFixed(0)}</strong>
-            <span>days left</span>
-            <em className="leave-donut-pct">{usedPercent}% used</em>
-          </div>
+      <div className="leave-donut-meta">
+        <div className="leave-donut-label">
+          <span className="leave-donut-dot" style={{ background: color }} />
+          {formatEmploymentStatus(employmentStatus)}
         </div>
-        <div className="leave-donut-meta">
-          <div className="leave-donut-label">
-            <span className="leave-donut-dot" style={{ background: color }} />
-            {formatEmploymentStatus(employmentStatus)}
-          </div>
-          <div className="leave-donut-stats">
-            <span>{usedDays.toFixed(0)} used</span>
-            <span>·</span>
-            <span>{earnedDays.toFixed(0)} earned</span>
-            <span>·</span>
-            <span>{employeeCount} {employeeCount === 1 ? "employee" : "employees"}</span>
-          </div>
+        <div className="leave-donut-stats">
+          <span>{usedDays.toFixed(0)} used</span>
+          <span>·</span>
+          <span>{earnedDays.toFixed(0)} earned</span>
+          <span>·</span>
+          <span>{employeeCount} {employeeCount === 1 ? "employee" : "employees"}</span>
         </div>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -689,6 +672,7 @@ export function LeavePage() {
   const [balanceEmployee, setBalanceEmployee]           = useState<DirectoryEmployee | null>(null);
   const [employeeBalances, setEmployeeBalances]         = useState<LeaveBalance[] | null>(null);
   const [monitorClassification, setMonitorClassification] = useState("ALL");
+  const [searchClearKey, setSearchClearKey]             = useState(0);
 
 
   const loadRequests = () => {
@@ -904,6 +888,7 @@ export function LeavePage() {
           </div>
           <div className="leave-summary-controls">
             <EmployeeBalanceSearch
+              key={searchClearKey}
               employees={directoryForSearch}
               selected={balanceEmployee}
               onSelect={setBalanceEmployee}
@@ -924,7 +909,17 @@ export function LeavePage() {
 
         {balanceEmployee ? (
           <div className="employee-detail-section">
-            <h3 className="employee-detail-heading">Detailed Employee Leave Monitoring ({summaryYear})</h3>
+            <div className="employee-detail-heading-row">
+              <h3 className="employee-detail-heading">Detailed Employee Leave Monitoring ({summaryYear})</h3>
+              <button
+                type="button"
+                className="employee-detail-close"
+                onClick={() => { setBalanceEmployee(null); setMonitorClassification("ALL"); setSearchClearKey((k) => k + 1); }}
+                aria-label="Close employee leave detail"
+              >
+                <X size={16} />
+              </button>
+            </div>
 
             {!employeeBalances ? (
               <p className="leave-summary-empty">Loading leave balance…</p>
@@ -947,14 +942,6 @@ export function LeavePage() {
                       <span>{balanceEmployee.employeeNo} · {balanceEmployee.department?.name ?? "Unassigned"}</span>
                     </div>
                     <div className="employee-total-balance">
-                      <button
-                        type="button"
-                        className="employee-total-balance-close"
-                        onClick={() => setBalanceEmployee(null)}
-                        aria-label="Close employee leave detail"
-                      >
-                        <X size={13} />
-                      </button>
                       <span>Total Balance</span>
                       <strong>{employeeTotals.remainingDays.toFixed(0)}/{employeeTotals.earnedDays.toFixed(0)}</strong>
                       <ClassificationChip status={balanceEmployee.employmentStatus} />

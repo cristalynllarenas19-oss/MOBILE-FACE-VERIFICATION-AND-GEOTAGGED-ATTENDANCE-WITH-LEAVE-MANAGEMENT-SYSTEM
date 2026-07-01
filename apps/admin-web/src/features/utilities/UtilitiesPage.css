@@ -54,6 +54,16 @@
   font-weight: 700;
 }
 
+.utilities-pagination-footer {
+  position: sticky;
+  bottom: 0;
+  margin-top: 0;
+  padding: 10px 0;
+  background: #ffffff;
+  border-top: 1px solid #e3e9f0;
+  z-index: 2;
+}
+
 /* ── Last updated cell ── */
 
 .utilities-last-updated {

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { BarChart3, CalendarClock, CheckCircle2, Clock, Download } from "lucide-react";
+import { BarChart3, CalendarClock, CheckCircle2, Clock, Download, FileText } from "lucide-react";
+import { jsPDF } from "jspdf";
+import { autoTable } from "jspdf-autotable";
 import { StatCard } from "../../components/ui/StatCard";
 import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
@@ -173,6 +175,65 @@ export function ReportsPage() {
     URL.revokeObjectURL(url);
   };
 
+  const exportPdf = () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" }) as any;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const rangeLabel = `${filters.from || "—"} to ${filters.to || "—"}`;
+    const deptLabel = filters.department === "ALL" ? "All Departments" : filters.department;
+
+    doc.setFontSize(14);
+    doc.setTextColor(26, 58, 92);
+    doc.text("Universal Leaf Philippines, Inc. — HR Report", pageWidth / 2, 36, { align: "center" });
+    doc.setFontSize(9);
+    doc.setTextColor(100, 116, 139);
+    doc.text(
+      `Period: ${rangeLabel}   |   Department: ${deptLabel}   |   Generated: ${new Date(data.generatedAt).toLocaleString()}`,
+      pageWidth / 2, 52, { align: "center" }
+    );
+
+    let startY = 68;
+
+    const addSection = (title: string, head: string[], body: (string | number)[][]) => {
+      if (body.length === 0) return;
+      doc.setFontSize(10);
+      doc.setTextColor(26, 58, 92);
+      doc.text(title, 40, startY);
+      autoTable(doc, {
+        startY: startY + 8,
+        head: [head],
+        body,
+        theme: "striped" as const,
+        headStyles: { fillColor: [26, 58, 92] as [number, number, number], textColor: [255, 255, 255] as [number, number, number], fontSize: 8, fontStyle: "bold" as const },
+        bodyStyles: { fontSize: 8, textColor: [30, 41, 59] as [number, number, number] },
+        alternateRowStyles: { fillColor: [244, 247, 251] as [number, number, number] },
+        margin: { left: 40, right: 40 },
+      });
+      startY = doc.lastAutoTable.finalY + 24;
+    };
+
+    if (tab === "ALL" || tab === "attendance") {
+      addSection("DTR / Attendance",
+        ["Employee", "Department", "Date", "Status", "Total Hours", "Late Min."],
+        filteredAttendance.map((r) => [employeeName(r), r.employee.department.name, formatDate(r.attendanceDate), r.status, (r.totalMinutes / 60).toFixed(2), String(r.lateMinutes)])
+      );
+    }
+    if (tab === "ALL" || tab === "leave") {
+      addSection("Leave",
+        ["Employee", "Department", "Leave Type", "Start Date", "End Date", "Days", "Status"],
+        filteredLeaves.map((r) => [employeeName(r), r.employee.department.name, r.leaveType.name, formatDate(r.startDate), formatDate(r.endDate), r.totalDays, r.status])
+      );
+    }
+    if (tab === "ALL" || tab === "schedules") {
+      addSection("Schedules",
+        ["Employee", "Department", "Shift", "Time", "Starts On", "Ends On"],
+        filteredSchedules.map((s) => [employeeName(s), s.employee.department.name, s.shift.name, `${s.shift.startTime} - ${s.shift.endTime}`, formatDate(s.startsOn), s.endsOn ? formatDate(s.endsOn) : "Ongoing"])
+      );
+    }
+
+    doc.save(`${tab === "ALL" ? "all" : tab}-report.pdf`);
+  };
+
   const tabCount =
     tab === "attendance" ? filteredAttendance.length
     : tab === "leave" ? filteredLeaves.length
@@ -260,6 +321,10 @@ export function ReportsPage() {
           <button className="report-export-button" onClick={exportCsv}>
             <Download size={14} />
             <span>Export CSV</span>
+          </button>
+          <button className="report-export-button" onClick={exportPdf}>
+            <FileText size={14} />
+            <span>Export PDF</span>
           </button>
         </div>
       </div>

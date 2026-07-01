@@ -82,22 +82,22 @@
 .geotagging-stat-card {
   display: flex;
   flex: 1;
-  flex-direction: column;
-  align-items: center;
+  flex-direction: row;
+  align-items: baseline;
   justify-content: center;
   min-width: 80px;
-  padding: 10px 16px;
+  padding: 8px 14px;
   border: 1px solid #dbe5f0;
   border-radius: 10px;
   background: #ffffff;
   box-shadow: 0 1px 4px rgba(23, 50, 82, 0.06);
-  gap: 1px;
+  gap: 6px;
   text-align: center;
 }
 
 .geotagging-stat-card .stat-value {
   color: #193d69;
-  font-size: 22px;
+  font-size: 18px;
   font-weight: 800;
   line-height: 1;
   letter-spacing: -0.5px;
@@ -105,7 +105,7 @@
 
 .geotagging-stat-card .stat-label {
   color: #94a3b8;
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -174,6 +174,36 @@
   color: #64748b;
   font-size: 13px;
   font-weight: 600;
+}
+
+
+/* ── Leaflet zoom control — restyled to match the app's rounded, navy design ── */
+
+.geotagging-map .leaflet-control-zoom {
+  border: 1px solid #dbe5f0 !important;
+  border-radius: 10px !important;
+  box-shadow: 0 2px 10px rgba(23, 50, 82, 0.1) !important;
+  overflow: hidden;
+}
+
+.geotagging-map .leaflet-control-zoom a {
+  width: 30px !important;
+  height: 30px !important;
+  line-height: 30px !important;
+  background: #ffffff !important;
+  color: #193d69 !important;
+  font-weight: 700;
+  border: none !important;
+  transition: background 0.15s, color 0.15s;
+}
+
+.geotagging-map .leaflet-control-zoom a:hover {
+  background: #eff6ff !important;
+  color: #1d4ed8 !important;
+}
+
+.geotagging-map .leaflet-control-zoom-in {
+  border-bottom: 1px solid #eef2f8 !important;
 }
 
 
@@ -261,17 +291,72 @@
 }
 
 .area-count-badge {
-  min-width: 22px;
-  height: 22px;
+  min-width: 26px;
+  height: 26px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0 6px;
+  padding: 0 8px;
   border-radius: 99px;
   background: #193d69;
   color: #ffffff;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
+  flex-shrink: 0;
+}
+
+
+/* ── Assigned Areas toolbar: status tabs + search field share one row ── */
+
+.assigned-list-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 14px;
+  flex-shrink: 0;
+}
+
+.area-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 220px;
+  flex-shrink: 0;
+}
+
+.area-search-icon {
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #94a3b8;
+  pointer-events: none;
+}
+
+.area-search-input {
+  width: 100%;
+  height: 30px;
+  border: 1.5px solid #e2eaf4;
+  border-radius: 999px;
+  background: #f8fafd;
+  color: #193d69;
+  font-size: 11.5px;
+  font-family: inherit;
+  padding: 0 10px 0 26px;
+  box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+
+.area-search-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.13);
+}
+
+.area-search-input::placeholder {
+  color: #b0b6be;
 }
 
 
@@ -347,10 +432,31 @@
 .assignment-save-row {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 10px;
-  margin-top: 12px;
+  margin-top: 8px;
   flex-shrink: 0;
+}
+
+.assignment-save-buttons .primary-button,
+.assignment-save-buttons .outline-button {
+  height: 32px;
+  padding: 0 12px;
+  font-size: 12px;
+  border-radius: 7px;
+}
+
+.assignment-save-count {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.assignment-save-buttons {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
 }
 
 .assignment-save-row .outline-button,
@@ -432,7 +538,7 @@
   position: relative;
 }
 
-.employee-department-label .department-filter-trigger {
+.department-filter-trigger {
   align-items: center;
   background: #ffffff;
   border: 1px solid #cbd5e1;
@@ -453,28 +559,28 @@
   width: 100%;
 }
 
-.employee-department-label .department-filter-trigger:hover {
+.department-filter-trigger:hover {
   background: #f8fafc;
   border-color: #94a3b8;
 }
 
-.employee-department-label .department-filter-trigger.active {
+.department-filter-trigger.active {
   background: #eef4fb;
   border-color: #1a3a5c;
   color: #1a3a5c;
 }
 
-.employee-department-label .department-filter-chevron {
+.department-filter-chevron {
   color: #94a3b8;
   flex-shrink: 0;
   transition: transform 0.18s ease;
 }
 
-.employee-department-label .department-filter-chevron.open {
+.department-filter-chevron.open {
   transform: rotate(180deg);
 }
 
-.employee-department-label .department-filter-menu {
+.department-filter-menu {
   background: white;
   border: 1px solid #dbe5ef;
   border-radius: 10px;
@@ -490,7 +596,7 @@
   z-index: 30;
 }
 
-.employee-department-label .department-filter-menu-header {
+.department-filter-menu-header {
   align-items: center;
   color: #64748b;
   display: flex;
@@ -502,7 +608,7 @@
   text-transform: uppercase;
 }
 
-.employee-department-label .department-filter-clear {
+.department-filter-clear {
   align-items: center;
   background: none;
   border: 0;
@@ -516,7 +622,7 @@
   text-transform: none;
 }
 
-.employee-department-label .department-filter-option {
+.department-filter-option {
   background: none;
   border: 0;
   border-radius: 7px;
@@ -531,11 +637,11 @@
   width: 100%;
 }
 
-.employee-department-label .department-filter-option:hover {
+.department-filter-option:hover {
   background: #eef4fb;
 }
 
-.employee-department-label .department-filter-option.active {
+.department-filter-option.active {
   background: #1a3a5c;
   color: white;
 }
@@ -546,6 +652,13 @@
 .select-all-row {
   display: flex;
   align-items: center;
+}
+
+/* Now nested under the department filter column — right-align it there,
+   with a touch of top spacing to separate it from the dropdown above. */
+.employee-department-label .select-all-row {
+  margin-top: 2px;
+  justify-content: flex-end;
 }
 
 .select-all-button {
@@ -566,6 +679,29 @@
   letter-spacing: 0;
   transition: background 0.15s, border-color 0.15s, color 0.15s, transform 0.12s, box-shadow 0.15s;
   white-space: nowrap;
+}
+
+.select-all-checkbox {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  border: 1.5px solid #94a3b8;
+  border-radius: 4px;
+  background: #ffffff;
+  color: #ffffff;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.select-all-button.active .select-all-checkbox {
+  background: #2563eb;
+  border-color: #2563eb;
+}
+
+.select-all-button:disabled .select-all-checkbox {
+  border-color: #cbd5e1;
 }
 
 .select-all-button:hover:not(:disabled) {
@@ -599,11 +735,11 @@
   background: #193d69;
   border-radius: 999px;
   color: #ffffff;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 800;
   line-height: 1;
-  min-width: 17px;
-  padding: 3px 5px;
+  min-width: 19px;
+  padding: 4px 6px;
   text-align: center;
 }
 
@@ -621,7 +757,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding-right: 8px;
+  padding-right: 10px;
   scrollbar-width: thin;
   scrollbar-color: #cbd5e1 transparent;
 }
@@ -880,12 +1016,89 @@
   min-height: 0;
 }
 
+.assigned-list-status-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.status-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1.5px solid #e2eaf4;
+  border-radius: 999px;
+  background: #f8fafd;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.status-tab:hover {
+  border-color: #c6d6ea;
+  background: #ffffff;
+  color: #334155;
+}
+
+.status-tab-count {
+  min-width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 10.5px;
+  font-weight: 800;
+}
+
+.status-tab.is-selected {
+  border-color: #193d69;
+  background: #193d69;
+  color: #ffffff;
+}
+
+.status-tab.is-selected .status-tab-count {
+  background: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+}
+
+
 .assigned-list-scroll {
   max-height: 430px;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: #cbd5e1 transparent;
-  padding-right: 2px;
+  padding-right: 6px;
+}
+
+.assigned-list-scroll::-webkit-scrollbar,
+.employee-checklist::-webkit-scrollbar {
+  width: 6px;
+}
+
+.assigned-list-scroll::-webkit-scrollbar-track,
+.employee-checklist::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.assigned-list-scroll::-webkit-scrollbar-thumb,
+.employee-checklist::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+}
+
+.assigned-list-scroll::-webkit-scrollbar-thumb:hover,
+.employee-checklist::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
 }
 
 .empty-state {
@@ -911,21 +1124,21 @@
 }
 
 .assigned-location {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px;
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   border: 1.5px solid #e7eef6;
-  border-radius: 9px;
-  padding: 10px 10px 10px 12px;
+  border-radius: 10px;
+  padding: 12px 14px;
   transition: border-color 0.15s, background 0.15s;
 }
 
 .assigned-location-actions {
   display: flex;
-  flex-direction: column;
-  gap: 5px;
+  flex-direction: row;
   align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
 }
 
 .assigned-location + .assigned-location {
@@ -942,6 +1155,17 @@
   background: #f0fdf4;
 }
 
+.assigned-location.is-inactive {
+  background: #fafbfc;
+  border-color: #eef1f5;
+}
+
+.assigned-location.is-inactive .assigned-location-main strong,
+.assigned-location.is-inactive .assigned-location-main span,
+.assigned-location.is-inactive .assigned-location-main small {
+  opacity: 0.6;
+}
+
 .assigned-location-main {
   display: flex;
   min-width: 0;
@@ -954,21 +1178,28 @@
   cursor: pointer;
   text-align: left;
   padding: 0;
+  width: 100%;
 }
 
 .assigned-location-main strong,
 .assigned-location-main span,
 .assigned-location-main small {
   max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   display: block;
+  white-space: normal;
+  overflow-wrap: break-word;
 }
 
 .assigned-location-main strong {
-  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.assigned-location-main strong {
+  font-size: 15px;
   font-weight: 700;
+  letter-spacing: -0.1px;
 }
 
 .assigned-location-main span {
@@ -982,16 +1213,83 @@
   font-variant-numeric: tabular-nums;
 }
 
-.assigned-location-main .assigned-location-dept {
+/* ── Per-area dynamic employee count badge + status pill, and the action
+   row beneath the area details ── */
+
+.assigned-location-name-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+}
+
+.assigned-location-name-row strong {
+  flex: 1;
+  min-width: 0;
+}
+
+.assigned-location-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+}
+
+.assigned-location-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: #eef4fb;
+  color: #3b5f8a;
+  font-size: 13.5px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.assigned-location-count svg {
+  flex-shrink: 0;
+}
+
+.assigned-location-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.assigned-location-status::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.assigned-location-status.active {
+  background: #ecfdf5;
+  color: #15803d;
+}
+
+.assigned-location-status.inactive {
+  background: #f1f5f9;
   color: #64748b;
-  font-size: 11px;
-  font-weight: 500;
-  font-style: italic;
 }
 
 .icon-button {
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
   display: grid;
   place-items: center;
   border-radius: 7px;
@@ -1004,8 +1302,8 @@
 }
 
 .location-action-btn {
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
 }
 
 .location-action-btn--view {
@@ -1046,6 +1344,30 @@
   box-shadow: 0 2px 8px rgba(220, 38, 38, 0.16);
 }
 
+.location-action-btn--toggle {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #15803d;
+}
+.location-action-btn--toggle:hover {
+  background: #dcfce7;
+  border-color: #86efac;
+  transform: scale(1.06);
+  box-shadow: 0 2px 8px rgba(21, 128, 61, 0.16);
+}
+
+.location-action-btn--toggle.is-inactive {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #b45309;
+}
+.location-action-btn--toggle.is-inactive:hover {
+  background: #fef3c7;
+  border-color: #f59e0b;
+  color: #92400e;
+  box-shadow: 0 2px 8px rgba(180, 83, 9, 0.16);
+}
+
 .icon-button.danger {
   border-color: #fecaca;
   background: #fff1f2;
@@ -1072,13 +1394,18 @@
 
 .geotagging-modal {
   width: min(460px, 100%);
+  height: min(560px, 86vh);
   max-height: min(560px, 86vh);
   display: flex;
   flex-direction: column;
   background: #ffffff;
   border-radius: 14px;
   box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);
-  overflow: hidden;
+  /* No overflow:hidden here — it would clip the department filter dropdown,
+     which is positioned absolutely inside the toolbar. Corners are rounded
+     on the first/last child instead (see below). Fixed height (not just
+     max-height) keeps the modal from resizing when the department filter
+     changes how many employees are shown — the body scrolls internally. */
 }
 
 .geotagging-modal-header {
@@ -1089,12 +1416,35 @@
   padding: 20px 22px 16px;
   border-bottom: 1px solid #eef2f8;
   flex-shrink: 0;
+  border-top-left-radius: 14px;
+  border-top-right-radius: 14px;
 }
 
 .geotagging-modal-header h2 {
   margin: 0;
   color: #193d69;
   font-size: 18px;
+  font-weight: 700;
+}
+
+.geotagging-modal-title-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.geotagging-modal-count-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: #eef4fb;
+  color: #3b5f8a;
+  font-size: 11.5px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
 }
 
 .geotagging-modal-header p {
@@ -1102,6 +1452,68 @@
   color: #7b8794;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+}
+
+/* ── View-modal toolbar: dynamic employee count + department filter dropdown ── */
+
+.geotagging-modal-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 22px;
+  border-bottom: 1px solid #eef2f8;
+  background: #f8fafd;
+  flex-shrink: 0;
+}
+
+.geotagging-modal-toolbar-label {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Modal department filter — a true floating overlay (position:absolute)
+   that does NOT shift surrounding layout when opened. The wrap element
+   must have position:relative directly (not inherited from a scoped
+   ancestor rule) or the absolute menu positions itself relative to the
+   modal backdrop instead of the button, which is what broke it before. */
+.modal-department-filter-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.modal-department-filter-wrap .department-filter-trigger {
+  width: auto;
+  min-width: 168px;
+  height: 32px;
+}
+
+.modal-department-filter-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 220px;
+  max-width: min(260px, 80vw);
+  max-height: 240px;
+  overflow-y: auto;
+  background: #ffffff;
+  border: 1px solid #dbe5ef;
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+  padding: 8px;
+  z-index: 40;
+  scrollbar-width: thin;
+  scrollbar-color: #b8c7d8 #f4f7fb;
+}
+
+.modal-department-filter-menu::-webkit-scrollbar {
+  width: 6px;
+}
+
+.modal-department-filter-menu::-webkit-scrollbar-thumb {
+  background: #b8c7d8;
+  border-radius: 999px;
 }
 
 .geotagging-modal-body {
@@ -1191,11 +1603,14 @@
   padding: 14px 22px 20px;
   border-top: 1px solid #eef2f8;
   flex-shrink: 0;
+  border-bottom-left-radius: 14px;
+  border-bottom-right-radius: 14px;
 }
 
 
 .geotagging-confirm-modal {
   width: min(360px, 100%);
+  height: auto;
   max-height: none;
   position: relative;
 }
@@ -1308,6 +1723,18 @@
     min-height: 340px;
   }
 
+  .panel-heading {
+    flex-wrap: wrap;
+  }
+
+  .assigned-list-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .area-search-wrap {
+    width: 100%;
+  }
+
   .employee-filter-row {
     flex-direction: column;
   }
@@ -1319,7 +1746,20 @@
   }
 
   .geotagging-modal {
+    height: 85vh;
     max-height: 85vh;
+  }
+
+  .geotagging-modal-toolbar-label {
+    display: none;
+  }
+
+  .modal-department-filter-wrap .department-filter-trigger {
+    min-width: 140px;
+  }
+
+  .modal-department-filter-menu {
+    max-width: 78vw;
   }
 
   .geotagging-modal-employee-row {

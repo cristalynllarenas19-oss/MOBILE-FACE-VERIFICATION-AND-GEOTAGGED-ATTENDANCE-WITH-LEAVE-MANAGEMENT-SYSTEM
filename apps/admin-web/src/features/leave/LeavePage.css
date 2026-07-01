@@ -769,6 +769,80 @@
   font-weight: 700;
 }
 
+.leave-donut-types-wrap {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+}
+
+.leave-donut-types-trigger {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #f1f5f9;
+  border: 1px solid #dbe5ef;
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #475569;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.leave-donut-types-trigger:hover {
+  background: #e2e8f0;
+  border-color: #b8c7d8;
+}
+
+.leave-donut-types-chevron {
+  transition: transform 0.15s ease;
+}
+
+.leave-donut-types-chevron.open {
+  transform: rotate(180deg);
+}
+
+.leave-donut-types-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 160px;
+  background: #fff;
+  border: 1px solid #dbe5ef;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.1);
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  z-index: 20;
+}
+
+.leave-donut-type-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.leave-donut-type-name {
+  color: #64748b;
+  font-size: 10.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.leave-donut-type-value {
+  color: #1a3a5c;
+  font-size: 10.5px;
+  font-weight: 800;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── Responsive ── */
 
 @media (max-width: 640px) {
@@ -1200,11 +1274,39 @@
   padding-top: 18px;
 }
 
+.employee-detail-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
 .employee-detail-heading {
   color: #1a3a5c;
   font-size: 14px;
   font-weight: 800;
-  margin-bottom: 16px;
+  margin-bottom: 0;
+}
+
+.employee-detail-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border: 1.5px solid #dbe5ef;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #64748b;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.employee-detail-close:hover {
+  background: #fef2f2;
+  border-color: #fca5a5;
+  color: #ef4444;
 }
 
 .leave-employee-grid {

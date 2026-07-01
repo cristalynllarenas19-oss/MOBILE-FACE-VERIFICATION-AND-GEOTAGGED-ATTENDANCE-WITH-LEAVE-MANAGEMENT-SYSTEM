@@ -15,7 +15,7 @@ import { useEffect, useRef, useState } from "react";
 import { BarChart, DeptAttendanceRow } from "../../components/ui/BarChart";
 import { Card } from "../../components/ui/Card";
 import { StatCard } from "../../components/ui/StatCard";
-import { apiRequest } from "../../lib/api";
+import { apiRequest, SessionExpiredError } from "../../lib/api";
 import "./DashboardPage.css";
 
 const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -335,8 +335,9 @@ export function DashboardPage() {
         setLoadError(null);
       })
       .catch((err) => {
+        if (err instanceof SessionExpiredError) return;
         console.error("Failed to load dashboard summary:", err);
-        setLoadError("Could not load dashboard data. Please try refreshing or logging in again.");
+        setLoadError("Could not load dashboard data. Please try refreshing.");
       })
       .finally(() => setCalendarLoading(false));
   }, [calendarMonth, calendarYear]);

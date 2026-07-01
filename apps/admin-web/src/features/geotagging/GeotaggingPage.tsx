@@ -1,7 +1,7 @@
 import "leaflet/dist/leaflet.css";
 
 import { Component, FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ChevronDown, Edit3, Eye, MapPin, Plus, Save, Search, Trash2, Users, X } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, Edit3, Eye, MapPin, Plus, Power, PowerOff, Save, Search, Trash2, Users, X } from "lucide-react";
 import L from "leaflet";
 import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
 import markerIconUrl from "leaflet/dist/images/marker-icon.png";
@@ -154,6 +154,38 @@ function ViewAreaEmployeesModal({
   employeeList: EmployeeOption[];
   onClose: () => void;
 }) {
+  const [deptFilter, setDeptFilter] = useState("");
+  const [deptMenuOpen, setDeptMenuOpen] = useState(false);
+  const deptMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!deptMenuOpen) return;
+    function handleClickOutside(event: MouseEvent) {
+      if (deptMenuRef.current && !deptMenuRef.current.contains(event.target as Node)) {
+        setDeptMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [deptMenuOpen]);
+
+  const isGlobal = isGlobalZoneLocation(location);
+
+  const departmentOptions = useMemo(() => {
+    const names = new Set<string>();
+    employeeList.forEach((employee) => {
+      if (employee.department?.name) {
+        names.add(employee.department.name);
+      }
+    });
+    return Array.from(names).sort((a, b) => a.localeCompare(b));
+  }, [employeeList]);
+
+  const filteredEmployees = useMemo(() => {
+    if (!deptFilter) return employeeList;
+    return employeeList.filter((employee) => employee.department?.name === deptFilter);
+  }, [deptFilter, employeeList]);
+
   return (
     <div className="geotagging-modal-backdrop" role="presentation" onClick={onClose}>
       <section
@@ -165,7 +197,16 @@ function ViewAreaEmployeesModal({
       >
         <div className="geotagging-modal-header">
           <div>
-            <h2 id="geotagging-modal-title">{location.name}</h2>
+            <div className="geotagging-modal-title-row">
+              <h2 id="geotagging-modal-title">{location.name}</h2>
+              <span
+                className="geotagging-modal-count-badge"
+                title={`${employeeList.length} employee${employeeList.length === 1 ? "" : "s"} assigned`}
+              >
+                <Users size={11} />
+                {isGlobal ? "All" : employeeList.length}
+              </span>
+            </div>
             <p>
               {Number(location.latitude).toFixed(5)}, {Number(location.longitude).toFixed(5)} · {location.radiusMeters}m radius
             </p>
@@ -175,18 +216,86 @@ function ViewAreaEmployeesModal({
           </button>
         </div>
 
+        {!isGlobal && departmentOptions.length > 0 && (
+          <div className="geotagging-modal-toolbar">
+            <span className="geotagging-modal-toolbar-label">
+              {deptFilter
+                ? `Showing ${filteredEmployees.length} of ${employeeList.length}`
+                : "Filter by department"}
+            </span>
+
+            <div className="modal-department-filter-wrap" ref={deptMenuRef}>
+              <button
+                type="button"
+                className={`department-filter-trigger ${deptFilter ? "active" : ""}`}
+                onClick={() => setDeptMenuOpen((open) => !open)}
+              >
+                <span>{deptFilter || "All departments"}</span>
+                <ChevronDown
+                  size={14}
+                  className={deptMenuOpen ? "department-filter-chevron open" : "department-filter-chevron"}
+                />
+              </button>
+              {deptMenuOpen && (
+                <div className="modal-department-filter-menu">
+                  <div className="department-filter-menu-header">
+                    <span>Filter by department</span>
+                    {deptFilter && (
+                      <button
+                        type="button"
+                        className="department-filter-clear"
+                        onClick={() => {
+                          setDeptFilter("");
+                          setDeptMenuOpen(false);
+                        }}
+                      >
+                        <X size={13} /> Clear
+                      </button>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    className={`department-filter-option ${!deptFilter ? "active" : ""}`}
+                    onClick={() => {
+                      setDeptFilter("");
+                      setDeptMenuOpen(false);
+                    }}
+                  >
+                    All departments
+                  </button>
+                  {departmentOptions.map((name) => (
+                    <button
+                      type="button"
+                      key={name}
+                      className={`department-filter-option ${deptFilter === name ? "active" : ""}`}
+                      onClick={() => {
+                        setDeptFilter(name);
+                        setDeptMenuOpen(false);
+                      }}
+                    >
+                      {name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="geotagging-modal-body">
-          {employeeList.length === 0 ? (
+          {filteredEmployees.length === 0 ? (
             <div className="employee-empty-state">
               <p>
-                {isGlobalZoneLocation(location)
+                {isGlobal
                   ? "All employees are covered by this Global Zone."
-                  : "No employees assigned to this area yet."}
+                  : employeeList.length === 0
+                    ? "No employees assigned to this area yet."
+                    : "No employees match this department filter."}
               </p>
             </div>
           ) : (
             <ul className="geotagging-modal-employee-list">
-              {employeeList.map((employee) => (
+              {filteredEmployees.map((employee) => (
                 <li key={employee.id} className="geotagging-modal-employee-row">
                   <div className="geotagging-modal-employee-main">
                     <strong>
@@ -223,6 +332,8 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
   const [departmentFilter, setDepartmentFilter] = useState("");
   const [showDepartmentMenu, setShowDepartmentMenu] = useState(false);
   const departmentMenuRef = useRef<HTMLDivElement>(null);
+  const [areaSearchQuery, setAreaSearchQuery] = useState("");
+  const [areaStatusFilter, setAreaStatusFilter] = useState<"active" | "inactive" | "all">("active");
   const [assignmentError, setAssignmentError] = useState("");
   const [selectedLocationId, setSelectedLocationId] = useState("");
   const [editingLocationId, setEditingLocationId] = useState<string | null>(null);
@@ -427,6 +538,34 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
     [locations],
   );
 
+  const activeAreaCount = useMemo(
+    () => locations.filter((location) => location.isActive !== false).length,
+    [locations],
+  );
+  const inactiveAreaCount = useMemo(
+    () => locations.filter((location) => location.isActive === false).length,
+    [locations],
+  );
+
+  const filteredLocations = useMemo(() => {
+    const query = areaSearchQuery.trim().toLowerCase();
+    return locations.filter((location) => {
+      const isActive = location.isActive !== false;
+      if (areaStatusFilter === "active" && !isActive) return false;
+      if (areaStatusFilter === "inactive" && isActive) return false;
+      if (!query) return true;
+      return location.name.toLowerCase().includes(query);
+    });
+  }, [areaSearchQuery, areaStatusFilter, locations]);
+
+  const areaEmptyMessage = areaSearchQuery.trim()
+    ? "No areas match your search."
+    : areaStatusFilter === "inactive"
+      ? "No inactive areas."
+      : areaStatusFilter === "active"
+        ? "No active areas."
+        : "No areas match this filter.";
+
   function focusLocation(location: GeotaggedLocation) {
     const nextLatitude = Number(location.latitude);
     const nextLongitude = Number(location.longitude);
@@ -545,6 +684,7 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
 
     normalizedLocations.forEach((location) => {
       const isSelected = selectedLocationId === location.id;
+      const isActive = location.isActive !== false;
       const empName =
         location.employees && location.employees.length > 0
           ? location.employees.map(({ employee }) => `${employee.firstName} ${employee.lastName}`).join(", ")
@@ -554,14 +694,17 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
 
       L.circle([location.latitude, location.longitude], {
         radius: location.radiusMeters,
-        color: isSelected ? "#15803d" : "#64748b",
-        fillColor: isSelected ? "#22c55e" : "#94a3b8",
-        fillOpacity: 0.22,
+        color: isSelected ? "#15803d" : isActive ? "#64748b" : "#cbd5e1",
+        fillColor: isSelected ? "#22c55e" : isActive ? "#94a3b8" : "#e2e8f0",
+        fillOpacity: isActive ? 0.22 : 0.12,
       }).addTo(layerGroup);
 
-      const marker = L.marker([location.latitude, location.longitude], { icon: markerIcon }).addTo(layerGroup);
+      const marker = L.marker([location.latitude, location.longitude], {
+        icon: markerIcon,
+        opacity: isActive ? 1 : 0.45,
+      }).addTo(layerGroup);
       marker.bindPopup(
-        `<div class="map-popup"><strong>${location.name}</strong><span>${empName}</span><span class="popup-radius">${location.radiusMeters}m radius</span></div>`,
+        `<div class="map-popup"><strong>${location.name}${isActive ? "" : " (Inactive)"}</strong><span>${empName}</span><span class="popup-radius">${location.radiusMeters}m radius</span></div>`,
       );
       marker.on("click", () => {
         setSelectedLocationId(location.id);
@@ -679,6 +822,46 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
       const message = error instanceof Error ? error.message : "Failed to delete location";
       setAssignmentError(message);
     }
+  }
+
+  async function toggleLocationActive(location: GeotaggedLocation) {
+    const nextActive = !(location.isActive !== false);
+
+    try {
+      setAssignmentError("");
+      const updated = await apiRequest<GeotaggedLocation>(`/geolocation/locations/${location.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ isActive: nextActive }),
+      });
+      setLocations((current) => current.map((loc) => (loc.id === updated.id ? updated : loc)));
+    } catch (error) {
+      console.error("Failed to update area status", error);
+      const message = error instanceof Error ? error.message : "Failed to update area status";
+      setAssignmentError(message);
+    }
+  }
+
+  function confirmToggleLocationActive(location: GeotaggedLocation) {
+    const isActive = location.isActive !== false;
+
+    // Activating is non-destructive, so only ask for confirmation when
+    // deactivating — that's the action with real consequences (employees
+    // stop being geofenced against this area).
+    if (isActive) {
+      const employeeCount = getLocationEmployees(location).length;
+      setConfirmConfig({
+        title: "Deactivate Area",
+        description:
+          employeeCount > 0
+            ? `Are you sure you want to deactivate "${location.name}"? Attendance geofencing will stop applying for ${employeeCount} employee${employeeCount === 1 ? "" : "s"} assigned here until it's reactivated.`
+            : `Are you sure you want to deactivate "${location.name}"? It will stop being used for attendance geofencing until it's reactivated.`,
+        confirmLabel: "Deactivate",
+        onConfirm: () => toggleLocationActive(location),
+      });
+      return;
+    }
+
+    toggleLocationActive(location);
   }
 
   function startCreateMode() {
@@ -861,6 +1044,53 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
             <span className="area-count-badge">{locations.length}</span>
           </div>
 
+          <div className="assigned-list-toolbar">
+            <div className="assigned-list-status-tabs" role="tablist" aria-label="Filter areas by status">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={areaStatusFilter === "active"}
+                className={`status-tab${areaStatusFilter === "active" ? " is-selected" : ""}`}
+                onClick={() => setAreaStatusFilter("active")}
+              >
+                Active
+                <span className="status-tab-count">{activeAreaCount}</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={areaStatusFilter === "inactive"}
+                className={`status-tab${areaStatusFilter === "inactive" ? " is-selected" : ""}`}
+                onClick={() => setAreaStatusFilter("inactive")}
+              >
+                Inactive
+                <span className="status-tab-count">{inactiveAreaCount}</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={areaStatusFilter === "all"}
+                className={`status-tab${areaStatusFilter === "all" ? " is-selected" : ""}`}
+                onClick={() => setAreaStatusFilter("all")}
+              >
+                All
+                <span className="status-tab-count">{locations.length}</span>
+              </button>
+            </div>
+
+            <div className="area-search-wrap">
+              <Search size={12} className="area-search-icon" />
+              <input
+                type="text"
+                value={areaSearchQuery}
+                onChange={(event) => setAreaSearchQuery(event.target.value)}
+                placeholder="Search areas..."
+                className="area-search-input"
+                aria-label="Search assigned areas"
+              />
+            </div>
+          </div>
+
           <div className="assigned-list-scroll">
             {locations.length === 0 ? (
               <div className="empty-state">
@@ -877,20 +1107,31 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
                   </>
                 )}
               </div>
+            ) : filteredLocations.length === 0 ? (
+              <div className="empty-state">
+                <Search size={28} strokeWidth={1.2} />
+                <p>{areaEmptyMessage}</p>
+                <small>
+                  {areaSearchQuery.trim()
+                    ? "Try a different area name."
+                    : areaStatusFilter === "inactive"
+                      ? "Deactivated areas will show up here."
+                      : "Try switching the status filter."}
+                </small>
+              </div>
             ) : (
-              locations.map((location) => {
+              filteredLocations.map((location) => {
                 const locationEmployees = getLocationEmployees(location);
+                const isGlobal = isGlobalZoneLocation(location);
+                const isActive = location.isActive !== false;
                 const empName =
                   locationEmployees.length > 0
                     ? locationEmployees.map((employee) => `${employee.firstName} ${employee.lastName}`).join(", ")
                     : "Global Zone (All Employees)";
-                const deptNames = Array.from(
-                  new Set(locationEmployees.map((employee) => employee.department?.name).filter(Boolean)),
-                ) as string[];
 
                 return (
                   <article
-                    className={`assigned-location ${selectedLocationId === location.id ? "selected" : ""}`}
+                    className={`assigned-location ${selectedLocationId === location.id ? "selected" : ""}${isActive ? "" : " is-inactive"}`}
                     key={location.id}
                   >
                     <button
@@ -898,43 +1139,68 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
                       type="button"
                       onClick={() => focusLocation(location)}
                     >
-                      <strong>{location.name}</strong>
+                      <div className="assigned-location-name-row">
+                        <strong>{location.name}</strong>
+                        <span
+                          className="assigned-location-count"
+                          title={`${locationEmployees.length} employee${locationEmployees.length === 1 ? "" : "s"} assigned`}
+                        >
+                          <Users size={12} />
+                          {isGlobal ? "All" : locationEmployees.length}
+                        </span>
+                      </div>
                       <span>{empName}</span>
-                      {deptNames.length > 0 && (
-                        <span className="assigned-location-dept">{deptNames.join(", ")}</span>
-                      )}
                       <small>
                         {Number(location.latitude).toFixed(5)}, {Number(location.longitude).toFixed(5)} · {location.radiusMeters}
                         m
                       </small>
                     </button>
-                    <div className="assigned-location-actions">
-                      <button
-                        className="icon-button location-action-btn location-action-btn--view"
-                        type="button"
-                        aria-label={`View details for ${location.name}`}
-                        onClick={() => setViewingLocationId(location.id)}
-                      >
-                        <Eye size={14} />
-                      </button>
-                      <button
-                        className="icon-button location-action-btn location-action-btn--edit"
-                        type="button"
-                        aria-label={canWrite ? `Manage employees for ${location.name}` : `View employees for ${location.name}`}
-                        onClick={() => focusLocation(location)}
-                      >
-                        <Edit3 size={14} />
-                      </button>
-                      {canWrite && (
+                    <div className="assigned-location-footer">
+                      <span className={`assigned-location-status ${isActive ? "active" : "inactive"}`}>
+                        {isActive ? "Active" : "Inactive"}
+                      </span>
+                      <div className="assigned-location-actions">
                         <button
-                          className="icon-button location-action-btn location-action-btn--delete"
+                          className="icon-button location-action-btn location-action-btn--view"
                           type="button"
-                          aria-label={`Remove ${location.name}`}
-                          onClick={() => confirmRemoveLocation(location)}
+                          aria-label={`View details for ${location.name}`}
+                          title="View details"
+                          onClick={() => setViewingLocationId(location.id)}
                         >
-                          <Trash2 size={14} />
+                          <Eye size={13} />
                         </button>
-                      )}
+                        <button
+                          className="icon-button location-action-btn location-action-btn--edit"
+                          type="button"
+                          aria-label={canWrite ? `Manage employees for ${location.name}` : `View employees for ${location.name}`}
+                          title={canWrite ? "Manage employees" : "View employees"}
+                          onClick={() => focusLocation(location)}
+                        >
+                          <Edit3 size={13} />
+                        </button>
+                        {canWrite && (
+                          <button
+                            className={`icon-button location-action-btn location-action-btn--toggle${isActive ? "" : " is-inactive"}`}
+                            type="button"
+                            aria-label={isActive ? `Deactivate ${location.name}` : `Activate ${location.name}`}
+                            title={isActive ? "Deactivate area" : "Activate area"}
+                            onClick={() => confirmToggleLocationActive(location)}
+                          >
+                            {isActive ? <Power size={13} /> : <PowerOff size={13} />}
+                          </button>
+                        )}
+                        {canWrite && (
+                          <button
+                            className="icon-button location-action-btn location-action-btn--delete"
+                            type="button"
+                            aria-label={`Remove ${location.name}`}
+                            title="Remove area"
+                            onClick={() => confirmRemoveLocation(location)}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </article>
                 );
@@ -1028,35 +1294,38 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
                         </div>
                       )}
                     </div>
+
+                    {/* Select / Unselect All — placed under the department filter, right-aligned in this column */}
+                    {canWrite && (
+                      <div className="select-all-row">
+                        <button
+                          type="button"
+                          className={`select-all-button${allSelectableSelected ? " active" : ""}`}
+                          onClick={toggleSelectAll}
+                          disabled={selectableEmployeeIds.length === 0}
+                          aria-label={allSelectableSelected ? "Unselect all visible employees" : "Select all visible employees"}
+                        >
+                          <span className="select-all-checkbox" aria-hidden="true">
+                            {allSelectableSelected && <Check size={11} strokeWidth={3} />}
+                          </span>
+                          {allSelectableSelected ? "Unselect All" : "Select All"}
+                          {selectableEmployeeIds.length > 0 && (
+                            <span className="select-all-count">{selectableEmployeeIds.length}</span>
+                          )}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
 
-              {/* Select / Unselect All — only shown when canWrite and not a Global Zone */}
-              {canWrite && !editingIsGlobalZone && (
-                <div className="select-all-row">
-                  <button
-                    type="button"
-                    className={`select-all-button${allSelectableSelected ? " active" : ""}`}
-                    onClick={toggleSelectAll}
-                    disabled={selectableEmployeeIds.length === 0}
-                    aria-label={allSelectableSelected ? "Unselect all visible employees" : "Select all visible employees"}
-                  >
-                    {allSelectableSelected ? "Unselect All" : "Select All"}
-                    {selectableEmployeeIds.length > 0 && (
-                      <span className="select-all-count">{selectableEmployeeIds.length}</span>
-                    )}
-                  </button>
-                </div>
+              {(!canWrite || editingIsGlobalZone) && (
+                <small className="field-help">
+                  {!canWrite
+                    ? "Employees assigned to this area."
+                    : "Global Zone is remove-only. You can unassign employees here, but you cannot add new ones."}
+                </small>
               )}
-
-              <small className="field-help">
-                {!canWrite
-                  ? "Employees assigned to this area."
-                  : editingIsGlobalZone
-                    ? "Global Zone is remove-only. You can unassign employees here, but you cannot add new ones."
-                    : "Check employees to assign them here. Uncheck to remove them from this area."}
-              </small>
             </div>
 
             <div className="employee-checklist" role="group" aria-label="Employee assignment checklist">
@@ -1139,24 +1408,33 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
 
           {canWrite && (
             <div className="assignment-save-row">
-              <button
-                className="primary-button"
-                type="button"
-                disabled={!editingLocationId || savingAssignments}
-                onClick={handleSaveAssignments}
-              >
-                <Save size={14} />
-                <span>{savingAssignments ? "Saving..." : "Save Assignments"}</span>
-              </button>
-              {editingLocationId && (
-                <button
-                  className="outline-button"
-                  type="button"
-                  onClick={startCreateMode}
-                >
-                  <span>Cancel</span>
-                </button>
+              {editingLocationId ? (
+                <span className="assignment-save-count">
+                  {form.employeeIds.length} employee{form.employeeIds.length === 1 ? "" : "s"} selected
+                </span>
+              ) : (
+                <span />
               )}
+              <div className="assignment-save-buttons">
+                <button
+                  className="primary-button"
+                  type="button"
+                  disabled={!editingLocationId || savingAssignments}
+                  onClick={handleSaveAssignments}
+                >
+                  <Save size={12} />
+                  <span>{savingAssignments ? "Saving..." : "Save Assignments"}</span>
+                </button>
+                {editingLocationId && (
+                  <button
+                    className="outline-button"
+                    type="button"
+                    onClick={startCreateMode}
+                  >
+                    <span>Cancel</span>
+                  </button>
+                )}
+              </div>
             </div>
           )}
         </section>
@@ -1164,6 +1442,7 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
 
       {viewingLocation && (
         <ViewAreaEmployeesModal
+          key={viewingLocation.id}
           location={viewingLocation}
           employeeList={getLocationEmployees(viewingLocation)}
           onClose={() => setViewingLocationId(null)}

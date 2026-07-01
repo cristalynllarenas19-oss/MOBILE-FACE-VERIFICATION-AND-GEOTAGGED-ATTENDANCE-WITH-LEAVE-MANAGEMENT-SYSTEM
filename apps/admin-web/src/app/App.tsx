@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AttendancePage } from "../features/attendance/AttendancePage";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { EmployeesPage } from "../features/employees/EmployeesPage";
@@ -18,13 +18,25 @@ import { WorkAreaPage } from "../features/employee/WorkAreaPage";
 import { SettingsPage } from "../features/employee/SettingsPage";
 import { AppLayout, navItems } from "../components/layout/AppLayout";
 import { PermissionCode } from "../types/rbac";
-import { AuthUser, getStoredUser, logout } from "../lib/api";
+import { AuthUser, getStoredUser, logout, setOnSessionExpired } from "../lib/api";
+import { useInactivityLogout } from "../hooks/useInactivityLogout";
 
 export default function App() {
   const [authUser, setAuthUser] = useState<AuthUser | null>(() => getStoredUser());
   const [page, setPage] = useState(() =>
     getStoredUser()?.role === "EMPLOYEE" ? "employee-attendance" : "dashboard"
   );
+  useEffect(() => {
+    setOnSessionExpired(() => {
+      logout();
+      setAuthUser(null);
+    });
+  }, []);
+
+  useInactivityLogout(() => {
+    logout();
+    setAuthUser(null);
+  }, authUser !== null);
 
   const user = useMemo(
     () => ({
