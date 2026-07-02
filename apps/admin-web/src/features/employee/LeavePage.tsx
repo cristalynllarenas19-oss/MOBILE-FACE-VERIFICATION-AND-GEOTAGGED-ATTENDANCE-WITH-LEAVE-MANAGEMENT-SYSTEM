@@ -1,20 +1,9 @@
-/**
- * LeavePage — employee self-service leave
- *
- * Mirrors employee-mobile LeaveScreen exactly:
- *  Balance tab  — leave balance cards per type with usage bar + pending-request banner
- *  Request tab  — searchable leave-type dropdown, date pickers, file attachment
- *                 (image/PDF ≤ 5 MB), reason textarea, submit
- *
- * Endpoints used (same as mobile):
- *   GET  /leave-types
- *   GET  /leave-balances/:employeeId?year=YYYY
- *   GET  /leave-requests?employeeId=:id
- *   POST /leave-requests
- */
+
 
 import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, CheckCircle, ChevronDown, ChevronUp, FileText, Paperclip, Search, X } from "lucide-react";
+import "./EmployeeLeavePage.css";
+import "./EmployeePortal.css";
 import {
   LeaveType, LeaveBalance, LeaveRequest,
   getLeaveTypes, getLeaveBalances, getLeaveRequests, createLeaveRequest,
@@ -161,7 +150,8 @@ export function LeavePage({ user }: Props) {
   }
 
   return (
-    <div style={{ maxWidth: 620, margin: "0 auto" }}>
+    <div className="emp-form-page">
+      <h2 className="emp-page-title">Leave</h2>
 
       {/* Tab switcher */}
       <div style={{ display: "flex", background: "#F1F5F9", borderRadius: 14, padding: 4, marginBottom: 16 }}>
@@ -240,133 +230,133 @@ export function LeavePage({ user }: Props) {
       {/* ── Request tab ──────────────────────────────────────────────────────── */}
       {tab === "request" && (
         <div style={{ background: "#FFFFFF", borderRadius: 18, border: "1px solid #E2E8F0", padding: 20 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
-            <FileText size={28} color="#DC2777" />
-            <h3 style={{ color: "#062B59", fontSize: 18, fontWeight: 700, margin: 0 }}>Leave Request</h3>
-          </div>
-
-          {/* Leave type searchable dropdown */}
-          <label style={fldLbl}>Leave Type</label>
-          <div style={{ position: "relative", zIndex: dropOpen ? 20 : 1, marginBottom: dropOpen ? 204 : 0 }}>
-            <button
-              onClick={() => { setDropOpen(!dropOpen); setSearchLeave(""); }}
-              style={{ ...dropBtn, borderColor: dropOpen ? "#062B59" : "#E2E8F0" }}
-            >
-              <span style={{ color: leaveTypeId ? "#0F172A" : "#94A3B8", fontSize: 14 }}>
-                {selectedType?.name || (loadingData ? "Loading…" : "Select Leave Type")}
-              </span>
-              {dropOpen ? <ChevronUp size={18} color="#64748B" /> : <ChevronDown size={18} color="#64748B" />}
-            </button>
-
-            {dropOpen && (
-              <div style={dropPanel}>
-                <div style={searchRow}>
-                  <Search size={14} color="#94A3B8" />
-                  <input
-                    autoFocus
-                    placeholder="Search leave type…"
-                    value={searchLeave}
-                    onChange={(e) => setSearchLeave(e.target.value)}
-                    style={searchInp}
-                  />
-                </div>
-                <div style={{ maxHeight: 158, overflowY: "auto" }}>
-                  {filteredTypes.length === 0
-                    ? <p style={{ padding: 14, textAlign: "center", color: "#94A3B8", fontSize: 13, margin: 0 }}>No leave types found</p>
-                    : filteredTypes.map((t) => (
-                        <button
-                          key={t.id}
-                          onClick={() => { setLeaveTypeId(t.id); setDropOpen(false); setSearchLeave(""); }}
-                          style={{
-                            display: "block", width: "100%", textAlign: "left",
-                            padding: "11px 14px", border: "none",
-                            borderBottom: "1px solid #F1F5F9",
-                            background: "none", cursor: "pointer",
-                            color:      leaveTypeId === t.id ? "#062B59" : "#334155",
-                            fontWeight: leaveTypeId === t.id ? 700 : 400,
-                            fontSize: 14,
-                          }}
-                        >
-                          {t.name}{t.requiresDocument ? " (document required)" : ""}
-                        </button>
-                      ))
-                  }
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Dates */}
-          <label style={fldLbl}>Leave Duration</label>
-          <div style={{ display: "flex", gap: 10 }}>
-            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={dateInp} />
-            <input type="date" value={endDate} min={startDate} onChange={(e) => setEndDate(e.target.value)} style={dateInp} />
-          </div>
-          {startDate && endDate && (
-            <p style={{ fontSize: 12, fontWeight: 600, color: "#1680D8", margin: "5px 0 0" }}>
-              {totalDays} day{totalDays === 1 ? "" : "s"} total
-            </p>
-          )}
-
-          {/* Attachment */}
-          <label style={fldLbl}>
-            Supporting Document{selectedType?.requiresDocument ? " (required)" : " (optional)"}
-          </label>
-          {attachment ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 10, border: "1px solid #E2E8F0", borderRadius: 12, padding: "10px 12px" }}>
-              <Paperclip size={16} color="#1680D8" />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ fontWeight: 600, fontSize: 13, color: "#062B59", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {attachment.name}
-                </p>
-                <p style={{ color: "#94A3B8", fontSize: 11, margin: 0 }}>{fmtBytes(attachment.sizeBytes)}</p>
-              </div>
-              <button
-                onClick={() => setAttachment(null)}
-                style={{ border: "none", background: "#F1F5F9", borderRadius: 13, width: 26, height: 26, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
-              >
-                <X size={14} color="#64748B" />
-              </button>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
+              <FileText size={28} color="#DC2777" />
+              <h3 style={{ color: "#062B59", fontSize: 18, fontWeight: 700, margin: 0 }}>Leave Request</h3>
             </div>
-          ) : (
-            <button
-              onClick={() => fileRef.current?.click()}
+
+            {/* Leave type searchable dropdown */}
+            <label style={fldLbl}>Leave Type</label>
+            <div style={{ position: "relative", zIndex: dropOpen ? 20 : 1, marginBottom: dropOpen ? 204 : 0 }}>
+              <button
+                onClick={() => { setDropOpen(!dropOpen); setSearchLeave(""); }}
+                style={{ ...dropBtn, borderColor: dropOpen ? "#062B59" : "#E2E8F0" }}
+              >
+                <span style={{ color: leaveTypeId ? "#0F172A" : "#94A3B8", fontSize: 14 }}>
+                  {selectedType?.name || (loadingData ? "Loading…" : "Select Leave Type")}
+                </span>
+                {dropOpen ? <ChevronUp size={18} color="#64748B" /> : <ChevronDown size={18} color="#64748B" />}
+              </button>
+
+              {dropOpen && (
+                <div style={dropPanel}>
+                  <div style={searchRow}>
+                    <Search size={14} color="#94A3B8" />
+                    <input
+                      autoFocus
+                      placeholder="Search leave type…"
+                      value={searchLeave}
+                      onChange={(e) => setSearchLeave(e.target.value)}
+                      style={searchInp}
+                    />
+                  </div>
+                  <div style={{ maxHeight: 158, overflowY: "auto" }}>
+                    {filteredTypes.length === 0
+                      ? <p style={{ padding: 14, textAlign: "center", color: "#94A3B8", fontSize: 13, margin: 0 }}>No leave types found</p>
+                      : filteredTypes.map((t) => (
+                          <button
+                            key={t.id}
+                            onClick={() => { setLeaveTypeId(t.id); setDropOpen(false); setSearchLeave(""); }}
+                            style={{
+                              display: "block", width: "100%", textAlign: "left",
+                              padding: "11px 14px", border: "none",
+                              borderBottom: "1px solid #F1F5F9",
+                              background: "none", cursor: "pointer",
+                              color:      leaveTypeId === t.id ? "#062B59" : "#334155",
+                              fontWeight: leaveTypeId === t.id ? 700 : 400,
+                              fontSize: 14,
+                            }}
+                          >
+                            {t.name}{t.requiresDocument ? " (document required)" : ""}
+                          </button>
+                        ))
+                    }
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Dates */}
+            <label style={fldLbl}>Leave Duration</label>
+            <div style={{ display: "flex", gap: 10 }}>
+              <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={dateInp} />
+              <input type="date" value={endDate} min={startDate} onChange={(e) => setEndDate(e.target.value)} style={dateInp} />
+            </div>
+            {startDate && endDate && (
+              <p style={{ fontSize: 12, fontWeight: 600, color: "#1680D8", margin: "5px 0 0" }}>
+                {totalDays} day{totalDays === 1 ? "" : "s"} total
+              </p>
+            )}
+
+            {/* Attachment */}
+            <label style={fldLbl}>
+              Supporting Document{selectedType?.requiresDocument ? " (required)" : " (optional)"}
+            </label>
+            {attachment ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, border: "1px solid #E2E8F0", borderRadius: 12, padding: "10px 12px" }}>
+                <Paperclip size={16} color="#1680D8" />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontWeight: 600, fontSize: 13, color: "#062B59", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {attachment.name}
+                  </p>
+                  <p style={{ color: "#94A3B8", fontSize: 11, margin: 0 }}>{fmtBytes(attachment.sizeBytes)}</p>
+                </div>
+                <button
+                  onClick={() => setAttachment(null)}
+                  style={{ border: "none", background: "#F1F5F9", borderRadius: 13, width: 26, height: 26, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                >
+                  <X size={14} color="#64748B" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => fileRef.current?.click()}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                  width: "100%", height: 48,
+                  border: "1.5px dashed #BFDBFE", borderRadius: 12,
+                  background: "#F8FAFF", cursor: "pointer",
+                  color: "#1680D8", fontSize: 13, fontWeight: 600,
+                }}
+              >
+                <Paperclip size={18} color="#1680D8" />
+                Tap to attach a photo or PDF
+              </button>
+            )}
+            {attachErr && <p style={{ color: "#DC2626", fontSize: 12, fontWeight: 600, marginTop: 4 }}>{attachErr}</p>}
+            <input ref={fileRef} type="file" accept="image/*,.pdf" style={{ display: "none" }} onChange={handleFileChange} />
+
+            {/* Reason */}
+            <label style={fldLbl}>Reason</label>
+            <textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Enter reason"
+              rows={4}
               style={{
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                width: "100%", height: 48,
-                border: "1.5px dashed #BFDBFE", borderRadius: 12,
-                background: "#F8FAFF", cursor: "pointer",
-                color: "#1680D8", fontSize: 13, fontWeight: 600,
+                width: "100%", border: "1px solid #E2E8F0", borderRadius: 12,
+                padding: "10px 14px", fontSize: 14, resize: "vertical",
+                boxSizing: "border-box", fontFamily: "inherit", outline: "none",
               }}
+            />
+
+            <button
+              disabled={isSubmitting}
+              onClick={handleSubmit}
+              style={{ ...primBtn, marginTop: 16, opacity: isSubmitting ? 0.7 : 1, cursor: isSubmitting ? "not-allowed" : "pointer" }}
             >
-              <Paperclip size={18} color="#1680D8" />
-              Tap to attach a photo or PDF
+              {isSubmitting ? "Submitting…" : "Submit Leave Request"}
             </button>
-          )}
-          {attachErr && <p style={{ color: "#DC2626", fontSize: 12, fontWeight: 600, marginTop: 4 }}>{attachErr}</p>}
-          <input ref={fileRef} type="file" accept="image/*,.pdf" style={{ display: "none" }} onChange={handleFileChange} />
-
-          {/* Reason */}
-          <label style={fldLbl}>Reason</label>
-          <textarea
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="Enter reason"
-            rows={4}
-            style={{
-              width: "100%", border: "1px solid #E2E8F0", borderRadius: 12,
-              padding: "10px 14px", fontSize: 14, resize: "vertical",
-              boxSizing: "border-box", fontFamily: "inherit", outline: "none",
-            }}
-          />
-
-          <button
-            disabled={isSubmitting}
-            onClick={handleSubmit}
-            style={{ ...primBtn, marginTop: 16, opacity: isSubmitting ? 0.7 : 1, cursor: isSubmitting ? "not-allowed" : "pointer" }}
-          >
-            {isSubmitting ? "Submitting…" : "Submit Leave Request"}
-          </button>
         </div>
       )}
 
@@ -432,7 +422,9 @@ export function LeavePage({ user }: Props) {
 // ── Styles ────────────────────────────────────────────────────────────────────
 const balCard: CSSProperties = {
   background: "#FFFFFF", borderRadius: 14,
-  border: "1px solid #E2E8F0", padding: "14px 16px", marginBottom: 10,
+  border: "1px solid #E2E8F0", padding: "14px 16px",
+  marginBottom: 12,
+  boxShadow: "0 1px 3px rgba(6,43,89,0.06)",
 };
 const fldLbl: CSSProperties = {
   display: "block", fontWeight: 600, color: "#475569",

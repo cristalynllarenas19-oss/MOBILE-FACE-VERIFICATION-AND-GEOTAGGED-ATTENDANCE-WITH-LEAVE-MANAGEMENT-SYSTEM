@@ -1,0 +1,60 @@
+/* ── Shared design tokens for the employee self-service portal ──────────────
+   Keeps the existing navy/blue brand palette; only standardizes spacing,
+   radius, shadow, and content width across Attendance/Leave/DTR/Work
+   Area/Settings so the modules feel like one consistent system. */
+:root {
+  --emp-space-1: 8px;
+  --emp-space-2: 16px;
+  --emp-space-3: 24px;
+  --emp-space-4: 32px;
+
+  --emp-radius-sm: 10px;
+  --emp-radius-md: 14px;
+  --emp-radius-lg: 18px;
+
+  --emp-shadow-card: 0 1px 3px rgba(6, 43, 89, 0.06), 0 1px 2px rgba(6, 43, 89, 0.04);
+
+  --emp-navy: #062b59;
+  --emp-blue: #1680d8;
+  --emp-border: #e2e8f0;
+  --emp-text-muted: #64748b;
+
+  /* Balanced desktop widths — centered, but not overly compact.
+     ~15-20% wider than an earlier, over-corrected narrow pass. */
+  --emp-page-max: 1320px;
+  --emp-form-max: 760px;
+}
+
+/* Wide page container — used by Attendance, Leave, DTR, Work Area */
+.emp-page {
+  max-width: var(--emp-page-max);
+  margin: 0 auto;
+}
+
+/* Narrow, centered container for single-column forms — Settings, Change
+   Password, My Profile, and any future compact form page. */
+.emp-form-page {
+  max-width: var(--emp-form-max);
+  margin: 0 auto;
+}
+
+.emp-card {
+  background: #ffffff;
+  border: 1px solid var(--emp-border);
+  border-radius: var(--emp-radius-lg);
+  box-shadow: var(--emp-shadow-card);
+}
+
+.emp-page-title {
+  color: var(--emp-navy);
+  font-size: 20px;
+  font-weight: 800;
+  margin: 0 0 var(--emp-space-3);
+}
+
+@media (max-width: 640px) {
+  .emp-page-title {
+    font-size: 17px;
+    margin-bottom: var(--emp-space-2);
+  }
+}

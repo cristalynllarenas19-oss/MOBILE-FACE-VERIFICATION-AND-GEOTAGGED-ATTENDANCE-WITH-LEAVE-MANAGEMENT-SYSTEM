@@ -12,7 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { BarChart, DeptAttendanceRow } from "../../components/ui/BarChart";
+import { AttendanceNavigateFilter, BarChart, DeptAttendanceRow } from "../../components/ui/BarChart";
 import { Card } from "../../components/ui/Card";
 import { StatCard } from "../../components/ui/StatCard";
 import { apiRequest, SessionExpiredError } from "../../lib/api";
@@ -108,6 +108,16 @@ function formatFullDate(isoDate: string) {
   });
 }
 
+// Local YYYY-MM-DD (not UTC — a plain .toISOString().slice(0, 10) can land on
+// the wrong calendar day for timezones ahead of UTC).
+function toDateInputValue(isoDate: string) {
+  const date = new Date(isoDate);
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 function DayMiniBar({ day }: { day: CalendarDay }) {
   const segments = [
     { key: "present",          value: day.present,          color: STATUS_COLORS.present },
@@ -136,9 +146,31 @@ function DayMiniBar({ day }: { day: CalendarDay }) {
   );
 }
 
-function DayDetailModal({ day, onClose }: { day: CalendarDay; onClose: () => void }) {
+function DayDetailModal({
+  day,
+  days,
+  onChangeDay,
+  onClose,
+  onNavigate,
+}: {
+  day: CalendarDay;
+  days: CalendarDay[];
+  onChangeDay: (day: CalendarDay) => void;
+  onClose: () => void;
+  onNavigate: (filter: AttendanceNavigateFilter) => void;
+}) {
   const total = day.present + day.late + day.absent + day.onLeave + day.officialBusiness;
   const hasDepts = day.departments && day.departments.length > 0;
+  const dateValue = toDateInputValue(day.date);
+
+  const dayIndex = days.findIndex((d) => d.day === day.day);
+  const prevDay = dayIndex > 0 ? days[dayIndex - 1] : null;
+  const nextDay = dayIndex >= 0 && dayIndex < days.length - 1 ? days[dayIndex + 1] : null;
+
+  const handleRowNavigate = (filter: AttendanceNavigateFilter) => {
+    onNavigate(filter);
+    onClose();
+  };
 
   return (
     <div className="day-modal-backdrop" role="presentation" onClick={onClose}>
@@ -150,9 +182,29 @@ function DayDetailModal({ day, onClose }: { day: CalendarDay; onClose: () => voi
         onClick={(e) => e.stopPropagation()}
       >
         <div className="day-modal-header">
-          <div>
-            <h2 id="day-modal-title">{formatFullDate(day.date)}</h2>
-            <p>Attendance breakdown by department</p>
+          <div className="day-modal-title-group">
+            <button
+              type="button"
+              className="icon-button"
+              onClick={() => prevDay && onChangeDay(prevDay)}
+              disabled={!prevDay}
+              aria-label="Previous day"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <div>
+              <h2 id="day-modal-title">{formatFullDate(day.date)}</h2>
+              <p>Attendance breakdown by department</p>
+            </div>
+            <button
+              type="button"
+              className="icon-button"
+              onClick={() => nextDay && onChangeDay(nextDay)}
+              disabled={!nextDay}
+              aria-label="Next day"
+            >
+              <ChevronRight size={16} />
+            </button>
           </div>
           <button className="icon-button" onClick={onClose} aria-label="Close date details">
             <X size={18} />
@@ -185,7 +237,7 @@ function DayDetailModal({ day, onClose }: { day: CalendarDay; onClose: () => voi
           {total === 0 ? (
             <p className="day-modal-empty">No attendance records for this date yet.</p>
           ) : hasDepts ? (
-            <BarChart mode="department" data={day.departments} />
+            <BarChart mode="department" data={day.departments} date={dateValue} onNavigate={handleRowNavigate} />
           ) : (
             <p className="day-modal-empty">No department breakdown available.</p>
           )}
@@ -298,7 +350,11 @@ function CalendarPicker({
   );
 }
 
-export function DashboardPage() {
+export function DashboardPage({
+  onNavigateToAttendance,
+}: {
+  onNavigateToAttendance: (filter: AttendanceNavigateFilter) => void;
+}) {
   const now = new Date();
   const [calendarMonth, setCalendarMonth] = useState(now.getMonth());
   const [calendarYear, setCalendarYear] = useState(now.getFullYear());
@@ -495,7 +551,15 @@ export function DashboardPage() {
         </aside>
       </div>
 
-      {selectedDay && <DayDetailModal day={selectedDay} onClose={() => setSelectedDay(null)} />}
+      {selectedDay && (
+        <DayDetailModal
+          day={selectedDay}
+          days={summary.calendar?.days ?? []}
+          onChangeDay={setSelectedDay}
+          onClose={() => setSelectedDay(null)}
+          onNavigate={onNavigateToAttendance}
+        />
+      )}
     </div>
   );
 }

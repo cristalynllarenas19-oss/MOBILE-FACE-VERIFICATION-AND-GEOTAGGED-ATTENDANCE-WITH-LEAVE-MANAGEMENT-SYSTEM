@@ -1,13 +1,11 @@
 
 import { CSSProperties, useCallback, useEffect, useState } from "react";
 import {
-  AlertCircle, CalendarDays, CheckCircle, Clock, LogIn, LogOut, MapPin,
+  AlertCircle, CheckCircle, Clock, LogIn, LogOut, MapPin,
 } from "lucide-react";
 import {
   TodayAttendance, WorkLocation, AttendanceSubmitResult,
-  LeaveBalance, AttendanceHistoryRecord,
   getTodayAttendance, submitAttendance, getMyWorkLocation, getMyWorkLocations,
-  getAttendanceHistory, getLeaveBalances,
   distanceInMeters, getFriendlyReason,
 } from "./api";
 import CameraScanner, { GeoPoint } from "./components/CameraScanner";
@@ -27,21 +25,9 @@ function fmtTime(v: string | null | undefined) {
   return new Date(v).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
 
-function workdaysElapsed(year: number, month: number): number {
-  const today = new Date().getDate();
-  let count = 0;
-  for (let d = 1; d <= today; d++) {
-    const dow = new Date(year, month, d).getDay();
-    if (dow > 0 && dow < 6) count++;
-  }
-  return count;
-}
-
 export function AttendancePage({ user }: Props) {
   const [todayAtt,     setTodayAtt]     = useState<TodayAttendance | null>(null);
   const [isLoading,    setIsLoading]    = useState(true);
-  const [history,      setHistory]      = useState<AttendanceHistoryRecord[]>([]);
-  const [leaveBalances, setLeaveBalances] = useState<LeaveBalance[]>([]);
   // Scanner state
   const [scanType,      setScanType]      = useState<"TIME_IN" | "TIME_OUT" | null>(null);
   const [isSubmitting,  setIsSubmitting]  = useState(false);
@@ -71,26 +57,10 @@ export function AttendancePage({ user }: Props) {
   useEffect(() => {
     if (!user.employeeId) return;
     setIsLoading(true);
-    Promise.all([
-      loadToday(),
-      getAttendanceHistory(user.employeeId, 60).then(setHistory).catch(() => undefined),
-      getLeaveBalances(user.employeeId).then(setLeaveBalances).catch(() => undefined),
-    ]).finally(() => setIsLoading(false));
+    loadToday().finally(() => setIsLoading(false));
   }, [loadToday, user.employeeId]);
 
-  // ── Monthly stats ─────────────────────────────────────────────────────────
-  const now       = new Date();
-  const curMonth  = now.getMonth();
-  const curYear   = now.getFullYear();
-
-  const monthlyRecs  = history.filter(r => {
-    const d = new Date(r.attendanceDate);
-    return d.getMonth() === curMonth && d.getFullYear() === curYear;
-  });
-  const daysPresent   = monthlyRecs.filter(r => r.timeInAt !== null).length;
-  const lateArrivals  = monthlyRecs.filter(r => r.status === "LATE").length;
-  const workdays      = workdaysElapsed(curYear, curMonth);
-  const attendancePct = workdays > 0 ? Math.min(100, (daysPresent / workdays) * 100) : 0;
+  const now = new Date();
 
   // ── Status logic ──────────────────────────────────────────────────────────
   const hasTimedIn   = Boolean(todayAtt?.timeInAt);
@@ -238,7 +208,6 @@ export function AttendancePage({ user }: Props) {
   const todayLabel = now.toLocaleDateString("en-US", {
     weekday: "long", month: "long", day: "numeric", year: "numeric",
   });
-  const monthLabel = now.toLocaleString("en-US", { month: "long" });
 
   // ── Scanner overlay ───────────────────────────────────────────────────────
   if (scanType) {
@@ -253,10 +222,7 @@ export function AttendancePage({ user }: Props) {
 
   // ── Main view ─────────────────────────────────────────────────────────────
   return (
-    <div className="att-grid">
-
-      {/* ── Left column: attendance card + action buttons ── */}
-      <div>
+    <div className="emp-form-page">
         <div className="att-card" style={{ ...card, padding: 36 }}>
           <p className="att-date" style={{ color: "#64748B", fontSize: 13, marginBottom: 20 }}>{todayLabel}</p>
           <h2 className="att-heading" style={{ color: "#062B59", fontSize: 26, fontWeight: 800, marginBottom: 16 }}>
@@ -338,135 +304,6 @@ export function AttendancePage({ user }: Props) {
             Please ensure your camera and location permissions are enabled before recording attendance.
           </p>
         </div>
-      </div>
-
-      {/* ── Right column: monthly summary + leave balances ── */}
-      <div className="att-right">
-
-        {/* Monthly summary */}
-        <div style={{ ...card, padding: "14px 16px" }}>
-          <div style={{ ...sectionHead, marginBottom: 10 }}>
-            <CalendarDays size={13} color="#062B59" />
-            <span style={sectionTitle}>{monthLabel.toUpperCase()}</span>
-          </div>
-
-          {/* Attendance donut + stats side by side */}
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            {/* Donut: shows attendance rate */}
-            <svg width="52" height="52" viewBox="0 0 52 52" style={{ flexShrink: 0 }}>
-              <circle cx="26" cy="26" r="20" fill="none" stroke="#E2E8F0" strokeWidth="6" />
-              <circle
-                cx="26" cy="26" r="20" fill="none"
-                stroke="#062B59" strokeWidth="6"
-                strokeDasharray={`${attendancePct * 1.257} 125.7`}
-                strokeLinecap="round"
-                transform="rotate(-90 26 26)"
-              />
-              <text x="26" y="30" textAnchor="middle" fontSize="11" fontWeight="800" fill="#062B59">
-                {Math.round(attendancePct)}%
-              </text>
-            </svg>
-
-            <div>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
-                <span style={{ fontSize: 24, fontWeight: 800, color: "#062B59", lineHeight: 1 }}>{daysPresent}</span>
-                <span style={{ fontSize: 11, color: "#64748B" }}>present</span>
-              </div>
-              {workdays > 0 && (
-                <p style={{ fontSize: 10, color: "#94A3B8", margin: "2px 0 8px" }}>of {workdays} working days</p>
-              )}
-              <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
-                <span style={{ fontSize: 18, fontWeight: 800, lineHeight: 1, color: lateArrivals > 0 ? "#D97706" : "#17A34A" }}>
-                  {lateArrivals}
-                </span>
-                <span style={{ fontSize: 11, color: "#64748B" }}>late</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Leave balances — donut with labels beside each slice */}
-        {leaveBalances.length > 0 && (() => {
-          const R = 30, CX = 120, CY = 82, SW = 10;
-          const circ   = 2 * Math.PI * R;
-          const LINE_R  = R + SW / 2 + 3;
-          const LABEL_R = R + SW / 2 + 14;
-          const totalRemaining = leaveBalances.reduce((s, l) => s + l.remainingDays, 0);
-          const totalEarned    = leaveBalances.reduce((s, l) => s + l.earnedDays, 0);
-
-          let cumPct = 0;
-          const segs = leaveBalances.map((lb, i) => {
-            const color     = LEAVE_COLORS[i % LEAVE_COLORS.length];
-            const pct       = totalRemaining > 0 ? lb.remainingDays / totalRemaining : 0;
-            const segLen    = pct * circ;
-            const offset    = circ / 4 - cumPct * circ;
-            const midDeg    = -90 + (cumPct + pct / 2) * 360;
-            const midRad    = (midDeg * Math.PI) / 180;
-            const lx        = CX + LABEL_R * Math.cos(midRad);
-            const ly        = CY + LABEL_R * Math.sin(midRad);
-            const lineX1    = CX + LINE_R * Math.cos(midRad);
-            const lineY1    = CY + LINE_R * Math.sin(midRad);
-            const lineX2    = CX + (LABEL_R - 5) * Math.cos(midRad);
-            const lineY2    = CY + (LABEL_R - 5) * Math.sin(midRad);
-            const anchor    = lx > CX + 6 ? "start" : lx < CX - 6 ? "end" : "middle";
-            const shortName = lb.leaveTypeName.replace(/\s*leave$/i, "");
-            cumPct += pct;
-            return { lb, color, segLen, offset, lx, ly, lineX1, lineY1, lineX2, lineY2, anchor, shortName };
-          });
-
-          return (
-            <div style={{ ...card, padding: "14px 16px" }}>
-              <div style={{ ...sectionHead, marginBottom: 4 }}>
-                <Clock size={13} color="#062B59" />
-                <span style={sectionTitle}>LEAVE BALANCE</span>
-                <span style={{ fontSize: 10, color: "#94A3B8", marginLeft: "auto" }}>{curYear}</span>
-              </div>
-
-              <svg viewBox="0 0 240 162" style={{ width: "100%", height: "auto", display: "block" }}>
-                {/* Track */}
-                <circle cx={CX} cy={CY} r={R} fill="none" stroke="#E2E8F0" strokeWidth={SW} />
-
-                {/* Arc segments */}
-                {totalRemaining > 0 && segs.map(({ lb, color, segLen, offset }) =>
-                  lb.remainingDays > 0 && (
-                    <circle
-                      key={lb.leaveTypeId}
-                      cx={CX} cy={CY} r={R} fill="none"
-                      stroke={color} strokeWidth={SW}
-                      strokeDasharray={`${segLen - 1.5} ${circ}`}
-                      strokeDashoffset={offset}
-                    />
-                  )
-                )}
-
-                {/* Leader lines + labels beside each slice */}
-                {segs.map(({ lb, color, lx, ly, lineX1, lineY1, lineX2, lineY2, anchor, shortName }) => (
-                  <g key={lb.leaveTypeId}>
-                    <line x1={lineX1} y1={lineY1} x2={lineX2} y2={lineY2}
-                      stroke={color} strokeWidth="0.8" opacity="0.6" />
-                    <text x={lx} y={ly - 2} textAnchor={anchor}
-                      fontSize="9" fontWeight="600" fill="#334155">
-                      {shortName}
-                    </text>
-                    <text x={lx} y={ly + 8} textAnchor={anchor}
-                      fontSize="8.5" fontWeight="800" fill={color}>
-                      {lb.remainingDays}/{lb.earnedDays}
-                    </text>
-                  </g>
-                ))}
-
-                {/* Center totals */}
-                <text x={CX} y={CY + 4} textAnchor="middle" fontSize="14" fontWeight="800" fill="#062B59">
-                  {totalRemaining}
-                </text>
-                <text x={CX} y={CY + 14} textAnchor="middle" fontSize="7" fill="#94A3B8">
-                  of {totalEarned}
-                </text>
-              </svg>
-            </div>
-          );
-        })()}
-      </div>
 
       {/* ── Site picker modal (FIELD employees) ───────────────────────────── */}
       {sitePickerVisible && (
@@ -584,9 +421,6 @@ const card: CSSProperties = {
   border: "1px solid #E2E8F0",
   boxShadow: "0 2px 6px rgba(0,0,0,0.05)",
 };
-const row: CSSProperties  = { display: "flex", justifyContent: "space-between", marginBottom: 12 };
-const lbl: CSSProperties  = { color: "#64748B", fontSize: 14 };
-const val: CSSProperties  = { color: "#062B59", fontWeight: 700, fontSize: 14 };
 const btnBase: CSSProperties = {
   display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
   width: "100%", height: 50, borderRadius: 14, border: "none",
@@ -603,38 +437,6 @@ const overlayS: CSSProperties = {
 const modalCard: CSSProperties = {
   width: "100%", maxWidth: 400,
   background: "#fff", borderRadius: 20, padding: 20,
-};
-
-// Distinct colors for each leave type segment in the shared donut
-const LEAVE_COLORS = [
-  "#062B59", "#1680D8", "#EC4899", "#8B5CF6",
-  "#EF4444", "#F59E0B", "#10B981", "#14B8A6", "#F97316",
-];
-
-// Right column stat styles
-const sectionHead: CSSProperties = {
-  display: "flex", alignItems: "center", gap: 7, marginBottom: 14,
-};
-const sectionTitle: CSSProperties = {
-  fontSize: 11, fontWeight: 800, color: "#062B59", letterSpacing: 1,
-};
-const bigNum: CSSProperties = {
-  fontSize: 36, fontWeight: 800, color: "#062B59", lineHeight: 1,
-};
-const statMeta: CSSProperties = {
-  fontSize: 13, color: "#64748B",
-};
-const progressTrack: CSSProperties = {
-  height: 7, background: "#E2E8F0", borderRadius: 4, overflow: "hidden",
-};
-const progressFill: CSSProperties = {
-  height: "100%", borderRadius: 4, transition: "width 0.6s ease",
-};
-const progressCaption: CSSProperties = {
-  fontSize: 11, color: "#94A3B8", marginTop: 5, marginBottom: 0,
-};
-const divider: CSSProperties = {
-  borderTop: "1px solid #E2E8F0", margin: "14px 0",
 };
 
 function iconCircle(bg: string): CSSProperties {

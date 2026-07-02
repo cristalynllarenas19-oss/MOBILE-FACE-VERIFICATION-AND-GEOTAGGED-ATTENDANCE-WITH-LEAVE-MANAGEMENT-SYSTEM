@@ -177,14 +177,22 @@ function AttendanceDetailsModal({
   );
 }
 
-export function AttendancePage({ user }: { user?: { permissions: PermissionCode[] } }) {
+export type AttendanceInitialFilter = { department?: string; status?: string; date?: string };
+
+export function AttendancePage({
+  user,
+  initialFilter,
+}: {
+  user?: { permissions: PermissionCode[] };
+  initialFilter?: AttendanceInitialFilter;
+}) {
   const canWrite = user?.permissions.includes(permissions.attendanceWrite) ?? true;
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [employeeOptions, setEmployeeOptions] = useState<EmployeeOption[]>([]);
-  const [departmentFilter, setDepartmentFilter] = useState("ALL");
-  const [statusFilter, setStatusFilter] = useState("ALL");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [departmentFilter, setDepartmentFilter] = useState(initialFilter?.department ?? "ALL");
+  const [statusFilter, setStatusFilter] = useState(initialFilter?.status ?? "ALL");
+  const [dateFrom, setDateFrom] = useState(initialFilter?.date ?? "");
+  const [dateTo, setDateTo] = useState(initialFilter?.date ?? "");
   const [viewRecord, setViewRecord] = useState<AttendanceRecord | null>(null);
   const [notification, setNotification] = useState<Notification>(null);
   const now = useNow();

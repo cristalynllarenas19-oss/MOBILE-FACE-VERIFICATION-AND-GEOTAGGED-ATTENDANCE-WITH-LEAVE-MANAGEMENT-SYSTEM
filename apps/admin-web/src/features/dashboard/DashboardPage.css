@@ -411,6 +411,19 @@
   background: #f8fafc;
 }
 
+.day-modal-header .icon-button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  background: #ffffff;
+}
+
+.day-modal-title-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
 .day-modal-body {
   padding: 18px 22px 22px;
   flex: 1 1 auto;

@@ -22,6 +22,14 @@ export class EmployeesService {
     });
   }
 
+  updateMyPhoto(employeeId: string, profilePhotoData: string, profilePhotoMimeType: string) {
+    return this.prisma.employee.update({
+      where: { id: employeeId },
+      data: { profilePhotoData, profilePhotoMimeType },
+      include: { user: true, department: true, position: true },
+    });
+  }
+
   async create(dto: CreateEmployeeDto) {
     const role = await this.prisma.role.findUniqueOrThrow({ where: { code: "EMPLOYEE" } });
     const department = await this.prisma.department.upsert({

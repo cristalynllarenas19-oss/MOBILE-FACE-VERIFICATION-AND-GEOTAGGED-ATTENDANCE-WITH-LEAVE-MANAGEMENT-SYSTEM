@@ -1170,94 +1170,6 @@
   padding: 12px 10px;
 }
 
-.employee-balance-result-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-bottom: 14px;
-}
-
-.employee-balance-result-header strong {
-  display: block;
-  color: #1a3a5c;
-  font-size: 14px;
-  font-weight: 800;
-}
-
-.employee-balance-result-header span {
-  color: #7b8794;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.employee-total-balance {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 5px;
-}
-
-.employee-total-balance-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border: 1px solid #dbe5ef;
-  border-radius: 999px;
-  background: #f8fafc;
-  color: #7b8794;
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-}
-
-.employee-total-balance-close:hover {
-  background: #fef2f2;
-  border-color: #fca5a5;
-  color: #ef4444;
-}
-
-.employee-total-balance span {
-  color: #7b8794;
-  font-size: 10px;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.employee-total-balance strong {
-  color: #1a3a5c;
-  font-size: 17px;
-  font-weight: 800;
-}
-
-.classification-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  border: 1px solid;
-  border-radius: 999px;
-  padding: 5px 12px;
-  font-size: 11.5px;
-  font-weight: 800;
-  white-space: nowrap;
-}
-
-.classification-chip.neutral {
-  border-color: #dbe5ef;
-  background: #f4f7fb;
-  color: #7b8794;
-}
-
-.classification-chip-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  flex-shrink: 0;
-}
-
 /* ── Leave summary header controls (search + department + year) ── */
 
 .leave-summary-controls {
@@ -1268,24 +1180,47 @@
 }
 
 /* ── Detailed employee leave monitoring ── */
+/* Reuses the same card language as the employee self-service Leave Balance
+   tab (single blue accent, no per-type colors) so this reads as an
+   extension of that page rather than a separate module. */
 
 .employee-detail-section {
   border-top: 1px solid #edf2f7;
-  padding-top: 18px;
+  padding-top: 12px;
 }
 
-.employee-detail-heading-row {
+.employee-detail-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: none;
+  padding: 0;
+  margin-bottom: 8px;
+  color: #1680d8;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.employee-detail-back:hover {
+  opacity: 0.7;
+}
+
+.employee-detail-context-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
+  gap: 12px;
+  margin-bottom: 12px;
 }
 
-.employee-detail-heading {
+.employee-detail-context {
   color: #1a3a5c;
   font-size: 14px;
   font-weight: 800;
-  margin-bottom: 0;
+  margin: 0;
 }
 
 .employee-detail-close {
@@ -1309,93 +1244,200 @@
   color: #ef4444;
 }
 
-.leave-employee-grid {
+.employee-summary-row {
   display: flex;
-  align-items: flex-start;
-  gap: 24px;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid #edf2f7;
 }
 
-.leave-employee-info {
+.employee-summary-donut-wrap {
+  position: relative;
+  flex-shrink: 0;
+  width: 64px;
+  height: 64px;
+}
+
+.employee-summary-donut-wrap svg {
+  display: block;
+}
+
+.employee-summary-donut-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.employee-summary-donut-center strong {
+  color: #062b59;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.employee-summary-donut-center span {
+  color: #94a3b8;
+  font-size: 7.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.employee-summary-donut-center em {
+  margin-top: 2px;
+  border-radius: 999px;
+  background: #eaf3fc;
+  color: #1680d8;
+  padding: 1px 6px;
+  font-size: 8px;
+  font-weight: 800;
+  font-style: normal;
+}
+
+.employee-summary-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   flex: 1 1 auto;
   min-width: 0;
 }
 
-.employee-donut-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
-}
-
-.employee-donut-caption {
-  color: #7b8794;
-  font-size: 10.5px;
+.employee-summary-info strong {
+  color: #062b59;
+  font-size: 13px;
   font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  text-align: center;
 }
 
-.employee-leave-bar-list {
-  display: flex;
-  flex-direction: column;
-  gap: 11px;
-}
-
-.employee-leave-bar-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.employee-leave-bar-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 130px;
-  flex-shrink: 0;
-  color: #41536b;
-  font-size: 12px;
+.employee-summary-info span {
+  color: #7b8794;
+  font-size: 11px;
   font-weight: 600;
 }
 
-.employee-leave-bar-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
+.employee-summary-total {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
   flex-shrink: 0;
 }
 
-.employee-leave-bar-track {
+.employee-summary-total span:first-child {
+  color: #7b8794;
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.employee-summary-total strong {
+  color: #062b59;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.employee-summary-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid #bfdcf5;
+  background: #eaf3fc;
+  color: #1680d8;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 9.5px;
+  font-weight: 800;
+}
+
+.employee-summary-badge-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: #1680d8;
+  flex-shrink: 0;
+}
+
+.employee-summary-caption {
+  color: #7b8794;
+  font-size: 9.5px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 0 0 6px;
+}
+
+.employee-leave-row-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.employee-leave-row-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 4px 12px;
+}
+
+.employee-leave-row-label {
+  width: 120px;
+  flex-shrink: 0;
+  color: #062b59;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.employee-leave-row-meta {
+  width: 74px;
+  flex-shrink: 0;
+  color: #64748b;
+  font-size: 10.5px;
+}
+
+.employee-leave-row-meta b {
+  color: #062b59;
+}
+
+.employee-leave-row-track {
   flex: 1 1 auto;
-  height: 9px;
-  background: #eef2f7;
+  height: 4px;
+  background: #e2e8f0;
   border-radius: 999px;
   overflow: hidden;
 }
 
-.employee-leave-bar-fill {
+.employee-leave-row-fill {
   height: 100%;
   border-radius: 999px;
+  background: #1680d8;
   transition: width 0.3s ease;
 }
 
-.employee-leave-bar-value {
-  width: 48px;
+.employee-leave-row-remaining {
+  width: 86px;
   flex-shrink: 0;
   text-align: right;
-  color: #1a3a5c;
+  color: #94a3b8;
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.employee-leave-row-remaining strong {
+  color: #062b59;
   font-size: 12px;
   font-weight: 800;
 }
 
 @media (max-width: 640px) {
-  .employee-balance-result-header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
   .leave-summary-controls {
     flex-direction: column;
     align-items: stretch;
@@ -1407,13 +1449,35 @@
     width: 100%;
   }
 
-  .leave-employee-grid {
+  .employee-detail-context-row {
     flex-direction: column;
-    align-items: center;
+    align-items: flex-start;
   }
 
-  .employee-leave-bar-label {
-    width: 100px;
+  .employee-summary-row {
+    flex-wrap: wrap;
+  }
+
+  .employee-summary-total {
+    align-items: flex-start;
+  }
+
+  .employee-leave-row-card {
+    flex-wrap: wrap;
+  }
+
+  .employee-leave-row-label {
+    width: 100%;
+  }
+
+  .employee-leave-row-track {
+    order: 1;
+    width: 100%;
+    flex-basis: 100%;
+  }
+
+  .employee-leave-row-remaining {
+    text-align: left;
   }
 }
 

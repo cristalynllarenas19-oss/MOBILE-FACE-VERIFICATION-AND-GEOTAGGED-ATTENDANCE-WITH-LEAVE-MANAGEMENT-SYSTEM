@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  ArrowLeft,
   Calendar as CalendarIcon,
   CheckCircle2,
   ChevronDown,
@@ -150,8 +151,6 @@ const EMPLOYMENT_STATUS_OPTIONS = [
   { value: "SEPARATED", label: "Separated" },
 ];
 
-const LEAVE_TYPE_COLORS = ["#1baf7a", "#eda100", "#e34948", "#4a3aa7", "#2a78d6", "#0ea5b8", "#d6336c", "#7c3aed"];
-
 // ─── Donut chart (plain SVG, no chart library) ───────────────────────────────
 
 function LeaveStatusDonut({
@@ -249,23 +248,16 @@ function LeaveStatusDonut({
   );
 }
 
-// ─── Single-employee donut (for the detailed lookup view) ───────────────────
+// ─── Single-employee summary donut (for the detailed lookup view) ───────────
+// Single blue accent only — no per-status color.
 
-function EmployeeLeaveDonut({
-  firstName,
-  color,
-  earnedDays,
-  usedDays,
-  remainingDays,
-}: {
-  firstName: string;
-  color: string;
+function EmployeeSummaryDonut({ earnedDays, usedDays, remainingDays }: {
   earnedDays: number;
   usedDays: number;
   remainingDays: number;
 }) {
-  const size = 132;
-  const stroke = 16;
+  const size = 64;
+  const stroke = 7;
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
   const usedRatio = earnedDays > 0 ? Math.min(1, usedDays / earnedDays) : 0;
@@ -273,77 +265,60 @@ function EmployeeLeaveDonut({
   const usedPercent = Math.round(usedRatio * 100);
 
   return (
-    <div className="employee-donut-card">
-      <div className="leave-donut-svg-wrap">
-        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-          <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#eef2f7" strokeWidth={stroke} />
-          {usedLength > 0 && (
-            <circle
-              cx={size / 2}
-              cy={size / 2}
-              r={radius}
-              fill="none"
-              stroke={color}
-              strokeWidth={stroke}
-              strokeDasharray={`${usedLength} ${circumference - usedLength}`}
-              strokeLinecap="round"
-              transform={`rotate(-90 ${size / 2} ${size / 2})`}
-            />
-          )}
-        </svg>
-        <div className="leave-donut-center">
-          <strong>{remainingDays.toFixed(0)}</strong>
-          <span>days left</span>
-          <em className="leave-donut-pct">{usedPercent}% used</em>
-        </div>
+    <div className="employee-summary-donut-wrap">
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#eef2f7" strokeWidth={stroke} />
+        {usedLength > 0 && (
+          <circle
+            cx={size / 2} cy={size / 2} r={radius}
+            fill="none" stroke="#1680d8" strokeWidth={stroke}
+            strokeDasharray={`${usedLength} ${circumference - usedLength}`}
+            strokeLinecap="round"
+            transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          />
+        )}
+      </svg>
+      <div className="employee-summary-donut-center">
+        <strong>{remainingDays.toFixed(0)}</strong>
+        <span>days left</span>
+        <em>{usedPercent}% used</em>
       </div>
-      <span className="employee-donut-caption">{firstName.toUpperCase()}'S BALANCE</span>
     </div>
   );
 }
 
-// ─── Leave-type bar row (for the detailed lookup view) ──────────────────────
+// ─── Leave-type balance row (for the detailed lookup view) ──────────────────
+// Mirrors the employee self-service "Leave Balance" card content, laid out as
+// a wide row so it reads as an extension of the same page.
 
-function EmployeeLeaveTypeBar({
+function EmployeeLeaveTypeRow({
   label,
   earnedDays,
+  usedDays,
   remainingDays,
-  color,
 }: {
   label: string;
   earnedDays: number;
+  usedDays: number;
   remainingDays: number;
-  color: string;
 }) {
-  const ratio = earnedDays > 0 ? Math.min(1, remainingDays / earnedDays) : 0;
-  const isSickLeave = label.trim().toLowerCase() === "sick leave";
+  const pct = earnedDays > 0 ? Math.min(100, Math.round((remainingDays / earnedDays) * 100)) : 0;
   return (
-    <div className="employee-leave-bar-row">
-      <span className="employee-leave-bar-label">
-        <span className="employee-leave-bar-dot" style={{ background: color }} />
-        {label}
+    <div className="employee-leave-row-card">
+      <span className="employee-leave-row-label">{label}</span>
+      <span className="employee-leave-row-meta">
+        Earned: <b>{earnedDays.toFixed(0)}</b>
       </span>
-      <div className="employee-leave-bar-track">
-        <div className="employee-leave-bar-fill" style={{ width: `${ratio * 100}%`, background: color }} />
+      <span className="employee-leave-row-meta">
+        Used: <b>{usedDays.toFixed(0)}</b>
+      </span>
+      <div className="employee-leave-row-track">
+        <div className="employee-leave-row-fill" style={{ width: `${pct}%` }} />
       </div>
-      {!isSickLeave && (
-        <span className="employee-leave-bar-value">
-          {remainingDays.toFixed(0)}/{earnedDays.toFixed(0)}
-        </span>
-      )}
+      <div className="employee-leave-row-remaining">
+        <strong>{remainingDays.toFixed(0)}</strong> remaining
+      </div>
     </div>
-  );
-}
-
-
-function ClassificationChip({ status }: { status?: EmploymentStatus }) {
-  if (!status) return <span className="classification-chip neutral">Unspecified</span>;
-  const color = EMPLOYMENT_STATUS_COLORS[status];
-  return (
-    <span className="classification-chip" style={{ color, borderColor: `${color}55`, background: `${color}15` }}>
-      <span className="classification-chip-dot" style={{ background: color }} />
-      {formatEmploymentStatus(status)}
-    </span>
   );
 }
 
@@ -841,6 +816,11 @@ export function LeavePage() {
     );
   }, [employeeBalances]);
 
+  const closeEmployeeDetail = () => {
+    setBalanceEmployee(null);
+    setMonitorClassification("ALL");
+    setSearchClearKey((k) => k + 1);
+  };
 
   const reviewLeave = async (action: "approve" | "reject") => {
     if (!reviewRequest) return;
@@ -909,12 +889,20 @@ export function LeavePage() {
 
         {balanceEmployee ? (
           <div className="employee-detail-section">
-            <div className="employee-detail-heading-row">
-              <h3 className="employee-detail-heading">Detailed Employee Leave Monitoring ({summaryYear})</h3>
+            <button type="button" className="employee-detail-back" onClick={closeEmployeeDetail}>
+              <ArrowLeft size={16} />
+              Back to Leave Balances
+            </button>
+
+            <div className="employee-detail-context-row">
+              <p className="employee-detail-context">
+                {balanceEmployee.firstName} {balanceEmployee.lastName} · {balanceEmployee.employeeNo} ·{" "}
+                {formatEmploymentStatus(balanceEmployee.employmentStatus)} · {summaryYear}
+              </p>
               <button
                 type="button"
                 className="employee-detail-close"
-                onClick={() => { setBalanceEmployee(null); setMonitorClassification("ALL"); setSearchClearKey((k) => k + 1); }}
+                onClick={closeEmployeeDetail}
                 aria-label="Close employee leave detail"
               >
                 <X size={16} />
@@ -926,41 +914,43 @@ export function LeavePage() {
             ) : employeeBalances.length === 0 ? (
               <p className="leave-summary-empty">No leave balance records for this employee.</p>
             ) : (
-              <div className="leave-employee-grid">
-                <EmployeeLeaveDonut
-                  firstName={balanceEmployee.firstName}
-                  color={EMPLOYMENT_STATUS_COLORS[balanceEmployee.employmentStatus]}
-                  earnedDays={employeeTotals.earnedDays}
-                  usedDays={employeeTotals.usedDays}
-                  remainingDays={employeeTotals.remainingDays}
-                />
+              <>
+                <div className="employee-summary-row">
+                  <EmployeeSummaryDonut
+                    earnedDays={employeeTotals.earnedDays}
+                    usedDays={employeeTotals.usedDays}
+                    remainingDays={employeeTotals.remainingDays}
+                  />
 
-                <div className="leave-employee-info">
-                  <div className="employee-balance-result-header">
-                    <div>
-                      <strong>{balanceEmployee.firstName} {balanceEmployee.lastName}</strong>
-                      <span>{balanceEmployee.employeeNo} · {balanceEmployee.department?.name ?? "Unassigned"}</span>
-                    </div>
-                    <div className="employee-total-balance">
-                      <span>Total Balance</span>
-                      <strong>{employeeTotals.remainingDays.toFixed(0)}/{employeeTotals.earnedDays.toFixed(0)}</strong>
-                      <ClassificationChip status={balanceEmployee.employmentStatus} />
-                    </div>
+                  <div className="employee-summary-info">
+                    <strong>{balanceEmployee.firstName} {balanceEmployee.lastName}</strong>
+                    <span>{balanceEmployee.employeeNo} · {formatEmploymentStatus(balanceEmployee.employmentStatus)}</span>
                   </div>
 
-                  <div className="employee-leave-bar-list">
-                    {employeeBalances.map((b, index) => (
-                      <EmployeeLeaveTypeBar
-                        key={b.leaveTypeId}
-                        label={b.leaveTypeName}
-                        earnedDays={b.earnedDays}
-                        remainingDays={b.remainingDays}
-                        color={LEAVE_TYPE_COLORS[index % LEAVE_TYPE_COLORS.length]}
-                      />
-                    ))}
+                  <div className="employee-summary-total">
+                    <span>Total Balance</span>
+                    <strong>{employeeTotals.remainingDays.toFixed(0)}/{employeeTotals.earnedDays.toFixed(0)}</strong>
+                    <span className="employee-summary-badge">
+                      <span className="employee-summary-badge-dot" />
+                      {formatEmploymentStatus(balanceEmployee.employmentStatus)}
+                    </span>
                   </div>
                 </div>
-              </div>
+
+                <p className="employee-summary-caption">{balanceEmployee.firstName.toUpperCase()}'S BALANCE</p>
+
+                <div className="employee-leave-row-list">
+                  {employeeBalances.map((b) => (
+                    <EmployeeLeaveTypeRow
+                      key={b.leaveTypeId}
+                      label={b.leaveTypeName}
+                      earnedDays={b.earnedDays}
+                      usedDays={b.usedDays}
+                      remainingDays={b.remainingDays}
+                    />
+                  ))}
+                </div>
+              </>
             )}
           </div>
         ) : !summary || summary.byEmploymentStatus.length === 0 ? (

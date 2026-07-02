@@ -1,40 +1,8 @@
-/* ── Desktop: two-column grid — attendance dominates ── */
-.att-grid {
-  display: grid;
-  grid-template-columns: minmax(520px, 620px) 1fr;
-  gap: 28px;
-  align-items: start;
-}
-
-/* Right column stacked vertically on desktop */
-.att-right {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-/* ── ≤900px: single column, stat cards go side-by-side below the left block ── */
-@media (max-width: 900px) {
-  .att-grid {
-    grid-template-columns: 1fr;
-    max-width: 680px;
-    margin: 0 auto;
-    align-items: start;
-  }
-
-  /* Stat cards sit side-by-side */
-  .att-right {
-    flex-direction: row;
-    gap: 10px;
-    align-items: flex-start; /* natural height — no stretching */
-  }
-
-  .att-right > * {
-    flex: 1;
-    min-width: 0;
-  }
-
-  /* Shrink the attendance card */
+/* ── Attendance card: single centered column ──
+   Width/centering comes from the shared .emp-form-page class
+   (see EmployeePortal.css); this file only holds Attendance-specific
+   responsive tweaks. */
+@media (max-width: 640px) {
   .att-card {
     padding: 16px !important;
   }
@@ -79,16 +47,5 @@
   .att-info {
     padding: 10px 12px !important;
     margin-top: 10px !important;
-  }
-}
-
-/* ── ≤480px: full width ── */
-@media (max-width: 480px) {
-  .att-grid {
-    max-width: 100%;
-  }
-
-  .att-right {
-    gap: 8px;
   }
 }

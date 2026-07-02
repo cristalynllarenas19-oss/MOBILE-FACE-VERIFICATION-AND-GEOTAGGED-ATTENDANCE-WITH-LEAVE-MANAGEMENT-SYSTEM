@@ -1,16 +1,8 @@
-/**
- * WorkAreaPage — employee self-service work area map
- *
- * Mirrors employee-mobile WorkAreaScreen:
- *  • FIXED employees: single location from /geolocation/my-location
- *  • FIELD employees: chip switcher, multiple from /geolocation/my-locations
- *  • Leaflet map with radius circle and "You are here" dot
- *  • Inside / outside distance banner
- *
- * Uses same Leaflet setup as GeotaggingPage.tsx (monorepo workspace leaflet).
- */
+
 
 import "leaflet/dist/leaflet.css";
+import "./WorkAreaPage.css";
+import "./EmployeePortal.css";
 
 import { CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import L from "leaflet";
@@ -143,78 +135,82 @@ export function WorkAreaPage({ user }: Props) {
   }
 
   return (
-    <div style={{ maxWidth: 760, margin: "0 auto" }}>
-      <h2 style={{ color: "#062B59", fontSize: 18, fontWeight: 900, marginBottom: 16 }}>
-        Work Area
-      </h2>
+    <div className="emp-page work-area-page">
+      <h2 className="emp-page-title">Work Area</h2>
 
-      {/* FIELD: location chip switcher */}
-      {isField && locations.length > 1 && (
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
-          {locations.map((loc, i) => (
-            <button
-              key={loc.id}
-              onClick={() => setActiveIdx(i)}
-              style={{
-                padding: "7px 14px", borderRadius: 999, border: "none",
-                fontSize: 12, fontWeight: 700, cursor: "pointer",
-                background: activeIdx === i ? "#062B59" : "#F1F5F9",
-                color:      activeIdx === i ? "#FFFFFF"  : "#64748B",
-              }}
-            >
-              {loc.name}
-            </button>
-          ))}
-        </div>
-      )}
+      <div className="work-area-shell">
+        {/* ── Left: location switcher + info ── */}
+        <div className="work-area-info">
+          {isField && locations.length > 1 && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+              {locations.map((loc, i) => (
+                <button
+                  key={loc.id}
+                  onClick={() => setActiveIdx(i)}
+                  style={{
+                    padding: "7px 14px", borderRadius: 999, border: "none",
+                    fontSize: 12, fontWeight: 700, cursor: "pointer",
+                    background: activeIdx === i ? "#062B59" : "#F1F5F9",
+                    color:      activeIdx === i ? "#FFFFFF"  : "#64748B",
+                  }}
+                >
+                  {loc.name}
+                </button>
+              ))}
+            </div>
+          )}
 
-      {/* Info card */}
-      {activeLocation && (
-        <div style={infoCard}>
-          <MapPin size={16} color="#1680D8" style={{ flexShrink: 0 }} />
-          <div style={{ flex: 1 }}>
-            <p style={{ color: "#062B59", fontSize: 13, fontWeight: 700, margin: 0 }}>
-              {activeLocation.name}
-            </p>
-            <p style={{ color: "#64748B", fontSize: 12, margin: "2px 0 0" }}>
-              Geofence radius: {activeLocation.radiusMeters}m
-            </p>
-          </div>
-        </div>
-      )}
+          {activeLocation && (
+            <div style={infoCard}>
+              <MapPin size={16} color="#1680D8" style={{ flexShrink: 0 }} />
+              <div style={{ flex: 1 }}>
+                <p style={{ color: "#062B59", fontSize: 13, fontWeight: 700, margin: 0 }}>
+                  {activeLocation.name}
+                </p>
+                <p style={{ color: "#64748B", fontSize: 12, margin: "2px 0 0" }}>
+                  Geofence radius: {activeLocation.radiusMeters}m
+                </p>
+              </div>
+            </div>
+          )}
 
-      {/* Distance banner */}
-      {distanceBanner && (
-        <div style={{
-          ...bannerBase,
-          background: distanceBanner.inside ? "#ECFDF3" : "#FEF2F2",
-          borderColor: distanceBanner.inside ? "#BBF7D0" : "#FECACA",
-          color: distanceBanner.inside ? "#17A34A" : "#DC2626",
-        }}>
-          <Navigation size={13} style={{ flexShrink: 0 }} />
-          {distanceBanner.text}
-        </div>
-      )}
+          {distanceBanner && (
+            <div style={{
+              ...bannerBase,
+              background: distanceBanner.inside ? "#ECFDF3" : "#FEF2F2",
+              borderColor: distanceBanner.inside ? "#BBF7D0" : "#FECACA",
+              color: distanceBanner.inside ? "#17A34A" : "#DC2626",
+            }}>
+              <Navigation size={13} style={{ flexShrink: 0 }} />
+              {distanceBanner.text}
+            </div>
+          )}
 
-      {gpsError && (
-        <div style={{ ...bannerBase, background: "#FFFBEB", borderColor: "#FDE68A", color: "#D97706" }}>
-          GPS unavailable: {gpsError}
+          {gpsError && (
+            <div style={{ ...bannerBase, background: "#FFFBEB", borderColor: "#FDE68A", color: "#D97706" }}>
+              GPS unavailable: {gpsError}
+            </div>
+          )}
         </div>
-      )}
 
-      {/* Map */}
-      {isLoading ? (
-        <div style={mapPlaceholder}><p style={{ color: "#94A3B8" }}>Loading map…</p></div>
-      ) : locations.length === 0 ? (
-        <div style={mapPlaceholder}>
-          <MapPin size={32} color="#CBD5E1" />
-          <p style={{ color: "#94A3B8", fontSize: 13, fontWeight: 600, marginTop: 8 }}>
-            No work location assigned yet.
-          </p>
+        {/* ── Right: map ── */}
+        <div className="work-area-map-col">
+          {isLoading ? (
+            <div className="work-area-map-placeholder">
+              <p style={{ color: "#94A3B8" }}>Loading map…</p>
+            </div>
+          ) : locations.length === 0 ? (
+            <div className="work-area-map-placeholder">
+              <MapPin size={32} color="#CBD5E1" />
+              <p style={{ color: "#94A3B8", fontSize: 13, fontWeight: 600, marginTop: 8 }}>
+                No work location assigned yet.
+              </p>
+            </div>
+          ) : (
+            <div ref={mapDivRef} className="work-area-map-div" />
+          )}
         </div>
-      ) : (
-        <div ref={mapDivRef} style={{ height: 440, borderRadius: 16, overflow: "hidden", border: "1px solid #DBE5EF" }} />
-      )}
+      </div>
     </div>
   );
 }
@@ -228,10 +224,4 @@ const bannerBase: CSSProperties = {
   borderRadius: 10, border: "1px solid",
   padding: "9px 14px", marginBottom: 12,
   fontSize: 12, fontWeight: 600,
-};
-const mapPlaceholder: CSSProperties = {
-  height: 440, borderRadius: 16, border: "1px solid #DBE5EF",
-  background: "#F8FAFC",
-  display: "flex", flexDirection: "column",
-  alignItems: "center", justifyContent: "center",
 };

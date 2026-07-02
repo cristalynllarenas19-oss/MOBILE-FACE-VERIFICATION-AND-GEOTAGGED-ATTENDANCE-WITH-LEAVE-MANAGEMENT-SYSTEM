@@ -16,6 +16,8 @@ import { CSSProperties, useCallback, useEffect, useMemo, useState } from "react"
 import { ArrowRight, Camera } from "lucide-react";
 import { AttendanceHistoryRecord, AttendanceLogPhoto, getAttendanceHistory } from "./api";
 import type { AuthUser } from "../../lib/api";
+import "./DtrPage.css";
+import "./EmployeePortal.css";
 
 type Props = { user: AuthUser };
 type Tab   = "office" | "field";
@@ -104,11 +106,9 @@ export function DtrPage({ user }: Props) {
   const todayInProg  = Boolean(todayRecord?.timeInAt) && !todayRecord?.timeOutAt;
 
   return (
-    <div style={{ maxWidth: 680, margin: "0 auto" }}>
+    <div className="dtr-shell emp-form-page">
 
-      <h2 style={{ color: "#062B59", fontSize: 18, fontWeight: 900, marginBottom: 16 }}>
-        Daily Time Record
-      </h2>
+      <h2 className="emp-page-title">Daily Time Record</h2>
 
       {/* Tab switcher */}
       <div style={tabSwitcher}>

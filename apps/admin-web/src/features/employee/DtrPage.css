@@ -1,0 +1,7 @@
+/* Width/centering now comes from the shared .emp-form-page class
+   (see EmployeePortal.css); this file only holds DTR-specific tweaks. */
+@media (max-width: 768px) {
+  .dtr-shell {
+    max-width: 100%;
+  }
+}

@@ -1,0 +1,60 @@
+/* Narrower than --emp-page-max so the page reads as a centered block
+   (matching the other modules) instead of stretching edge-to-edge. */
+.work-area-page {
+  max-width: 1080px;
+}
+
+/* Desktop: info panel left, map right */
+.work-area-shell {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+.work-area-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.work-area-map-col {
+  min-height: 500px;
+  position: sticky;
+  top: 0;
+}
+
+.work-area-map-col .work-area-map-div {
+  height: 500px;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid #dbe5ef;
+}
+
+.work-area-map-col .work-area-map-placeholder {
+  height: 500px;
+  border-radius: 16px;
+  border: 1px solid #dbe5ef;
+  background: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* ≤ 900 px: single column */
+@media (max-width: 900px) {
+  .work-area-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .work-area-map-col {
+    min-height: 360px;
+    position: static;
+  }
+
+  .work-area-map-col .work-area-map-div,
+  .work-area-map-col .work-area-map-placeholder {
+    height: 360px;
+  }
+}

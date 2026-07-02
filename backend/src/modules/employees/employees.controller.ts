@@ -16,11 +16,19 @@ export class EmployeesController {
 
   // Must stay before the ":id"-shaped routes below — Nest matches routes by
   // registration order and ":id" would otherwise swallow the literal "me".
-  // View-only: employees cannot self-edit their profile, so there is no PATCH "me".
   @Get("me")
   findMe(@Req() request: Request) {
     const employeeId = (request as any).user.employeeId;
     return this.employeesService.findMe(employeeId);
+  }
+
+  @Patch("me/photo")
+  updateMyPhoto(
+    @Req() request: Request,
+    @Body() body: { profilePhotoData: string; profilePhotoMimeType: string },
+  ) {
+    const employeeId = (request as any).user.employeeId;
+    return this.employeesService.updateMyPhoto(employeeId, body.profilePhotoData, body.profilePhotoMimeType);
   }
 
   @Post()

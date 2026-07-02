@@ -179,6 +179,13 @@ export function changePassword(currentPassword: string, newPassword: string) {
   });
 }
 
+export function updateMyPhoto(profilePhotoData: string, profilePhotoMimeType: string) {
+  return apiRequest<EmployeeProfile>("/employees/me/photo", {
+    method: "PATCH",
+    body: JSON.stringify({ profilePhotoData, profilePhotoMimeType }),
+  });
+}
+
 // Haversine distance in metres — same as employee-mobile utils/geofence.ts
 export function distanceInMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371000;

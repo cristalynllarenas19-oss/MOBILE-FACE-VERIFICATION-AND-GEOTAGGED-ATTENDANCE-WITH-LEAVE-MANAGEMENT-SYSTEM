@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { AttendancePage } from "../features/attendance/AttendancePage";
+import { AttendanceInitialFilter, AttendancePage } from "../features/attendance/AttendancePage";
 import { DashboardPage } from "../features/dashboard/DashboardPage";
+import { AttendanceNavigateFilter } from "../components/ui/BarChart";
 import { EmployeesPage } from "../features/employees/EmployeesPage";
 import { LeavePage } from "../features/leave/LeavePage";
 import { LoginPage } from "../features/login/LoginPage";
@@ -26,6 +27,21 @@ export default function App() {
   const [page, setPage] = useState(() =>
     getStoredUser()?.role === "EMPLOYEE" ? "employee-attendance" : "dashboard"
   );
+  // Lets the dashboard's day-detail modal jump straight into a pre-filtered
+  // Attendance view (department + status + date), cleared on any normal
+  // sidebar navigation to Attendance so a stale filter doesn't linger.
+  const [attendanceFilter, setAttendanceFilter] = useState<AttendanceInitialFilter | undefined>(undefined);
+
+  const navigateToAttendance = (filter: AttendanceNavigateFilter) => {
+    setAttendanceFilter(filter);
+    setPage("attendance");
+  };
+
+  const handleNavigate = (id: string) => {
+    if (id === "attendance") setAttendanceFilter(undefined);
+    setPage(id);
+  };
+
   useEffect(() => {
     setOnSessionExpired(() => {
       logout();
@@ -71,14 +87,14 @@ export default function App() {
         logout();
         setAuthUser(null);
       }}
-      onNavigate={setPage}
+      onNavigate={handleNavigate}
       user={user}
     >
-      {renderPage === "dashboard" && <DashboardPage />}
+      {renderPage === "dashboard" && <DashboardPage onNavigateToAttendance={navigateToAttendance} />}
       {renderPage === "users" && <UsersPage />}
       {renderPage === "face-registration" && <FaceRegistrationPage />}
       {renderPage === "employees" && <EmployeesPage user={user} />}
-      {renderPage === "attendance" && <AttendancePage user={user} />}
+      {renderPage === "attendance" && <AttendancePage user={user} initialFilter={attendanceFilter} />}
       {renderPage === "geotagging" && <GeotaggingPage user={user} />}
       {renderPage === "leave" && <LeavePage />}
       {renderPage === "schedules" && <SchedulesPage user={user} />}

@@ -17,11 +17,11 @@
 
 
 .sidebar {
-  width: 240px;
-  flex: 0 0 240px;
+  width: 260px;
+  flex: 0 0 260px;
   background: #ffffff;
   border-right: 1px solid var(--line);
-  padding: 20px 14px;
+  padding: 20px 16px;
   display: flex;
   flex-direction: column;
   height: 100vh;
@@ -29,6 +29,10 @@
   top: 0;
   overflow: hidden;
   z-index: 100;
+}
+
+.sidebar-overlay {
+  display: none;
 }
 
 .profile {
@@ -41,13 +45,14 @@
 }
 
 .profile-avatar {
-  width: 52px;  
-  height: 52px; 
+  width: 52px;
+  height: 52px;
   border-radius: 50%;
   background: #1a3a5c;
   color: #ffffff;
-  font-size: 16px; 
+  font-size: 17px;
   font-weight: 700;
+  letter-spacing: 0.3px;
   display: grid;
   place-items: center;
   flex: 0 0 52px;
@@ -79,7 +84,7 @@
   margin-top: 16px;
   display: flex;
   flex-direction: column;
-  gap: 10px; 
+  gap: 10px;
   flex: 1 1 auto;
   overflow-y: auto;
   min-height: 0;
@@ -87,16 +92,16 @@
 
 .nav-link {
   display: flex;
-  align-items: center; 
+  align-items: center;
   gap: 12px;
   width: 100%;
-  
-  height: 54px !important; 
+
+  height: 54px !important;
   min-height: 54px !important;
-  
+
   padding: 6px 14px;
   border: 1px solid transparent;
-  border-radius: 27px; 
+  border-radius: 27px;
   background: transparent;
   color: #193d69;
   font-size: 13.5px;
@@ -111,7 +116,7 @@
 .nav-link span {
   line-height: 1.25;
   display: inline-block;
-  max-width: 110px; 
+  max-width: 150px;
 }
 
 .nav-link svg {
@@ -276,16 +281,25 @@
   .sidebar {
     position: fixed;
     top: 0;
-    left: -260px; 
-    width: 240px;
+    left: -260px;
+    width: 220px;
     height: 100vh;
-    height: 100dvh; 
+    height: 100dvh;
     z-index: 999;
     transition: left 0.3s ease;
     box-shadow: 4px 0 20px rgba(0, 0, 0, 0.12);
   }
 
   .sidebar.open { left: 0; }
+
+  .sidebar-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 998;
+    backdrop-filter: blur(1px);
+  }
 
   .topbar {
     padding: 0 14px;

@@ -31,6 +31,13 @@ import "./NotificationPanel.css";
 
 const NOTIFICATION_POLL_MS = 30000;
 
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 type User = {
   displayName: string;
   role: string;
@@ -56,15 +63,6 @@ export const navItems = [
   { id: "employee-work-area",  label: "Work Area",   icon: MapPin,        permission: permissions.employeeWorkAreaView },
   { id: "employee-settings",   label: "Settings",    icon: Settings2,     permission: permissions.employeeSettingsView },
 ];
-
-function getInitials(name: string): string {
-  return name
-    .split(" ")
-    .map((n) => n[0])
-    .join("")
-    .toUpperCase()
-    .slice(0, 2);
-}
 
 export function AppLayout({
   children,
@@ -148,6 +146,13 @@ export function AppLayout({
 
   return (
     <div className="app-shell">
+      {menuOpen && (
+        <div
+          className="sidebar-overlay"
+          onClick={() => setMenuOpen(false)}
+          aria-hidden="true"
+        />
+      )}
       <aside className={`sidebar ${menuOpen ? "open" : ""}`}>
 
         {/* Profile */}
