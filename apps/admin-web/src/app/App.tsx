@@ -17,16 +17,28 @@ import { LeavePage as EmployeeLeavePage } from "../features/employee/LeavePage";
 import { DtrPage } from "../features/employee/DtrPage";
 import { WorkAreaPage } from "../features/employee/WorkAreaPage";
 import { SettingsPage } from "../features/employee/SettingsPage";
-import { AppLayout, navItems } from "../components/layout/AppLayout";
+import { AppLayout, getVisibleNavItems, navItems } from "../components/layout/AppLayout";
 import { PermissionCode } from "../types/rbac";
 import { AuthUser, getStoredUser, logout, setOnSessionExpired } from "../lib/api";
 import { useInactivityLogout } from "../hooks/useInactivityLogout";
 
+// Single check point for where a user lands: single-role accounts always go
+// to their one view; multi-role accounts honor the saved `defaultView`
+// (falling back to today's behavior — non-EMPLOYEE lands on the dashboard —
+// when unset). Used both for a page reload (reading localStorage) and right
+// after a fresh login (the user object isn't in localStorage yet at that
+// instant), so `page` is never left stale pointing at the wrong portal.
+function getLandingPage(user: AuthUser | null): string {
+  if (!user) return "dashboard";
+  if ((user.roles?.length ?? 0) <= 1) {
+    return user.role === "EMPLOYEE" ? "employee-attendance" : "dashboard";
+  }
+  return user.defaultView === "EMPLOYEE" ? "employee-attendance" : "dashboard";
+}
+
 export default function App() {
   const [authUser, setAuthUser] = useState<AuthUser | null>(() => getStoredUser());
-  const [page, setPage] = useState(() =>
-    getStoredUser()?.role === "EMPLOYEE" ? "employee-attendance" : "dashboard"
-  );
+  const [page, setPage] = useState(() => getLandingPage(getStoredUser()));
   // Lets the dashboard's day-detail modal jump straight into a pre-filtered
   // Attendance view (department + status + date), cleared on any normal
   // sidebar navigation to Attendance so a stale filter doesn't linger.
@@ -40,6 +52,11 @@ export default function App() {
   const handleNavigate = (id: string) => {
     if (id === "attendance") setAttendanceFilter(undefined);
     setPage(id);
+  };
+
+  const switchView = (view: "admin" | "employee") => {
+    setAttendanceFilter(undefined);
+    setPage(view === "employee" ? "employee-attendance" : "dashboard");
   };
 
   useEffect(() => {
@@ -58,31 +75,42 @@ export default function App() {
     () => ({
       displayName: authUser?.displayName ?? "",
       role: authUser?.role ?? "",
+      roles: authUser?.roles ?? [],
       permissions: (authUser?.permissions ?? []) as PermissionCode[],
+      adminPermissions: authUser?.adminPermissions as PermissionCode[] | undefined,
     }),
     [authUser],
   );
 
   if (!authUser) {
-    return <LoginPage onLogin={setAuthUser} />;
+    return (
+      <LoginPage
+        onLogin={(loggedInUser) => {
+          setAuthUser(loggedInUser);
+          setPage(getLandingPage(loggedInUser));
+        }}
+      />
+    );
   }
 
   // Defends against `page` pointing at a page the user can't access.
-  // EMPLOYEE role: only employee-* pages are accessible, regardless of backend permissions.
-  // Others: permission-based access check as usual.
-  const isEmployee = authUser?.role === "EMPLOYEE";
+  // Which nav set is active is driven by the currently active VIEW, not the
+  // account's primary role — a multi-role account switched into the
+  // employee view must only see employee-* pages regardless of permissions.
+  const activeView: "admin" | "employee" = page.startsWith("employee-") ? "employee" : "admin";
   const activeNavItem = navItems.find((item) => item.id === page);
-  const hasAccess = isEmployee
+  const adminScopedPermissions = user.adminPermissions ?? user.permissions;
+  const visibleItems = getVisibleNavItems(activeView, adminScopedPermissions);
+  const hasAccess = activeView === "employee"
     ? page.startsWith("employee-")
-    : !activeNavItem || user.permissions.includes(activeNavItem.permission);
-  const visibleItems = isEmployee
-    ? navItems.filter((item) => item.id.startsWith("employee-"))
-    : navItems.filter((item) => user.permissions.includes(item.permission));
+    : !activeNavItem || adminScopedPermissions.includes(activeNavItem.permission);
   const renderPage = hasAccess ? page : (visibleItems[0]?.id ?? "employee-attendance");
 
   return (
     <AppLayout
       activePage={renderPage}
+      activeView={activeView}
+      onSwitchView={switchView}
       onLogout={() => {
         logout();
         setAuthUser(null);
@@ -105,7 +133,19 @@ export default function App() {
       {renderPage === "employee-leave"      && <EmployeeLeavePage user={authUser!} />}
       {renderPage === "employee-dtr"        && <DtrPage user={authUser!} />}
       {renderPage === "employee-work-area"  && <WorkAreaPage user={authUser!} />}
-      {renderPage === "employee-settings"   && <SettingsPage user={authUser!} />}
+      {renderPage === "employee-settings"   && (
+        <SettingsPage
+          user={authUser!}
+          onDefaultViewChange={(defaultView) => {
+            setAuthUser((u) => {
+              if (!u) return u;
+              const next = { ...u, defaultView };
+              localStorage.setItem("authUser", JSON.stringify(next));
+              return next;
+            });
+          }}
+        />
+      )}
     </AppLayout>
   );
 }

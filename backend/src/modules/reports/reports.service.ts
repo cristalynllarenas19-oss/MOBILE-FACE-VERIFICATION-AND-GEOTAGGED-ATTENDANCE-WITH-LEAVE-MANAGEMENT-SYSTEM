@@ -6,6 +6,10 @@ type ReportFilters = {
   from?: string;
   to?: string;
   department?: string;
+  // Forced scope for a department-restricted Supervisor — ANDed with the
+  // name-based `department` filter above (a supervisor's own department
+  // dropdown selection can never widen past their forced departmentId).
+  departmentId?: string;
 };
 
 @Injectable()
@@ -17,10 +21,14 @@ export class ReportsService {
     const monthStart = filters.from ? new Date(filters.from) : new Date(today.getFullYear(), today.getMonth(), 1);
     const endDate = filters.to ? new Date(filters.to) : today;
     endDate.setHours(23, 59, 59, 999);
-    const departmentWhere =
-      filters.department && filters.department !== "ALL"
-        ? { employee: { department: { name: filters.department } } }
-        : {};
+    const employeeWhere: { departmentId?: string; department?: { name: string } } = {};
+    if (filters.departmentId) {
+      employeeWhere.departmentId = filters.departmentId;
+    }
+    if (filters.department && filters.department !== "ALL") {
+      employeeWhere.department = { name: filters.department };
+    }
+    const departmentWhere = Object.keys(employeeWhere).length ? { employee: employeeWhere } : {};
 
     const [attendance, leaves, schedules] = await Promise.all([
       this.prisma.attendanceRecord.findMany({

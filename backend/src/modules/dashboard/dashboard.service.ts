@@ -39,7 +39,11 @@ export class DashboardService {
       weekAttendanceRaw,
       realMonthAttendanceRaw,
     ] = await Promise.all([
+      // Archived (SEPARATED) employees don't count toward current headcount —
+      // matches the "All Employees" tab on the Employees page, which already
+      // excludes them from its count.
       this.prisma.employee.findMany({
+        where: { employmentStatus: { not: "SEPARATED" } },
         select: { id: true, hireDate: true, department: { select: { name: true } } },
       }),
       this.prisma.attendanceRecord.findMany({
@@ -58,7 +62,7 @@ export class DashboardService {
         orderBy: { attendanceDate: "asc" },
       }),
       this.prisma.faceProfile.findMany({
-        where: { enrollmentStatus: "ACTIVE" },
+        where: { enrollmentStatus: "ACTIVE", employee: { employmentStatus: { not: "SEPARATED" } } },
         distinct: ["employeeId"],
         select: { employeeId: true },
       }),
@@ -66,6 +70,7 @@ export class DashboardService {
       // WorkLocationEmployee rows (one per assigned site), so a raw count
       // would inflate "assigned employees" past the real headcount.
       this.prisma.workLocationEmployee.findMany({
+        where: { employee: { employmentStatus: { not: "SEPARATED" } } },
         distinct: ["employeeId"],
         select: { employeeId: true },
       }),

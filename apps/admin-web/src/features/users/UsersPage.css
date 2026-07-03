@@ -224,6 +224,10 @@
 
 .user-modal {
   width: min(520px, 100%);
+  height: 650px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
   background: #ffffff;
   border-radius: 14px;
   box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);
@@ -239,6 +243,7 @@
 }
 
 .user-modal-header {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -339,9 +344,19 @@
 }
 
 .user-form {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.user-form-body {
+  flex: 1;
+  overflow-y: auto;
   display: grid;
+  align-content: start;
   gap: 16px;
-  padding: 20px 24px 24px;
+  padding: 20px 24px;
 }
 
 .add-user-form-grid {
@@ -374,6 +389,58 @@
 .user-form select:focus {
   border-color: #1a3a5c;
   box-shadow: 0 0 0 3px rgba(26, 58, 92, 0.1);
+}
+
+.user-form input:read-only {
+  background: #f7fafd;
+  color: #64748b;
+  cursor: not-allowed;
+}
+
+.selected-employee-summary {
+  display: grid;
+  gap: 14px;
+  border: 1px solid #dbe5ef;
+  border-radius: 10px;
+  background: #f7fafd;
+  padding: 14px;
+}
+
+.selected-employee-summary .add-user-form-grid {
+  gap: 14px;
+}
+
+.readonly-field {
+  display: grid;
+  gap: 4px;
+}
+
+.readonly-field-label {
+  color: #7b8794;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.readonly-field-value {
+  color: #193d69;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.selected-employee-note {
+  color: #7b8794;
+  font-size: 11px;
+  margin: 0;
+}
+
+.employee-search-hint {
+  color: #7b8794;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  padding: 10px 0;
 }
 
 .employee-search-field {
@@ -409,17 +476,20 @@
 }
 
 .employee-suggestions {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  z-index: 5;
   max-height: 190px;
   overflow-y: auto;
   border: 1px solid #dbe5ef;
   border-radius: 10px;
   background: #ffffff;
   box-shadow: 0 14px 30px rgba(15, 23, 42, 0.14);
+}
+
+/* Rendered via a portal to document.body so it can float above the modal's
+   scrollable body without being clipped by it — top/left/width are computed
+   from the search input's bounding rect and applied inline. */
+.employee-suggestions-portal {
+  position: fixed;
+  z-index: 2000;
 }
 
 .employee-suggestion {
@@ -479,10 +549,13 @@
 }
 
 .user-form-actions {
+  flex: 0 0 auto;
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-  padding-top: 2px;
+  padding: 14px 24px 20px;
+  border-top: 1px solid var(--line);
+  background: #ffffff;
 }
 
 .user-form-actions .primary-button {
@@ -558,6 +631,11 @@
 }
 
 @media (max-width: 640px) {
+  .user-modal {
+    height: auto;
+    max-height: 90vh;
+  }
+
   .users-notification {
     bottom: 12px;
     right: 12px;

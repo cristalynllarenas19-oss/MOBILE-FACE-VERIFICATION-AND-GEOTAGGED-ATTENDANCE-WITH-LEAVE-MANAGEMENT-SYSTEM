@@ -68,7 +68,7 @@ export function AttendancePage({ user }: Props) {
   const hasOpenVisit = hasTimedIn && !hasTimedOut;
 
   const statusLabel = isField
-    ? hasOpenVisit ? "Visit In Progress" : hasTimedIn ? "No Active Visit" : "No Visit Started"
+    ? hasOpenVisit ? "Visit In Progress" : hasTimedIn ? "No Active Visit" : "Not Timed In"
     : hasTimedOut  ? "Day Completed"     : hasTimedIn ? "Timed In"        : "Not Timed In";
 
   const statusColor = isField
@@ -175,9 +175,7 @@ export function AttendancePage({ user }: Props) {
         workLocationId:  isField && capturedScanType === "TIME_IN" ? selectedSite?.id : undefined,
       });
 
-      const actionLabel = isField
-        ? result.logType === "TIME_IN" ? "Visit Start" : "Visit End"
-        : result.logType === "TIME_IN" ? "Time In"    : "Time Out";
+      const actionLabel = result.logType === "TIME_IN" ? "Time In" : "Time Out";
       const ts  = new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
       const msg = getFriendlyReason(
         result.faceResult.reason ?? result.geoResult.reason,
@@ -244,7 +242,7 @@ export function AttendancePage({ user }: Props) {
           }}>
             <div>
               <p style={{ color: "#94A3B8", fontSize: 12, fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>
-                {isField ? "VISIT START" : "TIME IN"}
+                TIME IN
               </p>
               <p className="att-time-val" style={{ color: "#062B59", fontSize: 40, fontWeight: 800, lineHeight: 1, margin: 0 }}>
                 {fmtTime(todayAtt?.timeInAt)}
@@ -252,7 +250,7 @@ export function AttendancePage({ user }: Props) {
             </div>
             <div style={{ borderLeft: "1px solid #E2E8F0", paddingLeft: 16 }}>
               <p style={{ color: "#94A3B8", fontSize: 12, fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>
-                {isField ? "VISIT END" : "TIME OUT"}
+                TIME OUT
               </p>
               <p className="att-time-val" style={{ color: "#062B59", fontSize: 40, fontWeight: 800, lineHeight: 1, margin: 0 }}>
                 {fmtTime(todayAtt?.timeOutAt)}
@@ -273,7 +271,7 @@ export function AttendancePage({ user }: Props) {
           }}
         >
           <LogIn size={18} color="#FFFFFF" />
-          <span>{isSubmitting ? "Processing…" : isField ? "START VISIT" : "TIME IN"}</span>
+          <span>{isSubmitting ? "Processing…" : "TIME IN"}</span>
         </button>
 
         <button
@@ -290,7 +288,7 @@ export function AttendancePage({ user }: Props) {
         >
           <LogOut size={18} color={timeOutDisabled ? "#94A3B8" : "#FFFFFF"} />
           <span style={{ color: timeOutDisabled ? "#94A3B8" : "#FFFFFF" }}>
-            {isField ? "END VISIT" : "TIME OUT"}
+            TIME OUT
           </span>
         </button>
 

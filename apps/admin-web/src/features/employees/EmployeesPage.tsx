@@ -31,6 +31,9 @@ type EmployeeForm = {
   email: string;
   password: string;
   department: string;
+  // Kept here (rather than split into two types) because EditEmployeeForm
+  // reuses this shape and Edit still collects a position — only the Add
+  // form no longer asks for or sends it.
   position: string;
   hireDate: string;
   employmentStatus: "REGULAR" | "PROBATIONARY" | "CONTRACTUAL";
@@ -169,12 +172,10 @@ function EmployeeModal({
 
 function AddEmployeeModal({
   departments,
-  positions,
   onClose,
   onCreated,
 }: {
   departments: string[];
-  positions: string[];
   onClose: () => void;
   onCreated: (employee: Employee) => void;
 }) {
@@ -194,7 +195,6 @@ function AddEmployeeModal({
     if (!/^\S+@\S+\.\S+$/.test(form.email.trim())) return "Enter a valid email address.";
     if (form.password.length < 8) return "Password must be at least 8 characters.";
     if (!form.department.trim()) return "Department is required.";
-    if (!form.position.trim()) return "Position is required.";
     return "";
   };
 
@@ -220,7 +220,6 @@ function AddEmployeeModal({
           email: form.email.trim(),
           password: form.password,
           department: form.department.trim(),
-          position: form.position.trim(),
           employmentStatus: form.employmentStatus,
           attendanceMode: form.attendanceMode,
           ...(form.hireDate ? { hireDate: form.hireDate } : {}),
@@ -297,25 +296,6 @@ function AddEmployeeModal({
             </datalist>
           </label>
           <label>
-            Position
-            <input
-              type="text"
-              value={form.position}
-              onChange={updateField("position")}
-              list="employee-positions"
-              placeholder="Leaf Processor"
-              required
-            />
-            <datalist id="employee-positions">
-              {positions.map((position) => (
-                <option key={position} value={position} />
-              ))}
-            </datalist>
-          </label>
-        </div>
-
-        <div className="employee-form-grid">
-          <label>
             Employment Status
             <select value={form.employmentStatus} onChange={updateField("employmentStatus")}>
               <option value="REGULAR">Regular</option>
@@ -323,13 +303,13 @@ function AddEmployeeModal({
               <option value="CONTRACTUAL">Contractual</option>
             </select>
           </label>
+        </div>
+
+        <div className="employee-form-grid">
           <label>
             Hire Date
             <input type="date" value={form.hireDate} onChange={updateField("hireDate")} />
           </label>
-        </div>
-
-        <div className="employee-form-grid single-field">
           <label>
             Attendance Mode
             <select value={form.attendanceMode} onChange={updateField("attendanceMode")}>
@@ -956,7 +936,6 @@ export function EmployeesPage({ user }: { user?: { permissions: PermissionCode[]
       {isAddOpen && (
         <AddEmployeeModal
           departments={departments}
-          positions={positions}
           onClose={() => setIsAddOpen(false)}
           onCreated={handleEmployeeCreated}
         />

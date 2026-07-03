@@ -4,12 +4,15 @@ export type AuthUser = {
   id: string;
   email: string;
   role: string;
+  roles: string[];
   permissions: string[];
+  adminPermissions?: string[];
   employeeId?: string;
   departmentId?: string;
   department?: string;
   displayName: string;
   attendanceMode?: "FIXED" | "FIELD";
+  defaultView?: "ADMIN" | "EMPLOYEE" | null;
 };
 
 export class SessionExpiredError extends Error {
@@ -64,6 +67,12 @@ export function logout() {
   localStorage.removeItem("accessToken");
   localStorage.removeItem("authUser");
 }
+
+export const updateDefaultView = (userId: string, defaultView: "ADMIN" | "EMPLOYEE") =>
+  apiRequest<{ id: string; defaultView: "ADMIN" | "EMPLOYEE" }>(`/users/${userId}/default-view`, {
+    method: "PATCH",
+    body: JSON.stringify({ defaultView }),
+  });
 
 export const forgotPassword = (email: string) =>
   apiRequest<{ message: string }>("/auth/forgot-password", {

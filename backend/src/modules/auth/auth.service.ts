@@ -47,13 +47,30 @@ export class AuthService {
       throw new UnauthorizedException("Invalid credentials");
     }
 
-    const role = user.userRoles[0]?.role;
-    const permissions = role?.permissions.map((item) => item.permission.code) ?? [];
+    const roleObjs = user.userRoles.map((userRole) => userRole.role);
+    const roles = roleObjs.map((role) => role.code);
+    const primaryRole = roleObjs[0]?.code;
+    const permissions = [
+      ...new Set(roleObjs.flatMap((role) => role.permissions.map((item) => item.permission.code))),
+    ];
+    // Scoped to ADMIN/SUPERVISOR roles only — used by the frontend to decide
+    // which admin-side modules to show, so a Supervisor's implicit EMPLOYEE
+    // role (granted for their own attendance/leave self-service) never leaks
+    // extra modules into their admin nav. `permissions` above stays the full
+    // union and remains what backend route guards check.
+    const adminPermissions = [
+      ...new Set(
+        roleObjs
+          .filter((role) => role.code !== "EMPLOYEE")
+          .flatMap((role) => role.permissions.map((item) => item.permission.code)),
+      ),
+    ];
     const displayName = user.employee ? `${user.employee.firstName} ${user.employee.lastName}` : user.email;
     const payload = {
       sub: user.id,
       email: user.email,
-      role: role?.code,
+      role: primaryRole,
+      roles,
       permissions,
       employeeId: user.employee?.id,
       departmentId: user.employee?.departmentId,
@@ -76,13 +93,16 @@ export class AuthService {
       user: {
         id: user.id,
         email: user.email,
-        role: role?.code,
+        role: primaryRole,
+        roles,
         permissions,
+        adminPermissions,
         employeeId: user.employee?.id,
         departmentId: user.employee?.departmentId,
         department: user.employee?.department?.name,
         displayName,
         attendanceMode: user.employee?.attendanceMode,
+        defaultView: user.defaultView,
       },
     };
   }

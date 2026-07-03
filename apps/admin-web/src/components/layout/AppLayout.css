@@ -71,6 +71,76 @@
   line-height: 1.2;
 }
 
+.view-switcher {
+  position: relative;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.view-switcher-trigger {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--navy);
+  cursor: pointer;
+}
+
+.view-switcher-trigger:hover {
+  background: #f4f7fb;
+}
+
+.view-switcher-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 8px;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  min-width: 190px;
+  overflow: hidden;
+  z-index: 50;
+  box-shadow: 0 4px 16px rgba(20, 40, 70, 0.14);
+}
+
+.view-switcher-caption {
+  margin: 0;
+  padding: 10px 14px 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.view-switcher-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  text-align: left;
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 550;
+  cursor: pointer;
+}
+
+.view-switcher-option:hover {
+  background: #f4f7fb;
+}
+
+.view-switcher-option.active {
+  background: #dbeafe;
+  font-weight: 650;
+}
+
 .profile-role {
   margin: 2px 0 0;
   font-size: 11px;

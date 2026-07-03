@@ -28,9 +28,6 @@ export class CreateEmployeeDto {
   @IsString()
   department!: string;
 
-  @IsString()
-  position!: string;
-
   @IsOptional()
   @IsDateString()
   hireDate?: string;

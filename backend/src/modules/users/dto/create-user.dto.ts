@@ -1,4 +1,4 @@
-import { IsDateString, IsEmail, IsEnum, IsOptional, IsString, IsUUID, MinLength } from "class-validator";
+import { IsEnum, IsUUID } from "class-validator";
 
 export enum CreateUserRole {
   ADMIN = "ADMIN",
@@ -6,31 +6,12 @@ export enum CreateUserRole {
   EMPLOYEE = "EMPLOYEE",
 }
 
+// User Management only ever assigns a role to an employee who already has an
+// account (created in Employee Management) — it never creates a new account
+// or new credentials, so this is intentionally just an employeeId + role.
 export class CreateUserDto {
-  @IsEmail()
-  email!: string;
-
-  @IsOptional()
   @IsUUID()
-  employeeId?: string;
-
-  @IsString()
-  firstName!: string;
-
-  @IsString()
-  lastName!: string;
-
-  @IsOptional()
-  @IsString()
-  employeeNo?: string;
-
-  @IsOptional()
-  @IsDateString()
-  hireDate?: string;
-
-  @IsString()
-  @MinLength(8)
-  password!: string;
+  employeeId!: string;
 
   @IsEnum(CreateUserRole)
   role!: CreateUserRole;

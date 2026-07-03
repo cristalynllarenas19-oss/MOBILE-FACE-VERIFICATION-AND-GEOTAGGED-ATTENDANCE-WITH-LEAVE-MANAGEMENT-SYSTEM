@@ -13,6 +13,7 @@ const permissionRows = [
   ["attendance:write", "Attendance"],
   ["leave:read", "Leave"],
   ["leave:write", "Leave"],
+  ["leave:approve", "Leave"],
   ["schedules:read", "Schedules"],
   ["schedules:write", "Schedules"],
   ["reports:read", "Reports"],

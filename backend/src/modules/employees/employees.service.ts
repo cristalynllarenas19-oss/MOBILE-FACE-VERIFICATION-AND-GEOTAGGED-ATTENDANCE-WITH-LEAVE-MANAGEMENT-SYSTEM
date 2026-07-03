@@ -37,9 +37,12 @@ export class EmployeesService {
       update: {},
       create: { name: dto.department },
     });
+    // Position is no longer collected when adding an employee — HR can set a
+    // specific title later via Edit. Every new hire starts on this
+    // placeholder so `positionId` (a required FK) is always populated.
     const position =
-      (await this.prisma.position.findFirst({ where: { title: dto.position } })) ??
-      (await this.prisma.position.create({ data: { title: dto.position } }));
+      (await this.prisma.position.findFirst({ where: { title: "Employee" } })) ??
+      (await this.prisma.position.create({ data: { title: "Employee" } }));
 
     const user = await this.prisma.user.create({
       data: {

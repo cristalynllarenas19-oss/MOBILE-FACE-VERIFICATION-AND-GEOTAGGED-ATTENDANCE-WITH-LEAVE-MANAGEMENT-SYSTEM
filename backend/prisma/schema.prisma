@@ -19,6 +19,15 @@ enum RoleCode {
   EMPLOYEE
 }
 
+// Which portal a multi-role account (e.g. EMPLOYEE + SUPERVISOR) lands on
+// right after login. Null means "not chosen yet" — the frontend falls back
+// to the pre-existing behavior (non-EMPLOYEE roles land on the admin
+// dashboard) until the user picks a preference in Settings.
+enum DefaultView {
+  ADMIN
+  EMPLOYEE
+}
+
 enum EmploymentStatus {
   REGULAR
   PROBATIONARY
@@ -90,6 +99,7 @@ model User {
   // Pre-existing live-DB column not originally tracked in this schema file (see the
   // `divisions`/`sections` note below) — mirrored as-is so `prisma db push` does not drop it.
   mustChangePassword Boolean @default(false) @map("must_change_password")
+  defaultView  DefaultView? @map("default_view")
   lastLoginAt  DateTime?   @map("last_login_at")
   createdAt    DateTime    @default(now()) @map("created_at")
   updatedAt    DateTime    @updatedAt @map("updated_at")

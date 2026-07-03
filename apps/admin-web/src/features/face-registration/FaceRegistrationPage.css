@@ -5,9 +5,9 @@
 }
 
 .face-workspace {
-  display: grid;
-  grid-template-columns: minmax(420px, 1.45fr) minmax(320px, 0.9fr);
+  display: flex;
   gap: 16px;
+  align-items: stretch;
 }
 
 .face-card {
@@ -20,6 +20,10 @@
 
 .capture-card {
   overflow: hidden;
+  flex: 1.45 1 420px;
+  display: flex;
+  flex-direction: column;
+  height: 620px;
 }
 
 .capture-summary {
@@ -89,7 +93,8 @@
 }
 
 .capture-stage {
-  aspect-ratio: 16 / 10;
+  flex: 1;
+  min-height: 0;
   background: #050816;
   border-radius: 18px;
   overflow: hidden;
@@ -271,6 +276,9 @@
 .enrollment-form {
   display: flex;
   flex-direction: column;
+  flex: 0.9 1 320px;
+  min-height: 0;
+  height: 620px;
 }
 
 .form-title-row {
@@ -353,8 +361,9 @@
   align-content: start;
   gap: 10px;
   margin-bottom: 16px;
-  max-height: 280px;
-  overflow: auto;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .employee-pick {
@@ -394,8 +403,7 @@
 .form-actions {
   display: flex;
   gap: 10px;
-  margin-top: auto;
-  padding-top: 20px;
+  margin-top: 20px;
 }
 
 .form-actions button {
@@ -754,7 +762,22 @@
 
 @media (max-width: 900px) {
   .face-workspace {
-    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+
+  .capture-card,
+  .enrollment-form {
+    height: auto;
+  }
+
+  .capture-stage {
+    flex: none;
+    aspect-ratio: 16 / 10;
+  }
+
+  .employee-picks {
+    flex: none;
+    max-height: 320px;
   }
 
   .save-face-button {

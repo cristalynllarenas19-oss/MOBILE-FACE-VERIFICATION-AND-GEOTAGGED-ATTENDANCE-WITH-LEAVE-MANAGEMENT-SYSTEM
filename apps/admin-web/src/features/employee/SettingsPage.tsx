@@ -4,10 +4,10 @@ import {
   Eye, EyeOff, Lock, Mail, Phone, User,
 } from "lucide-react";
 import { EmployeeProfile, getMyProfile, changePassword, updateMyPhoto } from "./api";
-import type { AuthUser } from "../../lib/api";
+import { AuthUser, updateDefaultView } from "../../lib/api";
 import "./EmployeePortal.css";
 
-type Props   = { user: AuthUser };
+type Props   = { user: AuthUser; onDefaultViewChange: (view: "ADMIN" | "EMPLOYEE") => void };
 type Section = "menu" | "profile" | "password";
 
 // ── Design tokens ────────────────────────────────────────────────────────────
@@ -31,10 +31,15 @@ function avatarUri(p: EmployeeProfile) {
   return `data:${p.profilePhotoMimeType ?? "image/jpeg"};base64,${p.profilePhotoData}`;
 }
 
-export function SettingsPage({ user }: Props) {
+export function SettingsPage({ user, onDefaultViewChange }: Props) {
   const [profile,   setProfile]   = useState<EmployeeProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [section,   setSection]   = useState<Section>("menu");
+
+  // default view preference (multi-role accounts only)
+  const [defaultView, setDefaultView] = useState(user.defaultView);
+  const [dvStatus,    setDvStatus]    = useState<{ ok: boolean; msg: string } | null>(null);
+  const [dvSaving,    setDvSaving]    = useState(false);
 
   // password form state
   const [currPwd,     setCurrPwd]     = useState("");
@@ -116,6 +121,21 @@ export function SettingsPage({ user }: Props) {
     }
   }
 
+  async function handleSetDefaultView(view: "ADMIN" | "EMPLOYEE") {
+    setDvSaving(true);
+    setDvStatus(null);
+    try {
+      await updateDefaultView(user.id, view);
+      setDefaultView(view);
+      onDefaultViewChange(view);
+      setDvStatus({ ok: true, msg: "Default view updated." });
+    } catch (err: any) {
+      setDvStatus({ ok: false, msg: err?.message ?? "Failed to update default view." });
+    } finally {
+      setDvSaving(false);
+    }
+  }
+
   const uri = profile ? avatarUri(profile) : null;
 
   return (
@@ -182,6 +202,37 @@ export function SettingsPage({ user }: Props) {
             onHover={(v) => setHoveredRow(v ? "password" : null)}
             onPress={() => setSection("password")}
           />
+          {user.roles.length > 1 && (
+            <>
+              <div style={dividerLine} />
+              <div style={{ padding: "14px 16px" }}>
+                <p style={defaultViewLabel}>Default view after login</p>
+                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  <button
+                    type="button"
+                    onClick={() => handleSetDefaultView("ADMIN")}
+                    disabled={dvSaving}
+                    style={segmentBtn(defaultView === "ADMIN")}
+                  >
+                    Admin dashboard
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSetDefaultView("EMPLOYEE")}
+                    disabled={dvSaving}
+                    style={segmentBtn(defaultView === "EMPLOYEE")}
+                  >
+                    My attendance
+                  </button>
+                </div>
+                {dvStatus && (
+                  <p style={{ ...statusText, marginTop: 8, color: dvStatus.ok ? COLORS.success : COLORS.error }}>
+                    {dvStatus.msg}
+                  </p>
+                )}
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -419,6 +470,23 @@ const menuRow: CSSProperties = {
 };
 
 const menuRowLabel: CSSProperties = { flex: 1, color: COLORS.navy, fontSize: 14, fontWeight: 600 };
+
+const defaultViewLabel: CSSProperties = { margin: 0, color: COLORS.navy, fontSize: 14, fontWeight: 600 };
+
+function segmentBtn(active: boolean): CSSProperties {
+  return {
+    flex: 1,
+    padding: "10px 12px",
+    borderRadius: 12,
+    border: `1.5px solid ${active ? COLORS.navy : COLORS.border}`,
+    background: active ? COLORS.navy : COLORS.white,
+    color: active ? COLORS.white : COLORS.navy,
+    fontSize: 13,
+    fontWeight: 650,
+    cursor: "pointer",
+    transition: "background 0.15s ease, border-color 0.15s ease",
+  };
+}
 
 const iconChip: CSSProperties = {
   display: "flex", alignItems: "center", justifyContent: "center",

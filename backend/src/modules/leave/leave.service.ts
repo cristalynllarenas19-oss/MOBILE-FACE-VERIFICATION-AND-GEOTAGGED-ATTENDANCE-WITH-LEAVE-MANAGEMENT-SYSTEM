@@ -12,9 +12,12 @@ export class LeaveService {
     private readonly notifications: NotificationsService,
   ) {}
 
-  async findAll(employeeId?: string) {
+  async findAll(employeeId?: string, departmentId?: string) {
     const requests = await this.prisma.leaveRequest.findMany({
-      where: employeeId ? { employeeId } : undefined,
+      where: {
+        ...(employeeId ? { employeeId } : {}),
+        ...(departmentId ? { employee: { departmentId } } : {}),
+      },
       include: {
         employee: { include: { department: true } },
         leaveType: true,

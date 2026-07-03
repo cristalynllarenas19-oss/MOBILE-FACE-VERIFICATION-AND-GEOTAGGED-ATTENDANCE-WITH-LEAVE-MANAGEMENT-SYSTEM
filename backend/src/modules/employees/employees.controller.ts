@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, Req } from "@nestjs/common";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
+import { getSupervisorDepartmentScope } from "../../common/utils/supervisor-scope.util";
 import { CreateEmployeeDto, UpdateEmployeeDto } from "./dto/create-employee.dto";
 import { EmployeesService } from "./employees.service";
 
@@ -9,8 +10,7 @@ export class EmployeesController {
 
   @Get()
   findAll(@Req() request: Request) {
-    const user = (request as any).user;
-    const departmentId = user.role === "SUPERVISOR" ? user.departmentId : undefined;
+    const departmentId = getSupervisorDepartmentScope((request as any).user);
     return this.employeesService.findAll(departmentId);
   }
 

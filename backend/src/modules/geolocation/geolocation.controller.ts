@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Req } from "@nestjs/common";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
+import { getSupervisorDepartmentScope } from "../../common/utils/supervisor-scope.util";
 import { GeolocationService } from "./geolocation.service";
 
 @Controller("geolocation")
@@ -8,8 +9,7 @@ export class GeolocationController {
 
   @Get("locations")
   findAllLocations(@Req() request: Request) {
-    const user = (request as any).user;
-    const departmentId = user.role === "SUPERVISOR" ? user.departmentId : undefined;
+    const departmentId = getSupervisorDepartmentScope((request as any).user);
     return this.geolocationService.findAllLocations(departmentId);
   }
 

@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, UnauthorizedException } from "@nestjs/common";
 import * as argon2 from "argon2";
 import { PrismaService } from "../../prisma/prisma.service";
 import { CreateUserDto } from "./dto/create-user.dto";
@@ -25,8 +25,12 @@ export class UsersService {
     return { message: "Password updated." };
   }
 
+  // Only accounts that have actually been granted a system role ever show up
+  // in User Management — a plain employee (EMPLOYEE role only, auto-created
+  // in Employee Management) is not "in" User Management at all.
   findAll() {
     return this.prisma.user.findMany({
+      where: { userRoles: { some: { role: { code: { in: ["ADMIN", "SUPERVISOR"] } } } } },
       select: {
         id: true,
         email: true,
@@ -39,90 +43,48 @@ export class UsersService {
     });
   }
 
+  // Grants a role to an employee's existing account — never creates a new
+  // account or credentials. Employee Management is the only place an account
+  // (email/password) is ever created.
   async create(dto: CreateUserDto) {
     const role = await this.prisma.role.findUniqueOrThrow({ where: { code: dto.role } });
-    const passwordHash = await argon2.hash(dto.password);
 
-    if (dto.employeeId) {
-      const employee = await this.prisma.employee.findUnique({
-        where: { id: dto.employeeId },
-        select: { userId: true },
-      });
-
-      if (!employee) {
-        throw new BadRequestException("Selected employee does not exist.");
-      }
-
-      if (!employee.userId) {
-        throw new BadRequestException("Selected employee does not have a linked user account.");
-      }
-
-      const employeeUserId = employee.userId;
-      const duplicateEmailUser = await this.prisma.user.findUnique({ where: { email: dto.email } });
-      if (duplicateEmailUser && duplicateEmailUser.id !== employeeUserId) {
-        throw new ConflictException("Email is already used by another user account.");
-      }
-
-      return this.prisma.$transaction(async (tx) => {
-        await tx.userRole.deleteMany({ where: { userId: employeeUserId } });
-
-        return tx.user.update({
-          where: { id: employeeUserId },
-          data: {
-            email: dto.email,
-            passwordHash,
-            userRoles: { create: { roleId: role.id } },
-          },
-          select: {
-            id: true,
-            email: true,
-            status: true,
-            userRoles: { include: { role: true } },
-            employee: true,
-          },
-        });
-      });
-    }
-
-    const existingEmail = await this.prisma.user.findUnique({ where: { email: dto.email } });
-    if (existingEmail) {
-      throw new ConflictException("Email is already used by another user account.");
-    }
-
-    const department = await this.prisma.department.upsert({
-      where: { name: "Human Resources" },
-      update: {},
-      create: { name: "Human Resources" },
+    const employee = await this.prisma.employee.findUnique({
+      where: { id: dto.employeeId },
+      select: { userId: true, departmentId: true },
     });
-    const positionTitle = dto.role === "SUPERVISOR" ? "Department Supervisor" : "HR Admin";
-    const position =
-      (await this.prisma.position.findFirst({ where: { title: positionTitle } })) ??
-      (await this.prisma.position.create({ data: { title: positionTitle } }));
-    const employeeNo = dto.employeeNo?.trim() || `UL-${Date.now().toString().slice(-6)}`;
 
-    return this.prisma.user.create({
-      data: {
-        email: dto.email,
-        passwordHash,
-        userRoles: { create: { roleId: role.id } },
-        employee: {
-          create: {
-            employeeNo,
-            firstName: dto.firstName,
-            lastName: dto.lastName,
-            departmentId: department.id,
-            positionId: position.id,
-            hireDate: dto.hireDate ? new Date(dto.hireDate) : new Date(),
-          },
+    if (!employee) {
+      throw new BadRequestException("Selected employee does not exist.");
+    }
+
+    if (!employee.userId) {
+      throw new BadRequestException("Selected employee does not have a linked user account.");
+    }
+
+    if (dto.role === "SUPERVISOR" && !employee.departmentId) {
+      throw new BadRequestException("Employee must be assigned to a department before being assigned as a Supervisor.");
+    }
+
+    const employeeUserId = employee.userId;
+
+    return this.prisma.$transaction(async (tx) => {
+      // Only clears the role being (re)assigned — an existing EMPLOYEE role
+      // (or any other) must survive so the account keeps attendance-portal
+      // access after being granted HR/Supervisor access.
+      await tx.userRole.deleteMany({ where: { userId: employeeUserId, roleId: role.id } });
+      await tx.userRole.create({ data: { userId: employeeUserId, roleId: role.id } });
+
+      return tx.user.findUniqueOrThrow({
+        where: { id: employeeUserId },
+        select: {
+          id: true,
+          email: true,
+          status: true,
+          userRoles: { include: { role: true } },
+          employee: true,
         },
-      },
-      select: {
-        id: true,
-        email: true,
-        status: true,
-        userRoles: { include: { role: true } },
-        employee: true,
-      },
+      });
     });
   }
 
@@ -131,6 +93,27 @@ export class UsersService {
       where: { id },
       data: { status },
       select: { id: true, email: true, status: true },
+    });
+  }
+
+  async updateDefaultView(id: string, defaultView: "ADMIN" | "EMPLOYEE", requesterId: string) {
+    if (id !== requesterId) {
+      throw new ForbiddenException("You can only update your own default view.");
+    }
+
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id },
+      select: { userRoles: true },
+    });
+
+    if (user.userRoles.length <= 1) {
+      throw new BadRequestException("Default view is only available for accounts with more than one role.");
+    }
+
+    return this.prisma.user.update({
+      where: { id },
+      data: { defaultView },
+      select: { id: true, defaultView: true },
     });
   }
 }

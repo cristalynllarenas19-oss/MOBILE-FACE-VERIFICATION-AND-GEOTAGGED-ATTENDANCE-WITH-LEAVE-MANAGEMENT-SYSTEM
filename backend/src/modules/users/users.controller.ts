@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, Req } from "@nestjs/common";
 import { ChangePasswordDto } from "./dto/change-password.dto";
 import { CreateUserDto } from "./dto/create-user.dto";
+import { UpdateDefaultViewDto } from "./dto/update-default-view.dto";
 import { UsersService } from "./users.service";
 
 @Controller("users")
@@ -28,5 +29,11 @@ export class UsersController {
   @Patch(":id/status")
   updateStatus(@Param("id") id: string, @Body("status") status: "ACTIVE" | "INACTIVE" | "LOCKED") {
     return this.usersService.updateStatus(id, status);
+  }
+
+  @Patch(":id/default-view")
+  updateDefaultView(@Param("id") id: string, @Body() dto: UpdateDefaultViewDto, @Req() request: Request) {
+    const requesterId = (request as any).user.userId;
+    return this.usersService.updateDefaultView(id, dto.defaultView, requesterId);
   }
 }

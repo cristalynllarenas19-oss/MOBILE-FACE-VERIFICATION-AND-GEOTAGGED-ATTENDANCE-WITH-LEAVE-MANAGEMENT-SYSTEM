@@ -10,6 +10,7 @@ import {
 } from "@nestjs/common";
 
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
+import { getSupervisorDepartmentScope } from "../../common/utils/supervisor-scope.util";
 import { AttendanceService } from "./attendance.service";
 import { SubmitAttendanceDto } from "./dto/submit-attendance.dto";
 
@@ -28,8 +29,7 @@ export class AttendanceController {
     @Query("from") from?: string,
     @Query("to") to?: string,
   ) {
-    const user = (request as any).user;
-    const departmentId = user.role === "SUPERVISOR" ? user.departmentId : undefined;
+    const departmentId = getSupervisorDepartmentScope((request as any).user);
     return this.attendanceService.findAll({ department, departmentId, status, date, from, to });
   }
 

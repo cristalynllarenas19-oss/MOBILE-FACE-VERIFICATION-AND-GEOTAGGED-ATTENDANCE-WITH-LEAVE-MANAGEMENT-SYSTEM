@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req } from "@nestjs/common";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
+import { getSupervisorDepartmentScope } from "../../common/utils/supervisor-scope.util";
 import { SchedulesService } from "./schedules.service";
 
 @Controller("schedules")
@@ -13,8 +14,7 @@ export class SchedulesController {
     @Query("shiftId") shiftId?: string,
     @Query("status") status?: string,
   ) {
-    const user = (request as any).user;
-    const departmentId = user.role === "SUPERVISOR" ? user.departmentId : undefined;
+    const departmentId = getSupervisorDepartmentScope((request as any).user);
     return this.schedulesService.findAll({ department, departmentId, shiftId, status });
   }
 
