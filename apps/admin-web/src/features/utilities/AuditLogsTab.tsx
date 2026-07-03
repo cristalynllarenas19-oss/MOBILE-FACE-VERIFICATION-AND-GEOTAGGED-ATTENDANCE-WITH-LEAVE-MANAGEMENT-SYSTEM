@@ -18,6 +18,7 @@ type AuditLog = {
   actor?: {
     email: string;
     employee?: { firstName: string; lastName: string } | null;
+    userRoles?: { role: { name: string; code: string } }[];
   } | null;
 };
 
@@ -119,6 +120,13 @@ function auditMeta(log: AuditLog) {
   });
 }
 
+function actorRoleLabel(log: AuditLog) {
+  const metaRole = auditMeta(log).actorRole;
+  if (metaRole) return formatAction(metaRole);
+  const roles = log.actor?.userRoles?.map((userRole) => userRole.role.name || formatAction(userRole.role.code)) ?? [];
+  return roles.length > 0 ? roles.join(", ") : "N/A";
+}
+
 function affectedRecordLabel(log: AuditLog) {
   if (log.entityName) return log.entityName;
   if (log.entityId) return log.entityId.slice(0, 8);
@@ -149,6 +157,7 @@ async function exportToExcel(rows: AuditLog[]) {
   const data = rows.map((log) => ({
     "Date/Time": formatDateTime(log.createdAt),
     Actor: actorName(log),
+    Role: actorRoleLabel(log),
     Module: moduleLabel(log.entityType),
     Action: formatAction(log.action),
     "Affected Record": affectedRecordLabel(log),
@@ -170,10 +179,11 @@ async function exportToPdf(rows: AuditLog[]) {
   doc.text("Audit Logs", 14, 16);
   autoTable(doc, {
     startY: 22,
-    head: [["Date/Time", "Actor", "Module", "Action", "Affected Record"]],
+    head: [["Date/Time", "Actor", "Role", "Module", "Action", "Affected Record"]],
     body: rows.map((log) => [
       formatDateTime(log.createdAt),
       actorName(log),
+      actorRoleLabel(log),
       moduleLabel(log.entityType),
       formatAction(log.action),
       affectedRecordLabel(log),
@@ -421,6 +431,7 @@ export function AuditLogsTab({
             <tr>
               <th>DATE/TIME</th>
               <th>ACTOR</th>
+              <th>ROLE</th>
               <th>MODULE</th>
               <th>ACTION</th>
               <th>AFFECTED RECORD</th>
@@ -430,13 +441,13 @@ export function AuditLogsTab({
           <tbody>
             {auditLoading ? (
               <tr>
-                <td colSpan={6} className="utilities-empty-state">
+                <td colSpan={7} className="utilities-empty-state">
                   <span className="utilities-loading-dot" /> Loading audit logs…
                 </td>
               </tr>
             ) : auditLogs.length === 0 ? (
               <tr>
-                <td colSpan={6} className="utilities-empty-state">
+                <td colSpan={7} className="utilities-empty-state">
                   {hasActiveAuditFilters
                     ? "No audit log entries match your current filters."
                     : "No audit log entries found."}
@@ -447,6 +458,7 @@ export function AuditLogsTab({
                 <tr key={log.id}>
                   <td data-label="Date/Time">{formatDateTime(log.createdAt)}</td>
                   <td data-label="Actor">{actorName(log)}</td>
+                  <td data-label="Role">{actorRoleLabel(log)}</td>
                   <td data-label="Module">{moduleLabel(log.entityType)}</td>
                   <td data-label="Action">
                     <div className="utilities-action-cell">
@@ -515,7 +527,7 @@ export function AuditLogsTab({
                 </div>
                 <div>
                   <span>User Role</span>
-                  <strong>{auditMeta(viewLog).actorRole ?? "N/A"}</strong>
+                  <strong>{actorRoleLabel(viewLog)}</strong>
                 </div>
                 <div>
                   <span>Affected Record</span>
@@ -615,7 +627,7 @@ function exportToCsv(rows: AuditLog[]) {
   const body = rows.map((log) => [
     formatDateTime(log.createdAt),
     actorName(log),
-    auditMeta(log).actorRole ?? "",
+    actorRoleLabel(log),
     moduleLabel(log.entityType),
     formatAction(log.action),
     affectedRecordLabel(log),

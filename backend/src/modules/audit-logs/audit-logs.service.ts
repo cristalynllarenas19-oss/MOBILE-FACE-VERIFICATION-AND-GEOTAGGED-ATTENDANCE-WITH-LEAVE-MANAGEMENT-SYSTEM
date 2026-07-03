@@ -203,7 +203,7 @@ export class AuditLogsService {
       this.prisma.auditLog.findMany({
         where,
         include: {
-          actor: { include: { employee: true } },
+          actor: { include: { employee: true, userRoles: { include: { role: true } } } },
         },
         orderBy: { createdAt: filters.sort === "oldest" ? "asc" : "desc" },
         skip: (page - 1) * pageSize,
@@ -221,7 +221,7 @@ export class AuditLogsService {
     const rawItems = await this.prisma.auditLog.findMany({
       where,
       include: {
-      actor: { include: { employee: true } },
+        actor: { include: { employee: true, userRoles: { include: { role: true } } } },
       },
       orderBy: { createdAt: filters.sort === "oldest" ? "asc" : "desc" },
       take: EXPORT_MAX_ROWS,

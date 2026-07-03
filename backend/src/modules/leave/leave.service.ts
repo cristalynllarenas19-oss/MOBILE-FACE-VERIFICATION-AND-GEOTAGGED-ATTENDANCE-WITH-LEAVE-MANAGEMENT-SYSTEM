@@ -116,11 +116,7 @@ export class LeaveService {
     });
   }
 
-<<<<<<< Updated upstream
-  async updateStatus(id: string, status: LeaveRequestStatus, remarks?: string, actorUserId?: string) {
-=======
-  async updateStatus(id: string, status: "APPROVED" | "REJECTED", remarks?: string, context: AuditLogContext = {}) {
->>>>>>> Stashed changes
+  async updateStatus(id: string, status: LeaveRequestStatus, remarks?: string, context: AuditLogContext = {}) {
     // Load the request first so we know its *current* status before changing anything.
     // This is what lets us tell "first time being approved" apart from "already approved,
     // admin clicked again" — without this check, usedDays could be deducted more than once
@@ -184,37 +180,25 @@ export class LeaveService {
       await this.adjustLeaveBalance(request.employeeId, request.leaveTypeId, request.startDate, -Number(request.totalDays));
     }
 
-<<<<<<< Updated upstream
-    if (remarks?.trim()) {
-      await this.prisma.auditLog.create({
-        data: {
-          actorUserId,
-          action:
-            status === "APPROVED"
-              ? "APPROVE_LEAVE"
-              : status === "SUPERVISOR_APPROVED"
-                ? "SUPERVISOR_APPROVE_LEAVE"
-                : status === "CANCELLED"
-                  ? "CANCEL_LEAVE"
-                  : "REJECT_LEAVE",
-          entityType: "LeaveRequest",
-          entityId: id,
-          newValues: { remarks: remarks.trim(), status },
-        },
-      });
-    }
-=======
+    const action =
+      status === "APPROVED"
+        ? "APPROVE_LEAVE"
+        : status === "SUPERVISOR_APPROVED"
+          ? "SUPERVISOR_APPROVE_LEAVE"
+          : status === "CANCELLED"
+            ? "CANCEL_LEAVE"
+            : "REJECT_LEAVE";
+
     await this.auditLogs.record({
       ...context,
-      action: status === "APPROVED" ? "APPROVE_LEAVE" : "REJECT_LEAVE",
+      action,
       module: "Leave",
       entityType: "LeaveRequest",
       entityId: id,
-      description: `${status === "APPROVED" ? "Approved" : "Rejected"} ${request.employee.firstName} ${request.employee.lastName}'s ${request.leaveType.name} leave request.`,
+      description: `${statusLabel[status][0].toUpperCase()}${statusLabel[status].slice(1)} ${request.employee.firstName} ${request.employee.lastName}'s ${request.leaveType.name} leave request.`,
       oldValues: { status: existing.status },
       newValues: { remarks: remarks?.trim(), status },
     });
->>>>>>> Stashed changes
 
     return {
       ...request,
@@ -222,7 +206,7 @@ export class LeaveService {
     };
   }
 
-  async cancel(id: string, actorUserId?: string, requestingEmployeeId?: string) {
+  async cancel(id: string, context: AuditLogContext = {}, requestingEmployeeId?: string) {
     const existing = await this.prisma.leaveRequest.findUniqueOrThrow({ where: { id } });
 
     if (existing.status !== "PENDING" && existing.status !== "SUPERVISOR_APPROVED") {
@@ -235,7 +219,7 @@ export class LeaveService {
       throw new BadRequestException("You can only cancel your own leave request.");
     }
 
-    return this.updateStatus(id, "CANCELLED", undefined, actorUserId);
+    return this.updateStatus(id, "CANCELLED", undefined, context);
   }
 
   async setExtensionDecision(id: string, extensionApproved: boolean, actorUserId?: string) {

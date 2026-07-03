@@ -35,17 +35,13 @@ export class LeaveController {
   @Patch(":id/approve")
   @RequirePermissions("leave:approve")
   approve(@Param("id") id: string, @Body() body: { remarks?: string }, @Req() request: Request) {
-<<<<<<< Updated upstream
     const user = (request as any).user;
     const roles: string[] = user.roles ?? [user.role];
     // ADMIN always finalizes (from PENDING or SUPERVISOR_APPROVED); a
     // SUPERVISOR-only actor can only move PENDING -> SUPERVISOR_APPROVED, HR
     // still has to finalize afterward.
     const targetStatus = roles.includes("ADMIN") ? "APPROVED" : "SUPERVISOR_APPROVED";
-    return this.leaveService.updateStatus(id, targetStatus, body.remarks, user?.userId);
-=======
-    return this.leaveService.updateStatus(id, "APPROVED", body.remarks, getAuditContext(request));
->>>>>>> Stashed changes
+    return this.leaveService.updateStatus(id, targetStatus, body.remarks, getAuditContext(request));
   }
 
   @Patch(":id/reject")
@@ -60,7 +56,7 @@ export class LeaveController {
     const user = (request as any).user;
     const roles: string[] = user.roles ?? [user.role];
     const hasElevatedRole = roles.includes("ADMIN") || roles.includes("SUPERVISOR");
-    return this.leaveService.cancel(id, user?.userId, hasElevatedRole ? undefined : user?.employeeId);
+    return this.leaveService.cancel(id, getAuditContext(request), hasElevatedRole ? undefined : user?.employeeId);
   }
 
   @Patch(":id/extension-decision")
