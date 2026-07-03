@@ -314,6 +314,12 @@
   font-weight: 800;
 }
 
+.attendance-synthetic-note {
+  padding: 4px 20px 12px;
+  color: #7b8794;
+  font-size: 12px;
+}
+
 .attendance-face-thumb {
   width: 60px;
   height: 60px;

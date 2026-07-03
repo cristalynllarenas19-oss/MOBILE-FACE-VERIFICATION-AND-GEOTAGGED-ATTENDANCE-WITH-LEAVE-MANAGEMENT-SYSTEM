@@ -27,13 +27,17 @@ type AttendanceRecord = {
   visitNumber?: number;
   workLocation?: { name: string } | null;
   employee: {
+    employeeNo?: string;
     firstName: string;
     lastName: string;
     department: { name: string };
+    position?: { title: string } | null;
     faceProfiles?: { referenceImagePath?: string | null }[];
   };
   logs: AttendanceLog[];
   adminRemarks?: { remarks?: string } | null;
+  isSynthetic?: boolean;
+  leaveTypeName?: string;
 };
 
 type EmployeeOption = {
@@ -129,44 +133,57 @@ function AttendanceDetailsModal({
 
         <div className="attendance-detail-grid attendance-modal-main-grid">
           <div><span>Employee Name</span><strong>{getName(record)}</strong></div>
+          <div><span>Employee No.</span><strong>{record.employee.employeeNo ?? "—"}</strong></div>
+          <div><span>Position</span><strong>{record.employee.position?.title ?? "—"}</strong></div>
           <div><span>Department</span><strong>{record.employee.department.name}</strong></div>
           <div><span>Site</span><strong>{record.workLocation?.name ?? "—"}</strong></div>
           <div><span>Date</span><strong>{formatDate(record.attendanceDate)}</strong></div>
           <div><span>Time In</span><strong>{formatTime(record.timeInAt)}</strong></div>
           <div><span>Time Out</span><strong>{formatTime(record.timeOutAt)}</strong></div>
           <div><span>Status</span><Badge tone={getStatusTone(record.status)}>{getStatusLabel(record.status)}</Badge></div>
+          {record.status === "ON_LEAVE" && (
+            <div><span>Leave Type</span><strong>{record.leaveTypeName ?? "—"}</strong></div>
+          )}
         </div>
 
-        <div className="attendance-section-title">Face Verification</div>
-        <div className="attendance-detail-grid">
-          <div><span>Registered Face</span>{registeredFace ? <img className="attendance-face-thumb" src={registeredFace} alt="" /> : <strong>Not stored</strong>}</div>
-          <div><span>Captured Selfie</span><strong>Not stored</strong></div>
-          <div><span>Face Match Score</span><strong>{latestLog?.faceSimilarityScore ? `${latestLog.faceSimilarityScore}%` : "N/A"}</strong></div>
-          <div><span>Verification Status</span><strong>{latestLog?.verificationStatus ? getStatusLabel(latestLog.verificationStatus) : "No log"}</strong></div>
-          <div><span>Failure Reason</span><strong>{latestLog?.failureReason ?? "None"}</strong></div>
-        </div>
+        {record.isSynthetic ? (
+          <p className="attendance-synthetic-note">
+            No attendance record — this employee is marked {getStatusLabel(record.status).toLowerCase()} for this date.
+          </p>
+        ) : (
+          <>
+            <div className="attendance-section-title">Face Verification</div>
+            <div className="attendance-detail-grid">
+              <div><span>Registered Face</span>{registeredFace ? <img className="attendance-face-thumb" src={registeredFace} alt="" /> : <strong>Not stored</strong>}</div>
+              <div><span>Captured Selfie</span><strong>Not stored</strong></div>
+              <div><span>Face Match Score</span><strong>{latestLog?.faceSimilarityScore ? `${latestLog.faceSimilarityScore}%` : "N/A"}</strong></div>
+              <div><span>Verification Status</span><strong>{latestLog?.verificationStatus ? getStatusLabel(latestLog.verificationStatus) : "No log"}</strong></div>
+              <div><span>Failure Reason</span><strong>{latestLog?.failureReason ?? "None"}</strong></div>
+            </div>
 
-        <div className="attendance-section-title">Geotagging</div>
-        <div className="attendance-detail-grid">
-          <div><span>Latitude & Longitude</span><strong>{latestLog ? `${latestLog.latitude}, ${latestLog.longitude}` : "No log"}</strong></div>
-          <div><span>Distance from Site</span><strong>{latestLog ? `${Math.round(Number(latestLog.distanceFromSiteMeters))}m` : "No log"}</strong></div>
-          <div>
-            <span>Map Preview</span>
-            {latestLog ? (
-              <a className="attendance-map-link" href={`https://www.google.com/maps?q=${mapQuery}`} target="_blank" rel="noreferrer">
-                <MapPin size={14} /> Open Map
-              </a>
-            ) : (
-              <strong>No log</strong>
-            )}
-          </div>
-          <div><span>Latest Remarks</span><strong>{record.adminRemarks?.remarks ?? "None"}</strong></div>
-        </div>
+            <div className="attendance-section-title">Geotagging</div>
+            <div className="attendance-detail-grid">
+              <div><span>Latitude & Longitude</span><strong>{latestLog ? `${latestLog.latitude}, ${latestLog.longitude}` : "No log"}</strong></div>
+              <div><span>Distance from Site</span><strong>{latestLog ? `${Math.round(Number(latestLog.distanceFromSiteMeters))}m` : "No log"}</strong></div>
+              <div>
+                <span>Map Preview</span>
+                {latestLog ? (
+                  <a className="attendance-map-link" href={`https://www.google.com/maps?q=${mapQuery}`} target="_blank" rel="noreferrer">
+                    <MapPin size={14} /> Open Map
+                  </a>
+                ) : (
+                  <strong>No log</strong>
+                )}
+              </div>
+              <div><span>Latest Remarks</span><strong>{record.adminRemarks?.remarks ?? "None"}</strong></div>
+            </div>
+          </>
+        )}
 
         <div className="attendance-admin-actions">
           {error && <p className="attendance-form-error">{error}</p>}
           <div>
-            {canWrite && record.status !== "PRESENT" && (
+            {canWrite && !record.isSynthetic && record.status !== "PRESENT" && (
               <button className="primary-button" onClick={() => updateStatus("approve")} disabled={isSaving}>Approve</button>
             )}
             <button className="outline-button" onClick={onClose} disabled={isSaving}>Close</button>

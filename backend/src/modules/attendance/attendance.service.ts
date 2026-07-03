@@ -6,6 +6,7 @@ import { FaceVerificationService } from "../face-verification/face-verification.
 import { GeolocationService } from "../geolocation/geolocation.service";
 import { SubmitAttendanceDto } from "./dto/submit-attendance.dto";
 import { computeMinutesLate, computeMinutesUndertime, findBestMatchingShift, roundToInterval } from "./attendance-shift.util";
+import { getApprovedLeaveByEmployee } from "../../common/utils/on-leave.util";
 
 type AttendanceFilters = {
   department?: string;
@@ -63,7 +64,7 @@ export class AttendanceService {
             : {}),
       },
       include: {
-        employee: { include: { department: true, faceProfiles: { orderBy: { enrolledAt: "desc" }, take: 1 } } },
+        employee: { include: { department: true, position: { select: { title: true } }, faceProfiles: { orderBy: { enrolledAt: "desc" }, take: 1 } } },
         workLocation: { select: { name: true } },
         logs: { orderBy: { capturedAt: "desc" } },
       },
@@ -76,10 +77,88 @@ export class AttendanceService {
       orderBy: { createdAt: "desc" },
     });
 
-    return records.map((record) => ({
+    const withRemarks = records.map((record) => ({
       ...record,
       adminRemarks: remarks.find((remark) => remark.entityId === record.id)?.newValues,
     }));
+
+    // A specific single day (either `date`, or `from`/`to` narrowed to the
+    // same calendar day — exactly what happens landing here from the
+    // Dashboard's "View in Attendance" button) is the only case where
+    // Absent/On-Leave employees can be reconstructed: neither ever gets a
+    // real AttendanceRecord row, so without this they'd be invisible here
+    // even though the Dashboard already counts them.
+    const singleDay = attendanceDate ?? (fromDate && toDate && fromDate.toDateString() === toDate.toDateString() ? fromDate : undefined);
+    if (!singleDay) return withRemarks;
+
+    const employees = await this.prisma.employee.findMany({
+      where: {
+        employmentStatus: { not: "SEPARATED" },
+        ...(filters.departmentId
+          ? { departmentId: filters.departmentId }
+          : filters.department && filters.department !== "ALL"
+            ? { department: { name: filters.department } }
+            : {}),
+      },
+      select: {
+        id: true,
+        employeeNo: true,
+        firstName: true,
+        lastName: true,
+        hireDate: true,
+        department: { select: { name: true } },
+        position: { select: { title: true } },
+      },
+    });
+
+    const recordedEmployeeIds = new Set(withRemarks.map((record) => record.employeeId));
+    const onLeaveByEmployee = await getApprovedLeaveByEmployee(
+      this.prisma,
+      employees.map((e) => e.id),
+      singleDay,
+    );
+
+    const wantsStatus = (status: "ABSENT" | "ON_LEAVE") => !filters.status || filters.status === "ALL" || filters.status === status;
+
+    const syntheticRows = [];
+    for (const employee of employees) {
+      if (recordedEmployeeIds.has(employee.id)) continue;
+      const onLeave = onLeaveByEmployee.get(employee.id);
+      const base = {
+        id: `${onLeave ? "leave" : "absent"}-${employee.id}-${filters.date ?? filters.from}`,
+        attendanceDate: singleDay,
+        recordType: "OFFICE" as const,
+        visitNumber: 1,
+        workLocationId: null,
+        workLocation: null,
+        timeInAt: null,
+        timeOutAt: null,
+        totalMinutes: 0,
+        lateMinutes: 0,
+        undertimeMinutes: 0,
+        shiftId: null,
+        employeeId: employee.id,
+        employee: {
+          employeeNo: employee.employeeNo,
+          firstName: employee.firstName,
+          lastName: employee.lastName,
+          department: employee.department,
+          position: employee.position,
+          faceProfiles: [],
+        },
+        logs: [],
+        adminRemarks: undefined,
+        isSynthetic: true,
+      };
+
+      if (onLeave && wantsStatus("ON_LEAVE")) {
+        syntheticRows.push({ ...base, status: "ON_LEAVE" as const, leaveTypeName: onLeave.leaveTypeName });
+      } else if (!onLeave && employee.hireDate <= singleDay && wantsStatus("ABSENT")) {
+        syntheticRows.push({ ...base, status: "ABSENT" as const });
+      }
+    }
+
+    return [...withRemarks, ...syntheticRows];
   }
 
   async updateStatus(id: string, status: "PRESENT" | "OFFICIAL_BUSINESS", remarks?: string, actorUserId?: string) {

@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { dedupeToLatestVisitPerEmployeeDay } from "../attendance/attendance-dedup.util";
+import { isDateWithinLeaveRange } from "../../common/utils/on-leave.util";
 
 @Injectable()
 export class DashboardService {
@@ -38,6 +39,7 @@ export class DashboardService {
       assignedEmployeeRows,
       weekAttendanceRaw,
       realMonthAttendanceRaw,
+      monthApprovedLeaves,
     ] = await Promise.all([
       // Archived (SEPARATED) employees don't count toward current headcount —
       // matches the "All Employees" tab on the Employees page, which already
@@ -82,6 +84,15 @@ export class DashboardService {
         where: { attendanceDate: { gte: realMonthStart, lte: realMonthEnd } },
         include: { employee: { include: { department: true } } },
       }),
+      // Approved leave overlapping the visible month, fetched once so each
+      // calendar day can be checked against it in-memory rather than one
+      // query per day — AttendanceRecord never gets an ON_LEAVE row of its
+      // own (see on-leave.util.ts), so this is the only way to know who's on
+      // leave for a given day.
+      this.prisma.leaveRequest.findMany({
+        where: { status: "APPROVED", startDate: { lte: monthEnd }, endDate: { gte: monthStart } },
+        select: { employeeId: true, startDate: true, endDate: true, leaveType: { select: { name: true } } },
+      }),
     ]);
 
     // A FIELD employee can have several visit rows for the same day — collapse
@@ -101,11 +112,24 @@ export class DashboardService {
     const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
     const trendMap = new Map<string, { department: string; dayOfWeek: string; absences: number; dates: string[] }>();
 
+    // Filters the whole month's approved leaves down to whoever is on leave
+    // on one specific day, in memory — avoids one LeaveRequest query per day.
+    function leaveMapForDate(date: Date): Map<string, { leaveTypeName: string }> {
+      const map = new Map<string, { leaveTypeName: string }>();
+      for (const leave of monthApprovedLeaves) {
+        if (isDateWithinLeaveRange(date, leave) && !map.has(leave.employeeId)) {
+          map.set(leave.employeeId, { leaveTypeName: leave.leaveType.name });
+        }
+      }
+      return map;
+    }
+
     // ── Shared helper: build dept rows from a set of records ────────────────
     function buildDeptRows(
       records: typeof monthAttendance,
       scope: "day" | "week" | "month",
       scopeDate?: Date,
+      onLeaveByEmployee: Map<string, { leaveTypeName: string }> = new Map(),
     ) {
       const deptMap = new Map<
         string,
@@ -132,16 +156,21 @@ export class DashboardService {
         }
       }
 
-      // Count no-shows as absent for a specific day scope
+      // Count no-shows as absent (or on leave, if covered by an approved
+      // LeaveRequest) for a specific day scope.
       if (scope === "day" && scopeDate) {
         const isPast = scopeDate < attendanceDate;
         const isToday = scopeDate.toDateString() === attendanceDate.toDateString();
         if (isPast || isToday) {
           const recordedIds = new Set(records.map((r) => r.employeeId));
           for (const emp of employees) {
-            if (emp.hireDate <= scopeDate && !recordedIds.has(emp.id)) {
-              const row = deptMap.get(emp.department.name);
-              if (row) row.absent += 1;
+            if (recordedIds.has(emp.id)) continue;
+            const row = deptMap.get(emp.department.name);
+            if (!row) continue;
+            if (onLeaveByEmployee.has(emp.id)) {
+              row.onLeave += 1;
+            } else if (emp.hireDate <= scopeDate) {
+              row.absent += 1;
             }
           }
         }
@@ -155,11 +184,15 @@ export class DashboardService {
       const date = new Date(year, month, index + 1);
       const records = monthAttendance.filter((r) => r.attendanceDate.getDate() === index + 1);
       const isPastDate = date < attendanceDate;
+      const onLeaveMap = leaveMapForDate(date);
 
       const explicitAbsentees = records.filter((r) => r.status === "ABSENT");
       const recordedEmployeeIds = new Set(records.map((r) => r.employeeId));
       const noShowAbsentees = isPastDate
-        ? employees.filter((e) => e.hireDate <= date && !recordedEmployeeIds.has(e.id))
+        ? employees.filter((e) => e.hireDate <= date && !recordedEmployeeIds.has(e.id) && !onLeaveMap.has(e.id))
+        : [];
+      const onLeaveNoRecord = isPastDate
+        ? employees.filter((e) => !recordedEmployeeIds.has(e.id) && onLeaveMap.has(e.id))
         : [];
 
       const absent = explicitAbsentees.length + noShowAbsentees.length;
@@ -185,10 +218,10 @@ export class DashboardService {
         present: records.filter((r) => r.status === "PRESENT").length,
         late: records.filter((r) => r.status === "LATE").length,
         absent,
-        onLeave: records.filter((r) => r.status === "ON_LEAVE").length,
+        onLeave: records.filter((r) => r.status === "ON_LEAVE").length + onLeaveNoRecord.length,
         officialBusiness: records.filter((r) => r.status === "OFFICIAL_BUSINESS").length,
         // Per-department breakdown for the day modal
-        departments: buildDeptRows(records, "day", date),
+        departments: buildDeptRows(records, "day", date, onLeaveMap),
       };
     });
 
@@ -214,7 +247,7 @@ export class DashboardService {
     );
 
     const departmentAttendance = {
-      today: buildDeptRows(todayRecords, "day", attendanceDate),
+      today: buildDeptRows(todayRecords, "day", attendanceDate, leaveMapForDate(attendanceDate)),
       week:  buildDeptRows(weekAttendance, "week"),
       month: buildDeptRows(realMonthAttendance, "month"),
     };

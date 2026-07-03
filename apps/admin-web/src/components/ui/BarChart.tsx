@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUpRight, ChevronDown, X } from "lucide-react";
+import { ChevronDown, X } from "lucide-react";
 import { DropdownFilter } from "./DropdownFilter";
 import "./BarChart.css";
 
@@ -20,7 +20,7 @@ export type DeptAttendanceRow = {
 
 export type AttendanceNavigateFilter = {
   department: string;
-  status: string;
+  status?: string;
   date: string;
 };
 
@@ -97,49 +97,22 @@ function SimpleBarChart({ data, height = 180 }: { data: BarChartDatum[]; height?
 }
 
 // ── Single status row (grouped view) ─────────────────────────────────────────
-// Clickable when it has a non-zero count and a navigate handler is available.
+// Purely visual — the department card has a single "View in Attendance"
+// action now, so individual rows are no longer separately clickable.
 function DeptRow({
   series,
   value,
   total,
   max,
-  onClick,
 }: {
   series: (typeof SERIES)[number];
   value: number;
   total: number;
   max: number;
-  onClick?: () => void;
 }) {
-  const [hovered, setHovered] = useState(false);
-  const clickable = value > 0 && Boolean(onClick);
-
   return (
-    <div
-      className="bc-group-row-wrap"
-      onMouseEnter={() => clickable && setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
-      <div
-        className={[
-          "bc-group-row",
-          clickable ? "bc-group-row--clickable" : "",
-          clickable && hovered ? "bc-group-row--hovered" : "",
-        ].filter(Boolean).join(" ")}
-        onClick={clickable ? onClick : undefined}
-        role={clickable ? "button" : undefined}
-        tabIndex={clickable ? 0 : undefined}
-        onKeyDown={
-          clickable
-            ? (e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  onClick?.();
-                }
-              }
-            : undefined
-        }
-      >
+    <div className="bc-group-row-wrap">
+      <div className="bc-group-row">
         <span className="bc-group-series-label">
           <span className="bc-group-series-dot" style={{ background: series.color }} />
           {series.label}
@@ -152,17 +125,8 @@ function DeptRow({
         </div>
         <span className="bc-group-val">
           <span className="bc-group-val-frac">{value}/{total}</span>
-          <span className="bc-group-val-icon">
-            {clickable && <ArrowUpRight size={11} />}
-          </span>
         </span>
       </div>
-
-      {clickable && hovered && (
-        <button type="button" className="bc-row-tooltip" onClick={onClick}>
-          View in Attendance →
-        </button>
-      )}
     </div>
   );
 }
@@ -182,15 +146,26 @@ function DeptCard({
   onNavigate?: (filter: AttendanceNavigateFilter) => void;
 }) {
   const total = SERIES.reduce((s, sr) => s + (row[sr.key as SeriesKey] as number), 0);
+  const canNavigate = Boolean(onNavigate && date);
 
   return (
     <div className="bc-dept-card">
-      {/* Card header — always visible, never covered by the hover tooltip */}
+      {/* Card header — always visible */}
       <div className="bc-dept-card-header">
         <span className="bc-dept-card-name">{row.department}</span>
         <span className="bc-dept-card-total">{total} employee{total === 1 ? "" : "s"}</span>
       </div>
-      <p className="bc-dept-card-hint">Click a status to view those employees in Attendance</p>
+      {canNavigate ? (
+        <button
+          type="button"
+          className="bc-dept-card-hint bc-dept-card-hint--action"
+          onClick={() => onNavigate!({ department: row.department, date: date! })}
+        >
+          View in Attendance →
+        </button>
+      ) : (
+        <p className="bc-dept-card-hint">View this department's attendance breakdown</p>
+      )}
 
       {/* Bars */}
       <div className="bc-dept-card-bars">
@@ -215,20 +190,7 @@ function DeptCard({
           <div className="bc-group-bars">
             {SERIES.map((s) => {
               const val = row[s.key as SeriesKey] as number;
-              return (
-                <DeptRow
-                  key={s.key}
-                  series={s}
-                  value={val}
-                  total={total}
-                  max={max}
-                  onClick={
-                    onNavigate && date
-                      ? () => onNavigate({ department: row.department, status: s.status, date })
-                      : undefined
-                  }
-                />
-              );
+              return <DeptRow key={s.key} series={s} value={val} total={total} max={max} />;
             })}
           </div>
         )}
