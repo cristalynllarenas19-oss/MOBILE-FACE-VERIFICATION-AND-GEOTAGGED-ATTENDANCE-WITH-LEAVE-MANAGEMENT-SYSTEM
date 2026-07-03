@@ -103,6 +103,7 @@ export class EmployeesService {
         ...(dto.hireDate ? { hireDate: new Date(dto.hireDate) } : {}),
         ...(dto.employmentStatus ? { employmentStatus: dto.employmentStatus } : {}),
         ...(dto.attendanceMode ? { attendanceMode: dto.attendanceMode } : {}),
+        ...(dto.soloParentStatus ? { soloParentStatus: dto.soloParentStatus } : {}),
       },
       include: { user: true, department: true, position: true },
     });

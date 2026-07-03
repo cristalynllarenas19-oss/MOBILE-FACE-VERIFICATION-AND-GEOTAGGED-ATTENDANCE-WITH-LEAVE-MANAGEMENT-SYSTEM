@@ -8,6 +8,7 @@ import {
   RotateCcw,
   Search,
   X,
+  Zap,
 } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
@@ -15,7 +16,7 @@ import { ConfirmDialog, type ConfirmDialogConfig } from "../../components/ui/Con
 import { apiRequest } from "../../lib/api";
 import type { Notification } from "./UtilitiesPage";
 
-type EmploymentStatus = "REGULAR" | "PROBATIONARY" | "CONTRACTUAL" | "SEPARATED";
+type EmploymentStatus = "REGULAR" | "CONTRACTUAL_SEASONAL" | "PIECE_RATE" | "SEPARATED";
 
 type ActorRef = { email: string; employee?: { firstName: string; lastName: string } | null } | null;
 
@@ -24,6 +25,13 @@ type LeaveType = {
   name: string;
   defaultDays: string;
   requiresDocument: boolean;
+  supportingDocumentAfterDays: number | null;
+  requiresHrValidation: boolean;
+  requiresEhsActivation: boolean;
+  ehsActivated: boolean;
+  allowWithoutPay: boolean;
+  isTransferable: boolean;
+  isAutoCredited: boolean;
   applicableStatuses: EmploymentStatus[];
   isActive: boolean;
   isUnlimitedDays: boolean;
@@ -34,9 +42,9 @@ type LeaveType = {
 };
 
 const EMPLOYMENT_STATUS_OPTIONS: { value: EmploymentStatus; label: string }[] = [
-  { value: "REGULAR", label: "Regular" },
-  { value: "PROBATIONARY", label: "Probationary" },
-  { value: "CONTRACTUAL", label: "Contractual" },
+  { value: "REGULAR", label: "Regular Employee" },
+  { value: "CONTRACTUAL_SEASONAL", label: "Contractual Employee (Seasonal)" },
+  { value: "PIECE_RATE", label: "Piece-rate (Pakyawan) Worker" },
   { value: "SEPARATED", label: "Separated" },
 ];
 
@@ -47,7 +55,7 @@ const OPTIONAL_STATUS_OPTIONS = EMPLOYMENT_STATUS_OPTIONS.filter((o) => o.value 
 const PAGE_SIZE = 10;
 
 function formatEmploymentStatus(status: EmploymentStatus) {
-  return status.charAt(0) + status.slice(1).toLowerCase();
+  return EMPLOYMENT_STATUS_OPTIONS.find((o) => o.value === status)?.label ?? status;
 }
 
 function formatDefaultDays(type: LeaveType) {
@@ -69,6 +77,10 @@ const emptyForm = {
   name: "",
   defaultDays: "15",
   requiresDocument: false,
+  supportingDocumentAfterDays: "",
+  requiresHrValidation: false,
+  requiresEhsActivation: false,
+  allowWithoutPay: false,
   classifications: [] as EmploymentStatus[],
   isUnlimitedDays: false,
 };
@@ -146,6 +158,10 @@ export function LeaveTypesTab({
       name: type.name,
       defaultDays: type.defaultDays,
       requiresDocument: type.requiresDocument,
+      supportingDocumentAfterDays: type.supportingDocumentAfterDays != null ? String(type.supportingDocumentAfterDays) : "",
+      requiresHrValidation: type.requiresHrValidation,
+      requiresEhsActivation: type.requiresEhsActivation,
+      allowWithoutPay: type.allowWithoutPay,
       classifications: type.applicableStatuses.filter((s) => s !== "REGULAR"),
       isUnlimitedDays: type.isUnlimitedDays,
     });
@@ -170,6 +186,11 @@ export function LeaveTypesTab({
         name,
         defaultDays: form.isUnlimitedDays ? 0 : Number(form.defaultDays),
         requiresDocument: form.requiresDocument,
+        supportingDocumentAfterDays:
+          form.requiresDocument && form.supportingDocumentAfterDays ? Number(form.supportingDocumentAfterDays) : undefined,
+        requiresHrValidation: form.requiresHrValidation,
+        requiresEhsActivation: form.requiresEhsActivation,
+        allowWithoutPay: form.allowWithoutPay,
         applicableStatuses: ["REGULAR", ...form.classifications],
         isUnlimitedDays: form.isUnlimitedDays,
       };
@@ -208,6 +229,27 @@ export function LeaveTypesTab({
       notify({
         type: "error",
         message: err instanceof Error ? err.message : "Unable to update leave type status.",
+      });
+    }
+  };
+
+  const toggleEhsActivation = async (type: LeaveType) => {
+    try {
+      const nextActivated = !type.ehsActivated;
+      await apiRequest(`/leave-types/${type.id}/ehs-activation`, {
+        method: "PATCH",
+        body: JSON.stringify({ ehsActivated: nextActivated }),
+      });
+      notify({
+        type: "success",
+        message: `"${type.name}" ${nextActivated ? "activated" : "deactivated"} successfully.`,
+      });
+      setViewLeaveType(null);
+      loadLeaveTypes();
+    } catch (err) {
+      notify({
+        type: "error",
+        message: err instanceof Error ? err.message : "Unable to update EHS activation.",
       });
     }
   };
@@ -445,6 +487,47 @@ export function LeaveTypesTab({
                 />
                 <span>Requires supporting document</span>
               </label>
+
+              {form.requiresDocument && (
+                <label className="utilities-field">
+                  <span className="utilities-field-label">Requires supporting document after how many days</span>
+                  <input
+                    className="utilities-input"
+                    type="number"
+                    min={0}
+                    value={form.supportingDocumentAfterDays}
+                    onChange={(e) => setForm((c) => ({ ...c, supportingDocumentAfterDays: e.target.value }))}
+                    placeholder="e.g. 2 (leave blank to always require it)"
+                  />
+                </label>
+              )}
+
+              <label className="utilities-checkbox">
+                <input
+                  type="checkbox"
+                  checked={form.requiresHrValidation}
+                  onChange={(e) => setForm((c) => ({ ...c, requiresHrValidation: e.target.checked }))}
+                />
+                <span>Requires HR validation</span>
+              </label>
+
+              <label className="utilities-checkbox">
+                <input
+                  type="checkbox"
+                  checked={form.requiresEhsActivation}
+                  onChange={(e) => setForm((c) => ({ ...c, requiresEhsActivation: e.target.checked }))}
+                />
+                <span>Requires EHS activation</span>
+              </label>
+
+              <label className="utilities-checkbox">
+                <input
+                  type="checkbox"
+                  checked={form.allowWithoutPay}
+                  onChange={(e) => setForm((c) => ({ ...c, allowWithoutPay: e.target.checked }))}
+                />
+                <span>Allow without pay</span>
+              </label>
             </div>
 
             <div className="utilities-modal-actions">
@@ -490,7 +573,31 @@ export function LeaveTypesTab({
                 <div>
                   <span>Requires Document</span>
                   <Badge tone={viewLeaveType.requiresDocument ? "warning" : "neutral"}>
-                    {viewLeaveType.requiresDocument ? "Required" : "Not required"}
+                    {viewLeaveType.requiresDocument
+                      ? viewLeaveType.supportingDocumentAfterDays
+                        ? `Required after ${viewLeaveType.supportingDocumentAfterDays}+ day(s)`
+                        : "Required"
+                      : "Not required"}
+                  </Badge>
+                </div>
+                <div>
+                  <span>Requires HR Validation</span>
+                  <Badge tone={viewLeaveType.requiresHrValidation ? "warning" : "neutral"}>
+                    {viewLeaveType.requiresHrValidation ? "Required" : "Not required"}
+                  </Badge>
+                </div>
+                {viewLeaveType.requiresEhsActivation && (
+                  <div>
+                    <span>EHS Activation</span>
+                    <Badge tone={viewLeaveType.ehsActivated ? "success" : "neutral"}>
+                      {viewLeaveType.ehsActivated ? "Active" : "Inactive"}
+                    </Badge>
+                  </div>
+                )}
+                <div>
+                  <span>Allow Without Pay</span>
+                  <Badge tone={viewLeaveType.allowWithoutPay ? "warning" : "neutral"}>
+                    {viewLeaveType.allowWithoutPay ? "Allowed" : "Not allowed"}
                   </Badge>
                 </div>
                 <div>
@@ -520,6 +627,11 @@ export function LeaveTypesTab({
               <button className="utilities-edit-button" onClick={() => openEditForm(viewLeaveType)}>
                 <Pencil size={13} /> Edit
               </button>
+              {viewLeaveType.requiresEhsActivation && (
+                <button className="utilities-edit-button" onClick={() => toggleEhsActivation(viewLeaveType)}>
+                  <Zap size={13} /> {viewLeaveType.ehsActivated ? "Deactivate" : "Activate"}
+                </button>
+              )}
               {viewLeaveType.isActive ? (
                 <button className="utilities-archive-button" onClick={() => requestArchive(viewLeaveType)}>
                   <Archive size={13} /> Archive

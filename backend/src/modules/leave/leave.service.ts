@@ -4,6 +4,7 @@ import { NotificationsService } from "../notifications/notifications.service";
 import { CreateLeaveRequestDto } from "./dto/create-leave-request.dto";
 
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+type LeaveRequestStatus = "PENDING" | "SUPERVISOR_APPROVED" | "APPROVED" | "REJECTED" | "CANCELLED";
 
 @Injectable()
 export class LeaveService {
@@ -42,6 +43,13 @@ export class LeaveService {
       throw new BadRequestException("Attachment must be 5MB or smaller.");
     }
 
+    const leaveType = await this.prisma.leaveType.findUniqueOrThrow({ where: { id: dto.leaveTypeId } });
+
+    // The 30-day unpaid extension only makes sense for Maternity Leave — a
+    // crafted request against any other leave type is silently ignored
+    // rather than trusted, even though the frontend already gates this.
+    const extensionRequested = Boolean(dto.extensionRequested) && leaveType.name === "Maternity Leave";
+
     const request = await this.prisma.leaveRequest.create({
       data: {
         employeeId: dto.employeeId,
@@ -53,6 +61,7 @@ export class LeaveService {
         attachmentName: dto.attachmentName,
         attachmentMimeType: dto.attachmentMimeType,
         attachmentData: dto.attachmentData,
+        extensionRequested,
       },
       include: {
         employee: { include: { supervisor: true, department: true } },
@@ -88,7 +97,7 @@ export class LeaveService {
     });
   }
 
-  async updateStatus(id: string, status: "APPROVED" | "REJECTED", remarks?: string, actorUserId?: string) {
+  async updateStatus(id: string, status: LeaveRequestStatus, remarks?: string, actorUserId?: string) {
     // Load the request first so we know its *current* status before changing anything.
     // This is what lets us tell "first time being approved" apart from "already approved,
     // admin clicked again" — without this check, usedDays could be deducted more than once
@@ -110,20 +119,42 @@ export class LeaveService {
       },
     });
 
-    if (request.employee.userId) {
+    const statusLabel: Record<LeaveRequestStatus, string> = {
+      PENDING: "pending",
+      SUPERVISOR_APPROVED: "approved by your supervisor (awaiting HR approval)",
+      APPROVED: "approved",
+      REJECTED: "rejected",
+      CANCELLED: "cancelled",
+    };
+
+    if (request.employee.userId && status !== "PENDING") {
       await this.notifications.notifyUsers([request.employee.userId], {
-        title: status === "APPROVED" ? "Leave Request Approved" : "Leave Request Rejected",
-        message: `Your ${request.leaveType.name} request for ${request.startDate.toLocaleDateString()} - ${request.endDate.toLocaleDateString()} was ${status === "APPROVED" ? "approved" : "rejected"}.${remarks?.trim() ? ` Remarks: ${remarks.trim()}` : ""}`,
-        type: status === "APPROVED" ? "LEAVE_APPROVED" : "LEAVE_REJECTED",
+        title:
+          status === "APPROVED"
+            ? "Leave Request Approved"
+            : status === "REJECTED"
+              ? "Leave Request Rejected"
+              : status === "CANCELLED"
+                ? "Leave Request Cancelled"
+                : "Leave Request Supervisor-Approved",
+        message: `Your ${request.leaveType.name} request for ${request.startDate.toLocaleDateString()} - ${request.endDate.toLocaleDateString()} was ${statusLabel[status]}.${remarks?.trim() ? ` Remarks: ${remarks.trim()}` : ""}`,
+        type:
+          status === "APPROVED"
+            ? "LEAVE_APPROVED"
+            : status === "REJECTED"
+              ? "LEAVE_REJECTED"
+              : status === "CANCELLED"
+                ? "LEAVE_CANCELLED"
+                : "LEAVE_SUPERVISOR_APPROVED",
         entityId: request.id,
       });
     }
 
-    // Only touch the balance when the approval state is actually changing:
-    // - PENDING/REJECTED -> APPROVED: deduct the days.
-    // - APPROVED -> REJECTED (an admin reversing a prior approval): give the days back.
-    // - Anything else (e.g. re-approving an already-approved request, or rejecting a
-    //   request that was never approved) leaves the balance untouched.
+    // Only touch the balance when the *final* approval state is actually changing:
+    // - PENDING/SUPERVISOR_APPROVED/REJECTED -> APPROVED: deduct the days.
+    // - APPROVED -> anything else (an admin reversing a prior approval): give the days back.
+    // - SUPERVISOR_APPROVED is a pre-approval tier only — it never touches the balance,
+    //   only the final HR-level APPROVED transition does.
     if (!wasApproved && isNowApproved) {
       await this.adjustLeaveBalance(request.employeeId, request.leaveTypeId, request.startDate, Number(request.totalDays));
     } else if (wasApproved && !isNowApproved) {
@@ -134,7 +165,14 @@ export class LeaveService {
       await this.prisma.auditLog.create({
         data: {
           actorUserId,
-          action: status === "APPROVED" ? "APPROVE_LEAVE" : "REJECT_LEAVE",
+          action:
+            status === "APPROVED"
+              ? "APPROVE_LEAVE"
+              : status === "SUPERVISOR_APPROVED"
+                ? "SUPERVISOR_APPROVE_LEAVE"
+                : status === "CANCELLED"
+                  ? "CANCEL_LEAVE"
+                  : "REJECT_LEAVE",
           entityType: "LeaveRequest",
           entityId: id,
           newValues: { remarks: remarks.trim(), status },
@@ -148,9 +186,61 @@ export class LeaveService {
     };
   }
 
+  async cancel(id: string, actorUserId?: string, requestingEmployeeId?: string) {
+    const existing = await this.prisma.leaveRequest.findUniqueOrThrow({ where: { id } });
+
+    if (existing.status !== "PENDING" && existing.status !== "SUPERVISOR_APPROVED") {
+      throw new BadRequestException("Only a pending or supervisor-approved request can be cancelled.");
+    }
+
+    // requestingEmployeeId is undefined for an elevated (ADMIN/SUPERVISOR) actor
+    // cancelling on an employee's behalf; a plain employee must only cancel their own.
+    if (requestingEmployeeId && existing.employeeId !== requestingEmployeeId) {
+      throw new BadRequestException("You can only cancel your own leave request.");
+    }
+
+    return this.updateStatus(id, "CANCELLED", undefined, actorUserId);
+  }
+
+  async setExtensionDecision(id: string, extensionApproved: boolean, actorUserId?: string) {
+    const updated = await this.prisma.leaveRequest.update({
+      where: { id },
+      data: { extensionApproved },
+      include: {
+        employee: { include: { department: true } },
+        leaveType: true,
+        reviewer: { include: { employee: true } },
+      },
+    });
+
+    if (updated.employee.userId) {
+      await this.notifications.notifyUsers([updated.employee.userId], {
+        title: extensionApproved ? "Maternity Extension Approved" : "Maternity Extension Rejected",
+        message: `Your request to extend your ${updated.leaveType.name} by 30 days without pay was ${extensionApproved ? "approved" : "rejected"}.`,
+        type: extensionApproved ? "LEAVE_EXTENSION_APPROVED" : "LEAVE_EXTENSION_REJECTED",
+        entityId: updated.id,
+      });
+    }
+
+    await this.prisma.auditLog.create({
+      data: {
+        actorUserId,
+        action: "SET_MATERNITY_EXTENSION",
+        entityType: "LeaveRequest",
+        entityId: id,
+        newValues: { extensionApproved },
+      },
+    });
+
+    return updated;
+  }
+
   // Adds (or subtracts, for reversals) `deltaDays` from an employee's used-days balance
   // for the leave type and calendar year of the request's start date. Creates the
   // balance row on first use, seeded with the leave type's default annual allotment.
+  // Never blocks on insufficient balance — usedDays is allowed to exceed earnedDays,
+  // which is exactly how a `leaveType.allowWithoutPay` type (e.g. LWOP) stays usable
+  // as a fallback once an employee's paid credits are exhausted.
   private async adjustLeaveBalance(employeeId: string, leaveTypeId: string, requestStartDate: Date, deltaDays: number) {
     const year = requestStartDate.getFullYear();
 

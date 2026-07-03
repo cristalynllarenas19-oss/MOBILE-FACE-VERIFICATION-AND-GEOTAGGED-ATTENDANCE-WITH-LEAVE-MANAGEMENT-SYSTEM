@@ -16,6 +16,30 @@ export class CreateLeaveTypeDto {
   requiresDocument?: boolean;
 
   @IsOptional()
+  @IsNumber()
+  supportingDocumentAfterDays?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  requiresHrValidation?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  requiresEhsActivation?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  allowWithoutPay?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isTransferable?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isAutoCredited?: boolean;
+
+  @IsOptional()
   @IsArray()
   @IsEnum(EmploymentStatus, { each: true })
   applicableStatuses?: EmploymentStatus[];
@@ -39,6 +63,30 @@ export class UpdateLeaveTypeDto {
   requiresDocument?: boolean;
 
   @IsOptional()
+  @IsNumber()
+  supportingDocumentAfterDays?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  requiresHrValidation?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  requiresEhsActivation?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  allowWithoutPay?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isTransferable?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isAutoCredited?: boolean;
+
+  @IsOptional()
   @IsArray()
   @IsEnum(EmploymentStatus, { each: true })
   applicableStatuses?: EmploymentStatus[];
@@ -51,6 +99,11 @@ export class UpdateLeaveTypeDto {
 export class SetLeaveTypeStatusDto {
   @IsBoolean()
   isActive!: boolean;
+}
+
+export class SetEhsActivationDto {
+  @IsBoolean()
+  ehsActivated!: boolean;
 }
 
 
@@ -77,5 +130,10 @@ export class LeaveTypesController {
   @Patch(":id/status")
   setStatus(@Param("id") id: string, @Body() dto: SetLeaveTypeStatusDto, @Req() request: Request) {
     return this.leaveTypesService.setStatus(id, dto.isActive, (request as any).user?.userId);
+  }
+
+  @Patch(":id/ehs-activation")
+  setEhsActivation(@Param("id") id: string, @Body() dto: SetEhsActivationDto, @Req() request: Request) {
+    return this.leaveTypesService.setEhsActivation(id, dto.ehsActivated, (request as any).user?.userId);
   }
 }

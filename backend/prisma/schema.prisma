@@ -30,9 +30,15 @@ enum DefaultView {
 
 enum EmploymentStatus {
   REGULAR
-  PROBATIONARY
-  CONTRACTUAL
+  CONTRACTUAL_SEASONAL
+  PIECE_RATE
   SEPARATED
+}
+
+enum SoloParentStatus {
+  NOT_APPLICABLE
+  ELIGIBLE
+  INELIGIBLE
 }
 
 enum AttendanceMode {
@@ -236,6 +242,7 @@ model Employee {
   birthdate        DateTime?
   section_id       String?
   sex              Sex?
+  soloParentStatus SoloParentStatus   @default(NOT_APPLICABLE) @map("solo_parent_status")
   sections         sections?          @relation(fields: [section_id], references: [id])
   user             User               @relation(fields: [userId], references: [id])
   department       Department         @relation(fields: [departmentId], references: [id])
@@ -301,8 +308,10 @@ model AttendanceRecord {
   totalMinutes     Int                  @default(0) @map("total_minutes")
   lateMinutes      Int                  @default(0) @map("late_minutes")
   undertimeMinutes Int                  @default(0) @map("undertime_minutes")
+  shiftId          String?              @map("shift_id")
   employee         Employee             @relation(fields: [employeeId], references: [id])
   workLocation     WorkLocation?        @relation(fields: [workLocationId], references: [id])
+  shift            Shift?               @relation(fields: [shiftId], references: [id])
   logs             AttendanceLog[]
 
   @@unique([employeeId, attendanceDate, recordType, visitNumber])
@@ -356,21 +365,28 @@ model FaceProfile {
 }
 
 model LeaveType {
-  id                 String             @id @default(uuid())
-  name               String             @unique
-  defaultDays        Decimal            @map("default_days")
-  requiresDocument   Boolean            @default(false) @map("requires_document")
-  applicableStatuses EmploymentStatus[] @default([]) @map("applicable_statuses")
-  isActive           Boolean            @default(true) @map("is_active")
-  isUnlimitedDays    Boolean            @default(false) @map("is_unlimited_days")
-  createdAt          DateTime           @default(now()) @map("created_at")
-  updatedAt          DateTime           @updatedAt @map("updated_at")
-  createdBy          String?            @map("created_by")
-  updatedBy          String?            @map("updated_by")
-  leaveRequests      LeaveRequest[]
-  leaveBalances      LeaveBalance[]
-  createdByUser      User?              @relation("LeaveTypeCreatedBy", fields: [createdBy], references: [id])
-  updatedByUser      User?              @relation("LeaveTypeUpdatedBy", fields: [updatedBy], references: [id])
+  id                           String             @id @default(uuid())
+  name                         String             @unique
+  defaultDays                  Decimal            @map("default_days")
+  requiresDocument             Boolean            @default(false) @map("requires_document")
+  supportingDocumentAfterDays  Int?               @map("supporting_document_after_days")
+  requiresHrValidation         Boolean            @default(false) @map("requires_hr_validation")
+  requiresEhsActivation        Boolean            @default(false) @map("requires_ehs_activation")
+  ehsActivated                 Boolean            @default(false) @map("ehs_activated")
+  allowWithoutPay              Boolean            @default(false) @map("allow_without_pay")
+  isTransferable               Boolean            @default(false) @map("is_transferable")
+  isAutoCredited               Boolean            @default(false) @map("is_auto_credited")
+  applicableStatuses           EmploymentStatus[] @default([]) @map("applicable_statuses")
+  isActive                     Boolean            @default(true) @map("is_active")
+  isUnlimitedDays              Boolean            @default(false) @map("is_unlimited_days")
+  createdAt                    DateTime           @default(now()) @map("created_at")
+  updatedAt                    DateTime           @updatedAt @map("updated_at")
+  createdBy                    String?            @map("created_by")
+  updatedBy                    String?            @map("updated_by")
+  leaveRequests                LeaveRequest[]
+  leaveBalances                LeaveBalance[]
+  createdByUser                User?              @relation("LeaveTypeCreatedBy", fields: [createdBy], references: [id])
+  updatedByUser                User?              @relation("LeaveTypeUpdatedBy", fields: [updatedBy], references: [id])
 
   @@map("leave_types")
 }
@@ -391,6 +407,8 @@ model LeaveRequest {
   attachmentName String?  @map("attachment_name")
   attachmentMimeType String? @map("attachment_mime_type")
   attachmentData String?  @map("attachment_data")
+  extensionRequested Boolean  @default(false) @map("extension_requested")
+  extensionApproved  Boolean? @map("extension_approved")
   employee    Employee    @relation(fields: [employeeId], references: [id])
   leaveType   LeaveType   @relation(fields: [leaveTypeId], references: [id])
   reviewer    User?       @relation(fields: [reviewedBy], references: [id])
@@ -415,17 +433,26 @@ model LeaveBalance {
 }
 
 model Shift {
-  id                  String             @id @default(uuid())
-  name                String
-  startTime           String             @map("start_time")
-  endTime             String             @map("end_time")
-  gracePeriodMinutes  Int                @default(0) @map("grace_period_minutes")
+  id                        String             @id @default(uuid())
+  name                      String
+  startTime                 String             @map("start_time")
+  endTime                   String             @map("end_time")
+  gracePeriodMinutes        Int                @default(0) @map("grace_period_minutes")
+  morningBreakMinutes       Int                @default(15) @map("morning_break_minutes")
+  afternoonBreakMinutes     Int                @default(15) @map("afternoon_break_minutes")
+  lunchBreakMinutes         Int                @default(60) @map("lunch_break_minutes")
+  enableRounding            Boolean            @default(false) @map("enable_rounding")
+  roundingIntervalMinutes   Int                @default(15) @map("rounding_interval_minutes")
+  lateThresholdMinutes      Int?               @map("late_threshold_minutes")
+  undertimeThresholdMinutes Int?               @map("undertime_threshold_minutes")
+  autoShiftAdjustment       Boolean            @default(false) @map("auto_shift_adjustment")
   isActive            Boolean            @default(true) @map("is_active")
   createdAt           DateTime           @default(now()) @map("created_at")
   updatedAt           DateTime           @updatedAt @map("updated_at")
   createdBy           String?            @map("created_by")
   updatedBy           String?            @map("updated_by")
   schedules           EmployeeSchedule[]
+  attendanceRecords   AttendanceRecord[]
   createdByUser       User?              @relation("ShiftCreatedBy", fields: [createdBy], references: [id])
   updatedByUser       User?              @relation("ShiftUpdatedBy", fields: [updatedBy], references: [id])
 

@@ -28,6 +28,12 @@ export class LeaveTypesService {
       name: string;
       defaultDays: number;
       requiresDocument?: boolean;
+      supportingDocumentAfterDays?: number;
+      requiresHrValidation?: boolean;
+      requiresEhsActivation?: boolean;
+      allowWithoutPay?: boolean;
+      isTransferable?: boolean;
+      isAutoCredited?: boolean;
       applicableStatuses?: EmploymentStatus[];
       isUnlimitedDays?: boolean;
     },
@@ -37,7 +43,7 @@ export class LeaveTypesService {
     if (existing) throw new ConflictException(`Leave type "${dto.name}" already exists.`);
 
     // Regular employees always get every leave type; admins only choose which
-    // additional classifications (probationary/contractual/separated) also get it.
+    // additional classifications (contractual-seasonal/piece-rate/separated) also get it.
     const applicableStatuses = Array.from(
       new Set<EmploymentStatus>(["REGULAR", ...(dto.applicableStatuses ?? [])]),
     );
@@ -47,6 +53,12 @@ export class LeaveTypesService {
         name: dto.name,
         defaultDays: dto.defaultDays,
         requiresDocument: dto.requiresDocument ?? false,
+        supportingDocumentAfterDays: dto.supportingDocumentAfterDays,
+        requiresHrValidation: dto.requiresHrValidation ?? false,
+        requiresEhsActivation: dto.requiresEhsActivation ?? false,
+        allowWithoutPay: dto.allowWithoutPay ?? false,
+        isTransferable: dto.isTransferable ?? false,
+        isAutoCredited: dto.isAutoCredited ?? false,
         applicableStatuses,
         isUnlimitedDays: dto.isUnlimitedDays ?? false,
         createdBy: actorUserId,
@@ -63,6 +75,12 @@ export class LeaveTypesService {
           name: created.name,
           defaultDays: created.defaultDays,
           requiresDocument: created.requiresDocument,
+          supportingDocumentAfterDays: created.supportingDocumentAfterDays,
+          requiresHrValidation: created.requiresHrValidation,
+          requiresEhsActivation: created.requiresEhsActivation,
+          allowWithoutPay: created.allowWithoutPay,
+          isTransferable: created.isTransferable,
+          isAutoCredited: created.isAutoCredited,
           applicableStatuses: created.applicableStatuses,
           isUnlimitedDays: created.isUnlimitedDays,
         },
@@ -78,6 +96,12 @@ export class LeaveTypesService {
       name?: string;
       defaultDays?: number;
       requiresDocument?: boolean;
+      supportingDocumentAfterDays?: number;
+      requiresHrValidation?: boolean;
+      requiresEhsActivation?: boolean;
+      allowWithoutPay?: boolean;
+      isTransferable?: boolean;
+      isAutoCredited?: boolean;
       applicableStatuses?: EmploymentStatus[];
       isUnlimitedDays?: boolean;
     },
@@ -100,6 +124,12 @@ export class LeaveTypesService {
         name: dto.name,
         defaultDays: dto.defaultDays,
         requiresDocument: dto.requiresDocument,
+        supportingDocumentAfterDays: dto.supportingDocumentAfterDays,
+        requiresHrValidation: dto.requiresHrValidation,
+        requiresEhsActivation: dto.requiresEhsActivation,
+        allowWithoutPay: dto.allowWithoutPay,
+        isTransferable: dto.isTransferable,
+        isAutoCredited: dto.isAutoCredited,
         applicableStatuses,
         isUnlimitedDays: dto.isUnlimitedDays,
         updatedBy: actorUserId,
@@ -120,6 +150,12 @@ export class LeaveTypesService {
           name: existing.name,
           defaultDays: existing.defaultDays,
           requiresDocument: existing.requiresDocument,
+          supportingDocumentAfterDays: existing.supportingDocumentAfterDays,
+          requiresHrValidation: existing.requiresHrValidation,
+          requiresEhsActivation: existing.requiresEhsActivation,
+          allowWithoutPay: existing.allowWithoutPay,
+          isTransferable: existing.isTransferable,
+          isAutoCredited: existing.isAutoCredited,
           applicableStatuses: existing.applicableStatuses,
           isUnlimitedDays: existing.isUnlimitedDays,
         },
@@ -127,6 +163,12 @@ export class LeaveTypesService {
           name: updated.name,
           defaultDays: updated.defaultDays,
           requiresDocument: updated.requiresDocument,
+          supportingDocumentAfterDays: updated.supportingDocumentAfterDays,
+          requiresHrValidation: updated.requiresHrValidation,
+          requiresEhsActivation: updated.requiresEhsActivation,
+          allowWithoutPay: updated.allowWithoutPay,
+          isTransferable: updated.isTransferable,
+          isAutoCredited: updated.isAutoCredited,
           applicableStatuses: updated.applicableStatuses,
           isUnlimitedDays: updated.isUnlimitedDays,
         },
@@ -153,6 +195,29 @@ export class LeaveTypesService {
         entityType: "LeaveType",
         entityId: id,
         newValues: { isActive },
+      },
+    });
+
+    return updated;
+  }
+
+  async setEhsActivation(id: string, ehsActivated: boolean, actorUserId?: string) {
+    const updated = await this.prisma.leaveType.update({
+      where: { id },
+      data: { ehsActivated, updatedBy: actorUserId },
+      include: {
+        createdByUser: ACTOR_SELECT,
+        updatedByUser: ACTOR_SELECT,
+      },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        actorUserId,
+        action: ehsActivated ? "ACTIVATE_EHS_LEAVE_TYPE" : "DEACTIVATE_EHS_LEAVE_TYPE",
+        entityType: "LeaveType",
+        entityId: id,
+        newValues: { ehsActivated },
       },
     });
 

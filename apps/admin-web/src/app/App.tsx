@@ -124,7 +124,7 @@ export default function App() {
       {renderPage === "employees" && <EmployeesPage user={user} />}
       {renderPage === "attendance" && <AttendancePage user={user} initialFilter={attendanceFilter} />}
       {renderPage === "geotagging" && <GeotaggingPage user={user} />}
-      {renderPage === "leave" && <LeavePage />}
+      {renderPage === "leave" && <LeavePage user={user} />}
       {renderPage === "schedules" && <SchedulesPage user={user} />}
       {renderPage === "reports" && <ReportsPage />}
       {renderPage === "utilities" && <UtilitiesPage user={user} />}

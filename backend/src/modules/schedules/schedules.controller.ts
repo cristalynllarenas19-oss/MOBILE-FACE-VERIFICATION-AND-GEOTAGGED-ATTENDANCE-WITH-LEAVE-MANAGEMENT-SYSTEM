@@ -60,6 +60,14 @@ export class SchedulesController {
       startTime: string;
       endTime: string;
       gracePeriodMinutes?: number;
+      morningBreakMinutes?: number;
+      afternoonBreakMinutes?: number;
+      lunchBreakMinutes?: number;
+      enableRounding?: boolean;
+      roundingIntervalMinutes?: number;
+      lateThresholdMinutes?: number;
+      undertimeThresholdMinutes?: number;
+      autoShiftAdjustment?: boolean;
     },
     @Req() request: Request,
   ) {
@@ -76,6 +84,14 @@ export class SchedulesController {
       startTime?: string;
       endTime?: string;
       gracePeriodMinutes?: number;
+      morningBreakMinutes?: number;
+      afternoonBreakMinutes?: number;
+      lunchBreakMinutes?: number;
+      enableRounding?: boolean;
+      roundingIntervalMinutes?: number;
+      lateThresholdMinutes?: number;
+      undertimeThresholdMinutes?: number;
+      autoShiftAdjustment?: boolean;
     },
     @Req() request: Request,
   ) {

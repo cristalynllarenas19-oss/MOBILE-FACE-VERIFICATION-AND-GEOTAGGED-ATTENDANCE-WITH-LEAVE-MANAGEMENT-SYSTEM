@@ -22,7 +22,10 @@ const permissionRows = [
 
 const rolePermissions: Record<RoleCode, string[]> = {
   ADMIN: permissionRows.map(([code]) => code),
-  SUPERVISOR: ["dashboard:view", "employees:read", "attendance:read", "schedules:read"],
+  // leave:read/leave:approve let a Supervisor see their department's requests
+  // and pre-approve them (Employee -> Supervisor -> HR chain) — without
+  // these, a Supervisor account gets 403 on every leave endpoint.
+  SUPERVISOR: ["dashboard:view", "employees:read", "attendance:read", "schedules:read", "leave:read", "leave:approve"],
   EMPLOYEE: ["dashboard:view", "attendance:write", "leave:read", "leave:write"],
 };
 
@@ -135,21 +138,46 @@ async function main() {
   });
   await prisma.employee.update({ where: { id: employee.id }, data: { supervisorId: supervisor.id } });
 
-  for (const name of ["Vacation Leave", "Sick Leave", "Bereavement Leave", "Maternity Leave", "Paternity Leave", "Solo Parent Leave", "Special Leave"]) {
+  const allClassifications = ["REGULAR", "CONTRACTUAL_SEASONAL", "PIECE_RATE", "SEPARATED"] as const;
+
+  const leaveTypeSeeds = [
+    { name: "Sick Leave", defaultDays: 15, requiresDocument: true, supportingDocumentAfterDays: 2, isAutoCredited: true },
+    { name: "Vacation Leave", defaultDays: 15, requiresDocument: false, isAutoCredited: true },
+    { name: "Study Leave", defaultDays: 0, requiresDocument: true, requiresHrValidation: true, isUnlimitedDays: true },
+    { name: "Adverse Weather Leave", defaultDays: 0, requiresDocument: false, requiresEhsActivation: true, isUnlimitedDays: true },
+    { name: "Bereavement Leave", defaultDays: 5, requiresDocument: true },
+    { name: "Solo Parent Leave", defaultDays: 7, requiresDocument: true, requiresHrValidation: true },
+    { name: "Maternity Leave", defaultDays: 105, requiresDocument: true, requiresHrValidation: true },
+    { name: "Paternity Leave", defaultDays: 7, requiresDocument: false },
+    { name: "Leave Without Pay", defaultDays: 0, requiresDocument: false, isUnlimitedDays: true, allowWithoutPay: true },
+  ] as const;
+
+  for (const seedType of leaveTypeSeeds) {
     await prisma.leaveType.upsert({
-      where: { name },
+      where: { name: seedType.name },
       update: {},
-      create: { name, defaultDays: name.includes("Vacation") || name.includes("Sick") ? 15 : 7, requiresDocument: !name.includes("Vacation") },
+      create: {
+        name: seedType.name,
+        defaultDays: seedType.defaultDays,
+        requiresDocument: seedType.requiresDocument,
+        supportingDocumentAfterDays: "supportingDocumentAfterDays" in seedType ? seedType.supportingDocumentAfterDays : undefined,
+        requiresHrValidation: "requiresHrValidation" in seedType ? seedType.requiresHrValidation : false,
+        requiresEhsActivation: "requiresEhsActivation" in seedType ? seedType.requiresEhsActivation : false,
+        isUnlimitedDays: "isUnlimitedDays" in seedType ? seedType.isUnlimitedDays : false,
+        allowWithoutPay: "allowWithoutPay" in seedType ? seedType.allowWithoutPay : false,
+        isAutoCredited: "isAutoCredited" in seedType ? seedType.isAutoCredited : false,
+        applicableStatuses: [...allClassifications],
+      },
     });
   }
 
   const sickLeave = await prisma.leaveType.findUniqueOrThrow({ where: { name: "Sick Leave" } });
   const regularShift = await prisma.shift.upsert({
     where: { id: "66666666-6666-4666-8666-666666666666" },
-    update: { name: "Regular Shift", startTime: "08:00", endTime: "17:00", gracePeriodMinutes: 10 },
+    update: { name: "Standard Shift", startTime: "08:00", endTime: "17:00", gracePeriodMinutes: 10 },
     create: {
       id: "66666666-6666-4666-8666-666666666666",
-      name: "Regular Shift",
+      name: "Standard Shift",
       startTime: "08:00",
       endTime: "17:00",
       gracePeriodMinutes: 10,
@@ -158,13 +186,13 @@ async function main() {
 
   await prisma.shift.upsert({
     where: { id: "77777777-7777-4777-8777-777777777777" },
-    update: { name: "Morning Shift", startTime: "06:00", endTime: "14:00", gracePeriodMinutes: 5 },
+    update: { name: "Alternative Shift", startTime: "09:00", endTime: "18:00", gracePeriodMinutes: 10 },
     create: {
       id: "77777777-7777-4777-8777-777777777777",
-      name: "Morning Shift",
-      startTime: "06:00",
-      endTime: "14:00",
-      gracePeriodMinutes: 5,
+      name: "Alternative Shift",
+      startTime: "09:00",
+      endTime: "18:00",
+      gracePeriodMinutes: 10,
     },
   });
 

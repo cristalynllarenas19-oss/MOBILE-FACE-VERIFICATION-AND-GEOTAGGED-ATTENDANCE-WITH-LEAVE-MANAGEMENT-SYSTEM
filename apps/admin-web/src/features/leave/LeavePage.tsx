@@ -21,13 +21,14 @@ import "./LeavePage.css";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type EmploymentStatus = "REGULAR" | "PROBATIONARY" | "CONTRACTUAL" | "SEPARATED";
+type EmploymentStatus = "REGULAR" | "CONTRACTUAL_SEASONAL" | "PIECE_RATE" | "SEPARATED";
 
 type LeaveType = {
   id: string;
   name: string;
   defaultDays: string;
   requiresDocument: boolean;
+  allowWithoutPay: boolean;
 };
 
 type LeaveRequest = {
@@ -42,6 +43,8 @@ type LeaveRequest = {
   attachmentName?: string | null;
   attachmentMimeType?: string | null;
   attachmentData?: string | null;
+  extensionRequested?: boolean;
+  extensionApproved?: boolean | null;
   employee: {
     id: string;
     firstName: string;
@@ -115,6 +118,11 @@ function getLeaveTone(status: string) {
   return "warning";
 }
 
+function getLeaveStatusLabel(status: string) {
+  if (status === "SUPERVISOR_APPROVED") return "Supervisor Approved";
+  return status;
+}
+
 function formatDate(value: string) {
   return new Date(value).toLocaleDateString();
 }
@@ -132,22 +140,29 @@ function reviewerName(request: LeaveRequest) {
   return request.reviewer.email;
 }
 
+const EMPLOYMENT_STATUS_LABELS: Record<EmploymentStatus, string> = {
+  REGULAR: "Regular Employee",
+  CONTRACTUAL_SEASONAL: "Contractual Employee (Seasonal)",
+  PIECE_RATE: "Piece-rate (Pakyawan) Worker",
+  SEPARATED: "Separated",
+};
+
 function formatEmploymentStatus(status?: EmploymentStatus) {
   if (!status) return "Unspecified";
-  return status.charAt(0) + status.slice(1).toLowerCase();
+  return EMPLOYMENT_STATUS_LABELS[status];
 }
 
 const EMPLOYMENT_STATUS_COLORS: Record<EmploymentStatus, string> = {
   REGULAR: "#2979d0",
-  PROBATIONARY: "#d97706",
-  CONTRACTUAL: "#7c3aed",
+  CONTRACTUAL_SEASONAL: "#d97706",
+  PIECE_RATE: "#7c3aed",
   SEPARATED: "#94a3b8",
 };
 
 const EMPLOYMENT_STATUS_OPTIONS = [
-  { value: "REGULAR", label: "Regular" },
-  { value: "PROBATIONARY", label: "Probationary" },
-  { value: "CONTRACTUAL", label: "Contractual" },
+  { value: "REGULAR", label: "Regular Employee" },
+  { value: "CONTRACTUAL_SEASONAL", label: "Contractual Employee (Seasonal)" },
+  { value: "PIECE_RATE", label: "Piece-rate (Pakyawan) Worker" },
   { value: "SEPARATED", label: "Separated" },
 ];
 
@@ -623,7 +638,9 @@ function DateFiledPicker({ value, onChange }: { value: string | null; onChange: 
 }
 
 
-export function LeavePage() {
+export function LeavePage({ user }: { user?: { role: string; roles: string[] } } = {}) {
+  const isAdmin = (user?.roles ?? (user?.role ? [user.role] : [])).includes("ADMIN");
+
   const [requests, setRequests]                 = useState<LeaveRequest[]>([]);
   const [leaveTypes, setLeaveTypes]             = useState<LeaveType[]>([]);
   const [topTab, setTopTab]                     = useState<"requests" | "history">("requests");
@@ -771,6 +788,13 @@ export function LeavePage() {
     ? leaveTypes.find((t) => t.id === reviewRequest.leaveType.id)
     : undefined;
 
+  // A Supervisor's Approve action only pre-approves (server sets
+  // SUPERVISOR_APPROVED); only an Admin can act on a request already at that
+  // tier to give it the final HR approval.
+  const canReviewRequest = Boolean(
+    reviewRequest && (reviewRequest.status === "PENDING" || (reviewRequest.status === "SUPERVISOR_APPROVED" && isAdmin)),
+  );
+
   const matchingBalance =
     reviewRequest && reviewBalances
       ? reviewBalances.find((b) => b.leaveTypeId === reviewRequest.leaveType.id)
@@ -780,6 +804,7 @@ export function LeavePage() {
     matchingBalance &&
       reviewRequest &&
       reviewRequest.status !== "APPROVED" &&
+      !selectedLeaveType?.allowWithoutPay &&
       Number(reviewRequest.totalDays) > matchingBalance.remainingDays
   );
 
@@ -842,6 +867,30 @@ export function LeavePage() {
       setNotification({
         type: "error",
         message: err instanceof Error ? err.message : "Unable to review leave.",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const decideExtension = async (extensionApproved: boolean) => {
+    if (!reviewRequest) return;
+    setIsSaving(true);
+    try {
+      await apiRequest(`/leave-requests/${reviewRequest.id}/extension-decision`, {
+        method: "PATCH",
+        body: JSON.stringify({ extensionApproved }),
+      });
+      setReviewRequest(null);
+      setNotification({
+        type: "success",
+        message: `Maternity extension was ${extensionApproved ? "approved" : "rejected"}.`,
+      });
+      loadRequests();
+    } catch (err) {
+      setNotification({
+        type: "error",
+        message: err instanceof Error ? err.message : "Unable to decide extension.",
       });
     } finally {
       setIsSaving(false);
@@ -1057,7 +1106,7 @@ export function LeavePage() {
                       </td>
                       <td data-label="Days">{r.totalDays}</td>
                       <td data-label="Status">
-                        <Badge tone={getLeaveTone(r.status)}>{r.status}</Badge>
+                        <Badge tone={getLeaveTone(r.status)}>{getLeaveStatusLabel(r.status)}</Badge>
                       </td>
                       <td data-label="Action">
                         <button
@@ -1149,7 +1198,7 @@ export function LeavePage() {
                       <td data-label="Date Filed">{formatDate(r.createdAt)}</td>
                       <td data-label="Days">{r.totalDays}</td>
                       <td data-label="Status">
-                        <Badge tone={getLeaveTone(r.status)}>{r.status}</Badge>
+                        <Badge tone={getLeaveTone(r.status)}>{getLeaveStatusLabel(r.status)}</Badge>
                       </td>
                       <td data-label="Action">
                         <button
@@ -1204,7 +1253,7 @@ export function LeavePage() {
               <div><span>Total Days</span><strong>{reviewRequest.totalDays}</strong></div>
               <div>
                 <span>Status</span>
-                <Badge tone={getLeaveTone(reviewRequest.status)}>{reviewRequest.status}</Badge>
+                <Badge tone={getLeaveTone(reviewRequest.status)}>{getLeaveStatusLabel(reviewRequest.status)}</Badge>
               </div>
               {reviewRequest.status !== "PENDING" && (
                 <div><span>Reviewed By</span><strong>{reviewerName(reviewRequest)}</strong></div>
@@ -1230,6 +1279,19 @@ export function LeavePage() {
                 <div>
                   <span>Document Required</span>
                   <strong className="leave-requires-doc">Yes, per policy</strong>
+                </div>
+              )}
+
+              {reviewRequest.extensionRequested && (
+                <div>
+                  <span>Extension Requested</span>
+                  <Badge tone={reviewRequest.extensionApproved == null ? "warning" : reviewRequest.extensionApproved ? "success" : "danger"}>
+                    {reviewRequest.extensionApproved == null
+                      ? "Pending decision"
+                      : reviewRequest.extensionApproved
+                        ? "Approved"
+                        : "Rejected"}
+                  </Badge>
                 </div>
               )}
 
@@ -1272,7 +1334,7 @@ export function LeavePage() {
               <div><span>Latest Remarks</span><strong>{reviewRequest.adminRemarks?.remarks ?? "None"}</strong></div>
             </div>
 
-            {!historyViewOnly && reviewRequest.status === "PENDING" && (
+            {!historyViewOnly && canReviewRequest && (
               <label className="leave-remarks-field">
                 Add Remarks
                 <textarea
@@ -1284,13 +1346,23 @@ export function LeavePage() {
             )}
 
             <div className="leave-detail-actions">
-              {!historyViewOnly && reviewRequest.status === "PENDING" && (
+              {!historyViewOnly && canReviewRequest && (
                 <>
                   <button className="leave-reject-button" onClick={() => reviewLeave("reject")} disabled={isSaving}>
                     Reject
                   </button>
                   <button className="primary-button" onClick={() => reviewLeave("approve")} disabled={isSaving}>
                     Approve
+                  </button>
+                </>
+              )}
+              {!historyViewOnly && isAdmin && reviewRequest.extensionRequested && reviewRequest.extensionApproved == null && (
+                <>
+                  <button className="leave-reject-button" onClick={() => decideExtension(false)} disabled={isSaving}>
+                    Reject Extension
+                  </button>
+                  <button className="primary-button" onClick={() => decideExtension(true)} disabled={isSaving}>
+                    Approve Extension
                   </button>
                 </>
               )}

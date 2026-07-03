@@ -13,6 +13,14 @@ type Shift = {
   startTime: string;
   endTime: string;
   gracePeriodMinutes: number;
+  morningBreakMinutes: number;
+  afternoonBreakMinutes: number;
+  lunchBreakMinutes: number;
+  enableRounding: boolean;
+  roundingIntervalMinutes: number;
+  lateThresholdMinutes: number | null;
+  undertimeThresholdMinutes: number | null;
+  autoShiftAdjustment: boolean;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -47,7 +55,20 @@ function computeShiftHours(startTime: string, endTime: string): string | null {
   return remMinutes === 0 ? `${hours}h` : `${hours}h ${remMinutes}m`;
 }
 
-const emptyForm = { name: "", startTime: "", endTime: "", gracePeriodMinutes: "0" };
+const emptyForm = {
+  name: "",
+  startTime: "",
+  endTime: "",
+  gracePeriodMinutes: "0",
+  morningBreakMinutes: "15",
+  afternoonBreakMinutes: "15",
+  lunchBreakMinutes: "60",
+  enableRounding: false,
+  roundingIntervalMinutes: "15",
+  lateThresholdMinutes: "",
+  undertimeThresholdMinutes: "",
+  autoShiftAdjustment: false,
+};
 
 export function ShiftsTab({
   canManageShifts,
@@ -97,6 +118,14 @@ export function ShiftsTab({
       startTime: shift.startTime,
       endTime: shift.endTime,
       gracePeriodMinutes: String(shift.gracePeriodMinutes),
+      morningBreakMinutes: String(shift.morningBreakMinutes),
+      afternoonBreakMinutes: String(shift.afternoonBreakMinutes),
+      lunchBreakMinutes: String(shift.lunchBreakMinutes),
+      enableRounding: shift.enableRounding,
+      roundingIntervalMinutes: String(shift.roundingIntervalMinutes),
+      lateThresholdMinutes: shift.lateThresholdMinutes != null ? String(shift.lateThresholdMinutes) : "",
+      undertimeThresholdMinutes: shift.undertimeThresholdMinutes != null ? String(shift.undertimeThresholdMinutes) : "",
+      autoShiftAdjustment: shift.autoShiftAdjustment,
     });
     setNameError(null);
     setTimeError(null);
@@ -122,6 +151,14 @@ export function ShiftsTab({
         startTime: form.startTime,
         endTime: form.endTime,
         gracePeriodMinutes: Number(form.gracePeriodMinutes || 0),
+        morningBreakMinutes: Number(form.morningBreakMinutes || 0),
+        afternoonBreakMinutes: Number(form.afternoonBreakMinutes || 0),
+        lunchBreakMinutes: Number(form.lunchBreakMinutes || 0),
+        enableRounding: form.enableRounding,
+        roundingIntervalMinutes: Number(form.roundingIntervalMinutes || 15),
+        lateThresholdMinutes: form.lateThresholdMinutes ? Number(form.lateThresholdMinutes) : undefined,
+        undertimeThresholdMinutes: form.undertimeThresholdMinutes ? Number(form.undertimeThresholdMinutes) : undefined,
+        autoShiftAdjustment: form.autoShiftAdjustment,
       };
 
       if (formMode === "create") {
@@ -339,6 +376,101 @@ export function ShiftsTab({
                   />
                   <span className="utilities-hint">How many minutes late is still considered on time</span>
                 </label>
+
+                <div className="utilities-field-row">
+                  <label className="utilities-field">
+                    <span className="utilities-field-label">Morning Break (minutes)</span>
+                    <input
+                      className="utilities-input"
+                      type="number"
+                      min="0"
+                      value={form.morningBreakMinutes}
+                      onChange={(e) => setForm((c) => ({ ...c, morningBreakMinutes: e.target.value }))}
+                    />
+                  </label>
+                  <label className="utilities-field">
+                    <span className="utilities-field-label">Afternoon Break (minutes)</span>
+                    <input
+                      className="utilities-input"
+                      type="number"
+                      min="0"
+                      value={form.afternoonBreakMinutes}
+                      onChange={(e) => setForm((c) => ({ ...c, afternoonBreakMinutes: e.target.value }))}
+                    />
+                  </label>
+                  <label className="utilities-field">
+                    <span className="utilities-field-label">Lunch Break (minutes)</span>
+                    <input
+                      className="utilities-input"
+                      type="number"
+                      min="0"
+                      value={form.lunchBreakMinutes}
+                      onChange={(e) => setForm((c) => ({ ...c, lunchBreakMinutes: e.target.value }))}
+                    />
+                  </label>
+                </div>
+                <span className="utilities-hint">
+                  For a straight schedule (no morning/afternoon breaks), set Morning and Afternoon to 0 and Lunch to 30.
+                </span>
+
+                <label className="utilities-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={form.enableRounding}
+                    onChange={(e) => setForm((c) => ({ ...c, enableRounding: e.target.checked }))}
+                  />
+                  <span>Enable rounding rules</span>
+                </label>
+
+                {form.enableRounding && (
+                  <label className="utilities-field">
+                    <span className="utilities-field-label">Rounding Interval (minutes)</span>
+                    <input
+                      className="utilities-input"
+                      type="number"
+                      min="1"
+                      value={form.roundingIntervalMinutes}
+                      onChange={(e) => setForm((c) => ({ ...c, roundingIntervalMinutes: e.target.value }))}
+                    />
+                  </label>
+                )}
+
+                <div className="utilities-field-row">
+                  <label className="utilities-field">
+                    <span className="utilities-field-label">Late Threshold (min)</span>
+                    <input
+                      className="utilities-input"
+                      type="number"
+                      min="0"
+                      value={form.lateThresholdMinutes}
+                      onChange={(e) => setForm((c) => ({ ...c, lateThresholdMinutes: e.target.value }))}
+                      placeholder="0"
+                    />
+                  </label>
+                  <label className="utilities-field">
+                    <span className="utilities-field-label">Undertime Threshold (min)</span>
+                    <input
+                      className="utilities-input"
+                      type="number"
+                      min="0"
+                      value={form.undertimeThresholdMinutes}
+                      onChange={(e) => setForm((c) => ({ ...c, undertimeThresholdMinutes: e.target.value }))}
+                      placeholder="0"
+                    />
+                  </label>
+                </div>
+
+                <label className="utilities-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={form.autoShiftAdjustment}
+                    onChange={(e) => setForm((c) => ({ ...c, autoShiftAdjustment: e.target.checked }))}
+                  />
+                  <span>Auto shift adjustment</span>
+                </label>
+                <span className="utilities-hint">
+                  If an employee arrives past the grace period but within another shift's start window, automatically apply that shift's rules for the day instead of marking them late.
+                </span>
               </div>
 
               <div className="utilities-modal-actions">
@@ -385,6 +517,32 @@ export function ShiftsTab({
                 <div>
                   <span>Grace Period</span>
                   <strong>{viewShift.gracePeriodMinutes} minutes</strong>
+                </div>
+                <div>
+                  <span>Breaks</span>
+                  <strong>
+                    Morning {viewShift.morningBreakMinutes}m · Afternoon {viewShift.afternoonBreakMinutes}m · Lunch {viewShift.lunchBreakMinutes}m
+                  </strong>
+                </div>
+                <div>
+                  <span>Rounding Rules</span>
+                  <Badge tone={viewShift.enableRounding ? "success" : "neutral"}>
+                    {viewShift.enableRounding ? `Every ${viewShift.roundingIntervalMinutes} min` : "Disabled"}
+                  </Badge>
+                </div>
+                <div>
+                  <span>Late Threshold</span>
+                  <strong>{viewShift.lateThresholdMinutes ?? 0} minutes</strong>
+                </div>
+                <div>
+                  <span>Undertime Threshold</span>
+                  <strong>{viewShift.undertimeThresholdMinutes ?? 0} minutes</strong>
+                </div>
+                <div>
+                  <span>Auto Shift Adjustment</span>
+                  <Badge tone={viewShift.autoShiftAdjustment ? "success" : "neutral"}>
+                    {viewShift.autoShiftAdjustment ? "Enabled" : "Disabled"}
+                  </Badge>
                 </div>
                 <div>
                   <span>Employees Assigned</span>

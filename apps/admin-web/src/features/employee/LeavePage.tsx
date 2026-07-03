@@ -6,7 +6,7 @@ import "./EmployeeLeavePage.css";
 import "./EmployeePortal.css";
 import {
   LeaveType, LeaveBalance, LeaveRequest,
-  getLeaveTypes, getLeaveBalances, getLeaveRequests, createLeaveRequest,
+  getLeaveTypes, getLeaveBalances, getLeaveRequests, createLeaveRequest, cancelLeaveRequest,
 } from "./api";
 import type { AuthUser } from "../../lib/api";
 
@@ -45,19 +45,24 @@ export function LeavePage({ user }: Props) {
     name: string; mimeType: string; sizeBytes: number; base64: string;
   } | null>(null);
   const [attachErr,     setAttachErr]     = useState<string | null>(null);
+  const [extensionRequested, setExtensionRequested] = useState(false);
   const [isSubmitting,  setIsSubmitting]  = useState(false);
 
   // Modals
   const [showPending,  setShowPending]   = useState(false);
   const [resultModal,  setResultModal]   = useState<{ ok: boolean; title: string; msg: string } | null>(null);
+  const [cancellingId, setCancellingId]  = useState<string | null>(null);
 
   const fileRef = useRef<HTMLInputElement>(null);
 
   const selectedType    = leaveTypes.find((t) => t.id === leaveTypeId);
-  const filteredTypes   = leaveTypes.filter((t) =>
-    t.name.toLowerCase().includes(searchLeave.toLowerCase()),
+  const filteredTypes   = leaveTypes
+    .filter((t) => !t.requiresEhsActivation || t.ehsActivated)
+    .filter((t) => t.name.toLowerCase().includes(searchLeave.toLowerCase()));
+  const pendingRequests = useMemo(
+    () => requests.filter((r) => r.status === "PENDING" || r.status === "SUPERVISOR_APPROVED"),
+    [requests],
   );
-  const pendingRequests = useMemo(() => requests.filter((r) => r.status === "PENDING"), [requests]);
 
   async function loadData() {
     setLoadingData(true);
@@ -77,10 +82,22 @@ export function LeavePage({ user }: Props) {
 
   useEffect(() => { loadData(); }, [user.employeeId]);
 
+  async function handleCancel(requestId: string) {
+    setCancellingId(requestId);
+    try {
+      await cancelLeaveRequest(requestId);
+      await loadData();
+    } catch { /* non-blocking */ } finally { setCancellingId(null); }
+  }
+
   const totalDays = useMemo(() => {
     if (!startDate || !endDate) return 0;
     return Math.max(1, Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86_400_000) + 1);
   }, [startDate, endDate]);
+
+  const isDocumentRequired =
+    Boolean(selectedType?.requiresDocument) &&
+    (selectedType?.supportingDocumentAfterDays == null || totalDays >= selectedType.supportingDocumentAfterDays);
 
   function resetForm() {
     setLeaveTypeId("");
@@ -89,6 +106,7 @@ export function LeavePage({ user }: Props) {
     setEndDate("");
     setAttachment(null);
     setAttachErr(null);
+    setExtensionRequested(false);
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -123,8 +141,8 @@ export function LeavePage({ user }: Props) {
       setResultModal({ ok: false, title: "Reason Required", msg: "Please provide a reason for your leave." });
       return;
     }
-    if (selectedType?.requiresDocument && !attachment) {
-      setResultModal({ ok: false, title: "Document Required", msg: `${selectedType.name} requires a supporting document. Please attach one before submitting.` });
+    if (isDocumentRequired && !attachment) {
+      setResultModal({ ok: false, title: "Document Required", msg: `${selectedType?.name} requires a supporting document. Please attach one before submitting.` });
       return;
     }
 
@@ -140,6 +158,7 @@ export function LeavePage({ user }: Props) {
         attachmentName:     attachment?.name,
         attachmentMimeType: attachment?.mimeType,
         attachmentData:     attachment?.base64,
+        extensionRequested: selectedType?.name === "Maternity Leave" ? extensionRequested : undefined,
       });
       resetForm();
       await loadData();
@@ -277,7 +296,7 @@ export function LeavePage({ user }: Props) {
                               fontSize: 14,
                             }}
                           >
-                            {t.name}{t.requiresDocument ? " (document required)" : ""}
+                            {t.name}{t.requiresDocument ? (t.supportingDocumentAfterDays ? ` (document required after ${t.supportingDocumentAfterDays}+ days)` : " (document required)") : ""}
                           </button>
                         ))
                     }
@@ -300,7 +319,7 @@ export function LeavePage({ user }: Props) {
 
             {/* Attachment */}
             <label style={fldLbl}>
-              Supporting Document{selectedType?.requiresDocument ? " (required)" : " (optional)"}
+              Supporting Document{isDocumentRequired ? " (required)" : " (optional)"}
             </label>
             {attachment ? (
               <div style={{ display: "flex", alignItems: "center", gap: 10, border: "1px solid #E2E8F0", borderRadius: 12, padding: "10px 12px" }}>
@@ -350,6 +369,17 @@ export function LeavePage({ user }: Props) {
               }}
             />
 
+            {selectedType?.name === "Maternity Leave" && (
+              <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14, cursor: "pointer" }}>
+                <input
+                  type="checkbox"
+                  checked={extensionRequested}
+                  onChange={(e) => setExtensionRequested(e.target.checked)}
+                />
+                <span style={{ fontSize: 13, color: "#475569" }}>Request 30-day extension without pay</span>
+              </label>
+            )}
+
             <button
               disabled={isSubmitting}
               onClick={handleSubmit}
@@ -379,14 +409,27 @@ export function LeavePage({ user }: Props) {
                     {r.attachmentName && (
                       <p style={{ color: "#64748B", fontSize: 12, margin: "3px 0" }}>📎 {r.attachmentName}</p>
                     )}
-                    <span style={{
-                      display: "inline-block",
-                      background: tone.bg, color: tone.color,
-                      fontWeight: 700, fontSize: 11,
-                      borderRadius: 999, padding: "3px 8px", marginTop: 4,
-                    }}>
-                      {r.status.replace("_", " ")}
-                    </span>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
+                      <span style={{
+                        display: "inline-block",
+                        background: tone.bg, color: tone.color,
+                        fontWeight: 700, fontSize: 11,
+                        borderRadius: 999, padding: "3px 8px",
+                      }}>
+                        {r.status.replace("_", " ")}
+                      </span>
+                      <button
+                        onClick={() => handleCancel(r.id)}
+                        disabled={cancellingId === r.id}
+                        style={{
+                          border: "1px solid #FCA5A5", background: "#FEF2F2", color: "#DC2626",
+                          fontWeight: 700, fontSize: 11, borderRadius: 999, padding: "3px 10px",
+                          cursor: cancellingId === r.id ? "not-allowed" : "pointer",
+                        }}
+                      >
+                        {cancellingId === r.id ? "Cancelling…" : "Cancel"}
+                      </button>
+                    </div>
                   </div>
                 );
               })}

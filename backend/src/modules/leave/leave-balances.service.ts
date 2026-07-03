@@ -6,7 +6,54 @@ import { PrismaService } from "../../prisma/prisma.service";
 export class LeaveBalancesService {
   constructor(private readonly prisma: PrismaService) {}
 
+  // Proactively materializes this year's LeaveBalance row for any leave type
+  // flagged isAutoCredited (Vacation/Sick Leave) for REGULAR employees, so
+  // credits are locked in for the year rather than only appearing once an
+  // employee's first request against that type is approved. Idempotent —
+  // safe to call on every read.
+  private async ensureAutoCreditedBalances(year: number, employeeIds?: string[]) {
+    const autoTypes = await this.prisma.leaveType.findMany({
+      where: { isAutoCredited: true, isActive: true },
+    });
+    if (autoTypes.length === 0) return;
+
+    const employees = await this.prisma.employee.findMany({
+      where: {
+        employmentStatus: "REGULAR",
+        ...(employeeIds ? { id: { in: employeeIds } } : {}),
+      },
+      select: { id: true },
+    });
+    if (employees.length === 0) return;
+
+    const existing = await this.prisma.leaveBalance.findMany({
+      where: {
+        year,
+        employeeId: { in: employees.map((e) => e.id) },
+        leaveTypeId: { in: autoTypes.map((t) => t.id) },
+      },
+      select: { employeeId: true, leaveTypeId: true },
+    });
+    const existingKeys = new Set(existing.map((b) => `${b.employeeId}::${b.leaveTypeId}`));
+
+    const toCreate: { employeeId: string; leaveTypeId: string; year: number; earnedDays: number; usedDays: number }[] = [];
+    for (const employee of employees) {
+      for (const type of autoTypes) {
+        const key = `${employee.id}::${type.id}`;
+        if (!existingKeys.has(key)) {
+          toCreate.push({ employeeId: employee.id, leaveTypeId: type.id, year, earnedDays: Number(type.defaultDays), usedDays: 0 });
+        }
+      }
+    }
+
+    if (toCreate.length > 0) {
+      await this.prisma.leaveBalance.createMany({ data: toCreate, skipDuplicates: true });
+    }
+  }
+
   async findForEmployee(employeeId: string, year: number) {
+    await this.ensureAutoCreditedBalances(year, [employeeId]);
+
     const [employee, leaveTypes, balances] = await Promise.all([
       this.prisma.employee.findUniqueOrThrow({ where: { id: employeeId }, select: { employmentStatus: true } }),
       this.prisma.leaveType.findMany({ orderBy: { name: "asc" } }),
@@ -33,6 +80,8 @@ export class LeaveBalancesService {
 
  
   async getSummary(year: number) {
+    await this.ensureAutoCreditedBalances(year);
+
     const [employees, leaveTypes, balances] = await Promise.all([
       this.prisma.employee.findMany({
         where: { employmentStatus: { not: "SEPARATED" } },
@@ -59,6 +108,11 @@ export class LeaveBalancesService {
       EmploymentStatus,
       { earnedDays: number; usedDays: number; employeeIds: Set<string> }
     >();
+    // Pre-seed every non-separated classification so each always gets its own
+    // donut in the overview, even when no employee currently holds it yet.
+    for (const status of ["REGULAR", "CONTRACTUAL_SEASONAL", "PIECE_RATE"] as EmploymentStatus[]) {
+      statusMap.set(status, { earnedDays: 0, usedDays: 0, employeeIds: new Set<string>() });
+    }
     const typeMap = new Map<
       string,
       {

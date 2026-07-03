@@ -2,13 +2,19 @@ import { IsDateString, IsEmail, IsEnum, IsOptional, IsString, MinLength } from "
 
 export enum CreateEmployeeEmploymentStatus {
   REGULAR = "REGULAR",
-  PROBATIONARY = "PROBATIONARY",
-  CONTRACTUAL = "CONTRACTUAL",
+  CONTRACTUAL_SEASONAL = "CONTRACTUAL_SEASONAL",
+  PIECE_RATE = "PIECE_RATE",
 }
 
 export enum CreateEmployeeAttendanceMode {
   FIXED = "FIXED",
   FIELD = "FIELD",
+}
+
+export enum EmployeeSoloParentStatus {
+  NOT_APPLICABLE = "NOT_APPLICABLE",
+  ELIGIBLE = "ELIGIBLE",
+  INELIGIBLE = "INELIGIBLE",
 }
 
 export class CreateEmployeeDto {
@@ -72,4 +78,8 @@ export class UpdateEmployeeDto {
   @IsOptional()
   @IsEnum(CreateEmployeeAttendanceMode)
   attendanceMode?: CreateEmployeeAttendanceMode;
+
+  @IsOptional()
+  @IsEnum(EmployeeSoloParentStatus)
+  soloParentStatus?: EmployeeSoloParentStatus;
 }

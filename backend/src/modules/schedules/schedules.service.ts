@@ -99,7 +99,23 @@ export class SchedulesService {
     }
   }
 
-  async createShift(dto: { name: string; startTime: string; endTime: string; gracePeriodMinutes?: number }, actorUserId?: string) {
+  async createShift(
+    dto: {
+      name: string;
+      startTime: string;
+      endTime: string;
+      gracePeriodMinutes?: number;
+      morningBreakMinutes?: number;
+      afternoonBreakMinutes?: number;
+      lunchBreakMinutes?: number;
+      enableRounding?: boolean;
+      roundingIntervalMinutes?: number;
+      lateThresholdMinutes?: number;
+      undertimeThresholdMinutes?: number;
+      autoShiftAdjustment?: boolean;
+    },
+    actorUserId?: string,
+  ) {
     const name = dto.name.trim();
     await this.assertNoDuplicateShiftName(name);
     this.assertValidShiftTimes(dto.startTime, dto.endTime);
@@ -110,6 +126,14 @@ export class SchedulesService {
         startTime: dto.startTime,
         endTime: dto.endTime,
         gracePeriodMinutes: dto.gracePeriodMinutes ?? 0,
+        morningBreakMinutes: dto.morningBreakMinutes ?? 15,
+        afternoonBreakMinutes: dto.afternoonBreakMinutes ?? 15,
+        lunchBreakMinutes: dto.lunchBreakMinutes ?? 60,
+        enableRounding: dto.enableRounding ?? false,
+        roundingIntervalMinutes: dto.roundingIntervalMinutes ?? 15,
+        lateThresholdMinutes: dto.lateThresholdMinutes,
+        undertimeThresholdMinutes: dto.undertimeThresholdMinutes,
+        autoShiftAdjustment: dto.autoShiftAdjustment ?? false,
         createdBy: actorUserId,
       },
     });
@@ -120,7 +144,20 @@ export class SchedulesService {
         action: "CREATE_SHIFT",
         entityType: "Shift",
         entityId: created.id,
-        newValues: { name: created.name, startTime: created.startTime, endTime: created.endTime, gracePeriodMinutes: created.gracePeriodMinutes },
+        newValues: {
+          name: created.name,
+          startTime: created.startTime,
+          endTime: created.endTime,
+          gracePeriodMinutes: created.gracePeriodMinutes,
+          morningBreakMinutes: created.morningBreakMinutes,
+          afternoonBreakMinutes: created.afternoonBreakMinutes,
+          lunchBreakMinutes: created.lunchBreakMinutes,
+          enableRounding: created.enableRounding,
+          roundingIntervalMinutes: created.roundingIntervalMinutes,
+          lateThresholdMinutes: created.lateThresholdMinutes,
+          undertimeThresholdMinutes: created.undertimeThresholdMinutes,
+          autoShiftAdjustment: created.autoShiftAdjustment,
+        },
       },
     });
 
@@ -129,7 +166,20 @@ export class SchedulesService {
 
   async updateShift(
     id: string,
-    dto: { name?: string; startTime?: string; endTime?: string; gracePeriodMinutes?: number },
+    dto: {
+      name?: string;
+      startTime?: string;
+      endTime?: string;
+      gracePeriodMinutes?: number;
+      morningBreakMinutes?: number;
+      afternoonBreakMinutes?: number;
+      lunchBreakMinutes?: number;
+      enableRounding?: boolean;
+      roundingIntervalMinutes?: number;
+      lateThresholdMinutes?: number;
+      undertimeThresholdMinutes?: number;
+      autoShiftAdjustment?: boolean;
+    },
     actorUserId?: string,
   ) {
     const existing = await this.prisma.shift.findUniqueOrThrow({ where: { id } });
@@ -149,6 +199,14 @@ export class SchedulesService {
         startTime: dto.startTime,
         endTime: dto.endTime,
         gracePeriodMinutes: dto.gracePeriodMinutes,
+        morningBreakMinutes: dto.morningBreakMinutes,
+        afternoonBreakMinutes: dto.afternoonBreakMinutes,
+        lunchBreakMinutes: dto.lunchBreakMinutes,
+        enableRounding: dto.enableRounding,
+        roundingIntervalMinutes: dto.roundingIntervalMinutes,
+        lateThresholdMinutes: dto.lateThresholdMinutes,
+        undertimeThresholdMinutes: dto.undertimeThresholdMinutes,
+        autoShiftAdjustment: dto.autoShiftAdjustment,
         updatedBy: actorUserId,
       },
       include: { createdByUser: ACTOR_SELECT, updatedByUser: ACTOR_SELECT },
@@ -165,12 +223,28 @@ export class SchedulesService {
           startTime: existing.startTime,
           endTime: existing.endTime,
           gracePeriodMinutes: existing.gracePeriodMinutes,
+          morningBreakMinutes: existing.morningBreakMinutes,
+          afternoonBreakMinutes: existing.afternoonBreakMinutes,
+          lunchBreakMinutes: existing.lunchBreakMinutes,
+          enableRounding: existing.enableRounding,
+          roundingIntervalMinutes: existing.roundingIntervalMinutes,
+          lateThresholdMinutes: existing.lateThresholdMinutes,
+          undertimeThresholdMinutes: existing.undertimeThresholdMinutes,
+          autoShiftAdjustment: existing.autoShiftAdjustment,
         },
         newValues: {
           name: updated.name,
           startTime: updated.startTime,
           endTime: updated.endTime,
           gracePeriodMinutes: updated.gracePeriodMinutes,
+          morningBreakMinutes: updated.morningBreakMinutes,
+          afternoonBreakMinutes: updated.afternoonBreakMinutes,
+          lunchBreakMinutes: updated.lunchBreakMinutes,
+          enableRounding: updated.enableRounding,
+          roundingIntervalMinutes: updated.roundingIntervalMinutes,
+          lateThresholdMinutes: updated.lateThresholdMinutes,
+          undertimeThresholdMinutes: updated.undertimeThresholdMinutes,
+          autoShiftAdjustment: updated.autoShiftAdjustment,
         },
       },
     });

@@ -1,4 +1,4 @@
-import { IsDateString, IsNumber, IsOptional, IsString } from "class-validator";
+import { IsBoolean, IsDateString, IsNumber, IsOptional, IsString } from "class-validator";
 
 export class CreateLeaveRequestDto {
   @IsString()
@@ -30,4 +30,8 @@ export class CreateLeaveRequestDto {
   @IsOptional()
   @IsString()
   attachmentData?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  extensionRequested?: boolean;
 }

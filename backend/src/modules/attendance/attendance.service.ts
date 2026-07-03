@@ -5,6 +5,7 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { FaceVerificationService } from "../face-verification/face-verification.service";
 import { GeolocationService } from "../geolocation/geolocation.service";
 import { SubmitAttendanceDto } from "./dto/submit-attendance.dto";
+import { computeMinutesLate, computeMinutesUndertime, findBestMatchingShift, roundToInterval } from "./attendance-shift.util";
 
 type AttendanceFilters = {
   department?: string;
@@ -137,6 +138,22 @@ export class AttendanceService {
     }
   );
 }
+
+  // Resolves the Shift template governing an employee's attendance at a given
+  // moment, via whichever EmployeeSchedule assignment is currently active
+  // (startsOn <= at, and endsOn is null or still in the future).
+  private async resolveActiveShift(employeeId: string, at: Date) {
+    const schedule = await this.prisma.employeeSchedule.findFirst({
+      where: {
+        employeeId,
+        startsOn: { lte: at },
+        OR: [{ endsOn: null }, { endsOn: { gte: at } }],
+      },
+      orderBy: { startsOn: "desc" },
+      include: { shift: true },
+    });
+    return schedule?.shift ?? null;
+  }
 
   async createSession(employeeId?: string) {
     const location =
@@ -297,6 +314,47 @@ export class AttendanceService {
         ? "PENDING_REVIEW"
         : "REJECTED";
 
+    // Shift-based lateness/undertime is only meaningful for the OFFICE/FIXED
+    // path — FIELD visits keep their existing always-PRESENT behavior, and an
+    // employee with no active EmployeeSchedule assignment also falls back to
+    // that same existing behavior (nothing to compare arrival against).
+    let attendanceStatus: "PRESENT" | "LATE" = "PRESENT";
+    let lateMinutes = 0;
+    let resolvedShiftId: string | undefined;
+    let undertimeMinutesValue: number | undefined;
+
+    if (approved && !isField) {
+      if (logType === "TIME_IN") {
+        const shift = await this.resolveActiveShift(dto.employeeId, now);
+        if (shift) {
+          const arrivalForRules = shift.enableRounding ? roundToInterval(now, shift.roundingIntervalMinutes) : now;
+          let effectiveShift = shift;
+          let minutesLate = computeMinutesLate(shift, arrivalForRules, attendanceDate);
+
+          if (minutesLate > (shift.lateThresholdMinutes ?? 0) && shift.autoShiftAdjustment) {
+            const otherShifts = await this.prisma.shift.findMany({
+              where: { isActive: true, id: { not: shift.id } },
+            });
+            const matched = findBestMatchingShift(otherShifts, arrivalForRules, attendanceDate);
+            if (matched) {
+              effectiveShift = matched;
+              minutesLate = computeMinutesLate(matched, arrivalForRules, attendanceDate);
+            }
+          }
+
+          resolvedShiftId = effectiveShift.id;
+          lateMinutes = minutesLate;
+          attendanceStatus = minutesLate > 0 ? "LATE" : "PRESENT";
+        }
+      } else if (logType === "TIME_OUT" && existingRecord?.shiftId) {
+        const shift = await this.prisma.shift.findUnique({ where: { id: existingRecord.shiftId } });
+        if (shift) {
+          const departureForRules = shift.enableRounding ? roundToInterval(now, shift.roundingIntervalMinutes) : now;
+          undertimeMinutesValue = computeMinutesUndertime(shift, departureForRules, attendanceDate);
+        }
+      }
+    }
+
     // Neither a flat rejection nor a borderline/inconclusive match creates
     // or touches the day's attendance record — only a fully approved scan
     // does. Otherwise a failed or unsure attempt (bad lighting, a stranger
@@ -323,7 +381,7 @@ export class AttendanceService {
           visitNumber,
           workLocationId: location.id,
 
-          status: "PRESENT",
+          status: logType === "TIME_IN" && !isField ? attendanceStatus : "PRESENT",
 
           timeInAt:
             logType === "TIME_IN"
@@ -334,19 +392,27 @@ export class AttendanceService {
             logType === "TIME_OUT"
               ? now
               : null,
+
+          ...(logType === "TIME_IN" && !isField ? { lateMinutes, shiftId: resolvedShiftId } : {}),
         },
 
         update: {
-          status: "PRESENT",
-
           ...(logType === "TIME_IN"
-            ? { timeInAt: now }
+            ? {
+                timeInAt: now,
+                status: !isField ? attendanceStatus : "PRESENT",
+                ...(!isField ? { lateMinutes, shiftId: resolvedShiftId } : {}),
+              }
             : {}),
 
           ...(logType ===
             "TIME_OUT" &&
           existingRecord?.timeInAt
-            ? { timeOutAt: now, totalMinutes: Math.round((now.getTime() - existingRecord.timeInAt.getTime()) / 60000) }
+            ? {
+                timeOutAt: now,
+                totalMinutes: Math.round((now.getTime() - existingRecord.timeInAt.getTime()) / 60000),
+                ...(!isField && undertimeMinutesValue !== undefined ? { undertimeMinutes: undertimeMinutesValue } : {}),
+              }
             : {}),
         },
       })

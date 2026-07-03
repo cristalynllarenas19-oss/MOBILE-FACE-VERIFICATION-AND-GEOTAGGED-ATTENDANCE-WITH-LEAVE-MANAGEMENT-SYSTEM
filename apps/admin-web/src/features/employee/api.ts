@@ -84,6 +84,11 @@ export type LeaveType = {
   name: string;
   defaultDays: string;
   requiresDocument: boolean;
+  supportingDocumentAfterDays: number | null;
+  requiresHrValidation: boolean;
+  requiresEhsActivation: boolean;
+  ehsActivated: boolean;
+  allowWithoutPay: boolean;
 };
 
 export type LeaveBalance = {
@@ -105,6 +110,8 @@ export type LeaveRequest = {
   attachmentName?: string | null;
   adminRemarks?: { remarks?: string } | null;
   leaveType: { id: string; name: string };
+  extensionRequested?: boolean;
+  extensionApproved?: boolean | null;
 };
 
 export type CreateLeaveRequestInput = {
@@ -117,6 +124,7 @@ export type CreateLeaveRequestInput = {
   attachmentName?: string;
   attachmentMimeType?: string;
   attachmentData?: string;
+  extensionRequested?: boolean;
 };
 
 export function getTodayAttendance(employeeId: string) {
@@ -165,6 +173,12 @@ export function createLeaveRequest(input: CreateLeaveRequestInput) {
   return apiRequest<LeaveRequest>("/leave-requests", {
     method: "POST",
     body: JSON.stringify(input),
+  });
+}
+
+export function cancelLeaveRequest(id: string) {
+  return apiRequest<LeaveRequest>(`/leave-requests/${id}/cancel`, {
+    method: "PATCH",
   });
 }
 

@@ -14,7 +14,8 @@ type Employee = {
   employeeNo: string;
   firstName: string;
   lastName: string;
-  employmentStatus: "REGULAR" | "PROBATIONARY" | "CONTRACTUAL" | "SEPARATED";
+  employmentStatus: "REGULAR" | "CONTRACTUAL_SEASONAL" | "PIECE_RATE" | "SEPARATED";
+  soloParentStatus: "NOT_APPLICABLE" | "ELIGIBLE" | "INELIGIBLE";
   attendanceMode: "FIXED" | "FIELD";
   hireDate?: string;
   archiveType?: string;
@@ -36,8 +37,9 @@ type EmployeeForm = {
   // form no longer asks for or sends it.
   position: string;
   hireDate: string;
-  employmentStatus: "REGULAR" | "PROBATIONARY" | "CONTRACTUAL";
+  employmentStatus: "REGULAR" | "CONTRACTUAL_SEASONAL" | "PIECE_RATE";
   attendanceMode: "FIXED" | "FIELD";
+  soloParentStatus: "NOT_APPLICABLE" | "ELIGIBLE" | "INELIGIBLE";
 };
 
 type EditEmployeeForm = Omit<EmployeeForm, "password">;
@@ -54,6 +56,7 @@ const initialForm: EmployeeForm = {
   hireDate: "",
   employmentStatus: "REGULAR",
   attendanceMode: "FIXED",
+  soloParentStatus: "NOT_APPLICABLE",
 };
 
 function getDateInputValue(value?: string) {
@@ -105,11 +108,18 @@ function getAttendanceModeLabel(mode: Employee["attendanceMode"], short = false)
   return "Fixed";
 }
 
+const EMPLOYMENT_STATUS_LABELS: Record<Employee["employmentStatus"], string> = {
+  REGULAR: "Regular Employee",
+  CONTRACTUAL_SEASONAL: "Contractual Employee (Seasonal)",
+  PIECE_RATE: "Piece-rate (Pakyawan) Worker",
+  SEPARATED: "Separated",
+};
+
 function getStatusLabel(employee: Employee) {
   if (employee.employmentStatus === "SEPARATED" && employee.archiveType) {
     return employee.archiveType;
   }
-  return employee.employmentStatus;
+  return EMPLOYMENT_STATUS_LABELS[employee.employmentStatus];
 }
 
 function getEmployeeName(employee: Employee) {
@@ -298,9 +308,9 @@ function AddEmployeeModal({
           <label>
             Employment Status
             <select value={form.employmentStatus} onChange={updateField("employmentStatus")}>
-              <option value="REGULAR">Regular</option>
-              <option value="PROBATIONARY">Probationary</option>
-              <option value="CONTRACTUAL">Contractual</option>
+              <option value="REGULAR">Regular Employee</option>
+              <option value="CONTRACTUAL_SEASONAL">Contractual Employee (Seasonal)</option>
+              <option value="PIECE_RATE">Piece-rate (Pakyawan) Worker</option>
             </select>
           </label>
         </div>
@@ -356,6 +366,7 @@ function EditEmployeeModal({
     hireDate: getDateInputValue(employee.hireDate),
     employmentStatus: employee.employmentStatus === "SEPARATED" ? "REGULAR" : employee.employmentStatus,
     attendanceMode: employee.attendanceMode ?? "FIXED",
+    soloParentStatus: employee.soloParentStatus ?? "NOT_APPLICABLE",
   });
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
@@ -399,6 +410,7 @@ function EditEmployeeModal({
           position: form.position.trim(),
           employmentStatus: form.employmentStatus,
           attendanceMode: form.attendanceMode,
+          soloParentStatus: form.soloParentStatus,
           ...(form.hireDate ? { hireDate: form.hireDate } : {}),
         },
         {
@@ -445,9 +457,9 @@ function EditEmployeeModal({
           <label>
             Employment Status
             <select value={form.employmentStatus} onChange={updateField("employmentStatus")}>
-              <option value="REGULAR">Regular</option>
-              <option value="PROBATIONARY">Probationary</option>
-              <option value="CONTRACTUAL">Contractual</option>
+              <option value="REGULAR">Regular Employee</option>
+              <option value="CONTRACTUAL_SEASONAL">Contractual Employee (Seasonal)</option>
+              <option value="PIECE_RATE">Piece-rate (Pakyawan) Worker</option>
             </select>
           </label>
         </div>
@@ -483,6 +495,17 @@ function EditEmployeeModal({
             <select value={form.attendanceMode} onChange={updateField("attendanceMode")}>
               <option value="FIXED">Fixed (office/site)</option>
               <option value="FIELD">Field Technician (multi-site)</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="employee-form-grid">
+          <label>
+            Solo Parent Status
+            <select value={form.soloParentStatus} onChange={updateField("soloParentStatus")}>
+              <option value="NOT_APPLICABLE">Not Applicable</option>
+              <option value="ELIGIBLE">Eligible</option>
+              <option value="INELIGIBLE">Ineligible</option>
             </select>
           </label>
         </div>
@@ -546,6 +569,14 @@ function ViewEmployeeModal({
             {getAttendanceModeLabel(employee.attendanceMode)}
           </Badge>
         </div>
+        {employee.soloParentStatus && employee.soloParentStatus !== "NOT_APPLICABLE" && (
+          <div>
+            <span>Solo Parent Status</span>
+            <Badge tone={employee.soloParentStatus === "ELIGIBLE" ? "success" : "danger"}>
+              {employee.soloParentStatus === "ELIGIBLE" ? "Eligible" : "Ineligible"}
+            </Badge>
+          </div>
+        )}
       </div>
 
       {employee.employmentStatus === "SEPARATED" && (
