@@ -24,7 +24,7 @@ export function useInactivityLogout(onLogout: () => void, active: boolean) {
 
     const touch = () => { lastActivityRef.current = Date.now(); };
 
-    const opts = { passive: true } as const;
+    const opts: AddEventListenerOptions = { passive: true };
     EVENTS.forEach((e) => window.addEventListener(e, touch, opts));
 
     const interval = setInterval(() => {

@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import { PrismaService } from "../../prisma/prisma.service";
 import { FaceVerificationService } from "../face-verification/face-verification.service";
 import { GeolocationService } from "../geolocation/geolocation.service";
+import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
 import { SubmitAttendanceDto } from "./dto/submit-attendance.dto";
 import { computeMinutesLate, computeMinutesUndertime, findBestMatchingShift, roundToInterval } from "./attendance-shift.util";
 import { getApprovedLeaveByEmployee } from "../../common/utils/on-leave.util";
@@ -37,6 +38,7 @@ export class AttendanceService {
     private readonly prisma: PrismaService,
     private readonly geolocation: GeolocationService,
     private readonly faceVerification: FaceVerificationService,
+    private readonly auditLogs: AuditLogsService,
   ) {}
 
   async findAll(filters: AttendanceFilters = {}) {
@@ -161,7 +163,11 @@ export class AttendanceService {
     return [...withRemarks, ...syntheticRows];
   }
 
-  async updateStatus(id: string, status: "PRESENT" | "OFFICIAL_BUSINESS", remarks?: string, actorUserId?: string) {
+  async updateStatus(id: string, status: "PRESENT" | "OFFICIAL_BUSINESS", remarks?: string, context: AuditLogContext = {}) {
+    const before = await this.prisma.attendanceRecord.findUniqueOrThrow({
+      where: { id },
+      select: { status: true },
+    });
     const record = await this.prisma.attendanceRecord.update({
       where: { id },
       data: { status },
@@ -171,17 +177,16 @@ export class AttendanceService {
       },
     });
 
-    if (remarks?.trim()) {
-      await this.prisma.auditLog.create({
-        data: {
-          actorUserId,
-          action: status === "PRESENT" ? "APPROVE_ATTENDANCE" : "MARK_OFFICIAL_BUSINESS",
-          entityType: "AttendanceRecord",
-          entityId: id,
-          newValues: { remarks: remarks.trim(), status },
-        },
-      });
-    }
+    await this.auditLogs.record({
+      ...context,
+      action: status === "PRESENT" ? "CORRECT_ATTENDANCE" : "MARK_OFFICIAL_BUSINESS",
+      module: "Attendance",
+      entityType: "AttendanceRecord",
+      entityId: id,
+      description: `Updated attendance status for ${record.employee.firstName} ${record.employee.lastName} to ${status}.`,
+      oldValues: { status: before.status },
+      newValues: { remarks: remarks?.trim(), status },
+    });
 
     return {
       ...record,
@@ -245,7 +250,7 @@ export class AttendanceService {
     };
   }
 
-  async submit(dto: SubmitAttendanceDto) {
+  async submit(dto: SubmitAttendanceDto, context: AuditLogContext = {}) {
     const employee =
       await this.prisma.employee.findUnique({
         where: { id: dto.employeeId },
@@ -518,6 +523,36 @@ export class AttendanceService {
           faceImageData: capturedImage.data,
           faceImageMimeType: capturedImage.mimeType,
         },
+      });
+
+      await this.auditLogs.record({
+        ...context,
+        actorUserId: context.actorUserId,
+        action: logType === "TIME_IN" ? "TIME_IN" : "TIME_OUT",
+        module: "Attendance",
+        entityType: "AttendanceRecord",
+        entityId: record?.id ?? null,
+        description: `${employee.firstName} ${employee.lastName} recorded ${logType === "TIME_IN" ? "time in" : "time out"}.`,
+        newValues: {
+          employeeId: dto.employeeId,
+          logType,
+          verificationStatus,
+          workLocationId: location.id,
+          deviceId: dto.deviceId,
+          latitude: dto.latitude,
+          longitude: dto.longitude,
+        },
+      });
+
+      await this.auditLogs.record({
+        ...context,
+        actorUserId: context.actorUserId,
+        action: "FACE_VERIFICATION",
+        module: "Face Verification",
+        entityType: "FaceVerification",
+        entityId: dto.employeeId,
+        description: `Face verification ${verificationStatus.toLowerCase()} for ${employee.firstName} ${employee.lastName}.`,
+        newValues: { employeeId: dto.employeeId, verificationStatus, similarityScore, deviceId: dto.deviceId },
       });
     }
 

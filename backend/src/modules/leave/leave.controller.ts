@@ -1,5 +1,6 @@
 import { Body, Controller, ForbiddenException, Get, Param, Patch, Post, Query, Req } from "@nestjs/common";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
+import { getAuditContext } from "../../common/utils/audit-context.util";
 import { getSupervisorDepartmentScope } from "../../common/utils/supervisor-scope.util";
 import { CreateLeaveRequestDto } from "./dto/create-leave-request.dto";
 import { LeaveService } from "./leave.service";
@@ -27,13 +28,14 @@ export class LeaveController {
 
   @Post()
   @RequirePermissions("leave:write")
-  create(@Body() dto: CreateLeaveRequestDto) {
-    return this.leaveService.create(dto);
+  create(@Body() dto: CreateLeaveRequestDto, @Req() request: Request) {
+    return this.leaveService.create(dto, getAuditContext(request));
   }
 
   @Patch(":id/approve")
   @RequirePermissions("leave:approve")
   approve(@Param("id") id: string, @Body() body: { remarks?: string }, @Req() request: Request) {
+<<<<<<< Updated upstream
     const user = (request as any).user;
     const roles: string[] = user.roles ?? [user.role];
     // ADMIN always finalizes (from PENDING or SUPERVISOR_APPROVED); a
@@ -41,12 +43,15 @@ export class LeaveController {
     // still has to finalize afterward.
     const targetStatus = roles.includes("ADMIN") ? "APPROVED" : "SUPERVISOR_APPROVED";
     return this.leaveService.updateStatus(id, targetStatus, body.remarks, user?.userId);
+=======
+    return this.leaveService.updateStatus(id, "APPROVED", body.remarks, getAuditContext(request));
+>>>>>>> Stashed changes
   }
 
   @Patch(":id/reject")
   @RequirePermissions("leave:approve")
   reject(@Param("id") id: string, @Body() body: { remarks?: string }, @Req() request: Request) {
-    return this.leaveService.updateStatus(id, "REJECTED", body.remarks, (request as any).user?.userId);
+    return this.leaveService.updateStatus(id, "REJECTED", body.remarks, getAuditContext(request));
   }
 
   @Patch(":id/cancel")

@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Req } from "@nestjs/common";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
+import { getAuditContext } from "../../common/utils/audit-context.util";
 import { getSupervisorDepartmentScope } from "../../common/utils/supervisor-scope.util";
 import { GeolocationService } from "./geolocation.service";
 
@@ -27,7 +28,7 @@ export class GeolocationController {
 
   @Post("locations")
   @RequirePermissions("geolocation:write")
-  createLocation(@Body() data: any) {
+  createLocation(@Body() data: any, @Req() request: Request) {
     return this.geolocationService.createLocation({
       name: data.name,
       latitude: Number(data.latitude),
@@ -35,12 +36,12 @@ export class GeolocationController {
       radiusMeters: Number(data.radiusMeters),
       allowedAccuracyMeters: data.allowedAccuracyMeters !== undefined ? Number(data.allowedAccuracyMeters) : undefined,
       employeeIds: Array.isArray(data.employeeIds) ? data.employeeIds : [],
-    });
+    }, getAuditContext(request));
   }
 
   @Patch("locations/:id")
   @RequirePermissions("geolocation:write")
-  updateLocation(@Param("id") id: string, @Body() data: any) {
+  updateLocation(@Param("id") id: string, @Body() data: any, @Req() request: Request) {
     return this.geolocationService.updateLocation(id, {
       name: data.name,
       latitude: data.latitude !== undefined ? Number(data.latitude) : undefined,
@@ -49,24 +50,24 @@ export class GeolocationController {
       allowedAccuracyMeters: data.allowedAccuracyMeters !== undefined ? Number(data.allowedAccuracyMeters) : undefined,
       isActive: data.isActive !== undefined ? Boolean(data.isActive) : undefined,
       employeeIds: Array.isArray(data.employeeIds) ? data.employeeIds : undefined,
-    });
+    }, getAuditContext(request));
   }
 
   @Post("locations/:id/employees/:employeeId")
   @RequirePermissions("geolocation:write")
-  addEmployee(@Param("id") id: string, @Param("employeeId") employeeId: string) {
-    return this.geolocationService.addEmployee(id, employeeId);
+  addEmployee(@Param("id") id: string, @Param("employeeId") employeeId: string, @Req() request: Request) {
+    return this.geolocationService.addEmployee(id, employeeId, getAuditContext(request));
   }
 
   @Delete("locations/:id/employees/:employeeId")
   @RequirePermissions("geolocation:write")
-  removeEmployee(@Param("id") id: string, @Param("employeeId") employeeId: string) {
-    return this.geolocationService.removeEmployee(id, employeeId);
+  removeEmployee(@Param("id") id: string, @Param("employeeId") employeeId: string, @Req() request: Request) {
+    return this.geolocationService.removeEmployee(id, employeeId, getAuditContext(request));
   }
 
   @Delete("locations/:id")
   @RequirePermissions("geolocation:write")
-  removeLocation(@Param("id") id: string) {
-    return this.geolocationService.removeLocation(id);
+  removeLocation(@Param("id") id: string, @Req() request: Request) {
+    return this.geolocationService.removeLocation(id, getAuditContext(request));
   }
 }

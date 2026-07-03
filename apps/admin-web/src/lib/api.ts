@@ -64,6 +64,16 @@ export function getStoredUser() {
 }
 
 export function logout() {
+  const token = localStorage.getItem("accessToken");
+  if (token) {
+    fetch(`${API_BASE_URL}/auth/logout`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    }).catch(() => undefined);
+  }
   localStorage.removeItem("accessToken");
   localStorage.removeItem("authUser");
 }

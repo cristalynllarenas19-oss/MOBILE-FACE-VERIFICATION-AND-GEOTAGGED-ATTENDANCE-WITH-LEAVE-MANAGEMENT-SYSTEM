@@ -5,12 +5,31 @@ type AuditLogFilters = {
   action?: string;
   entityType?: string;
   module?: string;
+  role?: string;
   actorUserId?: string;
   search?: string;
   from?: string;
   to?: string;
+  sort?: "newest" | "oldest";
   page?: number;
   pageSize?: number;
+};
+
+export type AuditLogContext = {
+  actorUserId?: string;
+  actorRole?: string;
+  ipAddress?: string;
+  userAgent?: string;
+};
+
+type AuditLogInput = AuditLogContext & {
+  action: string;
+  module: string;
+  entityType: string;
+  entityId?: string | null;
+  description: string;
+  oldValues?: Record<string, unknown> | null;
+  newValues?: Record<string, unknown> | null;
 };
 
 const DEFAULT_PAGE_SIZE = 25;
@@ -21,15 +40,46 @@ const EXPORT_MAX_ROWS = 5000;
 // shown in the "Filter by Module" dropdown — keeps that filter meaningful
 // without needing a schema change to track a module on each log row.
 const MODULE_ENTITY_TYPES: Record<string, string[]> = {
+  Authentication: ["User"],
   Leave: ["LeaveType", "LeaveRequest", "LeaveBalance"],
   Schedules: ["Shift", "EmployeeSchedule"],
   Employees: ["Employee"],
   Attendance: ["AttendanceRecord"],
+  Users: ["User", "UserRole", "RolePermission"],
+  FaceVerification: ["FaceProfile", "FaceVerification"],
+  Geotagging: ["WorkLocation", "WorkLocationEmployee"],
+  Settings: ["SystemSetting", "Role", "Permission"],
 };
 
 @Injectable()
 export class AuditLogsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  async record(input: AuditLogInput) {
+    const meta = {
+      module: input.module,
+      description: input.description,
+      actorRole: input.actorRole,
+      userAgent: input.userAgent,
+    };
+
+    try {
+      return await this.prisma.auditLog.create({
+        data: {
+          actorUserId: input.actorUserId,
+          action: input.action,
+          entityType: input.entityType,
+          entityId: input.entityId ?? null,
+          ipAddress: input.ipAddress,
+          ...(input.oldValues ? { oldValues: { ...input.oldValues, _audit: meta } } : {}),
+          newValues: { ...(input.newValues ?? {}), _audit: meta },
+        },
+      });
+    } catch (error) {
+      console.error("Failed to write audit log", error);
+      return null;
+    }
+  }
 
   private buildWhere(filters: AuditLogFilters) {
     const search = filters.search?.trim();
@@ -40,6 +90,9 @@ export class AuditLogsService {
       ...(filters.entityType && filters.entityType !== "ALL" ? { entityType: filters.entityType } : {}),
       ...(entityTypes ? { entityType: { in: entityTypes } } : {}),
       ...(filters.actorUserId && filters.actorUserId !== "ALL" ? { actorUserId: filters.actorUserId } : {}),
+      ...(filters.role && filters.role !== "ALL"
+        ? { actor: { userRoles: { some: { role: { code: filters.role as any } } } } }
+        : {}),
       ...(filters.from || filters.to
         ? {
             createdAt: {
@@ -50,13 +103,19 @@ export class AuditLogsService {
         : {}),
       ...(search
         ? {
-            actor: {
+            OR: [
+              { action: { contains: search, mode: "insensitive" as const } },
+              { entityType: { contains: search, mode: "insensitive" as const } },
+              { newValues: { path: ["_audit", "description"], string_contains: search } },
+              { newValues: { path: ["_audit", "module"], string_contains: search } },
+              { actor: {
               OR: [
                 { email: { contains: search, mode: "insensitive" as const } },
                 { employee: { firstName: { contains: search, mode: "insensitive" as const } } },
                 { employee: { lastName: { contains: search, mode: "insensitive" as const } } },
               ],
-            },
+              } },
+            ],
           }
         : {}),
     };
@@ -146,7 +205,7 @@ export class AuditLogsService {
         include: {
           actor: { include: { employee: true } },
         },
-        orderBy: { createdAt: "desc" },
+        orderBy: { createdAt: filters.sort === "oldest" ? "asc" : "desc" },
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
@@ -162,9 +221,9 @@ export class AuditLogsService {
     const rawItems = await this.prisma.auditLog.findMany({
       where,
       include: {
-        actor: { include: { employee: true } },
+      actor: { include: { employee: true } },
       },
-      orderBy: { createdAt: "desc" },
+      orderBy: { createdAt: filters.sort === "oldest" ? "asc" : "desc" },
       take: EXPORT_MAX_ROWS,
     });
     return this.withEntityNames(rawItems);

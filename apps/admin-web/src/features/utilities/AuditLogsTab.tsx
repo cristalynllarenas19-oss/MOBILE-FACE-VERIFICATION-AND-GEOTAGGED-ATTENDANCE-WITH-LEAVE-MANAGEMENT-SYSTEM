@@ -13,11 +13,18 @@ type AuditLog = {
   entityName?: string | null;
   oldValues?: Record<string, unknown> | null;
   newValues?: Record<string, unknown> | null;
+  ipAddress?: string | null;
   createdAt: string;
   actor?: {
     email: string;
     employee?: { firstName: string; lastName: string } | null;
   } | null;
+};
+
+type UserOption = {
+  id: string;
+  email: string;
+  employee?: { firstName: string; lastName: string } | null;
 };
 
 type AuditLogPage = {
@@ -30,11 +37,44 @@ type AuditLogPage = {
 type BadgeTone = "neutral" | "success" | "danger" | "warning" | "role";
 
 const MODULE_OPTIONS = [
+  { value: "Authentication", label: "Authentication" },
+  { value: "Users", label: "Users" },
   { value: "Leave", label: "Leave" },
   { value: "Schedules", label: "Schedules" },
   { value: "Employees", label: "Employees" },
   { value: "Attendance", label: "Attendance" },
+  { value: "FaceVerification", label: "Face Verification" },
+  { value: "Geotagging", label: "Geotagging" },
+  { value: "Settings", label: "Settings" },
 ];
+
+const ROLE_OPTIONS = [
+  { value: "ADMIN", label: "Admin" },
+  { value: "SUPERVISOR", label: "Supervisor" },
+  { value: "EMPLOYEE", label: "Employee" },
+];
+
+const ACTION_OPTIONS = [
+  "LOGIN",
+  "LOGOUT",
+  "CREATE_EMPLOYEE",
+  "UPDATE_EMPLOYEE",
+  "ARCHIVE_EMPLOYEE",
+  "GRANT_USER_ROLE",
+  "ACTIVATE_USER",
+  "DEACTIVATE_USER",
+  "TIME_IN",
+  "TIME_OUT",
+  "CORRECT_ATTENDANCE",
+  "CREATE_LEAVE_REQUEST",
+  "APPROVE_LEAVE",
+  "REJECT_LEAVE",
+  "REGISTER_FACE",
+  "FACE_VERIFICATION",
+  "CREATE_WORK_LOCATION",
+  "UPDATE_WORK_LOCATION",
+  "DELETE_WORK_LOCATION",
+].map((action) => ({ value: action, label: formatAction(action) }));
 
 const AUDIT_PAGE_SIZE = 25;
 
@@ -60,11 +100,23 @@ function actionTone(action: string): BadgeTone {
 }
 
 function moduleLabel(entityType: string) {
+  if (entityType === "User" || entityType === "UserRole" || entityType === "RolePermission") return "Users";
   if (entityType === "LeaveType" || entityType === "LeaveRequest" || entityType === "LeaveBalance") return "Leave";
   if (entityType === "Shift" || entityType === "EmployeeSchedule") return "Schedules";
   if (entityType === "Employee") return "Employees";
   if (entityType === "AttendanceRecord") return "Attendance";
+  if (entityType === "FaceProfile" || entityType === "FaceVerification") return "Face Verification";
+  if (entityType === "WorkLocation" || entityType === "WorkLocationEmployee") return "Geotagging";
   return entityType;
+}
+
+function auditMeta(log: AuditLog) {
+  return (((log.newValues as any)?._audit ?? (log.oldValues as any)?._audit ?? {}) as {
+    module?: string;
+    description?: string;
+    actorRole?: string;
+    userAgent?: string;
+  });
 }
 
 function affectedRecordLabel(log: AuditLog) {
@@ -100,6 +152,9 @@ async function exportToExcel(rows: AuditLog[]) {
     Module: moduleLabel(log.entityType),
     Action: formatAction(log.action),
     "Affected Record": affectedRecordLabel(log),
+    Description: auditMeta(log).description ?? "",
+    "IP Address": log.ipAddress ?? "",
+    "Device/Browser": auditMeta(log).userAgent ?? "",
   }));
   const worksheet = XLSX.utils.json_to_sheet(data);
   const workbook = XLSX.utils.book_new();
@@ -141,6 +196,11 @@ export function AuditLogsTab({
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditLoadingMore, setAuditLoadingMore] = useState(false);
   const [moduleFilter, setModuleFilter] = useState("ALL");
+  const [roleFilter, setRoleFilter] = useState("ALL");
+  const [actionFilter, setActionFilter] = useState("ALL");
+  const [userFilter, setUserFilter] = useState("ALL");
+  const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
+  const [userOptions, setUserOptions] = useState<UserOption[]>([]);
   const [auditSearch, setAuditSearch] = useState("");
   const [auditFrom, setAuditFrom] = useState("");
   const [auditTo, setAuditTo] = useState("");
@@ -150,6 +210,9 @@ export function AuditLogsTab({
 
   const hasActiveAuditFilters =
     moduleFilter !== "ALL" ||
+    roleFilter !== "ALL" ||
+    actionFilter !== "ALL" ||
+    userFilter !== "ALL" ||
     auditSearch.trim() !== "" ||
     auditFrom !== "" ||
     auditTo !== "";
@@ -157,6 +220,10 @@ export function AuditLogsTab({
   const buildParams = () => {
     const params = new URLSearchParams();
     if (moduleFilter !== "ALL") params.set("module", moduleFilter);
+    if (roleFilter !== "ALL") params.set("role", roleFilter);
+    if (actionFilter !== "ALL") params.set("action", actionFilter);
+    if (userFilter !== "ALL") params.set("actorUserId", userFilter);
+    params.set("sort", sortOrder);
     if (auditSearch.trim()) params.set("search", auditSearch.trim());
     if (auditFrom) params.set("from", auditFrom);
     if (auditTo) params.set("to", auditTo);
@@ -188,18 +255,23 @@ export function AuditLogsTab({
   useEffect(() => {
     loadAuditLogs(1, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [moduleFilter, auditFrom, auditTo]);
+  }, [moduleFilter, roleFilter, actionFilter, userFilter, sortOrder, auditFrom, auditTo]);
+
+  useEffect(() => {
+    apiRequest<UserOption[]>("/users").then(setUserOptions).catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     setShowRawJson(false);
   }, [viewLog]);
 
-  const runExport = async (kind: "excel" | "pdf") => {
+  const runExport = async (kind: "csv" | "excel" | "pdf") => {
     setIsExporting(true);
     try {
       const params = buildParams();
       const rows = await apiRequest<AuditLog[]>(`/audit-logs/export?${params.toString()}`);
-      if (kind === "excel") await exportToExcel(rows);
+      if (kind === "csv") exportToCsv(rows);
+      else if (kind === "excel") await exportToExcel(rows);
       else await exportToPdf(rows);
       notify({ type: "success", message: `Exported ${rows.length} audit log entries.` });
     } catch (err) {
@@ -214,7 +286,7 @@ export function AuditLogsTab({
     loadAuditLogs(1, false);
   };
 
-  const changeRows = viewLog ? buildChangeRows(viewLog) : [];
+  const changeRows = viewLog ? buildChangeRows(viewLog).filter((row) => row.key !== "_audit") : [];
   const hasRawJson = viewLog && (viewLog.oldValues != null || viewLog.newValues != null);
 
   return (
@@ -241,8 +313,8 @@ export function AuditLogsTab({
               onKeyDown={(e) => {
                 if (e.key === "Enter") loadAuditLogs(1, false);
               }}
-              placeholder="Actor name or email"
-              aria-label="Search audit logs by actor"
+              placeholder="User, employee, action, module, or description"
+              aria-label="Search audit logs"
             />
             {auditSearch && (
               <button
@@ -271,6 +343,45 @@ export function AuditLogsTab({
         </div>
 
         <div className="utilities-filter-group">
+          <label className="utilities-filter-label">Role</label>
+          <DropdownFilter className="utilities-filter-select" value={roleFilter} onChange={setRoleFilter} options={ROLE_OPTIONS} allLabel="All Roles" menuLabel="Filter by role" ariaLabel="Filter by role" />
+        </div>
+
+        <div className="utilities-filter-group">
+          <label className="utilities-filter-label">Action</label>
+          <DropdownFilter className="utilities-filter-select" value={actionFilter} onChange={setActionFilter} options={ACTION_OPTIONS} allLabel="All Actions" menuLabel="Filter by action" ariaLabel="Filter by action" />
+        </div>
+
+        <div className="utilities-filter-group">
+          <label className="utilities-filter-label">User</label>
+          <DropdownFilter
+            className="utilities-filter-select"
+            value={userFilter}
+            onChange={setUserFilter}
+            options={userOptions.map((user) => ({
+              value: user.id,
+              label: user.employee ? `${user.employee.firstName} ${user.employee.lastName}` : user.email,
+            }))}
+            allLabel="All Users"
+            menuLabel="Filter by user"
+            ariaLabel="Filter by user"
+          />
+        </div>
+
+        <div className="utilities-filter-group">
+          <label className="utilities-filter-label">Sort</label>
+          <DropdownFilter
+            className="utilities-filter-select"
+            value={sortOrder}
+            onChange={(value) => setSortOrder(value as "newest" | "oldest")}
+            options={[{ value: "newest", label: "Newest first" }, { value: "oldest", label: "Oldest first" }]}
+            allLabel="Sort"
+            menuLabel="Sort audit logs"
+            ariaLabel="Sort audit logs"
+          />
+        </div>
+
+        <div className="utilities-filter-group">
           <label className="utilities-filter-label">From</label>
           <input type="date" value={auditFrom} onChange={(e) => setAuditFrom(e.target.value)} aria-label="Audit log from date" />
         </div>
@@ -288,6 +399,10 @@ export function AuditLogsTab({
           <button className="utilities-export-button" disabled={isExporting} onClick={() => runExport("excel")}>
             <FileSpreadsheet size={14} />
             <span>Excel</span>
+          </button>
+          <button className="utilities-export-button" disabled={isExporting} onClick={() => runExport("csv")}>
+            <FileText size={14} />
+            <span>CSV</span>
           </button>
           <button className="utilities-export-button" disabled={isExporting} onClick={() => runExport("pdf")}>
             <FileText size={14} />
@@ -351,10 +466,16 @@ export function AuditLogsTab({
         </table>
       </section>
 
-      {!auditLoading && auditLogs.length < auditTotal && (
+      {!auditLoading && auditTotal > AUDIT_PAGE_SIZE && (
         <div className="utilities-load-more">
-          <button className="outline-button" onClick={() => loadAuditLogs(auditPage + 1, true)} disabled={auditLoadingMore}>
-            {auditLoadingMore ? "Loading…" : "Load More"}
+          <button className="outline-button" onClick={() => loadAuditLogs(auditPage - 1, false)} disabled={auditLoadingMore || auditPage <= 1}>
+            Previous
+          </button>
+          <span className="utilities-toolbar-meta">
+            Page {auditPage} of {Math.max(1, Math.ceil(auditTotal / AUDIT_PAGE_SIZE))}
+          </span>
+          <button className="outline-button" onClick={() => loadAuditLogs(auditPage + 1, false)} disabled={auditLoadingMore || auditPage >= Math.ceil(auditTotal / AUDIT_PAGE_SIZE)}>
+            Next
           </button>
         </div>
       )}
@@ -393,9 +514,27 @@ export function AuditLogsTab({
                   <Badge tone={actionTone(viewLog.action)}>{formatAction(viewLog.action)}</Badge>
                 </div>
                 <div>
+                  <span>User Role</span>
+                  <strong>{auditMeta(viewLog).actorRole ?? "N/A"}</strong>
+                </div>
+                <div>
                   <span>Affected Record</span>
                   <strong>{affectedRecordLabel(viewLog)}</strong>
                 </div>
+                <div>
+                  <span>IP Address</span>
+                  <strong>{viewLog.ipAddress ?? "N/A"}</strong>
+                </div>
+              </div>
+
+              <div className="utilities-field">
+                <span className="utilities-field-label">Description</span>
+                <p className="utilities-hint">{auditMeta(viewLog).description ?? "No description recorded."}</p>
+              </div>
+
+              <div className="utilities-field">
+                <span className="utilities-field-label">Device / Browser</span>
+                <p className="utilities-hint">{auditMeta(viewLog).userAgent ?? "Not available"}</p>
               </div>
 
               {changeRows.length > 0 && (
@@ -468,4 +607,27 @@ export function AuditLogsTab({
       )}
     </>
   );
+}
+
+function exportToCsv(rows: AuditLog[]) {
+  const headers = ["Date/Time", "Actor", "Role", "Module", "Action", "Affected Record", "Description", "IP Address", "Device/Browser"];
+  const escape = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
+  const body = rows.map((log) => [
+    formatDateTime(log.createdAt),
+    actorName(log),
+    auditMeta(log).actorRole ?? "",
+    moduleLabel(log.entityType),
+    formatAction(log.action),
+    affectedRecordLabel(log),
+    auditMeta(log).description ?? "",
+    log.ipAddress ?? "",
+    auditMeta(log).userAgent ?? "",
+  ].map(escape).join(","));
+  const blob = new Blob([[headers.map(escape).join(","), ...body].join("\n")], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `audit-logs-${Date.now()}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
 }

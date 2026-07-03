@@ -1,10 +1,14 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
+import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
 import { UpsertFaceProfileDto } from "./dto/upsert-face-profile.dto";
 
 @Injectable()
 export class FaceProfilesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditLogs: AuditLogsService,
+  ) {}
 
   findAll() {
     return this.prisma.faceProfile.findMany({
@@ -17,7 +21,7 @@ export class FaceProfilesService {
     });
   }
 
-  async create(dto: UpsertFaceProfileDto) {
+  async create(dto: UpsertFaceProfileDto, context: AuditLogContext = {}) {
     if (!dto.employeeId.trim()) {
       throw new BadRequestException("Employee is required.");
     }
@@ -36,7 +40,7 @@ export class FaceProfilesService {
       throw new NotFoundException("Employee not found.");
     }
 
-    return this.prisma.faceProfile.create({
+    const created = await this.prisma.faceProfile.create({
       data: {
         employeeId: employee.id,
         referenceImageData: dto.referenceImageData as any,
@@ -50,13 +54,38 @@ export class FaceProfilesService {
         },
       },
     });
+
+    await this.auditLogs.record({
+      ...context,
+      action: "REGISTER_FACE",
+      module: "Face Verification",
+      entityType: "FaceProfile",
+      entityId: created.id,
+      description: `Registered face profile for ${created.employee.firstName} ${created.employee.lastName}.`,
+      newValues: { employeeId: created.employeeId, enrollmentStatus: created.enrollmentStatus },
+    });
+
+    return created;
   }
 
-  async remove(id: string) {
-    const profile = await this.prisma.faceProfile.findUnique({ where: { id } });
+  async remove(id: string, context: AuditLogContext = {}) {
+    const profile = await this.prisma.faceProfile.findUnique({
+      where: { id },
+      include: { employee: true },
+    });
     if (!profile) {
       throw new NotFoundException("Face profile not found.");
     }
-    return this.prisma.faceProfile.delete({ where: { id } });
+    const removed = await this.prisma.faceProfile.delete({ where: { id } });
+    await this.auditLogs.record({
+      ...context,
+      action: "DELETE_FACE_PROFILE",
+      module: "Face Verification",
+      entityType: "FaceProfile",
+      entityId: id,
+      description: `Deleted face profile for ${profile.employee.firstName} ${profile.employee.lastName}.`,
+      oldValues: { employeeId: profile.employeeId, enrollmentStatus: profile.enrollmentStatus },
+    });
+    return removed;
   }
 }

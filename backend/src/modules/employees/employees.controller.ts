@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post, Req } from "@nestjs/common";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
+import { getAuditContext } from "../../common/utils/audit-context.util";
 import { getSupervisorDepartmentScope } from "../../common/utils/supervisor-scope.util";
 import { CreateEmployeeDto, UpdateEmployeeDto } from "./dto/create-employee.dto";
 import { EmployeesService } from "./employees.service";
@@ -33,19 +34,19 @@ export class EmployeesController {
 
   @Post()
   @RequirePermissions("employees:write")
-  create(@Body() dto: CreateEmployeeDto) {
-    return this.employeesService.create(dto);
+  create(@Body() dto: CreateEmployeeDto, @Req() request: Request) {
+    return this.employeesService.create(dto, getAuditContext(request));
   }
 
   @Patch(":id")
   @RequirePermissions("employees:write")
-  update(@Param("id") id: string, @Body() dto: UpdateEmployeeDto) {
-    return this.employeesService.update(id, dto);
+  update(@Param("id") id: string, @Body() dto: UpdateEmployeeDto, @Req() request: Request) {
+    return this.employeesService.update(id, dto, getAuditContext(request));
   }
 
   @Patch(":id/archive")
   @RequirePermissions("employees:write")
   archive(@Param("id") id: string, @Body() dto: { reason?: string; archiveType?: string }, @Req() request: Request) {
-    return this.employeesService.archive(id, dto, (request as any).user?.userId);
+    return this.employeesService.archive(id, dto, getAuditContext(request));
   }
 }

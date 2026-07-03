@@ -5,6 +5,7 @@ import * as argon2 from "argon2";
 import { randomInt } from "crypto";
 import { PrismaService } from "../../prisma/prisma.service";
 import { MailService } from "../mail/mail.service";
+import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
 
 const RESET_PURPOSE = "password_reset";
 const OTP_TTL_MS = 10 * 60 * 1000;
@@ -21,9 +22,10 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly config: ConfigService,
     private readonly mail: MailService,
+    private readonly auditLogs: AuditLogsService,
   ) {}
 
-  async login(email: string, password: string) {
+  async login(email: string, password: string, context: AuditLogContext = {}) {
     const user = await this.prisma.user.findUnique({
       where: { email },
       include: {
@@ -81,6 +83,18 @@ export class AuthService {
       data: { lastLoginAt: new Date() },
     });
 
+    await this.auditLogs.record({
+      ...context,
+      actorUserId: user.id,
+      actorRole: primaryRole,
+      action: "LOGIN",
+      module: "Authentication",
+      entityType: "User",
+      entityId: user.id,
+      description: `${displayName} logged in.`,
+      newValues: { email: user.email, roles },
+    });
+
     return {
       accessToken: await this.jwtService.signAsync(payload, {
         secret: this.config.get<string>("JWT_ACCESS_SECRET") ?? "dev-access-secret-change-me",
@@ -105,6 +119,19 @@ export class AuthService {
         defaultView: user.defaultView,
       },
     };
+  }
+
+  async logout(context: AuditLogContext = {}) {
+    await this.auditLogs.record({
+      ...context,
+      action: "LOGOUT",
+      module: "Authentication",
+      entityType: "User",
+      entityId: context.actorUserId,
+      description: "User logged out.",
+    });
+
+    return { message: "Logged out" };
   }
 
   private get accessSecret() {

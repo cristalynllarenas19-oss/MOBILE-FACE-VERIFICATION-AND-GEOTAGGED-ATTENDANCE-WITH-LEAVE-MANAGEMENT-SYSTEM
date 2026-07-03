@@ -10,6 +10,7 @@ import {
 } from "@nestjs/common";
 
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
+import { getAuditContext } from "../../common/utils/audit-context.util";
 import { getSupervisorDepartmentScope } from "../../common/utils/supervisor-scope.util";
 import { AttendanceService } from "./attendance.service";
 import { SubmitAttendanceDto } from "./dto/submit-attendance.dto";
@@ -57,21 +58,22 @@ export class AttendanceController {
 
   @Post("submit")
   submit(
+    @Req() request: Request,
     @Body()
     dto: SubmitAttendanceDto,
   ) {
-    return this.attendanceService.submit(dto);
+    return this.attendanceService.submit(dto, getAuditContext(request));
   }
 
   @Patch(":id/approve")
   @RequirePermissions("attendance:write")
   approve(@Param("id") id: string, @Body() body: { remarks?: string }, @Req() request: Request) {
-    return this.attendanceService.updateStatus(id, "PRESENT", body.remarks, (request as any).user?.userId);
+    return this.attendanceService.updateStatus(id, "PRESENT", body.remarks, getAuditContext(request));
   }
 
   @Patch(":id/official-business")
   @RequirePermissions("attendance:write")
   officialBusiness(@Param("id") id: string, @Body() body: { remarks?: string }, @Req() request: Request) {
-    return this.attendanceService.updateStatus(id, "OFFICIAL_BUSINESS", body.remarks, (request as any).user?.userId);
+    return this.attendanceService.updateStatus(id, "OFFICIAL_BUSINESS", body.remarks, getAuditContext(request));
   }
 }

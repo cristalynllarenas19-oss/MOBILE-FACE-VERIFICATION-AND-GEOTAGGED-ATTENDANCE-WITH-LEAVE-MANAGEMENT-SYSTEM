@@ -30,6 +30,11 @@ enum DefaultView {
 
 enum EmploymentStatus {
   REGULAR
+<<<<<<< Updated upstream
+=======
+  PROBATIONARY
+  CONTRACTUAL
+>>>>>>> Stashed changes
   CONTRACTUAL_SEASONAL
   PIECE_RATE
   SEPARATED

@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
+import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
 
 export type GeofenceInput = {
   latitude: number;
@@ -14,7 +15,10 @@ export type GeofenceInput = {
 
 @Injectable()
 export class GeolocationService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditLogs: AuditLogsService,
+  ) {}
 
   async findAllLocations(departmentId?: string) {
     if (await this.hasJoinTable()) {
@@ -91,9 +95,9 @@ export class GeolocationService {
     radiusMeters: number;
     allowedAccuracyMeters?: number;
     employeeIds?: string[];
-  }) {
+  }, context: AuditLogContext = {}) {
     const joinTableAvailable = await this.hasJoinTable();
-    return this.prisma.$transaction(async (tx) => {
+    const created = await this.prisma.$transaction(async (tx) => {
       const workLocation = await tx.workLocation.create({
         data: {
           name: data.name,
@@ -109,6 +113,18 @@ export class GeolocationService {
 
       return this.loadLocationById(tx, workLocation.id, joinTableAvailable);
     });
+
+    await this.auditLogs.record({
+      ...context,
+      action: "CREATE_WORK_LOCATION",
+      module: "Geotagging",
+      entityType: "WorkLocation",
+      entityId: created.id,
+      description: `Created geotagged area ${created.name}.`,
+      newValues: { ...data, employeeIds: data.employeeIds ?? [] },
+    });
+
+    return created;
   }
 
   async updateLocation(
@@ -122,9 +138,11 @@ export class GeolocationService {
       isActive?: boolean;
       employeeIds?: string[];
     },
+    context: AuditLogContext = {},
   ) {
     const joinTableAvailable = await this.hasJoinTable();
-    return this.prisma.$transaction(async (tx) => {
+    const before = await this.prisma.workLocation.findUnique({ where: { id }, include: { employees: true } });
+    const updated = await this.prisma.$transaction(async (tx) => {
       await tx.workLocation.update({
         where: { id },
         data: {
@@ -145,17 +163,51 @@ export class GeolocationService {
 
       return this.loadLocationById(tx, id, joinTableAvailable);
     });
+
+    await this.auditLogs.record({
+      ...context,
+      action: data.isActive === false ? "DEACTIVATE_WORK_LOCATION" : data.isActive === true ? "ACTIVATE_WORK_LOCATION" : "UPDATE_WORK_LOCATION",
+      module: "Geotagging",
+      entityType: "WorkLocation",
+      entityId: id,
+      description: `Updated geotagged area ${updated.name}.`,
+      oldValues: before ? {
+        name: before.name,
+        latitude: before.latitude,
+        longitude: before.longitude,
+        radiusMeters: before.radiusMeters,
+        allowedAccuracyMeters: before.allowedAccuracyMeters,
+        isActive: before.isActive,
+        employeeIds: before.employees?.map((entry) => entry.employeeId),
+      } : null,
+      newValues: { ...data },
+    });
+
+    return updated;
   }
 
-  async removeLocation(id: string) {
-    return this.prisma.workLocation.delete({
+  async removeLocation(id: string, context: AuditLogContext = {}) {
+    const before = await this.prisma.workLocation.findUnique({ where: { id } });
+    const removed = await this.prisma.workLocation.delete({
       where: { id },
     });
+
+    await this.auditLogs.record({
+      ...context,
+      action: "DELETE_WORK_LOCATION",
+      module: "Geotagging",
+      entityType: "WorkLocation",
+      entityId: id,
+      description: `Deleted geotagged area ${before?.name ?? id}.`,
+      oldValues: before ? { name: before.name, isActive: before.isActive } : null,
+    });
+
+    return removed;
   }
 
-  async addEmployee(locationId: string, employeeId: string) {
+  async addEmployee(locationId: string, employeeId: string, context: AuditLogContext = {}) {
     const joinTableAvailable = await this.hasJoinTable();
-    return this.prisma.$transaction(async (tx) => {
+    const updated = await this.prisma.$transaction(async (tx) => {
       if (joinTableAvailable) {
         await this.assertEmployeeAvailable(tx, employeeId, locationId);
         await tx.workLocationEmployee.create({
@@ -184,11 +236,23 @@ export class GeolocationService {
 
       return this.loadLocationById(tx, locationId, joinTableAvailable);
     });
+
+    await this.auditLogs.record({
+      ...context,
+      action: "ASSIGN_WORK_LOCATION_EMPLOYEE",
+      module: "Geotagging",
+      entityType: "WorkLocationEmployee",
+      entityId: locationId,
+      description: `Assigned employee to geotagged area ${updated.name}.`,
+      newValues: { locationId, employeeId },
+    });
+
+    return updated;
   }
 
-  async removeEmployee(locationId: string, employeeId: string) {
+  async removeEmployee(locationId: string, employeeId: string, context: AuditLogContext = {}) {
     const joinTableAvailable = await this.hasJoinTable();
-    return this.prisma.$transaction(async (tx) => {
+    const updated = await this.prisma.$transaction(async (tx) => {
       if (joinTableAvailable) {
         await tx.workLocationEmployee.deleteMany({
           where: { workLocationId: locationId, employeeId },
@@ -206,6 +270,18 @@ export class GeolocationService {
 
       return this.loadLocationById(tx, locationId, joinTableAvailable);
     });
+
+    await this.auditLogs.record({
+      ...context,
+      action: "UNASSIGN_WORK_LOCATION_EMPLOYEE",
+      module: "Geotagging",
+      entityType: "WorkLocationEmployee",
+      entityId: locationId,
+      description: `Removed employee assignment from geotagged area ${updated.name}.`,
+      oldValues: { locationId, employeeId },
+    });
+
+    return updated;
   }
 
   async getLocationForEmployee(employeeId: string) {

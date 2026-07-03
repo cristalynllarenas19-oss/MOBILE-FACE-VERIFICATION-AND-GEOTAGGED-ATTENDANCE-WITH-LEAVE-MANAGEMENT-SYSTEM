@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { NotificationsService } from "../notifications/notifications.service";
+import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
 import { CreateLeaveRequestDto } from "./dto/create-leave-request.dto";
 
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
@@ -11,6 +12,7 @@ export class LeaveService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
+    private readonly auditLogs: AuditLogsService,
   ) {}
 
   async findAll(employeeId?: string, departmentId?: string) {
@@ -38,7 +40,7 @@ export class LeaveService {
     }));
   }
 
-  async create(dto: CreateLeaveRequestDto) {
+  async create(dto: CreateLeaveRequestDto, context: AuditLogContext = {}) {
     if (dto.attachmentData && Buffer.byteLength(dto.attachmentData, "base64") > MAX_ATTACHMENT_BYTES) {
       throw new BadRequestException("Attachment must be 5MB or smaller.");
     }
@@ -71,6 +73,23 @@ export class LeaveService {
 
     await this.notifySubmission(request);
 
+    await this.auditLogs.record({
+      ...context,
+      action: "CREATE_LEAVE_REQUEST",
+      module: "Leave",
+      entityType: "LeaveRequest",
+      entityId: request.id,
+      description: `${request.employee.firstName} ${request.employee.lastName} filed a ${request.leaveType.name} leave request.`,
+      newValues: {
+        employeeId: request.employeeId,
+        leaveType: request.leaveType.name,
+        startDate: request.startDate,
+        endDate: request.endDate,
+        totalDays: request.totalDays,
+        status: request.status,
+      },
+    });
+
     return request;
   }
 
@@ -97,7 +116,11 @@ export class LeaveService {
     });
   }
 
+<<<<<<< Updated upstream
   async updateStatus(id: string, status: LeaveRequestStatus, remarks?: string, actorUserId?: string) {
+=======
+  async updateStatus(id: string, status: "APPROVED" | "REJECTED", remarks?: string, context: AuditLogContext = {}) {
+>>>>>>> Stashed changes
     // Load the request first so we know its *current* status before changing anything.
     // This is what lets us tell "first time being approved" apart from "already approved,
     // admin clicked again" — without this check, usedDays could be deducted more than once
@@ -111,7 +134,7 @@ export class LeaveService {
 
     const request = await this.prisma.leaveRequest.update({
       where: { id },
-      data: { status, reviewedAt: new Date(), reviewedBy: actorUserId },
+      data: { status, reviewedAt: new Date(), reviewedBy: context.actorUserId },
       include: {
         employee: { include: { department: true } },
         leaveType: true,
@@ -161,6 +184,7 @@ export class LeaveService {
       await this.adjustLeaveBalance(request.employeeId, request.leaveTypeId, request.startDate, -Number(request.totalDays));
     }
 
+<<<<<<< Updated upstream
     if (remarks?.trim()) {
       await this.prisma.auditLog.create({
         data: {
@@ -179,6 +203,18 @@ export class LeaveService {
         },
       });
     }
+=======
+    await this.auditLogs.record({
+      ...context,
+      action: status === "APPROVED" ? "APPROVE_LEAVE" : "REJECT_LEAVE",
+      module: "Leave",
+      entityType: "LeaveRequest",
+      entityId: id,
+      description: `${status === "APPROVED" ? "Approved" : "Rejected"} ${request.employee.firstName} ${request.employee.lastName}'s ${request.leaveType.name} leave request.`,
+      oldValues: { status: existing.status },
+      newValues: { remarks: remarks?.trim(), status },
+    });
+>>>>>>> Stashed changes
 
     return {
       ...request,

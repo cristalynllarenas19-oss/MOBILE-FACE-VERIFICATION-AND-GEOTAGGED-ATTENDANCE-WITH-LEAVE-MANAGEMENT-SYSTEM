@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post, Req } from "@nestjs/common";
+import { getAuditContext } from "../../common/utils/audit-context.util";
 import { ChangePasswordDto } from "./dto/change-password.dto";
 import { CreateUserDto } from "./dto/create-user.dto";
 import { UpdateDefaultViewDto } from "./dto/update-default-view.dto";
@@ -22,18 +23,18 @@ export class UsersController {
   }
 
   @Post()
-  create(@Body() dto: CreateUserDto) {
-    return this.usersService.create(dto);
+  create(@Body() dto: CreateUserDto, @Req() request: Request) {
+    return this.usersService.create(dto, getAuditContext(request));
   }
 
   @Patch(":id/status")
-  updateStatus(@Param("id") id: string, @Body("status") status: "ACTIVE" | "INACTIVE" | "LOCKED") {
-    return this.usersService.updateStatus(id, status);
+  updateStatus(@Param("id") id: string, @Body("status") status: "ACTIVE" | "INACTIVE" | "LOCKED", @Req() request: Request) {
+    return this.usersService.updateStatus(id, status, getAuditContext(request));
   }
 
   @Patch(":id/default-view")
   updateDefaultView(@Param("id") id: string, @Body() dto: UpdateDefaultViewDto, @Req() request: Request) {
     const requesterId = (request as any).user.userId;
-    return this.usersService.updateDefaultView(id, dto.defaultView, requesterId);
+    return this.usersService.updateDefaultView(id, dto.defaultView, requesterId, getAuditContext(request));
   }
 }

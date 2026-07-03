@@ -1,11 +1,15 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import * as argon2 from "argon2";
 import { PrismaService } from "../../prisma/prisma.service";
+import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
 import { CreateEmployeeDto, UpdateEmployeeDto } from "./dto/create-employee.dto";
 
 @Injectable()
 export class EmployeesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditLogs: AuditLogsService,
+  ) {}
 
   findAll(departmentId?: string) {
     return this.prisma.employee.findMany({
@@ -30,7 +34,7 @@ export class EmployeesService {
     });
   }
 
-  async create(dto: CreateEmployeeDto) {
+  async create(dto: CreateEmployeeDto, context: AuditLogContext = {}) {
     const role = await this.prisma.role.findUniqueOrThrow({ where: { code: "EMPLOYEE" } });
     const department = await this.prisma.department.upsert({
       where: { name: dto.department },
@@ -52,7 +56,7 @@ export class EmployeesService {
       },
     });
 
-    return this.prisma.employee.create({
+    const created = await this.prisma.employee.create({
       data: {
         userId: user.id,
         employeeNo: `UL-${Date.now().toString().slice(-6)}`,
@@ -66,10 +70,32 @@ export class EmployeesService {
       },
       include: { user: true, department: true, position: true },
     });
+
+    await this.auditLogs.record({
+      ...context,
+      action: "CREATE_EMPLOYEE",
+      module: "Employees",
+      entityType: "Employee",
+      entityId: created.id,
+      description: `Created employee record for ${created.firstName} ${created.lastName}.`,
+      newValues: {
+        email: dto.email,
+        firstName: created.firstName,
+        lastName: created.lastName,
+        department: created.department.name,
+        employmentStatus: created.employmentStatus,
+        attendanceMode: created.attendanceMode,
+      },
+    });
+
+    return created;
   }
 
-  async update(id: string, dto: UpdateEmployeeDto) {
-    const employee = await this.prisma.employee.findUniqueOrThrow({ where: { id } });
+  async update(id: string, dto: UpdateEmployeeDto, context: AuditLogContext = {}) {
+    const employee = await this.prisma.employee.findUniqueOrThrow({
+      where: { id },
+      include: { user: true, department: true, position: true },
+    });
     const department = dto.department
       ? await this.prisma.department.upsert({
           where: { name: dto.department },
@@ -93,7 +119,7 @@ export class EmployeesService {
       });
     }
 
-    return this.prisma.employee.update({
+    const updated = await this.prisma.employee.update({
       where: { id },
       data: {
         ...(dto.firstName ? { firstName: dto.firstName } : {}),
@@ -107,9 +133,38 @@ export class EmployeesService {
       },
       include: { user: true, department: true, position: true },
     });
+
+    await this.auditLogs.record({
+      ...context,
+      action: "UPDATE_EMPLOYEE",
+      module: "Employees",
+      entityType: "Employee",
+      entityId: id,
+      description: `Updated employee record for ${updated.firstName} ${updated.lastName}.`,
+      oldValues: {
+        email: employee.user?.email,
+        firstName: employee.firstName,
+        lastName: employee.lastName,
+        department: employee.department.name,
+        position: employee.position.title,
+        employmentStatus: employee.employmentStatus,
+        attendanceMode: employee.attendanceMode,
+      },
+      newValues: {
+        email: updated.user.email,
+        firstName: updated.firstName,
+        lastName: updated.lastName,
+        department: updated.department.name,
+        position: updated.position.title,
+        employmentStatus: updated.employmentStatus,
+        attendanceMode: updated.attendanceMode,
+      },
+    });
+
+    return updated;
   }
 
-  async archive(id: string, dto: { reason?: string; archiveType?: string }, actorUserId?: string) {
+  async archive(id: string, dto: { reason?: string; archiveType?: string }, context: AuditLogContext = {}) {
     const employee = await this.prisma.employee.findUniqueOrThrow({
       where: { id },
       include: { user: true },
@@ -128,18 +183,19 @@ export class EmployeesService {
       include: { user: true, department: true, position: true },
     });
 
-    await this.prisma.auditLog.create({
-      data: {
-        actorUserId,
-        action: "ARCHIVE_EMPLOYEE",
-        entityType: "Employee",
-        entityId: id,
-        newValues: {
-          archiveType: dto.archiveType ?? "Separated",
-          reason: dto.reason?.trim() || "No reason provided",
-          userStatus: "INACTIVE",
-          employmentStatus: "SEPARATED",
-        },
+    await this.auditLogs.record({
+      ...context,
+      action: "ARCHIVE_EMPLOYEE",
+      module: "Employees",
+      entityType: "Employee",
+      entityId: id,
+      description: `Archived employee record for ${archived.firstName} ${archived.lastName}.`,
+      oldValues: { employmentStatus: employee.employmentStatus, userStatus: employee.user?.status },
+      newValues: {
+        archiveType: dto.archiveType ?? "Separated",
+        reason: dto.reason?.trim() || "No reason provided",
+        userStatus: "INACTIVE",
+        employmentStatus: "SEPARATED",
       },
     });
 

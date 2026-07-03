@@ -12,10 +12,12 @@ export class AuditLogsController {
     @Query("action") action?: string,
     @Query("entityType") entityType?: string,
     @Query("module") module?: string,
+    @Query("role") role?: string,
     @Query("actorUserId") actorUserId?: string,
     @Query("search") search?: string,
     @Query("from") from?: string,
     @Query("to") to?: string,
+    @Query("sort") sort?: "newest" | "oldest",
     @Query("page") page?: string,
     @Query("pageSize") pageSize?: string,
   ) {
@@ -23,10 +25,12 @@ export class AuditLogsController {
       action,
       entityType,
       module,
+      role,
       actorUserId,
       search,
       from,
       to,
+      sort,
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
     });
@@ -38,11 +42,13 @@ export class AuditLogsController {
     @Query("action") action?: string,
     @Query("entityType") entityType?: string,
     @Query("module") module?: string,
+    @Query("role") role?: string,
     @Query("actorUserId") actorUserId?: string,
     @Query("search") search?: string,
     @Query("from") from?: string,
     @Query("to") to?: string,
+    @Query("sort") sort?: "newest" | "oldest",
   ) {
-    return this.auditLogsService.findForExport({ action, entityType, module, actorUserId, search, from, to });
+    return this.auditLogsService.findForExport({ action, entityType, module, role, actorUserId, search, from, to, sort });
   }
 }

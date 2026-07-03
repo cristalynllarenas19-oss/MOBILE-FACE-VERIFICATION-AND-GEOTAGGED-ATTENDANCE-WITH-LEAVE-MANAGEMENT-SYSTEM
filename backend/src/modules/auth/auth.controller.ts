@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Post, Req } from "@nestjs/common";
 import { Public } from "../../common/decorators/public.decorator";
+import { getAuditContext } from "../../common/utils/audit-context.util";
 import { AuthService } from "./auth.service";
 import { ForgotPasswordDto } from "./dto/forgot-password.dto";
 import { LoginDto } from "./dto/login.dto";
@@ -12,12 +13,9 @@ export class AuthController {
 
   @Public()
   @Post("login")
-  login(@Body() dto: LoginDto) {
-  console.log("LOGIN REQUEST RECEIVED");
-  console.log(dto);
-
-  return this.authService.login(dto.email, dto.password);
-}
+  login(@Body() dto: LoginDto, @Req() request: Request) {
+    return this.authService.login(dto.email, dto.password, getAuditContext(request));
+  }
 
   @Public()
   @Post("refresh")
@@ -25,10 +23,9 @@ export class AuthController {
     return { message: "Refresh token endpoint is ready for secure cookie/mobile token integration." };
   }
 
-  @Public()
   @Post("logout")
-  logout() {
-    return { message: "Logged out" };
+  logout(@Req() request: Request) {
+    return this.authService.logout(getAuditContext(request));
   }
 
   @Public()
