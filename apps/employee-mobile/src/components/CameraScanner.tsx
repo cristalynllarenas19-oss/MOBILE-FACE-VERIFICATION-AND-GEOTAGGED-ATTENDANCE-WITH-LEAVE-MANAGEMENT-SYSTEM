@@ -703,27 +703,31 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
 
     return (
       <View style={styles.centerContainer}>
-        <Text style={styles.errorText}>
-          {`Please allow ${missing} access to use face verification attendance.`}
-        </Text>
-        <Pressable
-          style={styles.retryButton}
-          onPress={() => {
-            if (canAskAgain) {
-              if (!permission.granted) requestPermission();
-              if (!locationPermission.granted) requestLocationPermission();
-            } else {
-              Linking.openSettings();
-            }
-          }}
-        >
-          <Text style={styles.retryButtonText}>
-            {canAskAgain ? "Grant Permission" : "Open Settings"}
+        <View style={styles.errorCard}>
+          <View style={styles.errorIconWrap}>
+            <Ionicons name="shield-outline" size={28} color="#2563EB" />
+          </View>
+          <Text style={styles.errorTitle}>Permissions needed</Text>
+          <Text style={styles.errorText}>
+            {`Please allow ${missing} access to use face verification attendance.`}
           </Text>
-        </Pressable>
-        <Pressable style={styles.cancelLink} onPress={onCancel}>
-          <Text style={styles.cancelLinkText}>Cancel</Text>
-        </Pressable>
+          <Pressable
+            style={styles.retryButton}
+            onPress={() => {
+              if (canAskAgain) {
+                if (!permission.granted) requestPermission();
+                if (!locationPermission.granted) requestLocationPermission();
+              } else {
+                Linking.openSettings();
+              }
+            }}
+          >
+            <Text style={styles.retryButtonText}>{canAskAgain ? "Grant Permission" : "Open Settings"}</Text>
+          </Pressable>
+          <Pressable style={styles.cancelLink} onPress={onCancel}>
+            <Text style={styles.cancelLinkText}>Cancel</Text>
+          </Pressable>
+        </View>
       </View>
     );
   }
@@ -731,42 +735,42 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
   if (scanError) {
     return (
       <View style={styles.centerContainer}>
-        <Text style={styles.errorText}>{scanError}</Text>
-        <Pressable style={styles.retryButton} onPress={retryScan}>
-          <Text style={styles.retryButtonText}>Try Again</Text>
-        </Pressable>
-        <Pressable style={styles.cancelLink} onPress={onCancel}>
-          <Text style={styles.cancelLinkText}>Cancel</Text>
-        </Pressable>
+        <View style={styles.errorCard}>
+          <View style={styles.errorIconWrap}>
+            <Ionicons name="warning-outline" size={28} color="#DC2626" />
+          </View>
+          <Text style={styles.errorTitle}>Verification interrupted</Text>
+          <Text style={styles.errorText}>{scanError}</Text>
+          <Pressable style={styles.retryButton} onPress={retryScan}>
+            <Text style={styles.retryButtonText}>Try Again</Text>
+          </Pressable>
+          <Pressable style={styles.cancelLink} onPress={onCancel}>
+            <Text style={styles.cancelLinkText}>Cancel</Text>
+          </Pressable>
+        </View>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      {/* Top Bar */}
       <View style={styles.topBar}>
         <Pressable onPress={onCancel} style={styles.closeButton}>
-          <Ionicons name="close" size={26} color="#0F172A" />
+          <View style={styles.iconButton}>
+            <Ionicons name="close" size={20} color="#0F172A" />
+          </View>
         </Pressable>
-        <Text style={styles.title}>{logType === "TIME_IN" ? "Time In" : "Time Out"} Verification</Text>
-        <View style={{ width: 26 }} />
+        <View style={styles.topBarTextWrap}>
+          <Text style={styles.title}>{logType === "TIME_IN" ? "Time In" : "Time Out"} Verification</Text>
+          <Text style={styles.subtitle}>Secure face check with location confirmation</Text>
+        </View>
+        <View style={styles.topBarSpacer} />
       </View>
 
-      {/* Capture Stage */}
       <View style={styles.stageWrapper}>
         <View
           style={[
             styles.captureStage,
-            // Pin the stage to the captured photo's own aspect ratio (falling
-            // back to the common 3:4 phone-camera default before the first
-            // photo arrives). Without this, the stage's shape is whatever
-            // leftover flex space the screen layout happens to give it, which
-            // is usually much taller/narrower than the actual photo — the
-            // "cover" math then has to crop away a large slice of the frame
-            // to fill it, which inflates how big the face's box looks on
-            // screen even though its proportions in the source photo are
-            // unchanged. Matching the photo's real ratio removes that crop.
             photoSize.width && photoSize.height
               ? { aspectRatio: photoSize.width / photoSize.height }
               : { aspectRatio: 3 / 4 },
@@ -781,6 +785,19 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
             onCameraReady={() => setCameraReady(true)}
           >
             <View style={styles.stageOverlay}>
+              <View style={styles.overlayHeader}>
+                <View style={styles.overlayPill}>
+                  <Ionicons name="scan-outline" size={14} color="#EFF6FF" />
+                  <Text style={styles.overlayPillText}>
+                    {faceDetected ? "Face detected" : "Position your face"}
+                  </Text>
+                </View>
+                <View style={styles.overlayHint}>
+                  <Ionicons name="sparkles-outline" size={14} color="#93C5FD" />
+                  <Text style={styles.overlayHintText}>Blink once to confirm</Text>
+                </View>
+              </View>
+
               {frozenPreviewUri && (
                 <Image
                   source={{ uri: frozenPreviewUri }}
@@ -805,43 +822,16 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
                 />
               )}
 
-              {!frozenPreviewUri && (
-                <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
-                  {screenBox && (
-                    <>
-                      <View
-                        style={[
-                          styles.trackedBox,
-                          {
-                            left: screenBox.x,
-                            top: screenBox.y,
-                            width: screenBox.width,
-                            height: screenBox.height,
-                          },
-                        ]}
-                      >
-                        {isLocked && (
-                          <View style={styles.lockBadge}>
-                            <Ionicons name="checkmark-circle" size={28} color={LOCKED_COLOR} />
-                          </View>
-                        )}
-                      </View>
-                      <Text style={styles.confidenceLabel}>{Math.round(confidence * 100)}%</Text>
-                    </>
-                  )}
-                </View>
-              )}
 
               {secondsLeft != null && (
                 <View style={styles.captureHeader}>
-                  <Text style={styles.captureHeaderCountdown}>{secondsLeft}</Text>
+                  <View style={styles.countdownChip}>
+                    <Ionicons name="timer-outline" size={16} color="#FFFFFF" />
+                    <Text style={styles.captureHeaderCountdown}>{secondsLeft}</Text>
+                  </View>
                 </View>
               )}
 
-              {/* Live preview of the geotag stamp that will be burned into the captured photo.
-                  Stays visible (now overlaid on the frozen still instead of live video) until
-                  the fully-stamped composite is ready, so the map/date/address are never
-                  missing from what's on screen during that brief gap. */}
               {!isFrozenStamped && overlayMapGrid && (
                 <View style={styles.gpsWatermarkRow} pointerEvents="none">
                   <View style={styles.mapThumbnailWrap}>
@@ -869,28 +859,37 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
         </View>
       </View>
 
-      {/* Footer: status message only */}
       <View style={styles.footer}>
-        <View style={styles.statusBar}>
-          {isScanning ? (
-            <>
-              <ActivityIndicator size="small" color="#1D4ED8" />
-              <Text style={styles.statusText}>Verifying Location & Identity...</Text>
-            </>
-          ) : (
-            <>
-              <Ionicons
-                name={isLocked ? "checkmark-circle" : faceDetected ? "scan-outline" : "alert-circle-outline"}
-                size={18}
-                color="#1D4ED8"
-              />
+        <View style={styles.statusCard}>
+          <View style={styles.statusCardRow}>
+            <View style={styles.statusIconWrap}>
+              {isScanning ? (
+                <ActivityIndicator size="small" color="#2563EB" />
+              ) : (
+                <Ionicons
+                  name={isLocked ? "checkmark-circle" : faceDetected ? "scan-outline" : "alert-circle-outline"}
+                  size={18}
+                  color="#2563EB"
+                />
+              )}
+            </View>
+            <View style={styles.statusCopy}>
+              <Text style={styles.statusLabel}>
+                {isScanning ? "Processing" : isLocked ? "Ready" : faceDetected ? "Tracking" : "Preparing"}
+              </Text>
               <Text style={styles.statusText}>{getStageText(faceDetected, scanProgress, blinkCount)}</Text>
-            </>
-          )}
+            </View>
+          </View>
+          <View style={styles.progressTrack}>
+            <View style={[styles.progressFill, { width: `${Math.min(100, Math.max(6, scanProgress))}%` }]} />
+          </View>
+        </View>
+        <View style={styles.footerCard}>
+          <Ionicons name="shield-checkmark-outline" size={18} color="#2563EB" />
+          <Text style={styles.footerText}>Your face and location are verified securely before attendance is recorded.</Text>
         </View>
       </View>
 
-      {/* Off-screen host used only to bake the GPS-camera-style stamp into the final photo */}
       {pendingCapture && (
         <View style={styles.hiddenCaptureHost} pointerEvents="none">
           <View ref={shotRef} collapsable={false} style={{ width: pendingCapture.width, height: pendingCapture.height }}>
@@ -931,46 +930,79 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F1F5F9",
+    backgroundColor: "#F8FAFC",
   },
   centerContainer: {
     flex: 1,
-    backgroundColor: "#F1F5F9",
+    backgroundColor: "#F8FAFC",
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: 24,
   },
-  errorText: {
+  errorCard: {
+    width: "100%",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
+    padding: 24,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    shadowColor: "#020617",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 4,
+  },
+  errorIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: "#EFF6FF",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 14,
+  },
+  errorTitle: {
     color: "#0F172A",
-    fontSize: 16,
+    fontSize: 18,
+    fontWeight: "700",
+    marginBottom: 8,
+  },
+  errorText: {
+    color: "#475569",
+    fontSize: 14,
     textAlign: "center",
-    marginBottom: 24,
+    marginBottom: 20,
+    lineHeight: 20,
   },
   retryButton: {
-    backgroundColor: "#1D4ED8",
+    backgroundColor: "#2563EB",
     paddingVertical: 12,
-    paddingHorizontal: 28,
-    borderRadius: 12,
+    paddingHorizontal: 24,
+    borderRadius: 999,
+    minWidth: 180,
+    alignItems: "center",
   },
   retryButtonText: {
-    color: "#fff",
+    color: "#FFFFFF",
     fontSize: 15,
     fontWeight: "700",
   },
   cancelLink: {
-    marginTop: 18,
+    marginTop: 14,
   },
   cancelLinkText: {
     color: "#64748B",
     fontSize: 14,
+    fontWeight: "600",
   },
   topBar: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingTop: 56,
+    paddingTop: 54,
     paddingHorizontal: 20,
-    paddingBottom: 14,
+    paddingBottom: 16,
     backgroundColor: "#FFFFFF",
     borderBottomWidth: 1,
     borderBottomColor: "#E2E8F0",
@@ -978,29 +1010,49 @@ const styles = StyleSheet.create({
   closeButton: {
     padding: 4,
   },
+  iconButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 999,
+    backgroundColor: "#F1F5F9",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  topBarTextWrap: {
+    flex: 1,
+    alignItems: "center",
+  },
+  topBarSpacer: {
+    width: 38,
+  },
   title: {
-    color: "#193D69",
+    color: "#0F172A",
     fontSize: 17,
     fontWeight: "700",
   },
+  subtitle: {
+    color: "#64748B",
+    fontSize: 12,
+    marginTop: 2,
+  },
   stageWrapper: {
     flex: 1,
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 8,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 6,
     justifyContent: "center",
   },
   captureStage: {
     width: "100%",
     borderRadius: 24,
     overflow: "hidden",
-    backgroundColor: "#050816",
+    backgroundColor: "#020617",
     borderWidth: 1,
-    borderColor: "rgba(148,163,184,0.18)",
+    borderColor: "rgba(148,163,184,0.2)",
     shadowColor: "#020617",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.25,
-    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.2,
+    shadowRadius: 24,
     elevation: 8,
   },
   camera: {
@@ -1008,77 +1060,144 @@ const styles = StyleSheet.create({
   },
   stageOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.25)",
+    backgroundColor: "rgba(2,6,23,0.18)",
   },
-  captureHeader: {
+  overlayHeader: {
+    position: "absolute",
+    top: 16,
+    left: 16,
+    right: 16,
+    zIndex: 2,
+    gap: 8,
+  },
+  overlayPill: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
     alignItems: "center",
-    paddingTop: 18,
-    paddingHorizontal: 20,
-  },
-  captureHeaderCountdown: {
-    color: "#fff",
-    fontSize: 38,
-    fontWeight: "800",
-    lineHeight: 42,
-    minHeight: 42,
-  },
-  trackedBox: {
-    position: "absolute",
-    borderWidth: 4,
-    borderRadius: 18,
-    borderColor: GUIDE_BOX_COLOR,
-  },
-  // Fixed placement/size guide shown before (and independently of) the
-  // backend's own dynamic tracked box, so the user has a consistent target
-  // to line their face up with rather than guessing distance/position.
-  faceGuide: {
-    position: "absolute",
-    borderWidth: 3,
-    borderStyle: "dashed",
+    gap: 6,
+    backgroundColor: "rgba(10, 15, 26, 0.72)",
+    paddingHorizontal: 10,
+    paddingVertical: 7,
     borderRadius: 999,
   },
-  confidenceLabel: {
-    position: "absolute",
-    top: 12,
-    left: 14,
-    color: "#EFF6FF",
-    fontSize: 13,
-    fontWeight: "800",
-    textShadowColor: "rgba(30,64,175,0.9)",
-    textShadowRadius: 4,
-    textShadowOffset: { width: 0, height: 0 },
+  overlayPillText: {
+    color: "#F8FAFC",
+    fontSize: 12,
+    fontWeight: "700",
   },
-  lockBadge: {
+  overlayHint: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(255,255,255,0.12)",
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 999,
+  },
+  overlayHintText: {
+    color: "#E0F2FE",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  captureHeader: {
     position: "absolute",
-    top: "50%",
-    left: "50%",
-    marginTop: -14,
-    marginLeft: -14,
+    top: 16,
+    right: 16,
+    zIndex: 2,
+  },
+  countdownChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(220,38,38,0.9)",
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 999,
+  },
+  captureHeaderCountdown: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "800",
+    lineHeight: 16,
+  },
+  faceGuide: {
+    position: "absolute",
+    borderWidth: 2,
+    borderStyle: "dashed",
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.03)",
+  },
+  statusCard: {
+    backgroundColor: "rgba(255,255,255,0.95)",
+    borderRadius: 12,
+    padding: 8,
+    borderWidth: 1,
+    borderColor: "rgba(226,232,240,0.9)",
+  },
+  statusCardRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  statusIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 999,
+    backgroundColor: "#EFF6FF",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  statusCopy: {
+    flex: 1,
+  },
+  statusLabel: {
+    color: "#0F172A",
+    fontSize: 11,
+    fontWeight: "700",
+    marginBottom: 1,
+  },
+  statusText: {
+    color: "#475569",
+    fontSize: 10.5,
+    lineHeight: 13,
+  },
+  progressTrack: {
+    height: 4,
+    marginTop: 6,
+    borderRadius: 999,
+    backgroundColor: "#E2E8F0",
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: "100%",
+    borderRadius: 999,
+    backgroundColor: "#2563EB",
   },
   footer: {
-    paddingHorizontal: 20,
-    paddingTop: 4,
-    paddingBottom: 28,
+    paddingHorizontal: 18,
+    paddingTop: 8,
+    paddingBottom: 22,
     backgroundColor: "#FFFFFF",
     borderTopWidth: 1,
     borderTopColor: "#E2E8F0",
-    gap: 12,
+    gap: 8,
   },
-  statusBar: {
+  footerCard: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    backgroundColor: "#EFF6FF",
-    borderLeftWidth: 3,
-    borderLeftColor: "#3B82F6",
-    borderRadius: 8,
-    paddingVertical: 10,
+    backgroundColor: "#F8FAFC",
+    borderRadius: 14,
+    paddingVertical: 12,
     paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
   },
-  statusText: {
+  footerText: {
     flex: 1,
-    color: "#1E3A8A",
-    fontSize: 13,
+    color: "#475569",
+    fontSize: 12.5,
     lineHeight: 18,
   },
   hiddenCaptureHost: {
@@ -1087,25 +1206,23 @@ const styles = StyleSheet.create({
     left: 0,
     opacity: 0,
   },
-  // Live, on-screen verification stamp — original, smaller sizing.
   gpsWatermarkRow: {
     position: "absolute",
-    left: 16,
-    right: 16,
-    bottom: 16,
+    left: 10,
+    right: 10,
+    bottom: 10,
     flexDirection: "row",
     alignItems: "flex-end",
-    gap: 12,
+    gap: 8,
+    zIndex: 3,
   },
   mapThumbnailWrap: {
-    width: MAP_THUMBNAIL_DISPLAY_SIZE,
-    height: MAP_THUMBNAIL_DISPLAY_SIZE,
-    borderRadius: 16,
+    width: 74,
+    height: 74,
+    borderRadius: 14,
     overflow: "hidden",
     borderWidth: 2,
     borderColor: "#FFFFFF",
-    // Light neutral instead of dark navy, so a tile that fails to load
-    // doesn't look like a black hole on screen.
     backgroundColor: "#CBD5E1",
     position: "relative",
   },
@@ -1116,8 +1233,8 @@ const styles = StyleSheet.create({
   },
   mapPinIcon: {
     position: "absolute",
-    left: MAP_THUMBNAIL_DISPLAY_SIZE / 2 - 12,
-    top: MAP_THUMBNAIL_DISPLAY_SIZE / 2 - 22,
+    left: 74 / 2 - 12,
+    top: 74 / 2 - 20,
     textShadowColor: "#FFFFFF",
     textShadowRadius: 3,
     textShadowOffset: { width: 0, height: 0 },
@@ -1125,31 +1242,29 @@ const styles = StyleSheet.create({
   gpsTextColumn: {
     flex: 1,
     justifyContent: "flex-end",
-    gap: 6,
+    gap: 4,
   },
   dateBadge: {
     alignSelf: "flex-start",
     backgroundColor: "#DC2626",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
     borderRadius: 6,
   },
   dateBadgeText: {
     color: "#FFFFFF",
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "800",
   },
   addressText: {
     color: "#FFFFFF",
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "700",
-    lineHeight: 17,
+    lineHeight: 15,
     textShadowColor: "rgba(0,0,0,0.85)",
     textShadowRadius: 4,
     textShadowOffset: { width: 0, height: 1 },
   },
-  // Saved/composited photo stamp (baked into the file shown in DTR) —
-  // enlarged so the map/date/address stay legible at the photo's full size.
   gpsWatermarkRowSaved: {
     position: "absolute",
     left: 40,
