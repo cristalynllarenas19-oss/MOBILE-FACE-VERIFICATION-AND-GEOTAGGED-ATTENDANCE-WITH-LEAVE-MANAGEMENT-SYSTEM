@@ -1,0 +1,139 @@
+.ddp-placeholder {
+  flex: 1 1 auto;
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  color: var(--muted);
+  padding: 20px;
+}
+
+.ddp-placeholder svg {
+  color: #b7c4d6;
+}
+
+.ddp-placeholder p {
+  font-size: 12px;
+  line-height: 1.5;
+  max-width: 220px;
+  margin: 0;
+}
+
+.ddp-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-height: 0;
+  animation: ddp-fade-in 0.3s ease;
+}
+
+@keyframes ddp-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.ddp-date {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--text);
+  padding-bottom: 4px;
+  border-bottom: 1px solid #edf2f7;
+}
+
+.ddp-dept-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.ddp-dept-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-bottom: 3px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.ddp-dept-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.ddp-dept-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ddp-dept-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.ddp-dept-link {
+  background: none;
+  border: none;
+  color: #1a6faf;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+  white-space: nowrap;
+}
+
+.ddp-dept-link:hover {
+  text-decoration: underline;
+}
+
+.ddp-dept-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0px 8px;
+  font-size: 9px;
+  color: var(--sub);
+}
+
+.ddp-rate-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.ddp-rate-value {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.ddp-rate-track {
+  height: 5px;
+  border-radius: 3px;
+  background: #eef2f7;
+  overflow: hidden;
+}
+
+.ddp-rate-bar {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease, background 0.2s ease;
+}
+
+.ddp-empty {
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  padding: 24px 0;
+}

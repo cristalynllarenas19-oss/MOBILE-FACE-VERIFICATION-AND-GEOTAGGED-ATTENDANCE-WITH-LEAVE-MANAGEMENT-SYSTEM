@@ -1,0 +1,154 @@
+.mabar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.mabar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.mabar-leg-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--sub);
+}
+
+.mabar-leg-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.mabar-track {
+  flex: 1 1 auto;
+  min-height: 140px;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.mabar-col {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 10px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.mabar-stack {
+  width: 100%;
+  max-width: 22px;
+  height: 100%;
+  display: flex;
+  flex-direction: column-reverse;
+  border-radius: 4px 4px 2px 2px;
+  overflow: hidden;
+  background: #eef2f7;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.mabar-seg {
+  width: 100%;
+  transition: height 0.3s ease;
+}
+
+.mabar-seg-empty {
+  background: #eef2f7;
+}
+
+.mabar-col:hover .mabar-stack {
+  transform: translateY(-2px);
+}
+
+.mabar-col.selected .mabar-stack {
+  box-shadow: 0 0 0 2px var(--navy), 0 4px 10px rgba(26, 58, 92, 0.25);
+}
+
+.mabar-col.empty .mabar-stack {
+  opacity: 0.5;
+}
+
+.mabar-day-label {
+  font-size: 9px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.mabar-col.selected .mabar-day-label {
+  color: var(--navy);
+  font-weight: 800;
+}
+
+.mabar-tooltip {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  background: #1a3a5c;
+  color: #ffffff;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 10px;
+  white-space: nowrap;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  z-index: 20;
+}
+
+.mabar-tooltip strong {
+  font-size: 11px;
+  margin-bottom: 2px;
+}
+
+.mabar-tooltip span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.mabar-tooltip i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.mabar-col:hover .mabar-tooltip,
+.mabar-col:focus-visible .mabar-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+
+@media (max-width: 640px) {
+  .mabar-track {
+    justify-content: flex-start;
+  }
+  .mabar-col {
+    min-width: 16px;
+  }
+}

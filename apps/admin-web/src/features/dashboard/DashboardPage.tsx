@@ -9,28 +9,25 @@ import {
   ScanFace,
   TrendingUp,
   Users,
-  X,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import { AttendanceNavigateFilter, BarChart, DeptAttendanceRow } from "../../components/ui/BarChart";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AttendanceNavigateFilter, DeptAttendanceRow } from "../../components/ui/BarChart";
 import { Card } from "../../components/ui/Card";
+import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { StatCard } from "../../components/ui/StatCard";
 import { apiRequest, SessionExpiredError } from "../../lib/api";
+import { AttendanceDonut } from "./AttendanceDonut";
+import { computeAttendanceRate, getRateTone, RATE_TONE_COLOR } from "./attendanceRate";
+import { formatShortDate } from "./dateUtils";
+import { DayDetailPanel } from "./DayDetailPanel";
+import { MonthlyAttendanceChart } from "./MonthlyAttendanceChart";
+import { TodaySummaryCard } from "./TodaySummaryCard";
 import "./DashboardPage.css";
-
-const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ];
-
-const STATUS_COLORS = {
-  present: "#1baf7a",
-  absent: "#e34948",
-  onLeave: "#4a3aa7",
-  officialBusiness: "#2a78d6",
-};
 
 type CalendarDay = {
   day: number;
@@ -52,16 +49,6 @@ type DashboardSummary = {
     pendingLeaves: number;
     geotaggedLogs: number;
   };
-  attendanceSummary: {
-    present: number;
-    late: number;
-    pendingReview: number;
-  };
-  leaveAvailability: {
-    vacation: number;
-    sick: number;
-    special: number;
-  };
   enrollment: {
     enrolled: number;
     total: number;
@@ -75,177 +62,21 @@ type DashboardSummary = {
     days: CalendarDay[];
   };
   absenceTrends: { department: string; dayOfWeek: string; absences: number; insight: string }[];
+  departmentAttendance: {
+    today: DeptAttendanceRow[];
+    week: DeptAttendanceRow[];
+    month: DeptAttendanceRow[];
+  };
 };
 
 const initialSummary: DashboardSummary = {
   stats: { totalEmployees: 0, presentToday: 0, lateToday: 0, absentToday: 0, pendingLeaves: 0, geotaggedLogs: 0 },
-  attendanceSummary: { present: 0, late: 0, pendingReview: 0 },
-  leaveAvailability: { vacation: 0, sick: 0, special: 0 },
   enrollment: { enrolled: 0, total: 0 },
   geotagging: { assigned: 0, total: 0 },
   calendar: { monthLabel: "", days: [] },
   absenceTrends: [],
+  departmentAttendance: { today: [], week: [], month: [] },
 };
-
-function isToday(isoDate: string) {
-  if (!isoDate) return false;
-  const date = new Date(isoDate);
-  const now = new Date();
-  return (
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() &&
-    date.getDate() === now.getDate()
-  );
-}
-
-function formatFullDate(isoDate: string) {
-  if (!isoDate) return "";
-  return new Date(isoDate).toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
-// Local YYYY-MM-DD (not UTC — a plain .toISOString().slice(0, 10) can land on
-// the wrong calendar day for timezones ahead of UTC).
-function toDateInputValue(isoDate: string) {
-  const date = new Date(isoDate);
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-function DayMiniBar({ day }: { day: CalendarDay }) {
-  const segments = [
-    { key: "present",          value: day.present,          color: STATUS_COLORS.present },
-    { key: "absent",           value: day.absent,           color: STATUS_COLORS.absent },
-    { key: "onLeave",          value: day.onLeave,          color: STATUS_COLORS.onLeave },
-    { key: "officialBusiness", value: day.officialBusiness, color: STATUS_COLORS.officialBusiness },
-  ];
-  const total = segments.reduce((sum, s) => sum + s.value, 0);
-
-  if (total === 0) {
-    return (
-      <div className="mini-bar empty">
-        <span style={{ flexGrow: 1 }} />
-      </div>
-    );
-  }
-
-  return (
-    <div className="mini-bar">
-      {segments
-        .filter((s) => s.value > 0)
-        .map((s) => (
-          <span key={s.key} style={{ flexGrow: s.value, background: s.color }} />
-        ))}
-    </div>
-  );
-}
-
-function DayDetailModal({
-  day,
-  days,
-  onChangeDay,
-  onClose,
-  onNavigate,
-}: {
-  day: CalendarDay;
-  days: CalendarDay[];
-  onChangeDay: (day: CalendarDay) => void;
-  onClose: () => void;
-  onNavigate: (filter: AttendanceNavigateFilter) => void;
-}) {
-  const total = day.present + day.late + day.absent + day.onLeave + day.officialBusiness;
-  const hasDepts = day.departments && day.departments.length > 0;
-  const dateValue = toDateInputValue(day.date);
-
-  const dayIndex = days.findIndex((d) => d.day === day.day);
-  const prevDay = dayIndex > 0 ? days[dayIndex - 1] : null;
-  const nextDay = dayIndex >= 0 && dayIndex < days.length - 1 ? days[dayIndex + 1] : null;
-
-  const handleRowNavigate = (filter: AttendanceNavigateFilter) => {
-    onNavigate(filter);
-    onClose();
-  };
-
-  return (
-    <div className="day-modal-backdrop" role="presentation" onClick={onClose}>
-      <section
-        className="day-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="day-modal-title"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="day-modal-header">
-          <div className="day-modal-title-group">
-            <button
-              type="button"
-              className="icon-button"
-              onClick={() => prevDay && onChangeDay(prevDay)}
-              disabled={!prevDay}
-              aria-label="Previous day"
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <div>
-              <h2 id="day-modal-title">{formatFullDate(day.date)}</h2>
-              <p>Attendance breakdown by department</p>
-            </div>
-            <button
-              type="button"
-              className="icon-button"
-              onClick={() => nextDay && onChangeDay(nextDay)}
-              disabled={!nextDay}
-              aria-label="Next day"
-            >
-              <ChevronRight size={16} />
-            </button>
-          </div>
-          <button className="icon-button" onClick={onClose} aria-label="Close date details">
-            <X size={18} />
-          </button>
-        </div>
-        <div className="day-modal-body">
-          <div className="day-modal-pills">
-            <span className="day-modal-pill pill-present">
-              <span className="pill-dot" style={{ background: STATUS_COLORS.present }} />
-              {day.present} Present
-            </span>
-            <span className="day-modal-pill pill-late">
-              <span className="pill-dot" style={{ background: "#eda100" }} />
-              {day.late} Late
-            </span>
-            <span className="day-modal-pill pill-absent">
-              <span className="pill-dot" style={{ background: STATUS_COLORS.absent }} />
-              {day.absent} Absent
-            </span>
-            <span className="day-modal-pill pill-leave">
-              <span className="pill-dot" style={{ background: STATUS_COLORS.onLeave }} />
-              {day.onLeave} On leave
-            </span>
-            <span className="day-modal-pill pill-ob">
-              <span className="pill-dot" style={{ background: STATUS_COLORS.officialBusiness }} />
-              {day.officialBusiness} Official business
-            </span>
-          </div>
-
-          {total === 0 ? (
-            <p className="day-modal-empty">No attendance records for this date yet.</p>
-          ) : hasDepts ? (
-            <BarChart mode="department" data={day.departments} date={dateValue} onNavigate={handleRowNavigate} />
-          ) : (
-            <p className="day-modal-empty">No department breakdown available.</p>
-          )}
-        </div>
-      </section>
-    </div>
-  );
-}
 
 // ── Month/Year picker dropdown ───────────────────────────────────────────────
 function CalendarPicker({
@@ -362,6 +193,7 @@ export function DashboardPage({
   const [calendarLoading, setCalendarLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<CalendarDay | null>(null);
+  const [departmentFilter, setDepartmentFilter] = useState("ALL");
   const [trendIndex, setTrendIndex] = useState(0);
 
   useEffect(() => {
@@ -379,15 +211,22 @@ export function DashboardPage({
       `/dashboard/summary?month=${calendarMonth + 1}&year=${calendarYear}`
     )
       .then((data) => {
+        const days = data?.calendar?.days ?? [];
         setSummary({
           stats: { ...initialSummary.stats, ...data?.stats },
-          attendanceSummary: { ...initialSummary.attendanceSummary, ...data?.attendanceSummary },
-          leaveAvailability: { ...initialSummary.leaveAvailability, ...data?.leaveAvailability },
           enrollment: { ...initialSummary.enrollment, ...data?.enrollment },
           geotagging: { ...initialSummary.geotagging, ...data?.geotagging },
           calendar: { ...initialSummary.calendar, ...data?.calendar },
           absenceTrends: data?.absenceTrends ?? [],
+          departmentAttendance: { ...initialSummary.departmentAttendance, ...data?.departmentAttendance },
         });
+        // Default to today's date when browsing the current month (so the
+        // detail panel and donut are never blank on first load); otherwise
+        // fall back to the 1st of whichever month is being viewed.
+        const isCurrentMonth = calendarYear === now.getFullYear() && calendarMonth === now.getMonth();
+        const preferredDayNum = isCurrentMonth ? now.getDate() : 1;
+        const autoDay = days.find((d) => d.day === preferredDayNum) ?? days[0] ?? null;
+        setSelectedDay(autoDay);
         setLoadError(null);
       })
       .catch((err) => {
@@ -407,6 +246,70 @@ export function DashboardPage({
     if (calendarMonth === 11) { setCalendarYear((y) => y + 1); setCalendarMonth(0); }
     else setCalendarMonth((m) => m + 1);
   }
+
+  const onLeaveToday = summary.departmentAttendance.today.reduce((sum, row) => sum + row.onLeave, 0);
+
+  const departmentOptions = useMemo(
+    () =>
+      (summary.calendar.days[0]?.departments ?? []).map((row) => ({
+        value: row.department,
+        label: row.department,
+      })),
+    [summary.calendar.days],
+  );
+
+  // The chart's top-level day fields are already company-wide totals; filtering
+  // by department means swapping each day's numbers for that department's row.
+  const filteredDays = useMemo(() => {
+    if (departmentFilter === "ALL") return summary.calendar.days;
+    return summary.calendar.days.map((day) => {
+      const deptRow = day.departments.find((d) => d.department === departmentFilter);
+      return {
+        ...day,
+        present: deptRow?.present ?? 0,
+        late: deptRow?.late ?? 0,
+        absent: deptRow?.absent ?? 0,
+        onLeave: deptRow?.onLeave ?? 0,
+        officialBusiness: deptRow?.officialBusiness ?? 0,
+      };
+    });
+  }, [summary.calendar.days, departmentFilter]);
+
+  const monthlyRate = useMemo(() => {
+    const totals = filteredDays.reduce(
+      (acc, day) => ({
+        ...acc,
+        present: acc.present + day.present,
+        late: acc.late + day.late,
+        absent: acc.absent + day.absent,
+        onLeave: acc.onLeave + day.onLeave,
+        officialBusiness: acc.officialBusiness + day.officialBusiness,
+      }),
+      { department: "", present: 0, late: 0, absent: 0, onLeave: 0, officialBusiness: 0 },
+    );
+    return computeAttendanceRate(totals);
+  }, [filteredDays]);
+
+  // Attendance Breakdown donut tracks the same selected date + department
+  // filter as the detail panel, so both always describe the same scope.
+  const donutSource = useMemo(() => {
+    if (!selectedDay) return { present: 0, late: 0, absent: 0, onLeave: 0 };
+    if (departmentFilter === "ALL") {
+      return {
+        present: selectedDay.present,
+        late: selectedDay.late,
+        absent: selectedDay.absent,
+        onLeave: selectedDay.onLeave,
+      };
+    }
+    const row = selectedDay.departments.find((d) => d.department === departmentFilter);
+    return {
+      present: row?.present ?? 0,
+      late: row?.late ?? 0,
+      absent: row?.absent ?? 0,
+      onLeave: row?.onLeave ?? 0,
+    };
+  }, [selectedDay, departmentFilter]);
 
   return (
     <div className="dashboard-page">
@@ -432,57 +335,60 @@ export function DashboardPage({
         />
       </div>
 
-      <div className="dashboard-grid">
-        <div className="left-col">
-          <Card className={`calendar-card${calendarLoading ? " calendar-loading" : ""}`}>
-            <div className="card-heading calendar-heading-row">
-              <h3>Attendance Calendar</h3>
-              <span className="cal-hint">Click a date to view its breakdown</span>
-            </div>
-
+      <div className={`dashboard-interactive-grid${calendarLoading ? " dashboard-loading" : ""}`}>
+        <Card className="monthly-chart-card">
+          <div className="card-heading calendar-heading-row">
+            <h3>Monthly Attendance</h3>
             <div className="calendar-header">
               <button className="cal-nav-btn" onClick={prevMonth} aria-label="Previous month">
                 <ChevronLeft size={16} />
               </button>
-
               <CalendarPicker
                 month={calendarMonth}
                 year={calendarYear}
                 onChange={(m, y) => { setCalendarMonth(m); setCalendarYear(y); }}
               />
-
               <button className="cal-nav-btn" onClick={nextMonth} aria-label="Next month">
                 <ChevronRight size={16} />
               </button>
             </div>
+          </div>
 
-            <div className="calendar-grid">
-              {days.map((day) => (
-                <span key={day}>{day}</span>
-              ))}
-              {(summary.calendar?.days ?? []).map((day) => (
-                <button
-                  type="button"
-                  className={[
-                    day.absent >= 3 ? "hot" : day.absent > 0 ? "warm" : "",
-                    isToday(day.date) ? "today" : "",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
-                  key={day.day}
-                  onClick={() => setSelectedDay(day)}
-                >
-                  <strong>{day.day}</strong>
-                  <DayMiniBar day={day} />
-                  <small>{day.absent} absent</small>
-                </button>
-              ))}
-            </div>
-          </Card>
-        </div>
+          <div className="monthly-toolbar-row">
+            <span className="monthly-rate">
+              Attendance Rate{" "}
+              <strong style={{ color: RATE_TONE_COLOR[getRateTone(monthlyRate.rate)] }}>
+                {monthlyRate.rate}%
+              </strong>
+            </span>
+            <DropdownFilter
+              value={departmentFilter}
+              options={departmentOptions}
+              onChange={setDepartmentFilter}
+              allLabel="All Departments"
+              menuLabel="Department"
+              allValue="ALL"
+              ariaLabel="Filter monthly attendance by department"
+            />
+          </div>
 
-        <aside className="side-stack">
-          <Card className="side-card">
+          <MonthlyAttendanceChart
+            days={filteredDays}
+            selectedDay={selectedDay?.day ?? null}
+            onSelectDay={(day) => {
+              const match = summary.calendar.days.find((d) => d.day === day.day);
+              if (match) setSelectedDay(match);
+            }}
+          />
+        </Card>
+
+        <Card className="day-detail-card">
+          <div className="card-heading">
+            <h3>Attendance Details</h3>
+          </div>
+          <DayDetailPanel day={selectedDay} departmentFilter={departmentFilter} onNavigate={onNavigateToAttendance} />
+
+          <div className="dashboard-inline-section">
             <div className="side-card-header">
               <TrendingUp size={15} />
               <h3>Absence Trends</h3>
@@ -511,55 +417,35 @@ export function DashboardPage({
                 ))}
               </div>
             )}
-          </Card>
+          </div>
+        </Card>
 
-          <Card className="side-card">
-            <div className="side-card-header">
-              <h3>Attendance Summary</h3>
-            </div>
-            <div className="summary-row">
-              <span>Present</span>
-              <strong className="value-green">{summary.attendanceSummary.present}</strong>
-            </div>
-            <div className="summary-row">
-              <span>Late</span>
-              <strong className="warning-text">{summary.attendanceSummary.late}</strong>
-            </div>
-            <div className="summary-row">
-              <span>Pending Review</span>
-              <strong>{summary.attendanceSummary.pendingReview}</strong>
-            </div>
-          </Card>
+        <Card className="donut-card">
+          <div className="card-heading calendar-heading-row">
+            <h3>Attendance Breakdown</h3>
+            <span className="cal-hint">{selectedDay ? formatShortDate(selectedDay.date) : "No date selected"}</span>
+          </div>
+          <AttendanceDonut
+            present={donutSource.present}
+            late={donutSource.late}
+            absent={donutSource.absent}
+            onLeave={donutSource.onLeave}
+          />
 
-          <Card className="side-card">
+          <div className="dashboard-inline-section">
             <div className="side-card-header">
-              <h3>Leave Availability</h3>
+              <h3>Today's Summary</h3>
             </div>
-            <div className="summary-row">
-              <span>Vacation Leave</span>
-              <strong>{summary.leaveAvailability.vacation}</strong>
-            </div>
-            <div className="summary-row">
-              <span>Sick Leave</span>
-              <strong>{summary.leaveAvailability.sick}</strong>
-            </div>
-            <div className="summary-row">
-              <span>Special Leave</span>
-              <strong>{summary.leaveAvailability.special}</strong>
-            </div>
-          </Card>
-        </aside>
+            <TodaySummaryCard
+              working={summary.stats.presentToday}
+              onLeave={onLeaveToday}
+              late={summary.stats.lateToday}
+              absent={summary.stats.absentToday}
+              totalEmployees={summary.stats.totalEmployees}
+            />
+          </div>
+        </Card>
       </div>
-
-      {selectedDay && (
-        <DayDetailModal
-          day={selectedDay}
-          days={summary.calendar?.days ?? []}
-          onChangeDay={setSelectedDay}
-          onClose={() => setSelectedDay(null)}
-          onNavigate={onNavigateToAttendance}
-        />
-      )}
     </div>
   );
 }
