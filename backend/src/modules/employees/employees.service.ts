@@ -2,7 +2,12 @@ import { BadRequestException, Injectable } from "@nestjs/common";
 import * as argon2 from "argon2";
 import { PrismaService } from "../../prisma/prisma.service";
 import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
-import { CreateEmployeeDto, UpdateEmployeeDto } from "./dto/create-employee.dto";
+import { CreateEmployeeDto, CreateEmployeeSex, UpdateEmployeeDto } from "./dto/create-employee.dto";
+
+const GENDER_LEAVE_TYPE_NAME: Record<string, string> = {
+  MALE: "Paternity Leave",
+  FEMALE: "Maternity Leave",
+};
 
 @Injectable()
 export class EmployeesService {
@@ -67,9 +72,13 @@ export class EmployeesService {
         hireDate: dto.hireDate ? new Date(dto.hireDate) : new Date(),
         employmentStatus: dto.employmentStatus,
         attendanceMode: dto.attendanceMode ?? "FIXED",
+        sex: dto.sex,
+        soloParentStatus: dto.soloParentStatus ?? "NOT_APPLICABLE",
       },
       include: { user: true, department: true, position: true },
     });
+
+    await this.assignGenderLeaveType(created.id, dto.sex);
 
     await this.auditLogs.record({
       ...context,
@@ -85,10 +94,27 @@ export class EmployeesService {
         department: created.department.name,
         employmentStatus: created.employmentStatus,
         attendanceMode: created.attendanceMode,
+        sex: created.sex,
+        soloParentStatus: created.soloParentStatus,
       },
     });
 
     return created;
+  }
+
+  // Male hires are auto-enrolled in Paternity Leave and female hires in
+  // Maternity Leave so HR never has to add these manually after registration.
+  private async assignGenderLeaveType(employeeId: string, sex: CreateEmployeeSex) {
+    const leaveTypeName = GENDER_LEAVE_TYPE_NAME[sex];
+    const leaveType = await this.prisma.leaveType.findFirst({ where: { name: leaveTypeName } });
+    if (!leaveType) return;
+
+    const year = new Date().getFullYear();
+    await this.prisma.leaveBalance.upsert({
+      where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId: leaveType.id, year } },
+      update: {},
+      create: { employeeId, leaveTypeId: leaveType.id, year, earnedDays: leaveType.defaultDays, usedDays: 0 },
+    });
   }
 
   async update(id: string, dto: UpdateEmployeeDto, context: AuditLogContext = {}) {
@@ -134,6 +160,10 @@ export class EmployeesService {
       include: { user: true, department: true, position: true },
     });
 
+    if (dto.leaveAllocationDays !== undefined && employee.sex) {
+      await this.updateGenderLeaveAllocation(id, employee.sex, dto.leaveAllocationDays);
+    }
+
     await this.auditLogs.record({
       ...context,
       action: "UPDATE_EMPLOYEE",
@@ -162,6 +192,23 @@ export class EmployeesService {
     });
 
     return updated;
+  }
+
+  // Updates the earned days for this year's Paternity/Maternity LeaveBalance
+  // row so admin edits in Edit Employee stay in sync with Leave Management.
+  private async updateGenderLeaveAllocation(employeeId: string, sex: string, earnedDays: number) {
+    const leaveTypeName = GENDER_LEAVE_TYPE_NAME[sex];
+    if (!leaveTypeName) return;
+
+    const leaveType = await this.prisma.leaveType.findFirst({ where: { name: leaveTypeName } });
+    if (!leaveType) return;
+
+    const year = new Date().getFullYear();
+    await this.prisma.leaveBalance.upsert({
+      where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId: leaveType.id, year } },
+      update: { earnedDays },
+      create: { employeeId, leaveTypeId: leaveType.id, year, earnedDays, usedDays: 0 },
+    });
   }
 
   async archive(id: string, dto: { reason?: string; archiveType?: string }, context: AuditLogContext = {}) {

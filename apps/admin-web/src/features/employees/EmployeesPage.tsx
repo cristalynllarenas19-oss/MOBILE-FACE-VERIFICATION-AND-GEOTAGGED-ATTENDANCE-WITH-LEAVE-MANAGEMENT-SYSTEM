@@ -16,6 +16,7 @@ type Employee = {
   lastName: string;
   employmentStatus: "REGULAR" | "CONTRACTUAL_SEASONAL" | "PIECE_RATE" | "SEPARATED";
   soloParentStatus: "NOT_APPLICABLE" | "ELIGIBLE" | "INELIGIBLE";
+  sex?: "MALE" | "FEMALE" | null;
   attendanceMode: "FIXED" | "FIELD";
   hireDate?: string;
   archiveType?: string;
@@ -40,6 +41,7 @@ type EmployeeForm = {
   employmentStatus: "REGULAR" | "CONTRACTUAL_SEASONAL" | "PIECE_RATE";
   attendanceMode: "FIXED" | "FIELD";
   soloParentStatus: "NOT_APPLICABLE" | "ELIGIBLE" | "INELIGIBLE";
+  sex: "MALE" | "FEMALE";
 };
 
 type EditEmployeeForm = Omit<EmployeeForm, "password">;
@@ -57,6 +59,7 @@ const initialForm: EmployeeForm = {
   employmentStatus: "REGULAR",
   attendanceMode: "FIXED",
   soloParentStatus: "NOT_APPLICABLE",
+  sex: "MALE",
 };
 
 function getDateInputValue(value?: string) {
@@ -232,6 +235,8 @@ function AddEmployeeModal({
           department: form.department.trim(),
           employmentStatus: form.employmentStatus,
           attendanceMode: form.attendanceMode,
+          sex: form.sex,
+          soloParentStatus: form.soloParentStatus,
           ...(form.hireDate ? { hireDate: form.hireDate } : {}),
         },
         {
@@ -317,6 +322,24 @@ function AddEmployeeModal({
 
         <div className="employee-form-grid">
           <label>
+            Sex/Gender
+            <select value={form.sex} onChange={updateField("sex")}>
+              <option value="MALE">Male</option>
+              <option value="FEMALE">Female</option>
+            </select>
+          </label>
+          <label>
+            Solo Parent Eligibility
+            <select value={form.soloParentStatus} onChange={updateField("soloParentStatus")}>
+              <option value="NOT_APPLICABLE">Not Applicable</option>
+              <option value="ELIGIBLE">Eligible</option>
+              <option value="INELIGIBLE">Ineligible</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="employee-form-grid">
+          <label>
             Hire Date
             <input type="date" value={form.hireDate} onChange={updateField("hireDate")} />
           </label>
@@ -367,9 +390,33 @@ function EditEmployeeModal({
     employmentStatus: employee.employmentStatus === "SEPARATED" ? "REGULAR" : employee.employmentStatus,
     attendanceMode: employee.attendanceMode ?? "FIXED",
     soloParentStatus: employee.soloParentStatus ?? "NOT_APPLICABLE",
+    sex: employee.sex === "FEMALE" ? "FEMALE" : "MALE",
   });
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
+  const [leaveAllocation, setLeaveAllocation] = useState("");
+  const [isAllocationLoading, setIsAllocationLoading] = useState(false);
+
+  const genderLeaveLabel =
+    employee.sex === "MALE"
+      ? "Paternity Leave Allocation (days)"
+      : employee.sex === "FEMALE"
+        ? "Maternity Leave Allocation (days)"
+        : null;
+
+  useEffect(() => {
+    if (!employee.sex) return;
+    const leaveTypeName = employee.sex === "MALE" ? "Paternity Leave" : "Maternity Leave";
+
+    setIsAllocationLoading(true);
+    apiRequest<{ leaveTypeName: string; earnedDays: number }[]>(`/leave-balances/${employee.id}`)
+      .then((balances) => {
+        const match = balances.find((balance) => balance.leaveTypeName === leaveTypeName);
+        setLeaveAllocation(match ? String(match.earnedDays) : "");
+      })
+      .catch(() => undefined)
+      .finally(() => setIsAllocationLoading(false));
+  }, [employee.id, employee.sex]);
 
   const updateField =
     (field: keyof EditEmployeeForm) =>
@@ -412,6 +459,7 @@ function EditEmployeeModal({
           attendanceMode: form.attendanceMode,
           soloParentStatus: form.soloParentStatus,
           ...(form.hireDate ? { hireDate: form.hireDate } : {}),
+          ...(employee.sex && leaveAllocation !== "" ? { leaveAllocationDays: Number(leaveAllocation) } : {}),
         },
         {
           headers: {
@@ -509,6 +557,23 @@ function EditEmployeeModal({
             </select>
           </label>
         </div>
+
+        {genderLeaveLabel && (
+          <div className="employee-form-grid">
+            <label>
+              {genderLeaveLabel}
+              <input
+                type="number"
+                min={0}
+                step={1}
+                value={leaveAllocation}
+                onChange={(event) => setLeaveAllocation(event.target.value)}
+                placeholder={isAllocationLoading ? "Loading..." : "0"}
+                disabled={isAllocationLoading}
+              />
+            </label>
+          </div>
+        )}
 
         {error && <p className="employee-form-error">{error}</p>}
 

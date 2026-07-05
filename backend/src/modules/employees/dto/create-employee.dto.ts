@@ -1,4 +1,4 @@
-import { IsDateString, IsEmail, IsEnum, IsOptional, IsString, MinLength } from "class-validator";
+import { IsDateString, IsEmail, IsEnum, IsInt, IsOptional, IsString, Min, MinLength } from "class-validator";
 
 export enum CreateEmployeeEmploymentStatus {
   REGULAR = "REGULAR",
@@ -15,6 +15,11 @@ export enum EmployeeSoloParentStatus {
   NOT_APPLICABLE = "NOT_APPLICABLE",
   ELIGIBLE = "ELIGIBLE",
   INELIGIBLE = "INELIGIBLE",
+}
+
+export enum CreateEmployeeSex {
+  MALE = "MALE",
+  FEMALE = "FEMALE",
 }
 
 export class CreateEmployeeDto {
@@ -44,6 +49,13 @@ export class CreateEmployeeDto {
   @IsOptional()
   @IsEnum(CreateEmployeeAttendanceMode)
   attendanceMode?: CreateEmployeeAttendanceMode;
+
+  @IsEnum(CreateEmployeeSex)
+  sex!: CreateEmployeeSex;
+
+  @IsOptional()
+  @IsEnum(EmployeeSoloParentStatus)
+  soloParentStatus?: EmployeeSoloParentStatus;
 }
 
 export class UpdateEmployeeDto {
@@ -82,4 +94,11 @@ export class UpdateEmployeeDto {
   @IsOptional()
   @IsEnum(EmployeeSoloParentStatus)
   soloParentStatus?: EmployeeSoloParentStatus;
+
+  // Earned days for the employee's gender-linked leave type (Paternity for
+  // MALE, Maternity for FEMALE) for the current year — set from Edit Employee.
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  leaveAllocationDays?: number;
 }
