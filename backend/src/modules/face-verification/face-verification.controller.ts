@@ -18,6 +18,6 @@ export class FaceVerificationController {
 
   @Post("detect")
   detect(@Body() dto: DetectFaceDto) {
-    return this.faceService.detectFace(dto.imageBase64);
+    return this.faceService.detectFace(dto.imageBase64, dto.precise ?? false);
   }
 }

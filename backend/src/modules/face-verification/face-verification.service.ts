@@ -27,6 +27,11 @@ export class FaceVerificationService implements OnModuleInit {
       this.modelsLoadingPromise = Promise.all([
         faceapi.nets.tinyFaceDetector.loadFromDisk(MODELS_PATH),
         faceapi.nets.faceLandmark68TinyNet.loadFromDisk(MODELS_PATH),
+        // Full (non-tiny) landmark model — noticeably more accurate at
+        // localizing eyelid position than the tiny variant, which is what
+        // the blink-liveness check needs. The tiny model stays in use for
+        // plain face tracking, where speed matters more than that precision.
+        faceapi.nets.faceLandmark68Net.loadFromDisk(MODELS_PATH),
         faceapi.nets.faceRecognitionNet.loadFromDisk(MODELS_PATH),
       ]).then(() => {
         this.logger.log("Face recognition models loaded");
@@ -61,7 +66,17 @@ export class FaceVerificationService implements OnModuleInit {
 
   async detectFace(
     imageBase64: string,
-  ): Promise<{ detected: boolean; confidence: number; box: { x: number; y: number; width: number; height: number } | null }> {
+    precise = false,
+  ): Promise<{
+    detected: boolean;
+    confidence: number;
+    box: { x: number; y: number; width: number; height: number } | null;
+    // Eye-aspect-ratio for the current frame, used client-side to drive a
+    // blink-based liveness check. Null whenever a face box was found but
+    // landmarks couldn't be resolved for it (e.g. extreme angle/blur) — the
+    // client just skips those frames rather than treating them as a blink.
+    ear: number | null;
+  }> {
     await this.ensureModelsLoaded();
 
     const base64Data = imageBase64.includes("base64,") ? imageBase64.split("base64,")[1] : imageBase64;
@@ -69,27 +84,63 @@ export class FaceVerificationService implements OnModuleInit {
 
     try {
       const image = await canvasLib.loadImage(buffer);
-      const result = await faceapi.detectSingleFace(
-        image as any,
-        new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 }),
-      );
+      // A bigger detector input gives the landmark model more pixels to
+      // place the eye points on, and the full (non-tiny) landmark net
+      // itself is far more accurate at eyelid position than the tiny one —
+      // both matter a lot for the blink check (a couple of pixels of noise
+      // is a big fraction of an eye's height) but aren't worth the extra
+      // latency for plain face tracking, which only needs a box.
+      const result = await faceapi
+        .detectSingleFace(
+          image as any,
+          new faceapi.TinyFaceDetectorOptions({ inputSize: precise ? 416 : 224, scoreThreshold: 0.45 }),
+        )
+        .withFaceLandmarks(!precise);
 
       if (!result) {
-        return { detected: false, confidence: 0, box: null };
+        return { detected: false, confidence: 0, box: null, ear: null };
       }
 
       // Box coordinates as fractions (0-1) of the source image, so the
       // mobile client can map them onto its own preview size without
       // needing to know the exact pixel dimensions we decoded here.
-      const relativeBox = result.relativeBox;
+      const relativeBox = result.detection.relativeBox;
+      const ear = this.computeEyeAspectRatio(result.landmarks);
+      // Temporary while diagnosing the blink check: confirms, from the
+      // server's own terminal, which model this request actually used and
+      // what it computed — independent of anything the client reports.
+      // .log (not .debug) so this is visible regardless of configured log
+      // levels — Nest's default logger has "debug" disabled out of the box.
+      this.logger.log(
+        `detectFace precise=${precise} model=${precise ? "faceLandmark68Net" : "faceLandmark68TinyNet"} ear=${ear === null ? "null" : ear.toFixed(3)}`,
+      );
       return {
         detected: true,
-        confidence: result.score,
+        confidence: result.detection.score,
         box: { x: relativeBox.x, y: relativeBox.y, width: relativeBox.width, height: relativeBox.height },
+        ear,
       };
-    } catch {
-      return { detected: false, confidence: 0, box: null };
+    } catch (error) {
+      this.logger.warn(`detectFace failed: ${error instanceof Error ? error.message : error}`);
+      return { detected: false, confidence: 0, box: null, ear: null };
     }
+  }
+
+  // Eye-aspect-ratio (Soukupova & Cech): stays roughly constant while an eye
+  // is open and drops sharply while closed, which is what lets the client
+  // tell an open/closed transition apart from a raw jpeg's noise.
+  private computeEyeAspectRatio(landmarks: faceapi.FaceLandmarks68): number | null {
+    const eyeRatio = (eye: faceapi.Point[]) => {
+      const dist = (a: faceapi.Point, b: faceapi.Point) => Math.hypot(a.x - b.x, a.y - b.y);
+      const width = dist(eye[0], eye[3]);
+      if (!width) return null;
+      return (dist(eye[1], eye[5]) + dist(eye[2], eye[4])) / (2 * width);
+    };
+
+    const left = eyeRatio(landmarks.getLeftEye());
+    const right = eyeRatio(landmarks.getRightEye());
+    if (left === null || right === null) return null;
+    return (left + right) / 2;
   }
 
   async extractDescriptor(buffer: Buffer): Promise<Float32Array | null> {

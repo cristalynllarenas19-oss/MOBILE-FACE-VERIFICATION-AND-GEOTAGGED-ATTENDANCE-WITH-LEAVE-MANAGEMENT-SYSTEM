@@ -12,6 +12,7 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
 import { captureRef } from "react-native-view-shot";
+import { manipulateAsync, SaveFormat } from "expo-image-manipulator";
 import { detectFace, FaceBox } from "../api";
 
 type CameraScannerProps = {
@@ -42,8 +43,43 @@ const LOCKED_COLOR = "#22C55E";
 // (FaceRegistrationPage.tsx's startFaceTracking polls every 250ms) as
 // closely as this architecture allows.
 const DETECT_POLL_MS = 250;
-const HOLD_TO_LOCK_MS = 1500;
+// While sampling for a blink, captures are decoupled from the network (see
+// the capture/send loops below) and re-fire almost immediately — this is
+// just a floor to avoid hammering the native camera bridge back-to-back.
+const BLINK_CAPTURE_FLOOR_MS = 30;
+const HOLD_TO_LOCK_MS = 800;
 const TICK_MS = 100;
+// Blink-based liveness check: this has to pass *before* the hold-to-lock
+// step even starts (and therefore before capture), not after — the user
+// should never be able to fool this with a held-up photo that's never
+// blinked. Deliberately as simple as this signal allows: track a running
+// "how open do this person's eyes normally read" baseline, and the moment
+// any single sample reads meaningfully lower than that, count it as a
+// blink immediately. No open/closed/reopen state machine, no waiting for
+// eyes to visibly reopen again — that older design could get stuck forever
+// waiting on a "reopen" sample that a fast blink or one dropped frame meant
+// never arrived. This is one comparison per sample, nothing to get stuck in.
+const REQUIRED_BLINKS = 1;
+// How many baseline samples to collect before dip-checking starts, so the
+// very first (often still-settling) frame can't be compared against nothing.
+const MIN_BASELINE_SAMPLES = 2;
+// A sample this much below baseline counts as a blink. Deliberately loose —
+// the goal is "did the eyes move at all," not a precise measurement. Real
+// device data showed genuine blinks only dip ~5-8% (the landmark model
+// doesn't track closed eyelids precisely), so this has to sit above that,
+// not at a textbook EAR-drop value.
+const EAR_DIP_RATIO = 0.95;
+// Detection frames are shrunk to this width before being sent anywhere —
+// the backend's own detector resizes internally to ~224-416px regardless,
+// so anything bigger here only adds encode/transfer/decode latency without
+// improving accuracy.
+const DETECTION_FRAME_WIDTH = 480;
+// Static on-screen face guide, always shown at a fixed spot/size so the
+// user lines their face up consistently — closer and more consistently
+// framed input gives the backend's landmark model a much easier time
+// locating the eyes accurately for the blink check.
+const FACE_GUIDE_WIDTH_RATIO = 0.62;
+const FACE_GUIDE_ASPECT_RATIO = 0.75; // width / height — a bit taller than wide, like a face
 // Higher base resolution for the composited photo, since it's now shown
 // large (full width) in the DTR history view rather than as a tiny thumbnail.
 const WATERMARK_WIDTH = 1080;
@@ -58,10 +94,13 @@ const SAVED_MAP_THUMBNAIL_DISPLAY_SIZE = 210;
 // snapshot instead of the live preview just continuing to move.
 const FREEZE_DISPLAY_MS = 900;
 
-function getStageText(faceDetected: boolean, progress: number) {
-  if (!faceDetected) return "No face detected — position your face inside the frame";
-  if (progress < 100) return "Face detected, hold steady...";
-  return "Face locked!";
+function getStageText(faceDetected: boolean, progress: number, blinkCount: number) {
+  if (!faceDetected) return "No face detected — line your face up with the outline";
+  if (blinkCount < REQUIRED_BLINKS) {
+    return "Please blink to verify you're not a photo";
+  }
+  if (progress < 100) return "Liveness verified — hold steady...";
+  return "Face verified!";
 }
 
 // Maps the backend's relative (0-1) face box onto the on-screen camera
@@ -201,6 +240,7 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const [confidence, setConfidence] = useState(0);
   const [scanProgress, setScanProgress] = useState(0);
+  const [blinkCount, setBlinkCount] = useState(0);
   const [scanError, setScanError] = useState<string | null>(null);
   const [pendingCapture, setPendingCapture] = useState<PendingCapture | null>(null);
   const [cameraReady, setCameraReady] = useState(false);
@@ -213,13 +253,35 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
 
   const isFinishingRef = useRef(false);
   const faceDetectedRef = useRef(false);
+  // Blink liveness state. This runs as soon as a face is detected — before
+  // the hold-to-lock step even starts — so a held-up photo (which can never
+  // blink) can't get anywhere near capture. blinkCountRef mirrors the
+  // blinkCount state so the interval-driven hold-to-lock tick (below) can
+  // read the latest value without becoming stale-closure-dependent on it.
+  const blinkCountRef = useRef(0);
+  // Running "eyes open" reference for this attempt — a sample reading
+  // meaningfully below this counts as a blink (see EAR_DIP_RATIO above).
+  const openBaselineRef = useRef<number | null>(null);
+  const openSampleCountRef = useRef(0);
 
   const permissionsReady = permission?.granted && locationPermission?.granted;
+  // The blink check must pass before the hold-to-lock step is even allowed
+  // to start counting (enforced in the tick effect below), so scanProgress
+  // can only reach 100 after liveness is verified — isLocked therefore
+  // already implies livenessVerified, but both are kept for readable intent
+  // at each call site below.
+  const livenessVerified = blinkCount >= REQUIRED_BLINKS;
   const isLocked = scanProgress >= 100;
-  const secondsLeft = faceDetected && !isLocked
+  const secondsLeft = faceDetected && livenessVerified && !isLocked
     ? Math.max(1, Math.ceil(((100 - scanProgress) / 100) * (HOLD_TO_LOCK_MS / 1000)))
     : null;
   const screenBox = computeFaceScreenBox(faceBox, stageSize, photoSize);
+  const faceGuideRect = (() => {
+    if (!stageSize.width || !stageSize.height) return null;
+    const width = stageSize.width * FACE_GUIDE_WIDTH_RATIO;
+    const height = width / FACE_GUIDE_ASPECT_RATIO;
+    return { width, height, left: (stageSize.width - width) / 2, top: (stageSize.height - height) / 2 };
+  })();
   const liveMapGrid = liveCoords
     ? buildMapGrid(liveCoords.latitude, liveCoords.longitude, MAP_THUMBNAIL_DISPLAY_SIZE)
     : null;
@@ -293,35 +355,107 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
   useEffect(() => {
     if (!permissionsReady || !cameraReady || isScanning || scanError) return;
     let cancelled = false;
-    let timeoutId: ReturnType<typeof setTimeout>;
+    let captureTimeoutId: ReturnType<typeof setTimeout>;
+    // While sampling for a blink, the camera used to sit idle for the
+    // entire network round trip before taking its next photo — exactly the
+    // dead time a fast blink falls into. These two loops decouple capture
+    // from sending: captureLoop takes photos back-to-back as fast as the
+    // device allows, and sendLoop (only one in flight at a time) always
+    // grabs whatever the freshest captured frame is the instant the network
+    // is free, instead of a frame that's stale by a full round trip.
+    let latestBlinkFrame: { base64: string; seq: number } | null = null;
+    let blinkFrameSeq = 0;
+    let sendInFlight = false;
 
-    async function pollOnce() {
+    function applyDetectionResult(result: {
+      detected: boolean;
+      confidence: number;
+      box: FaceBox | null;
+      ear: number | null;
+    }) {
+      faceDetectedRef.current = result.detected;
+      setFaceDetected(result.detected);
+      setConfidence(result.detected ? result.confidence : 0);
+      // Set the raw detection directly on every tick, same as admin web's
+      // tracking loop — no smoothing/interpolation layered on top.
+      setFaceBox(result.detected ? result.box : null);
+    }
+
+    // Sends whatever the latest captured blink frame is, then immediately
+    // checks again for an even-newer one that arrived while that request
+    // was in flight — this is what keeps the network always working on the
+    // freshest available frame instead of queueing up stale ones.
+    async function sendLatestBlinkFrame() {
+      if (sendInFlight || cancelled || !latestBlinkFrame) return;
+      const frame = latestBlinkFrame;
+      sendInFlight = true;
+      try {
+        const result = await detectFace(`data:image/jpeg;base64,${frame.base64}`, true);
+        if (cancelled) return;
+        applyDetectionResult(result);
+        if (result.detected) registerEyeSample(result.ear);
+      } catch (error) {
+        if (!cancelled) console.error("Blink sample failed", error);
+      } finally {
+        sendInFlight = false;
+        if (!cancelled && latestBlinkFrame && latestBlinkFrame.seq > frame.seq) {
+          sendLatestBlinkFrame();
+        }
+      }
+    }
+
+    async function captureLoop() {
       if (cancelled || isFinishingRef.current) return;
       let failed = false;
+      // While the blink check hasn't passed yet, this poll's only job is
+      // sampling eye state as accurately and quickly as possible — sharper
+      // photo, faster cadence, and (below) no longer waiting on the network
+      // before taking the next photo.
+      const samplingBlink = blinkCountRef.current < REQUIRED_BLINKS;
       try {
         // skipProcessing is intentionally NOT set here: it skips orientation
         // correction, which would return raw sensor pixels (often landscape,
         // even held in portrait) while the preview is shown in portrait —
         // that mismatch alone was enough to make the tracked box's geometry
-        // come out wrong.
+        // come out wrong. base64 is intentionally NOT requested here either
+        // — at full sensor resolution that encode alone can take longer
+        // than a whole blink, which was very likely why blinks kept landing
+        // between samples no matter how good the detection model was. The
+        // resize below produces a far smaller base64 string instead.
         const photo = await cameraRef.current?.takePictureAsync({
-          base64: true,
-          quality: 0.3,
+          quality: samplingBlink ? 0.5 : 0.3,
           shutterSound: false,
         });
         if (cancelled) return;
         if (photo?.width && photo.height) {
           setPhotoSize({ width: photo.width, height: photo.height });
         }
-        if (photo?.base64) {
-          const result = await detectFace(`data:image/jpeg;base64,${photo.base64}`);
+        if (photo?.uri) {
+          // The backend's detector resizes internally to ~224-416px no
+          // matter what we send, so shrinking here first cuts encode,
+          // transfer, and backend decode/resize time all at once — this is
+          // the fast path to actually catching a blink instead of just
+          // making the model looking at it more precise.
+          const resized = await manipulateAsync(photo.uri, [{ resize: { width: DETECTION_FRAME_WIDTH } }], {
+            base64: true,
+            compress: 0.7,
+            format: SaveFormat.JPEG,
+          });
           if (cancelled) return;
-          faceDetectedRef.current = result.detected;
-          setFaceDetected(result.detected);
-          setConfidence(result.detected ? result.confidence : 0);
-          // Set the raw detection directly on every tick, same as admin
-          // web's tracking loop — no smoothing/interpolation layered on top.
-          setFaceBox(result.detected ? result.box : null);
+          if (resized.base64) {
+            if (samplingBlink) {
+              // Hand off to the decoupled send loop instead of awaiting the
+              // network here — that's the whole point: keep capturing while
+              // a previous frame is still in flight on the backend.
+              blinkFrameSeq += 1;
+              latestBlinkFrame = { base64: resized.base64, seq: blinkFrameSeq };
+              sendLatestBlinkFrame();
+            } else {
+              const result = await detectFace(`data:image/jpeg;base64,${resized.base64}`, false);
+              if (cancelled) return;
+              applyDetectionResult(result);
+            }
+          }
         }
       } catch (error) {
         if (cancelled) return;
@@ -335,26 +469,44 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
         if (!cancelled) {
           // Back off after a failure (e.g. a stale camera view reference
           // from a hot reload) instead of hammering retries at full speed.
-          timeoutId = setTimeout(pollOnce, failed ? DETECT_POLL_MS * 3 : DETECT_POLL_MS);
+          // Otherwise: during blink sampling, re-fire almost immediately
+          // (a small floor just to avoid saturating the native camera
+          // bridge back-to-back) since the network is no longer the pacing
+          // factor for how often a photo gets taken; plain tracking keeps
+          // its original, more relaxed cadence.
+          const nextDelay = failed ? DETECT_POLL_MS * 3 : samplingBlink ? BLINK_CAPTURE_FLOOR_MS : DETECT_POLL_MS;
+          captureTimeoutId = setTimeout(captureLoop, nextDelay);
         }
       }
     }
 
-    pollOnce();
+    captureLoop();
     return () => {
       cancelled = true;
-      clearTimeout(timeoutId);
+      clearTimeout(captureTimeoutId);
     };
   }, [permissionsReady, cameraReady, isScanning, scanError]);
 
-  // Drives the visual "hold steady" progress: only advances while a face is
-  // actually detected, and resets the moment it's lost.
+  // Drives the visual "hold steady" progress. This only starts advancing
+  // once the blink liveness check has passed (blinkCountRef reaching
+  // REQUIRED_BLINKS) — capture/lock always comes after liveness, never
+  // before or concurrently with it — and resets, along with the whole
+  // liveness attempt, the moment the face is lost.
   useEffect(() => {
     if (!permissionsReady || isScanning || scanError) return;
 
     const tick = setInterval(() => {
       setScanProgress((progress) => {
-        if (!faceDetectedRef.current) return 0;
+        if (!faceDetectedRef.current) {
+          if (blinkCountRef.current > 0 || progress > 0) {
+            openBaselineRef.current = null;
+            openSampleCountRef.current = 0;
+            blinkCountRef.current = 0;
+            setBlinkCount(0);
+          }
+          return 0;
+        }
+        if (blinkCountRef.current < REQUIRED_BLINKS) return 0;
         const next = Math.min(100, progress + (TICK_MS / HOLD_TO_LOCK_MS) * 100);
         if (next >= 100 && !isFinishingRef.current) {
           isFinishingRef.current = true;
@@ -366,6 +518,36 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
 
     return () => clearInterval(tick);
   }, [permissionsReady, isScanning, scanError]);
+
+  // One comparison, nothing to get stuck in: if this sample reads
+  // meaningfully lower than the running "eyes open" baseline, it's a blink.
+  // The dip sample itself is never folded into the baseline (that would
+  // drag the baseline down and make the next blink harder to trigger).
+  function registerEyeSample(ear: number | null) {
+    if (ear === null) {
+      if (__DEV__) console.log("[liveness] ear=null (no landmarks this frame)");
+      return;
+    }
+
+    const baseline = openBaselineRef.current;
+    const ready = openSampleCountRef.current >= MIN_BASELINE_SAMPLES && baseline !== null;
+    const isBlink = ready && ear < (baseline as number) * EAR_DIP_RATIO;
+
+    if (__DEV__) {
+      console.log(
+        `[liveness] ear=${ear.toFixed(3)} baseline=${(baseline ?? 0).toFixed(3)} cutoff=${ready ? ((baseline as number) * EAR_DIP_RATIO).toFixed(3) : "n/a"}${isBlink ? " -> BLINK" : ""}`,
+      );
+    }
+
+    if (isBlink) {
+      blinkCountRef.current = Math.min(REQUIRED_BLINKS, blinkCountRef.current + 1);
+      setBlinkCount(blinkCountRef.current);
+      return;
+    }
+
+    openBaselineRef.current = baseline === null ? ear : baseline * 0.7 + ear * 0.3;
+    openSampleCountRef.current += 1;
+  }
 
   // Renders the captured photo plus a GPS-camera-style stamp (map thumbnail,
   // date/time badge, address) into an off-screen view, then flattens that
@@ -495,10 +677,14 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
   function retryScan() {
     isFinishingRef.current = false;
     faceDetectedRef.current = false;
+    openBaselineRef.current = null;
+    openSampleCountRef.current = 0;
+    blinkCountRef.current = 0;
     setFaceDetected(false);
     setFaceBox(null);
     setConfidence(0);
     setScanProgress(0);
+    setBlinkCount(0);
     setScanError(null);
     setFrozenPreviewUri(null);
     setIsFrozenStamped(false);
@@ -603,6 +789,22 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
                 />
               )}
 
+              {!frozenPreviewUri && faceGuideRect && (
+                <View
+                  pointerEvents="none"
+                  style={[
+                    styles.faceGuide,
+                    {
+                      left: faceGuideRect.left,
+                      top: faceGuideRect.top,
+                      width: faceGuideRect.width,
+                      height: faceGuideRect.height,
+                      borderColor: faceDetected ? LOCKED_COLOR : GUIDE_BOX_COLOR,
+                    },
+                  ]}
+                />
+              )}
+
               {!frozenPreviewUri && (
                 <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
                   {screenBox && (
@@ -682,7 +884,7 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
                 size={18}
                 color="#1D4ED8"
               />
-              <Text style={styles.statusText}>{getStageText(faceDetected, scanProgress)}</Text>
+              <Text style={styles.statusText}>{getStageText(faceDetected, scanProgress, blinkCount)}</Text>
             </>
           )}
         </View>
@@ -825,6 +1027,15 @@ const styles = StyleSheet.create({
     borderWidth: 4,
     borderRadius: 18,
     borderColor: GUIDE_BOX_COLOR,
+  },
+  // Fixed placement/size guide shown before (and independently of) the
+  // backend's own dynamic tracked box, so the user has a consistent target
+  // to line their face up with rather than guessing distance/position.
+  faceGuide: {
+    position: "absolute",
+    borderWidth: 3,
+    borderStyle: "dashed",
+    borderRadius: 999,
   },
   confidenceLabel: {
     position: "absolute",

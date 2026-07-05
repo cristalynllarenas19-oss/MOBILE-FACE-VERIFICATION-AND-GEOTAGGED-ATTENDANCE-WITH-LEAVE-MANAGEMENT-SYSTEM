@@ -258,11 +258,14 @@ export async function getTodayAttendance(
 
 export type FaceBox = { x: number; y: number; width: number; height: number };
 
-export async function detectFace(imageBase64: string) {
-  return apiRequest<{ detected: boolean; confidence: number; box: FaceBox | null }>("/face/detect", {
-    method: "POST",
-    body: JSON.stringify({ imageBase64 }),
-  });
+export async function detectFace(imageBase64: string, precise = false) {
+  return apiRequest<{ detected: boolean; confidence: number; box: FaceBox | null; ear: number | null }>(
+    "/face/detect",
+    {
+      method: "POST",
+      body: JSON.stringify({ imageBase64, precise }),
+    },
+  );
 }
 
 export async function submitAttendance(input: SubmitAttendanceInput) {
