@@ -136,6 +136,16 @@ export type LeaveBalance = {
   remainingDays: number;
 };
 
+export type LeaveRequestNote = {
+  id: string;
+  type: "REJECTED" | "RESUBMITTED";
+  message?: string | null;
+  requiresAdditionalRequirements?: boolean;
+  requirementDetails?: string | null;
+  attachmentName?: string | null;
+  createdAt: string;
+};
+
 export type LeaveRequest = {
   id: string;
   startDate: string;
@@ -145,6 +155,7 @@ export type LeaveRequest = {
   reason: string;
   attachmentName?: string | null;
   adminRemarks?: { remarks?: string } | null;
+  notes?: LeaveRequestNote[];
   leaveType: { id: string; name: string };
 };
 
@@ -158,6 +169,13 @@ export type CreateLeaveRequestInput = {
   attachmentName?: string;
   attachmentMimeType?: string;
   attachmentData?: string;
+};
+
+export type ResubmitLeaveRequestInput = {
+  note?: string;
+  attachmentName: string;
+  attachmentMimeType: string;
+  attachmentData: string;
 };
 
 export type AppNotification = {
@@ -320,6 +338,13 @@ export async function getLeaveRequests(employeeId: string) {
 export async function createLeaveRequest(input: CreateLeaveRequestInput) {
   return apiRequest<LeaveRequest>("/leave-requests", {
     method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function resubmitLeaveRequest(id: string, input: ResubmitLeaveRequestInput) {
+  return apiRequest<LeaveRequest>(`/leave-requests/${id}/resubmit`, {
+    method: "PATCH",
     body: JSON.stringify(input),
   });
 }

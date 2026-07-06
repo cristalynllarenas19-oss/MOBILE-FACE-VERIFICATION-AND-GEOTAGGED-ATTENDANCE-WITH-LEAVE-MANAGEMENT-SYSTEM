@@ -65,6 +65,7 @@ export default function MainScreen({
         visible={notificationsVisible}
         onClose={() => setNotificationsVisible(false)}
         onUnreadCountChange={setUnreadCount}
+        employeeId={user?.employeeId}
       />
 
       <View

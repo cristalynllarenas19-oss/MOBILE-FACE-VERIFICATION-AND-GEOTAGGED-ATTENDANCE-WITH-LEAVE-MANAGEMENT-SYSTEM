@@ -31,6 +31,18 @@ type LeaveType = {
   allowWithoutPay: boolean;
 };
 
+type LeaveRequestNote = {
+  id: string;
+  type: "REJECTED" | "RESUBMITTED";
+  message?: string | null;
+  requiresAdditionalRequirements?: boolean;
+  requirementDetails?: string | null;
+  attachmentName?: string | null;
+  attachmentMimeType?: string | null;
+  attachmentData?: string | null;
+  createdAt: string;
+};
+
 type LeaveRequest = {
   id: string;
   startDate: string;
@@ -40,6 +52,7 @@ type LeaveRequest = {
   reason: string;
   createdAt: string;
   adminRemarks?: { remarks?: string } | null;
+  notes?: LeaveRequestNote[];
   attachmentName?: string | null;
   attachmentMimeType?: string | null;
   attachmentData?: string | null;
@@ -120,6 +133,7 @@ function getLeaveTone(status: string) {
 
 function getLeaveStatusLabel(status: string) {
   if (status === "SUPERVISOR_APPROVED") return "Supervisor Approved";
+  if (status === "NEEDS_REVISION") return "Needs Revision";
   return status;
 }
 
@@ -653,6 +667,8 @@ export function LeavePage({ user }: { user?: { role: string; roles: string[] } }
   const [historyViewOnly, setHistoryViewOnly]   = useState(false);
   const [imagePreview, setImagePreview]         = useState<{ src: string; name: string } | null>(null);
   const [remarks, setRemarks]                   = useState("");
+  const [requiresAdditionalRequirements, setRequiresAdditionalRequirements] = useState(false);
+  const [requirementDetails, setRequirementDetails] = useState("");
   const [isSaving, setIsSaving]                 = useState(false);
   const [notification, setNotification]         = useState<Notification>(null);
   const [reviewBalances, setReviewBalances]     = useState<LeaveBalance[] | null>(null);
@@ -731,7 +747,7 @@ export function LeavePage({ user }: { user?: { role: string; roles: string[] } }
     for (const r of requests) {
       if (r.status === "PENDING") counts.PENDING += 1;
       else if (r.status === "APPROVED" || r.status === "SUPERVISOR_APPROVED") counts.APPROVED += 1;
-      else if (r.status === "REJECTED") counts.REJECTED += 1;
+      else if (r.status === "REJECTED" || r.status === "NEEDS_REVISION") counts.REJECTED += 1;
     }
     return counts;
   }, [requests]);
@@ -740,7 +756,9 @@ export function LeavePage({ user }: { user?: { role: string; roles: string[] } }
     () =>
       requests.filter((r) => {
         const matchesStatus =
-          statusFilter === "ALL" || r.status === statusFilter;
+          statusFilter === "ALL" ||
+          r.status === statusFilter ||
+          (statusFilter === "REJECTED" && r.status === "NEEDS_REVISION");
         const matchesType =
           typeFilter === "ALL" || r.leaveType.id === typeFilter;
         const matchesSearch =
@@ -853,13 +871,24 @@ export function LeavePage({ user }: { user?: { role: string; roles: string[] } }
     try {
       await apiRequest(`/leave-requests/${reviewRequest.id}/${action}`, {
         method: "PATCH",
-        body: JSON.stringify({ remarks: remarks.trim() }),
+        body: JSON.stringify(
+          action === "reject"
+            ? { remarks: remarks.trim(), requiresAdditionalRequirements, requirementDetails: requirementDetails.trim() }
+            : { remarks: remarks.trim() }
+        ),
       });
       setReviewRequest(null);
       setRemarks("");
+      setRequiresAdditionalRequirements(false);
+      setRequirementDetails("");
       setNotification({
         type: "success",
-        message: `Leave request was ${action === "approve" ? "approved" : "rejected"}.`,
+        message:
+          action === "approve"
+            ? "Leave request was approved."
+            : requiresAdditionalRequirements
+              ? "Leave request was returned to the employee for additional requirements."
+              : "Leave request was rejected.",
       });
       loadRequests();
       loadSummary();
@@ -1111,7 +1140,7 @@ export function LeavePage({ user }: { user?: { role: string; roles: string[] } }
                       <td data-label="Action">
                         <button
                           className="leave-view-button"
-                          onClick={() => { setReviewRequest(r); setRemarks(""); setHistoryViewOnly(false); }}
+                          onClick={() => { setReviewRequest(r); setRemarks(""); setRequiresAdditionalRequirements(false); setRequirementDetails(""); setHistoryViewOnly(false); }}
                         >
                           <Eye size={14} /> Review
                         </button>
@@ -1203,7 +1232,7 @@ export function LeavePage({ user }: { user?: { role: string; roles: string[] } }
                       <td data-label="Action">
                         <button
                           className="leave-view-button"
-                          onClick={() => { setReviewRequest(r); setRemarks(""); setHistoryViewOnly(true); }}
+                          onClick={() => { setReviewRequest(r); setRemarks(""); setRequiresAdditionalRequirements(false); setRequirementDetails(""); setHistoryViewOnly(true); }}
                         >
                           <Eye size={14} /> View
                         </button>
@@ -1331,30 +1360,106 @@ export function LeavePage({ user }: { user?: { role: string; roles: string[] } }
               </div>
 
               <div><span>Reason</span><strong>{reviewRequest.reason}</strong></div>
-              <div><span>Latest Remarks</span><strong>{reviewRequest.adminRemarks?.remarks ?? "None"}</strong></div>
             </div>
 
+            {reviewRequest.notes && reviewRequest.notes.length > 0 && (
+              <div className="leave-notes-thread">
+                <span className="leave-notes-thread-label">Requirements / Resubmission History</span>
+                {reviewRequest.notes.map((note) => (
+                  <div key={note.id} className={`leave-note leave-note-${note.type.toLowerCase()}`}>
+                    <div className="leave-note-header">
+                      <strong>
+                        {note.type === "REJECTED"
+                          ? note.requiresAdditionalRequirements
+                            ? "Additional requirements requested"
+                            : "Rejected"
+                          : "Employee resubmitted"}
+                      </strong>
+                      <time>{new Date(note.createdAt).toLocaleString()}</time>
+                    </div>
+                    {note.message && <p>{note.message}</p>}
+                    {note.requirementDetails && (
+                      <p><em>Requirement needed:</em> {note.requirementDetails}</p>
+                    )}
+                    {note.attachmentData && (
+                      note.attachmentMimeType?.startsWith("image/") ? (
+                        <button
+                          type="button"
+                          className="leave-attachment-preview"
+                          onClick={() =>
+                            setImagePreview({
+                              src: `data:${note.attachmentMimeType};base64,${note.attachmentData}`,
+                              name: note.attachmentName ?? "Attached requirement",
+                            })
+                          }
+                        >
+                          <span><Paperclip size={13} /> {note.attachmentName ?? "View attachment"}</span>
+                        </button>
+                      ) : (
+                        <a
+                          className="leave-attachment-link"
+                          href={`data:${note.attachmentMimeType ?? "application/octet-stream"};base64,${note.attachmentData}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <FileText size={14} /> {note.attachmentName ?? "View document"}
+                        </a>
+                      )
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
             {!historyViewOnly && canReviewRequest && (
-              <label className="leave-remarks-field">
-                Add Remarks
-                <textarea
-                  value={remarks}
-                  onChange={(e) => setRemarks(e.target.value)}
-                  placeholder="Optional review notes"
-                />
-              </label>
+              <>
+                <label className="leave-remarks-field">
+                  Add Remarks
+                  <textarea
+                    value={remarks}
+                    onChange={(e) => setRemarks(e.target.value)}
+                    placeholder="Optional review notes"
+                  />
+                </label>
+
+                <label className="leave-requirements-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={requiresAdditionalRequirements}
+                    onChange={(e) => setRequiresAdditionalRequirements(e.target.checked)}
+                  />
+                  <span>Reject because it requires additional requirements (employee can resubmit)</span>
+                </label>
+
+                {requiresAdditionalRequirements && (
+                  <label className="leave-remarks-field">
+                    Requirement needed
+                    <textarea
+                      value={requirementDetails}
+                      onChange={(e) => setRequirementDetails(e.target.value)}
+                      placeholder="e.g. Medical certificate, proof of travel..."
+                    />
+                  </label>
+                )}
+              </>
             )}
 
             <div className="leave-detail-actions">
               {!historyViewOnly && canReviewRequest && (
-                <>
-                  <button className="leave-reject-button" onClick={() => reviewLeave("reject")} disabled={isSaving}>
-                    Reject
+                requiresAdditionalRequirements ? (
+                  <button className="primary-button" onClick={() => reviewLeave("reject")} disabled={isSaving}>
+                    Send
                   </button>
-                  <button className="primary-button" onClick={() => reviewLeave("approve")} disabled={isSaving}>
-                    Approve
-                  </button>
-                </>
+                ) : (
+                  <>
+                    <button className="leave-reject-button" onClick={() => reviewLeave("reject")} disabled={isSaving}>
+                      Reject
+                    </button>
+                    <button className="primary-button" onClick={() => reviewLeave("approve")} disabled={isSaving}>
+                      Approve
+                    </button>
+                  </>
+                )
               )}
               {!historyViewOnly && isAdmin && reviewRequest.extensionRequested && reviewRequest.extensionApproved == null && (
                 <>

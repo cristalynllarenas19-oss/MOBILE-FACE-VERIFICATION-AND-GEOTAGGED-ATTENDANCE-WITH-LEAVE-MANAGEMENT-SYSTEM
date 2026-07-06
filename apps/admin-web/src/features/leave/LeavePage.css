@@ -448,6 +448,77 @@
   box-shadow: 0 0 0 3px rgba(41, 121, 208, 0.12);
 }
 
+.leave-requirements-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px 24px 0;
+  font-size: 13px;
+  color: #334155;
+  cursor: pointer;
+}
+
+.leave-requirements-checkbox input {
+  margin-top: 2px;
+  cursor: pointer;
+}
+
+.leave-notes-thread {
+  display: grid;
+  gap: 10px;
+  padding: 4px 24px 12px;
+}
+
+.leave-notes-thread-label {
+  color: #7b8794;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.leave-note {
+  border: 1px solid #e6ecf2;
+  border-left: 3px solid #94a3b8;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #f8fafc;
+}
+
+.leave-note-rejected {
+  border-left-color: #d97706;
+}
+
+.leave-note-resubmitted {
+  border-left-color: #2979d0;
+}
+
+.leave-note-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12.5px;
+  color: #1a3a5c;
+}
+
+.leave-note-header time {
+  color: #9aa9bb;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.leave-note p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: #334155;
+}
+
+.leave-note .leave-attachment-preview,
+.leave-note .leave-attachment-link {
+  margin-top: 6px;
+  max-width: none;
+}
+
 
 .leave-detail-actions {
   display: flex;

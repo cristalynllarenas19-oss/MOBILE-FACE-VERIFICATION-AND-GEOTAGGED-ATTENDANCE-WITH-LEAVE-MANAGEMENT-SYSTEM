@@ -3,9 +3,11 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
 import { CreateLeaveRequestDto } from "./dto/create-leave-request.dto";
+import { RejectLeaveRequestDto } from "./dto/reject-leave-request.dto";
+import { ResubmitLeaveRequestDto } from "./dto/resubmit-leave-request.dto";
 
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
-type LeaveRequestStatus = "PENDING" | "SUPERVISOR_APPROVED" | "APPROVED" | "REJECTED" | "CANCELLED";
+type LeaveRequestStatus = "PENDING" | "SUPERVISOR_APPROVED" | "APPROVED" | "REJECTED" | "NEEDS_REVISION" | "CANCELLED";
 
 @Injectable()
 export class LeaveService {
@@ -25,6 +27,7 @@ export class LeaveService {
         employee: { include: { department: true } },
         leaveType: true,
         reviewer: { include: { employee: true } },
+        notes: { orderBy: { createdAt: "asc" } },
       },
       orderBy: { startDate: "desc" },
     });
@@ -143,6 +146,7 @@ export class LeaveService {
       SUPERVISOR_APPROVED: "approved by your supervisor (awaiting HR approval)",
       APPROVED: "approved",
       REJECTED: "rejected",
+      NEEDS_REVISION: "returned for additional requirements",
       CANCELLED: "cancelled",
     };
 
@@ -206,6 +210,77 @@ export class LeaveService {
     };
   }
 
+  // Rejection is split out from updateStatus() because it can end in one of two
+  // different statuses (a terminal REJECTED, or NEEDS_REVISION when the reviewer
+  // flags that the employee just needs to attach something) and, unlike
+  // approve/cancel, writes a LeaveRequestNote so the reject/resubmit thread stays
+  // intact across however many loops the request goes through.
+  async reject(id: string, dto: RejectLeaveRequestDto, context: AuditLogContext = {}) {
+    const existing = await this.prisma.leaveRequest.findUniqueOrThrow({ where: { id } });
+    const wasApproved = existing.status === "APPROVED";
+    const requiresAdditionalRequirements = Boolean(dto.requiresAdditionalRequirements);
+    const status: LeaveRequestStatus = requiresAdditionalRequirements ? "NEEDS_REVISION" : "REJECTED";
+    const remarks = dto.remarks?.trim();
+    const requirementDetails = dto.requirementDetails?.trim();
+
+    const request = await this.prisma.leaveRequest.update({
+      where: { id },
+      data: { status, reviewedAt: new Date(), reviewedBy: context.actorUserId },
+      include: {
+        employee: { include: { department: true } },
+        leaveType: true,
+        reviewer: { include: { employee: true } },
+      },
+    });
+
+    if (request.employee.userId) {
+      const dateRange = `${request.startDate.toLocaleDateString()} - ${request.endDate.toLocaleDateString()}`;
+      const message = requiresAdditionalRequirements
+        ? `Your ${request.leaveType.name} request for ${dateRange} needs additional requirements before it can be approved.${remarks ? ` Reason: ${remarks}` : ""}${requirementDetails ? ` Requirement needed: ${requirementDetails}` : ""}`
+        : `Your ${request.leaveType.name} request for ${dateRange} was rejected.${remarks ? ` Remarks: ${remarks}` : ""}`;
+
+      await this.notifications.notifyUsers([request.employee.userId], {
+        title: requiresAdditionalRequirements ? "Additional Requirements Needed" : "Leave Request Rejected",
+        message,
+        type: requiresAdditionalRequirements ? "LEAVE_NEEDS_REQUIREMENTS" : "LEAVE_REJECTED",
+        entityId: request.id,
+      });
+    }
+
+    // Reverse a prior approval's balance deduction if an admin is now rejecting
+    // (or sending back for revision) a request that had already been approved.
+    if (wasApproved) {
+      await this.adjustLeaveBalance(request.employeeId, request.leaveTypeId, request.startDate, -Number(request.totalDays));
+    }
+
+    await this.prisma.leaveRequestNote.create({
+      data: {
+        leaveRequestId: id,
+        type: "REJECTED",
+        message: remarks,
+        requiresAdditionalRequirements,
+        requirementDetails,
+        authorUserId: context.actorUserId,
+      },
+    });
+
+    await this.auditLogs.record({
+      ...context,
+      action: "REJECT_LEAVE",
+      module: "Leave",
+      entityType: "LeaveRequest",
+      entityId: id,
+      description: `${requiresAdditionalRequirements ? "Requested additional requirements from" : "Rejected"} ${request.employee.firstName} ${request.employee.lastName}'s ${request.leaveType.name} leave request.`,
+      oldValues: { status: existing.status },
+      newValues: { remarks, requiresAdditionalRequirements, requirementDetails, status },
+    });
+
+    return {
+      ...request,
+      adminRemarks: remarks ? { remarks, status } : undefined,
+    };
+  }
+
   async cancel(id: string, context: AuditLogContext = {}, requestingEmployeeId?: string) {
     const existing = await this.prisma.leaveRequest.findUniqueOrThrow({ where: { id } });
 
@@ -220,6 +295,95 @@ export class LeaveService {
     }
 
     return this.updateStatus(id, "CANCELLED", undefined, context);
+  }
+
+  // The employee's side of the reject <-> resubmit loop: only valid while the
+  // request is sitting in NEEDS_REVISION, and always hands it back to PENDING
+  // so it re-enters the normal Supervisor/Admin review flow untouched.
+  async resubmit(
+    id: string,
+    dto: ResubmitLeaveRequestDto,
+    context: AuditLogContext = {},
+    requestingEmployeeId?: string,
+  ) {
+    const existing = await this.prisma.leaveRequest.findUniqueOrThrow({ where: { id } });
+
+    if (existing.status !== "NEEDS_REVISION") {
+      throw new BadRequestException("Only a request awaiting additional requirements can be resubmitted.");
+    }
+
+    if (requestingEmployeeId && existing.employeeId !== requestingEmployeeId) {
+      throw new BadRequestException("You can only resubmit your own leave request.");
+    }
+
+    if (Buffer.byteLength(dto.attachmentData, "base64") > MAX_ATTACHMENT_BYTES) {
+      throw new BadRequestException("Attachment must be 5MB or smaller.");
+    }
+
+    const note = dto.note?.trim();
+
+    const request = await this.prisma.leaveRequest.update({
+      where: { id },
+      data: {
+        status: "PENDING",
+        reviewedBy: null,
+        reviewedAt: null,
+        attachmentName: dto.attachmentName,
+        attachmentMimeType: dto.attachmentMimeType,
+        attachmentData: dto.attachmentData,
+      },
+      include: {
+        employee: { include: { supervisor: true, department: true } },
+        leaveType: true,
+      },
+    });
+
+    await this.prisma.leaveRequestNote.create({
+      data: {
+        leaveRequestId: id,
+        type: "RESUBMITTED",
+        message: note,
+        attachmentName: dto.attachmentName,
+        attachmentMimeType: dto.attachmentMimeType,
+        attachmentData: dto.attachmentData,
+        authorUserId: context.actorUserId,
+      },
+    });
+
+    await this.notifyResubmission(request);
+
+    await this.auditLogs.record({
+      ...context,
+      action: "RESUBMIT_LEAVE",
+      module: "Leave",
+      entityType: "LeaveRequest",
+      entityId: id,
+      description: `${request.employee.firstName} ${request.employee.lastName} resubmitted their ${request.leaveType.name} leave request with the requested attachment.`,
+      oldValues: { status: existing.status },
+      newValues: { status: "PENDING", note },
+    });
+
+    return request;
+  }
+
+  private async notifyResubmission(request: {
+    id: string;
+    employee: { userId: string | null; firstName: string; lastName: string; supervisor: { userId: string | null } | null };
+    leaveType: { name: string };
+  }) {
+    const adminUserIds = await this.notifications.adminUserIds();
+    const recipientIds = [...adminUserIds, request.employee.supervisor?.userId].filter(
+      (id): id is string => Boolean(id) && id !== request.employee.userId,
+    );
+
+    const employeeName = `${request.employee.firstName} ${request.employee.lastName}`;
+
+    await this.notifications.notifyUsers(recipientIds, {
+      title: "Leave Request Resubmitted",
+      message: `${employeeName} resubmitted their ${request.leaveType.name} request with the requested attachment.`,
+      type: "LEAVE_RESUBMITTED",
+      entityId: request.id,
+    });
   }
 
   async setExtensionDecision(id: string, extensionApproved: boolean, actorUserId?: string) {

@@ -100,6 +100,16 @@ export type LeaveBalance = {
   remainingDays: number;
 };
 
+export type LeaveRequestNote = {
+  id: string;
+  type: "REJECTED" | "RESUBMITTED";
+  message?: string | null;
+  requiresAdditionalRequirements?: boolean;
+  requirementDetails?: string | null;
+  attachmentName?: string | null;
+  createdAt: string;
+};
+
 export type LeaveRequest = {
   id: string;
   startDate: string;
@@ -109,9 +119,17 @@ export type LeaveRequest = {
   reason: string;
   attachmentName?: string | null;
   adminRemarks?: { remarks?: string } | null;
+  notes?: LeaveRequestNote[];
   leaveType: { id: string; name: string };
   extensionRequested?: boolean;
   extensionApproved?: boolean | null;
+};
+
+export type ResubmitLeaveRequestInput = {
+  note?: string;
+  attachmentName: string;
+  attachmentMimeType: string;
+  attachmentData: string;
 };
 
 export type CreateLeaveRequestInput = {
@@ -179,6 +197,13 @@ export function createLeaveRequest(input: CreateLeaveRequestInput) {
 export function cancelLeaveRequest(id: string) {
   return apiRequest<LeaveRequest>(`/leave-requests/${id}/cancel`, {
     method: "PATCH",
+  });
+}
+
+export function resubmitLeaveRequest(id: string, input: ResubmitLeaveRequestInput) {
+  return apiRequest<LeaveRequest>(`/leave-requests/${id}/resubmit`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
   });
 }
 

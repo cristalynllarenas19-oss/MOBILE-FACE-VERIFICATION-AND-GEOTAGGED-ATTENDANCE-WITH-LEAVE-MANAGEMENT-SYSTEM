@@ -6,7 +6,7 @@ import "./EmployeeLeavePage.css";
 import "./EmployeePortal.css";
 import {
   LeaveType, LeaveBalance, LeaveRequest,
-  getLeaveTypes, getLeaveBalances, getLeaveRequests, createLeaveRequest, cancelLeaveRequest,
+  getLeaveTypes, getLeaveBalances, getLeaveRequests, createLeaveRequest, cancelLeaveRequest, resubmitLeaveRequest,
 } from "./api";
 import type { AuthUser } from "../../lib/api";
 
@@ -53,14 +53,22 @@ export function LeavePage({ user }: Props) {
   const [resultModal,  setResultModal]   = useState<{ ok: boolean; title: string; msg: string } | null>(null);
   const [cancellingId, setCancellingId]  = useState<string | null>(null);
 
+  // Inline "attach requirement & resubmit" — only one row can be expanded at a time.
+  const [resubmittingId,  setResubmittingId]  = useState<string | null>(null);
+  const [resubmitNote,    setResubmitNote]    = useState("");
+  const [resubmitFile,    setResubmitFile]    = useState<{ name: string; mimeType: string; sizeBytes: number; base64: string } | null>(null);
+  const [resubmitErr,     setResubmitErr]     = useState<string | null>(null);
+  const [isResubmitting,  setIsResubmitting]  = useState(false);
+
   const fileRef = useRef<HTMLInputElement>(null);
+  const resubmitFileRef = useRef<HTMLInputElement>(null);
 
   const selectedType    = leaveTypes.find((t) => t.id === leaveTypeId);
   const filteredTypes   = leaveTypes
     .filter((t) => !t.requiresEhsActivation || t.ehsActivated)
     .filter((t) => t.name.toLowerCase().includes(searchLeave.toLowerCase()));
   const pendingRequests = useMemo(
-    () => requests.filter((r) => r.status === "PENDING" || r.status === "SUPERVISOR_APPROVED"),
+    () => requests.filter((r) => r.status === "PENDING" || r.status === "SUPERVISOR_APPROVED" || r.status === "NEEDS_REVISION"),
     [requests],
   );
 
@@ -88,6 +96,45 @@ export function LeavePage({ user }: Props) {
       await cancelLeaveRequest(requestId);
       await loadData();
     } catch { /* non-blocking */ } finally { setCancellingId(null); }
+  }
+
+  function openResubmit(requestId: string) {
+    setResubmittingId(requestId);
+    setResubmitNote("");
+    setResubmitFile(null);
+    setResubmitErr(null);
+  }
+
+  function handleResubmitFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setResubmitErr(null);
+    if (file.size > MAX_BYTES) { setResubmitErr("File too large — maximum 5 MB."); return; }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const full   = ev.target?.result as string;
+      const base64 = full.split(",")[1];
+      setResubmitFile({ name: file.name, mimeType: file.type || "application/octet-stream", sizeBytes: file.size, base64 });
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function handleResubmit(requestId: string) {
+    if (!resubmitFile) { setResubmitErr("Please attach the requested requirement before resubmitting."); return; }
+    setIsResubmitting(true);
+    try {
+      await resubmitLeaveRequest(requestId, {
+        note: resubmitNote.trim() || undefined,
+        attachmentName: resubmitFile.name,
+        attachmentMimeType: resubmitFile.mimeType,
+        attachmentData: resubmitFile.base64,
+      });
+      setResubmittingId(null);
+      await loadData();
+    } catch (err) {
+      setResubmitErr(err instanceof Error ? err.message : "Failed to resubmit leave request.");
+    } finally { setIsResubmitting(false); }
   }
 
   const totalDays = useMemo(() => {
@@ -400,6 +447,11 @@ export function LeavePage({ user }: Props) {
                 <p style={{ color: "#94A3B8", fontSize: 13, textAlign: "center" }}>No pending requests.</p>
               ) : pendingRequests.map((r) => {
                 const tone = statusTone(r.status);
+                const needsRevision = r.status === "NEEDS_REVISION";
+                const lastRejection = needsRevision
+                  ? [...(r.notes ?? [])].reverse().find((n) => n.type === "REJECTED")
+                  : undefined;
+                const isExpanded = resubmittingId === r.id;
                 return (
                   <div key={r.id} style={{ background: "#F8FAFC", borderRadius: 12, padding: 14, marginBottom: 10 }}>
                     <p style={{ fontWeight: 700, marginBottom: 3 }}>{r.leaveType.name}</p>
@@ -408,6 +460,18 @@ export function LeavePage({ user }: Props) {
                     </p>
                     {r.attachmentName && (
                       <p style={{ color: "#64748B", fontSize: 12, margin: "3px 0" }}>📎 {r.attachmentName}</p>
+                    )}
+                    {lastRejection && (
+                      <div style={{ background: "#FEF3C7", border: "1px solid #FCD34D", borderRadius: 8, padding: "8px 10px", margin: "6px 0" }}>
+                        {lastRejection.message && (
+                          <p style={{ color: "#92400E", fontSize: 12, margin: 0 }}>{lastRejection.message}</p>
+                        )}
+                        {lastRejection.requirementDetails && (
+                          <p style={{ color: "#92400E", fontSize: 12, margin: "3px 0 0", fontWeight: 700 }}>
+                            Requirement needed: {lastRejection.requirementDetails}
+                          </p>
+                        )}
+                      </div>
                     )}
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
                       <span style={{
@@ -418,23 +482,93 @@ export function LeavePage({ user }: Props) {
                       }}>
                         {r.status.replace("_", " ")}
                       </span>
-                      <button
-                        onClick={() => handleCancel(r.id)}
-                        disabled={cancellingId === r.id}
-                        style={{
-                          border: "1px solid #FCA5A5", background: "#FEF2F2", color: "#DC2626",
-                          fontWeight: 700, fontSize: 11, borderRadius: 999, padding: "3px 10px",
-                          cursor: cancellingId === r.id ? "not-allowed" : "pointer",
-                        }}
-                      >
-                        {cancellingId === r.id ? "Cancelling…" : "Cancel"}
-                      </button>
+                      {needsRevision ? (
+                        <button
+                          onClick={() => (isExpanded ? setResubmittingId(null) : openResubmit(r.id))}
+                          style={{
+                            border: "1px solid #93C5FD", background: "#EFF6FF", color: "#1680D8",
+                            fontWeight: 700, fontSize: 11, borderRadius: 999, padding: "3px 10px",
+                            cursor: "pointer",
+                          }}
+                        >
+                          {isExpanded ? "Cancel" : "Attach & Resubmit"}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleCancel(r.id)}
+                          disabled={cancellingId === r.id}
+                          style={{
+                            border: "1px solid #FCA5A5", background: "#FEF2F2", color: "#DC2626",
+                            fontWeight: 700, fontSize: 11, borderRadius: 999, padding: "3px 10px",
+                            cursor: cancellingId === r.id ? "not-allowed" : "pointer",
+                          }}
+                        >
+                          {cancellingId === r.id ? "Cancelling…" : "Cancel"}
+                        </button>
+                      )}
                     </div>
+
+                    {needsRevision && isExpanded && (
+                      <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #E2E8F0" }}>
+                        {resubmitFile ? (
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, border: "1px solid #E2E8F0", borderRadius: 10, padding: "8px 10px", background: "#FFFFFF" }}>
+                            <Paperclip size={14} color="#1680D8" />
+                            <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: "#062B59", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {resubmitFile.name}
+                            </span>
+                            <button
+                              onClick={() => setResubmitFile(null)}
+                              style={{ border: "none", background: "#F1F5F9", borderRadius: 11, width: 22, height: 22, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                            >
+                              <X size={12} color="#64748B" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => resubmitFileRef.current?.click()}
+                            style={{
+                              display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                              width: "100%", height: 40,
+                              border: "1.5px dashed #BFDBFE", borderRadius: 10,
+                              background: "#F8FAFF", cursor: "pointer",
+                              color: "#1680D8", fontSize: 12, fontWeight: 600,
+                            }}
+                          >
+                            <Paperclip size={14} color="#1680D8" />
+                            Attach the requested requirement
+                          </button>
+                        )}
+                        {resubmitErr && <p style={{ color: "#DC2626", fontSize: 11, fontWeight: 600, marginTop: 4 }}>{resubmitErr}</p>}
+                        <textarea
+                          value={resubmitNote}
+                          onChange={(e) => setResubmitNote(e.target.value)}
+                          placeholder="Optional note to the reviewer"
+                          rows={2}
+                          style={{
+                            width: "100%", border: "1px solid #E2E8F0", borderRadius: 10,
+                            padding: "8px 10px", fontSize: 12, resize: "vertical",
+                            boxSizing: "border-box", fontFamily: "inherit", outline: "none",
+                            marginTop: 8,
+                          }}
+                        />
+                        <button
+                          onClick={() => handleResubmit(r.id)}
+                          disabled={isResubmitting}
+                          style={{
+                            ...primBtn, height: 38, fontSize: 12, marginTop: 8,
+                            opacity: isResubmitting ? 0.7 : 1, cursor: isResubmitting ? "not-allowed" : "pointer",
+                          }}
+                        >
+                          {isResubmitting ? "Resubmitting…" : "Resubmit Request"}
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
-            <button onClick={() => setShowPending(false)} style={{ ...primBtn, marginTop: 10 }}>Close</button>
+            <button onClick={() => { setShowPending(false); setResubmittingId(null); }} style={{ ...primBtn, marginTop: 10 }}>Close</button>
+            <input ref={resubmitFileRef} type="file" accept="image/*,.pdf" style={{ display: "none" }} onChange={handleResubmitFileChange} />
           </div>
         </div>
       )}

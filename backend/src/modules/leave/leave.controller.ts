@@ -3,6 +3,8 @@ import { RequirePermissions } from "../../common/decorators/permissions.decorato
 import { getAuditContext } from "../../common/utils/audit-context.util";
 import { getSupervisorDepartmentScope } from "../../common/utils/supervisor-scope.util";
 import { CreateLeaveRequestDto } from "./dto/create-leave-request.dto";
+import { RejectLeaveRequestDto } from "./dto/reject-leave-request.dto";
+import { ResubmitLeaveRequestDto } from "./dto/resubmit-leave-request.dto";
 import { LeaveService } from "./leave.service";
 
 @Controller("leave-requests")
@@ -46,8 +48,8 @@ export class LeaveController {
 
   @Patch(":id/reject")
   @RequirePermissions("leave:approve")
-  reject(@Param("id") id: string, @Body() body: { remarks?: string }, @Req() request: Request) {
-    return this.leaveService.updateStatus(id, "REJECTED", body.remarks, getAuditContext(request));
+  reject(@Param("id") id: string, @Body() body: RejectLeaveRequestDto, @Req() request: Request) {
+    return this.leaveService.reject(id, body, getAuditContext(request));
   }
 
   @Patch(":id/cancel")
@@ -57,6 +59,15 @@ export class LeaveController {
     const roles: string[] = user.roles ?? [user.role];
     const hasElevatedRole = roles.includes("ADMIN") || roles.includes("SUPERVISOR");
     return this.leaveService.cancel(id, getAuditContext(request), hasElevatedRole ? undefined : user?.employeeId);
+  }
+
+  @Patch(":id/resubmit")
+  @RequirePermissions("leave:write")
+  resubmit(@Param("id") id: string, @Body() body: ResubmitLeaveRequestDto, @Req() request: Request) {
+    const user = (request as any).user;
+    const roles: string[] = user.roles ?? [user.role];
+    const hasElevatedRole = roles.includes("ADMIN") || roles.includes("SUPERVISOR");
+    return this.leaveService.resubmit(id, body, getAuditContext(request), hasElevatedRole ? undefined : user?.employeeId);
   }
 
   @Patch(":id/extension-decision")
