@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
@@ -119,14 +119,25 @@ export class LeaveService {
     });
   }
 
-  async updateStatus(id: string, status: LeaveRequestStatus, remarks?: string, context: AuditLogContext = {}) {
+  async updateStatus(
+    id: string,
+    status: LeaveRequestStatus,
+    remarks?: string,
+    context: AuditLogContext = {},
+    scopeDepartmentId?: string,
+  ) {
     // Load the request first so we know its *current* status before changing anything.
     // This is what lets us tell "first time being approved" apart from "already approved,
     // admin clicked again" — without this check, usedDays could be deducted more than once
     // for the same request.
     const existing = await this.prisma.leaveRequest.findUniqueOrThrow({
       where: { id },
+      include: { employee: { select: { departmentId: true } } },
     });
+
+    if (scopeDepartmentId && existing.employee.departmentId !== scopeDepartmentId) {
+      throw new ForbiddenException("You can only manage leave requests from your own department.");
+    }
 
     const wasApproved = existing.status === "APPROVED";
     const isNowApproved = status === "APPROVED";

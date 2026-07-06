@@ -35,18 +35,21 @@ export class EmployeesController {
   @Post()
   @RequirePermissions("employees:write")
   create(@Body() dto: CreateEmployeeDto, @Req() request: Request) {
-    return this.employeesService.create(dto, getAuditContext(request));
+    const departmentId = getSupervisorDepartmentScope((request as any).user);
+    return this.employeesService.create(dto, getAuditContext(request), departmentId);
   }
 
   @Patch(":id")
   @RequirePermissions("employees:write")
   update(@Param("id") id: string, @Body() dto: UpdateEmployeeDto, @Req() request: Request) {
-    return this.employeesService.update(id, dto, getAuditContext(request));
+    const departmentId = getSupervisorDepartmentScope((request as any).user);
+    return this.employeesService.update(id, dto, getAuditContext(request), departmentId);
   }
 
   @Patch(":id/archive")
   @RequirePermissions("employees:write")
   archive(@Param("id") id: string, @Body() dto: { reason?: string; archiveType?: string }, @Req() request: Request) {
-    return this.employeesService.archive(id, dto, getAuditContext(request));
+    const departmentId = getSupervisorDepartmentScope((request as any).user);
+    return this.employeesService.archive(id, dto, getAuditContext(request), departmentId);
   }
 }

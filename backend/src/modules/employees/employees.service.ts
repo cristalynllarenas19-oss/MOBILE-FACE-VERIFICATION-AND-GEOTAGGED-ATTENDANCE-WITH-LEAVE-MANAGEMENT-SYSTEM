@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import * as argon2 from "argon2";
 import { PrismaService } from "../../prisma/prisma.service";
 import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
@@ -39,13 +39,18 @@ export class EmployeesService {
     });
   }
 
-  async create(dto: CreateEmployeeDto, context: AuditLogContext = {}) {
+  async create(dto: CreateEmployeeDto, context: AuditLogContext = {}, scopeDepartmentId?: string) {
     const role = await this.prisma.role.findUniqueOrThrow({ where: { code: "EMPLOYEE" } });
-    const department = await this.prisma.department.upsert({
-      where: { name: dto.department },
-      update: {},
-      create: { name: dto.department },
-    });
+    // A scoped Supervisor's new hire is always auto-associated with their own
+    // department, regardless of what was submitted — same rule as Geotagged
+    // Areas creation.
+    const department = scopeDepartmentId
+      ? await this.prisma.department.findUniqueOrThrow({ where: { id: scopeDepartmentId } })
+      : await this.prisma.department.upsert({
+          where: { name: dto.department },
+          update: {},
+          create: { name: dto.department },
+        });
     // Position is no longer collected when adding an employee — HR can set a
     // specific title later via Edit. Every new hire starts on this
     // placeholder so `positionId` (a required FK) is always populated.
@@ -117,11 +122,16 @@ export class EmployeesService {
     });
   }
 
-  async update(id: string, dto: UpdateEmployeeDto, context: AuditLogContext = {}) {
+  async update(id: string, dto: UpdateEmployeeDto, context: AuditLogContext = {}, scopeDepartmentId?: string) {
     const employee = await this.prisma.employee.findUniqueOrThrow({
       where: { id },
       include: { user: true, department: true, position: true },
     });
+
+    if (scopeDepartmentId && employee.departmentId !== scopeDepartmentId) {
+      throw new ForbiddenException("You can only manage employees in your own department.");
+    }
+
     const department = dto.department
       ? await this.prisma.department.upsert({
           where: { name: dto.department },
@@ -129,6 +139,10 @@ export class EmployeesService {
           create: { name: dto.department },
         })
       : null;
+
+    if (scopeDepartmentId && department && department.id !== scopeDepartmentId) {
+      throw new ForbiddenException("You cannot move an employee to another department.");
+    }
     const position = dto.position
       ? (await this.prisma.position.findFirst({ where: { title: dto.position } })) ??
         (await this.prisma.position.create({ data: { title: dto.position } }))
@@ -211,11 +225,20 @@ export class EmployeesService {
     });
   }
 
-  async archive(id: string, dto: { reason?: string; archiveType?: string }, context: AuditLogContext = {}) {
+  async archive(
+    id: string,
+    dto: { reason?: string; archiveType?: string },
+    context: AuditLogContext = {},
+    scopeDepartmentId?: string,
+  ) {
     const employee = await this.prisma.employee.findUniqueOrThrow({
       where: { id },
       include: { user: true },
     });
+
+    if (scopeDepartmentId && employee.departmentId !== scopeDepartmentId) {
+      throw new ForbiddenException("You can only manage employees in your own department.");
+    }
 
     if (employee.userId) {
       await this.prisma.user.update({

@@ -25,7 +25,13 @@ const rolePermissions: Record<RoleCode, string[]> = {
   // leave:read/leave:approve let a Supervisor see their department's requests
   // and pre-approve them (Employee -> Supervisor -> HR chain) — without
   // these, a Supervisor account gets 403 on every leave endpoint.
-  SUPERVISOR: ["dashboard:view", "employees:read", "attendance:read", "schedules:read", "leave:read", "leave:approve"],
+  // geolocation:write lets a Supervisor create/edit/assign geotagged areas —
+  // GeolocationService enforces the department boundary per-request, this
+  // permission only gates whether they can hit the write endpoints at all.
+  // employees:write lets a Supervisor edit/archive employees in their own
+  // department — EmployeesService enforces the department boundary the same
+  // way (see the scopeDepartmentId checks in create/update/archive).
+  SUPERVISOR: ["dashboard:view", "employees:read", "employees:write", "attendance:read", "schedules:read", "leave:read", "leave:approve", "geolocation:write"],
   EMPLOYEE: ["dashboard:view", "attendance:write", "leave:read", "leave:write"],
 };
 

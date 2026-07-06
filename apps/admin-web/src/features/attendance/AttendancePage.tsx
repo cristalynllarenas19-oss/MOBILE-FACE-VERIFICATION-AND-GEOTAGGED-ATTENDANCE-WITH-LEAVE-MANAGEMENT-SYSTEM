@@ -200,10 +200,15 @@ export function AttendancePage({
   user,
   initialFilter,
 }: {
-  user?: { permissions: PermissionCode[] };
+  user?: { permissions: PermissionCode[]; roles?: string[]; departmentId?: string; department?: string };
   initialFilter?: AttendanceInitialFilter;
 }) {
   const canWrite = user?.permissions.includes(permissions.attendanceWrite) ?? true;
+  // Mirrors the backend's getSupervisorDepartmentScope: a Supervisor who is
+  // also an Admin (or not a Supervisor at all) gets full, unscoped access.
+  const roles = user?.roles ?? [];
+  const isDepartmentLocked = roles.includes("SUPERVISOR") && !roles.includes("ADMIN");
+
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [employeeOptions, setEmployeeOptions] = useState<EmployeeOption[]>([]);
   const [departmentFilter, setDepartmentFilter] = useState(initialFilter?.department ?? "ALL");
@@ -258,18 +263,20 @@ export function AttendancePage({
       )}
 
       <div className="attendance-filter-bar">
-        <div className="attendance-filter-group">
-          <label className="attendance-filter-label">Department</label>
-          <DropdownFilter
-            className="attendance-filter"
-            value={departmentFilter}
-            onChange={setDepartmentFilter}
-            options={departments.map((department) => ({ value: department, label: department }))}
-            allLabel="All Departments"
-            menuLabel="Filter by department"
-            ariaLabel="Department"
-          />
-        </div>
+        {!isDepartmentLocked && (
+          <div className="attendance-filter-group">
+            <label className="attendance-filter-label">Department</label>
+            <DropdownFilter
+              className="attendance-filter"
+              value={departmentFilter}
+              onChange={setDepartmentFilter}
+              options={departments.map((department) => ({ value: department, label: department }))}
+              allLabel="All Departments"
+              menuLabel="Filter by department"
+              ariaLabel="Department"
+            />
+          </div>
+        )}
 
         <div className="attendance-filter-group">
           <label className="attendance-filter-label">Status</label>

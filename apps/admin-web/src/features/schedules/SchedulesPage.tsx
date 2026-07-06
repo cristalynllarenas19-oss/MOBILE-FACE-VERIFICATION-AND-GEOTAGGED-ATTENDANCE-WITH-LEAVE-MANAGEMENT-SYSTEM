@@ -187,8 +187,17 @@ function FormDropdown({
   );
 }
 
-export function SchedulesPage({ user }: { user?: { permissions: PermissionCode[] } }) {
+export function SchedulesPage({
+  user,
+}: {
+  user?: { permissions: PermissionCode[]; roles?: string[]; departmentId?: string; department?: string };
+}) {
   const canWrite = user?.permissions.includes(permissions.schedulesWrite) ?? true;
+  // Mirrors the backend's getSupervisorDepartmentScope: a Supervisor who is
+  // also an Admin (or not a Supervisor at all) gets full, unscoped access.
+  const roles = user?.roles ?? [];
+  const isDepartmentLocked = roles.includes("SUPERVISOR") && !roles.includes("ADMIN");
+
   const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
@@ -393,18 +402,21 @@ export function SchedulesPage({ user }: { user?: { permissions: PermissionCode[]
             All Schedules
           </button>
 
-          {/* Department dropdown — panel style */}
-          <FormDropdown
-            label="Department"
-            placeholder="All Departments"
-            value={departmentFilter}
-            onChange={setDepartmentFilter}
-            clearValue="ALL"
-            options={[
-              { value: "ALL", label: "All Departments" },
-              ...departments.map((d) => ({ value: d, label: d })),
-            ]}
-          />
+          {/* Department dropdown — panel style; hidden entirely for a
+              Supervisor, who is already restricted to their own department */}
+          {!isDepartmentLocked && (
+            <FormDropdown
+              label="Department"
+              placeholder="All Departments"
+              value={departmentFilter}
+              onChange={setDepartmentFilter}
+              clearValue="ALL"
+              options={[
+                { value: "ALL", label: "All Departments" },
+                ...departments.map((d) => ({ value: d, label: d })),
+              ]}
+            />
+          )}
 
           {/* Shift dropdown — panel style */}
           <FormDropdown

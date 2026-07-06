@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 
 type ScheduleFilters = {
@@ -56,7 +56,20 @@ export class SchedulesService {
     });
   }
 
-  createAssignment(dto: { employeeId: string; shiftId: string; startsOn: string; endsOn?: string }) {
+  async createAssignment(
+    dto: { employeeId: string; shiftId: string; startsOn: string; endsOn?: string },
+    scopeDepartmentId?: string,
+  ) {
+    if (scopeDepartmentId) {
+      const employee = await this.prisma.employee.findUniqueOrThrow({
+        where: { id: dto.employeeId },
+        select: { departmentId: true },
+      });
+      if (employee.departmentId !== scopeDepartmentId) {
+        throw new ForbiddenException("You can only assign schedules to employees in your own department.");
+      }
+    }
+
     return this.prisma.employeeSchedule.create({
       data: {
         employeeId: dto.employeeId,
@@ -71,7 +84,21 @@ export class SchedulesService {
     });
   }
 
-  updateAssignment(id: string, dto: { shiftId?: string; startsOn?: string; endsOn?: string | null }) {
+  async updateAssignment(
+    id: string,
+    dto: { shiftId?: string; startsOn?: string; endsOn?: string | null },
+    scopeDepartmentId?: string,
+  ) {
+    if (scopeDepartmentId) {
+      const assignment = await this.prisma.employeeSchedule.findUniqueOrThrow({
+        where: { id },
+        select: { employee: { select: { departmentId: true } } },
+      });
+      if (assignment.employee.departmentId !== scopeDepartmentId) {
+        throw new ForbiddenException("You can only manage schedules for employees in your own department.");
+      }
+    }
+
     return this.prisma.employeeSchedule.update({
       where: { id },
       data: {

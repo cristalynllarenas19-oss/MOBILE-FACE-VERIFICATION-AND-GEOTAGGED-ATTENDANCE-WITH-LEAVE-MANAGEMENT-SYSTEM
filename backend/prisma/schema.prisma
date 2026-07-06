@@ -104,28 +104,36 @@ enum Sex {
 }
 
 model User {
-  id           String      @id @default(uuid())
-  email        String      @unique
-  passwordHash String      @map("password_hash")
-  status       UserStatus  @default(ACTIVE)
+  id                    String             @id @default(uuid())
+  email                 String             @unique
+  passwordHash          String             @map("password_hash")
+  status                UserStatus         @default(ACTIVE)
   // Pre-existing live-DB column not originally tracked in this schema file (see the
   // `divisions`/`sections` note below) — mirrored as-is so `prisma db push` does not drop it.
-  mustChangePassword Boolean @default(false) @map("must_change_password")
-  defaultView  DefaultView? @map("default_view")
-  lastLoginAt  DateTime?   @map("last_login_at")
-  createdAt    DateTime    @default(now()) @map("created_at")
-  updatedAt    DateTime    @updatedAt @map("updated_at")
-  employee     Employee?
-  userRoles    UserRole[]
-  auditLogs    AuditLog[]
-  notifications Notification[]
-  passwordResetOtps PasswordResetOtp[]
+  mustChangePassword    Boolean            @default(false) @map("must_change_password")
+  defaultView           DefaultView?       @map("default_view")
+  lastLoginAt           DateTime?          @map("last_login_at")
+  createdAt             DateTime           @default(now()) @map("created_at")
+  updatedAt             DateTime           @updatedAt @map("updated_at")
+  employee              Employee?
+  userRoles             UserRole[]
+  auditLogs             AuditLog[]
+  notifications         Notification[]
+  passwordResetOtps     PasswordResetOtp[]
   reviewedLeaveRequests LeaveRequest[]
+<<<<<<< Updated upstream
   leaveRequestNotes LeaveRequestNote[]
   createdLeaveTypes LeaveType[] @relation("LeaveTypeCreatedBy")
   updatedLeaveTypes LeaveType[] @relation("LeaveTypeUpdatedBy")
   createdShifts     Shift[]     @relation("ShiftCreatedBy")
   updatedShifts     Shift[]     @relation("ShiftUpdatedBy")
+=======
+  leaveRequestNotes     LeaveRequestNote[]
+  createdLeaveTypes     LeaveType[]        @relation("LeaveTypeCreatedBy")
+  updatedLeaveTypes     LeaveType[]        @relation("LeaveTypeUpdatedBy")
+  createdShifts         Shift[]            @relation("ShiftCreatedBy")
+  updatedShifts         Shift[]            @relation("ShiftUpdatedBy")
+>>>>>>> Stashed changes
 
   @@map("users")
 }
@@ -187,12 +195,13 @@ model RolePermission {
 }
 
 model Department {
-  id          String      @id @default(uuid())
-  name        String      @unique
-  division_id String?
-  divisions   divisions?  @relation(fields: [division_id], references: [id])
-  employees   Employee[]
-  sections    sections[]
+  id            String         @id @default(uuid())
+  name          String         @unique
+  division_id   String?
+  divisions     divisions?     @relation(fields: [division_id], references: [id])
+  employees     Employee[]
+  sections      sections[]
+  workLocations WorkLocation[]
 
   @@index([division_id])
   @@map("departments")
@@ -232,37 +241,37 @@ model Position {
 }
 
 model Employee {
-  id               String             @id @default(uuid())
-  userId           String             @unique @map("user_id")
-  employeeNo       String             @unique @map("employee_no")
-  firstName        String             @map("first_name")
-  lastName         String             @map("last_name")
-  departmentId     String             @map("department_id")
-  positionId       String             @map("position_id")
-  employmentStatus EmploymentStatus   @default(REGULAR) @map("employment_status")
-  attendanceMode   AttendanceMode     @default(FIXED) @map("attendance_mode")
-  hireDate         DateTime           @map("hire_date")
-  supervisorId     String?            @map("supervisor_id")
-  contactNumber        String?        @map("contact_number")
-  profilePhotoData     String?        @map("profile_photo_data")
-  profilePhotoMimeType String?        @map("profile_photo_mime_type")
-  birthdate        DateTime?
-  section_id       String?
-  sex              Sex?
-  soloParentStatus SoloParentStatus   @default(NOT_APPLICABLE) @map("solo_parent_status")
-  sections         sections?          @relation(fields: [section_id], references: [id])
-  user             User               @relation(fields: [userId], references: [id])
-  department       Department         @relation(fields: [departmentId], references: [id])
-  position         Position           @relation(fields: [positionId], references: [id])
-  supervisor       Employee?          @relation("SupervisorTeam", fields: [supervisorId], references: [id])
-  teamMembers      Employee[]         @relation("SupervisorTeam")
-  attendanceRecords AttendanceRecord[]
-  attendanceLogs   AttendanceLog[]
-  faceProfiles     FaceProfile[]
-  leaveRequests    LeaveRequest[]
-  leaveBalances    LeaveBalance[]
-  schedules        EmployeeSchedule[]
-  workLocations    WorkLocationEmployee[]
+  id                   String                 @id @default(uuid())
+  userId               String                 @unique @map("user_id")
+  employeeNo           String                 @unique @map("employee_no")
+  firstName            String                 @map("first_name")
+  lastName             String                 @map("last_name")
+  departmentId         String                 @map("department_id")
+  positionId           String                 @map("position_id")
+  employmentStatus     EmploymentStatus       @default(REGULAR) @map("employment_status")
+  attendanceMode       AttendanceMode         @default(FIXED) @map("attendance_mode")
+  hireDate             DateTime               @map("hire_date")
+  supervisorId         String?                @map("supervisor_id")
+  contactNumber        String?                @map("contact_number")
+  profilePhotoData     String?                @map("profile_photo_data")
+  profilePhotoMimeType String?                @map("profile_photo_mime_type")
+  birthdate            DateTime?
+  section_id           String?
+  sex                  Sex?
+  soloParentStatus     SoloParentStatus       @default(NOT_APPLICABLE) @map("solo_parent_status")
+  sections             sections?              @relation(fields: [section_id], references: [id])
+  user                 User                   @relation(fields: [userId], references: [id])
+  department           Department             @relation(fields: [departmentId], references: [id])
+  position             Position               @relation(fields: [positionId], references: [id])
+  supervisor           Employee?              @relation("SupervisorTeam", fields: [supervisorId], references: [id])
+  teamMembers          Employee[]             @relation("SupervisorTeam")
+  attendanceRecords    AttendanceRecord[]
+  attendanceLogs       AttendanceLog[]
+  faceProfiles         FaceProfile[]
+  leaveRequests        LeaveRequest[]
+  leaveBalances        LeaveBalance[]
+  schedules            EmployeeSchedule[]
+  workLocations        WorkLocationEmployee[]
 
   @@index([departmentId])
   @@index([supervisorId])
@@ -271,17 +280,23 @@ model Employee {
 }
 
 model WorkLocation {
-  id                    String   @id @default(uuid())
+  id                    String                 @id @default(uuid())
   name                  String
   latitude              Decimal
   longitude             Decimal
-  radiusMeters          Decimal  @map("radius_meters")
-  allowedAccuracyMeters Decimal  @map("allowed_accuracy_meters")
-  isActive              Boolean  @default(true) @map("is_active")
+  radiusMeters          Decimal                @map("radius_meters")
+  allowedAccuracyMeters Decimal                @map("allowed_accuracy_meters")
+  isActive              Boolean                @default(true) @map("is_active")
+  // Null = a global/shared area, visible to every department (e.g. HQ).
+  // Set automatically to the creating Supervisor's department and never
+  // client-editable by a Supervisor afterwards — see supervisor-scope.util.
+  departmentId          String?                @map("department_id")
+  department            Department?            @relation(fields: [departmentId], references: [id])
   employees             WorkLocationEmployee[]
   attendanceLogs        AttendanceLog[]
   attendanceRecords     AttendanceRecord[]
 
+  @@index([departmentId])
   @@map("work_locations")
 }
 
@@ -328,26 +343,26 @@ model AttendanceRecord {
 }
 
 model AttendanceLog {
-  id                      String             @id @default(uuid())
-  attendanceRecordId      String?            @map("attendance_record_id")
-  employeeId              String             @map("employee_id")
-  logType                 AttendanceLogType  @map("log_type")
-  capturedAt              DateTime           @default(now()) @map("captured_at")
-  latitude                Decimal
-  longitude               Decimal
-  gpsAccuracyMeters       Decimal            @map("gps_accuracy_meters")
-  distanceFromSiteMeters  Decimal            @map("distance_from_site_meters")
-  workLocationId          String?            @map("work_location_id")
-  faceLivenessScore       Decimal?           @map("face_liveness_score")
-  faceSimilarityScore     Decimal?           @map("face_similarity_score")
-  verificationStatus      VerificationStatus @map("verification_status")
-  deviceId                String             @map("device_id")
-  failureReason           String?            @map("failure_reason")
-  faceImageData           String?            @map("face_image_data")
-  faceImageMimeType       String?            @map("face_image_mime_type")
-  attendanceRecord        AttendanceRecord?  @relation(fields: [attendanceRecordId], references: [id])
-  employee                Employee           @relation(fields: [employeeId], references: [id])
-  workLocation            WorkLocation?      @relation(fields: [workLocationId], references: [id])
+  id                     String             @id @default(uuid())
+  attendanceRecordId     String?            @map("attendance_record_id")
+  employeeId             String             @map("employee_id")
+  logType                AttendanceLogType  @map("log_type")
+  capturedAt             DateTime           @default(now()) @map("captured_at")
+  latitude               Decimal
+  longitude              Decimal
+  gpsAccuracyMeters      Decimal            @map("gps_accuracy_meters")
+  distanceFromSiteMeters Decimal            @map("distance_from_site_meters")
+  workLocationId         String?            @map("work_location_id")
+  faceLivenessScore      Decimal?           @map("face_liveness_score")
+  faceSimilarityScore    Decimal?           @map("face_similarity_score")
+  verificationStatus     VerificationStatus @map("verification_status")
+  deviceId               String             @map("device_id")
+  failureReason          String?            @map("failure_reason")
+  faceImageData          String?            @map("face_image_data")
+  faceImageMimeType      String?            @map("face_image_mime_type")
+  attendanceRecord       AttendanceRecord?  @relation(fields: [attendanceRecordId], references: [id])
+  employee               Employee           @relation(fields: [employeeId], references: [id])
+  workLocation           WorkLocation?      @relation(fields: [workLocationId], references: [id])
 
   @@index([employeeId, capturedAt])
   @@index([verificationStatus])
@@ -372,33 +387,34 @@ model FaceProfile {
 }
 
 model LeaveType {
-  id                           String             @id @default(uuid())
-  name                         String             @unique
-  defaultDays                  Decimal            @map("default_days")
-  requiresDocument             Boolean            @default(false) @map("requires_document")
-  supportingDocumentAfterDays  Int?               @map("supporting_document_after_days")
-  requiresHrValidation         Boolean            @default(false) @map("requires_hr_validation")
-  requiresEhsActivation        Boolean            @default(false) @map("requires_ehs_activation")
-  ehsActivated                 Boolean            @default(false) @map("ehs_activated")
-  allowWithoutPay              Boolean            @default(false) @map("allow_without_pay")
-  isTransferable               Boolean            @default(false) @map("is_transferable")
-  isAutoCredited               Boolean            @default(false) @map("is_auto_credited")
-  applicableStatuses           EmploymentStatus[] @default([]) @map("applicable_statuses")
-  isActive                     Boolean            @default(true) @map("is_active")
-  isUnlimitedDays              Boolean            @default(false) @map("is_unlimited_days")
-  createdAt                    DateTime           @default(now()) @map("created_at")
-  updatedAt                    DateTime           @updatedAt @map("updated_at")
-  createdBy                    String?            @map("created_by")
-  updatedBy                    String?            @map("updated_by")
-  leaveRequests                LeaveRequest[]
-  leaveBalances                LeaveBalance[]
-  createdByUser                User?              @relation("LeaveTypeCreatedBy", fields: [createdBy], references: [id])
-  updatedByUser                User?              @relation("LeaveTypeUpdatedBy", fields: [updatedBy], references: [id])
+  id                          String             @id @default(uuid())
+  name                        String             @unique
+  defaultDays                 Decimal            @map("default_days")
+  requiresDocument            Boolean            @default(false) @map("requires_document")
+  supportingDocumentAfterDays Int?               @map("supporting_document_after_days")
+  requiresHrValidation        Boolean            @default(false) @map("requires_hr_validation")
+  requiresEhsActivation       Boolean            @default(false) @map("requires_ehs_activation")
+  ehsActivated                Boolean            @default(false) @map("ehs_activated")
+  allowWithoutPay             Boolean            @default(false) @map("allow_without_pay")
+  isTransferable              Boolean            @default(false) @map("is_transferable")
+  isAutoCredited              Boolean            @default(false) @map("is_auto_credited")
+  applicableStatuses          EmploymentStatus[] @default([]) @map("applicable_statuses")
+  isActive                    Boolean            @default(true) @map("is_active")
+  isUnlimitedDays             Boolean            @default(false) @map("is_unlimited_days")
+  createdAt                   DateTime           @default(now()) @map("created_at")
+  updatedAt                   DateTime           @updatedAt @map("updated_at")
+  createdBy                   String?            @map("created_by")
+  updatedBy                   String?            @map("updated_by")
+  leaveRequests               LeaveRequest[]
+  leaveBalances               LeaveBalance[]
+  createdByUser               User?              @relation("LeaveTypeCreatedBy", fields: [createdBy], references: [id])
+  updatedByUser               User?              @relation("LeaveTypeUpdatedBy", fields: [updatedBy], references: [id])
 
   @@map("leave_types")
 }
 
 model LeaveRequest {
+<<<<<<< Updated upstream
   id          String      @id @default(uuid())
   employeeId  String      @map("employee_id")
   leaveTypeId String      @map("leave_type_id")
@@ -420,17 +436,49 @@ model LeaveRequest {
   leaveType   LeaveType   @relation(fields: [leaveTypeId], references: [id])
   reviewer    User?       @relation(fields: [reviewedBy], references: [id])
   notes       LeaveRequestNote[]
+=======
+  id                 String      @id @default(uuid())
+  employeeId         String      @map("employee_id")
+  leaveTypeId        String      @map("leave_type_id")
+  startDate          DateTime    @map("start_date")
+  endDate            DateTime    @map("end_date")
+  totalDays          Decimal     @map("total_days")
+  reason             String
+  status             LeaveStatus @default(PENDING)
+  reviewedBy         String?     @map("reviewed_by")
+  reviewedAt         DateTime?   @map("reviewed_at")
+  createdAt          DateTime    @default(now()) @map("created_at")
+  attachmentPath     String?     @map("attachment_path")
+  attachmentName     String?     @map("attachment_name")
+  attachmentMimeType String?     @map("attachment_mime_type")
+  attachmentData     String?     @map("attachment_data")
+  extensionRequested Boolean     @default(false) @map("extension_requested")
+  extensionApproved  Boolean?    @map("extension_approved")
+  employee           Employee    @relation(fields: [employeeId], references: [id])
+  leaveType          LeaveType   @relation(fields: [leaveTypeId], references: [id])
+  reviewer           User?       @relation(fields: [reviewedBy], references: [id])
+  notes              LeaveRequestNote[]
+>>>>>>> Stashed changes
 
   @@index([employeeId, status])
   @@index([startDate])
   @@map("leave_requests")
 }
 
+<<<<<<< Updated upstream
 // The durable, ordered thread behind the reject -> "needs additional
 // requirements" -> employee resubmits -> re-review loop. Kept separate from
 // AuditLog because that table's LeaveRequest lookup only ever surfaces the
 // single most recent entry (see LeaveService.findAll), which breaks down once
 // a request can cycle through multiple rejection/resubmission rounds.
+=======
+// Pre-existing live-DB table not originally tracked in this schema file
+// (created directly against the shared dev database outside of Prisma
+// migrations, same situation as `divisions`/`sections` below) — mirrored
+// here as-is so `prisma db push` does not drop it. Rejection/resubmission
+// notes attached to a leave request, each optionally carrying its own
+// attachment (e.g. a corrected requirement document).
+>>>>>>> Stashed changes
 model LeaveRequestNote {
   id                             String               @id @default(uuid())
   leaveRequestId                 String               @map("leave_request_id")
@@ -439,12 +487,20 @@ model LeaveRequestNote {
   requiresAdditionalRequirements Boolean              @default(false) @map("requires_additional_requirements")
   requirementDetails             String?              @map("requirement_details")
   attachmentName                 String?              @map("attachment_name")
+<<<<<<< Updated upstream
   attachmentMimeType              String?             @map("attachment_mime_type")
+=======
+  attachmentMimeType             String?              @map("attachment_mime_type")
+>>>>>>> Stashed changes
   attachmentData                 String?              @map("attachment_data")
   authorUserId                   String?              @map("author_user_id")
   createdAt                      DateTime             @default(now()) @map("created_at")
   leaveRequest                   LeaveRequest         @relation(fields: [leaveRequestId], references: [id])
+<<<<<<< Updated upstream
   author                         User?                @relation(fields: [authorUserId], references: [id])
+=======
+  authorUser                     User?                @relation(fields: [authorUserId], references: [id])
+>>>>>>> Stashed changes
 
   @@index([leaveRequestId])
   @@map("leave_request_notes")
@@ -478,42 +534,42 @@ model Shift {
   lateThresholdMinutes      Int?               @map("late_threshold_minutes")
   undertimeThresholdMinutes Int?               @map("undertime_threshold_minutes")
   autoShiftAdjustment       Boolean            @default(false) @map("auto_shift_adjustment")
-  isActive            Boolean            @default(true) @map("is_active")
-  createdAt           DateTime           @default(now()) @map("created_at")
-  updatedAt           DateTime           @updatedAt @map("updated_at")
-  createdBy           String?            @map("created_by")
-  updatedBy           String?            @map("updated_by")
-  schedules           EmployeeSchedule[]
-  attendanceRecords   AttendanceRecord[]
-  createdByUser       User?              @relation("ShiftCreatedBy", fields: [createdBy], references: [id])
-  updatedByUser       User?              @relation("ShiftUpdatedBy", fields: [updatedBy], references: [id])
+  isActive                  Boolean            @default(true) @map("is_active")
+  createdAt                 DateTime           @default(now()) @map("created_at")
+  updatedAt                 DateTime           @updatedAt @map("updated_at")
+  createdBy                 String?            @map("created_by")
+  updatedBy                 String?            @map("updated_by")
+  schedules                 EmployeeSchedule[]
+  attendanceRecords         AttendanceRecord[]
+  createdByUser             User?              @relation("ShiftCreatedBy", fields: [createdBy], references: [id])
+  updatedByUser             User?              @relation("ShiftUpdatedBy", fields: [updatedBy], references: [id])
 
   @@map("shifts")
 }
 
 model EmployeeSchedule {
-  id         String   @id @default(uuid())
-  employeeId String   @map("employee_id")
-  shiftId    String   @map("shift_id")
-  startsOn   DateTime @map("starts_on")
+  id         String    @id @default(uuid())
+  employeeId String    @map("employee_id")
+  shiftId    String    @map("shift_id")
+  startsOn   DateTime  @map("starts_on")
   endsOn     DateTime? @map("ends_on")
-  employee   Employee @relation(fields: [employeeId], references: [id])
-  shift      Shift    @relation(fields: [shiftId], references: [id])
+  employee   Employee  @relation(fields: [employeeId], references: [id])
+  shift      Shift     @relation(fields: [shiftId], references: [id])
 
   @@index([employeeId])
   @@map("employee_schedules")
 }
 
 model Notification {
-  id        String   @id @default(uuid())
-  userId    String   @map("user_id")
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
   title     String
   message   String
   type      String?
-  entityId  String?  @map("entity_id")
+  entityId  String?   @map("entity_id")
   readAt    DateTime? @map("read_at")
-  createdAt DateTime @default(now()) @map("created_at")
-  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime  @default(now()) @map("created_at")
+  user      User      @relation(fields: [userId], references: [id])
 
   @@index([userId, readAt])
   @@map("notifications")

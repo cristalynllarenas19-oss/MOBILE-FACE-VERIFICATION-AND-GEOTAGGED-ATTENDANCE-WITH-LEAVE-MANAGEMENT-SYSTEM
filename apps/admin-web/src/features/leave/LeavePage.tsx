@@ -411,7 +411,7 @@ function EmployeeBalanceSearch({
             setQuery(event.target.value);
             setOpen(true);
           }}
-          placeholder="Search employee by name or department"
+          placeholder="Search employee"
           aria-label="Search employee for leave balance lookup"
         />
         {showClear && (
@@ -652,8 +652,16 @@ function DateFiledPicker({ value, onChange }: { value: string | null; onChange: 
 }
 
 
-export function LeavePage({ user }: { user?: { role: string; roles: string[] } } = {}) {
-  const isAdmin = (user?.roles ?? (user?.role ? [user.role] : [])).includes("ADMIN");
+export function LeavePage({
+  user,
+}: {
+  user?: { role: string; roles: string[]; departmentId?: string; department?: string };
+} = {}) {
+  const roles = user?.roles ?? (user?.role ? [user.role] : []);
+  const isAdmin = roles.includes("ADMIN");
+  // Mirrors the backend's getSupervisorDepartmentScope: a Supervisor who is
+  // also an Admin (or not a Supervisor at all) gets full, unscoped access.
+  const isDepartmentLocked = roles.includes("SUPERVISOR") && !isAdmin;
 
   const [requests, setRequests]                 = useState<LeaveRequest[]>([]);
   const [leaveTypes, setLeaveTypes]             = useState<LeaveType[]>([]);
@@ -771,15 +779,21 @@ export function LeavePage({ user }: { user?: { role: string; roles: string[] } }
     [requests, statusFilter, typeFilter, searchTerm]
   );
 
+  // Built from the full employee directory, not just whoever currently has a
+  // leave request on file — otherwise a department with zero requests would
+  // never appear as a filter option at all. For a scoped Supervisor,
+  // `/employees` already only returns their own department, so this list
+  // would only ever contain one entry (the dropdown is hidden for them
+  // anyway — see isDepartmentLocked below).
   const historyDepartmentOptions = useMemo(() => {
     const names = new Set<string>();
-    for (const r of requests) {
-      if (r.employee.department?.name) names.add(r.employee.department.name);
+    for (const e of directory) {
+      if (e.department?.name) names.add(e.department.name);
     }
     return Array.from(names)
       .sort((a, b) => a.localeCompare(b))
       .map((name) => ({ value: name, label: name }));
-  }, [requests]);
+  }, [directory]);
 
   const visibleHistoryRequests = useMemo(
     () =>
@@ -1158,15 +1172,17 @@ export function LeavePage({ user }: { user?: { role: string; roles: string[] } }
         <>
           <div className="leave-toolbar">
             <div className="leave-table-toolbar leave-table-toolbar-left">
-              <DropdownFilter
-                className="leave-select"
-                value={historyDepartmentFilter}
-                onChange={setHistoryDepartmentFilter}
-                options={historyDepartmentOptions}
-                allLabel="All Departments"
-                menuLabel="Filter by department"
-                ariaLabel="Filter by department"
-              />
+              {!isDepartmentLocked && (
+                <DropdownFilter
+                  className="leave-select"
+                  value={historyDepartmentFilter}
+                  onChange={setHistoryDepartmentFilter}
+                  options={historyDepartmentOptions}
+                  allLabel="All Departments"
+                  menuLabel="Filter by department"
+                  ariaLabel="Filter by department"
+                />
+              )}
               <DropdownFilter
                 className="leave-select"
                 value={typeFilter}

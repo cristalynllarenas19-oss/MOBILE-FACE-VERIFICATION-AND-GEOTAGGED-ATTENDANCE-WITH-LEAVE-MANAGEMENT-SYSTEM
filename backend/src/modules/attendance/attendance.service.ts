@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import type { AttendanceRecord } from "@prisma/client";
 import { randomUUID } from "crypto";
 import { PrismaService } from "../../prisma/prisma.service";
@@ -163,11 +163,22 @@ export class AttendanceService {
     return [...withRemarks, ...syntheticRows];
   }
 
-  async updateStatus(id: string, status: "PRESENT" | "OFFICIAL_BUSINESS", remarks?: string, context: AuditLogContext = {}) {
+  async updateStatus(
+    id: string,
+    status: "PRESENT" | "OFFICIAL_BUSINESS",
+    remarks?: string,
+    context: AuditLogContext = {},
+    scopeDepartmentId?: string,
+  ) {
     const before = await this.prisma.attendanceRecord.findUniqueOrThrow({
       where: { id },
-      select: { status: true },
+      select: { status: true, employee: { select: { departmentId: true } } },
     });
+
+    if (scopeDepartmentId && before.employee.departmentId !== scopeDepartmentId) {
+      throw new ForbiddenException("You can only manage attendance records from your own department.");
+    }
+
     const record = await this.prisma.attendanceRecord.update({
       where: { id },
       data: { status },

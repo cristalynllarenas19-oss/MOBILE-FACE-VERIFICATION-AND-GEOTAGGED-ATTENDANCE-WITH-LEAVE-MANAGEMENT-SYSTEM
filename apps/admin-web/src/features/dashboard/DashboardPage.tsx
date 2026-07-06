@@ -183,9 +183,17 @@ function CalendarPicker({
 
 export function DashboardPage({
   onNavigateToAttendance,
+  user,
 }: {
   onNavigateToAttendance: (filter: AttendanceNavigateFilter) => void;
+  user?: { roles?: string[]; departmentId?: string; department?: string };
 }) {
+  // Mirrors the backend's getSupervisorDepartmentScope: a Supervisor who is
+  // also an Admin (or not a Supervisor at all) gets full, unscoped access.
+  const roles = user?.roles ?? [];
+  const isDepartmentLocked = roles.includes("SUPERVISOR") && !roles.includes("ADMIN");
+  const lockedDepartmentName = isDepartmentLocked ? user?.department : undefined;
+
   const now = new Date();
   const [calendarMonth, setCalendarMonth] = useState(now.getMonth());
   const [calendarYear, setCalendarYear] = useState(now.getFullYear());
@@ -361,15 +369,19 @@ export function DashboardPage({
                 {monthlyRate.rate}%
               </strong>
             </span>
-            <DropdownFilter
-              value={departmentFilter}
-              options={departmentOptions}
-              onChange={setDepartmentFilter}
-              allLabel="All Departments"
-              menuLabel="Department"
-              allValue="ALL"
-              ariaLabel="Filter monthly attendance by department"
-            />
+            {isDepartmentLocked ? (
+              <span className="cal-hint">{lockedDepartmentName}</span>
+            ) : (
+              <DropdownFilter
+                value={departmentFilter}
+                options={departmentOptions}
+                onChange={setDepartmentFilter}
+                allLabel="All Departments"
+                menuLabel="Department"
+                allValue="ALL"
+                ariaLabel="Filter monthly attendance by department"
+              />
+            )}
           </div>
 
           <MonthlyAttendanceChart

@@ -564,6 +564,12 @@
   border-color: #94a3b8;
 }
 
+.department-filter-trigger.locked {
+  cursor: default;
+  background: #f7fafd;
+  color: #5b7291;
+}
+
 .department-filter-trigger.active {
   background: #eef4fb;
   border-color: #1a3a5c;

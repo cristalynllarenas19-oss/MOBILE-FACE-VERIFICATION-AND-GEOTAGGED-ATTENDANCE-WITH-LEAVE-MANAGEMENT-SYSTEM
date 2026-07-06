@@ -68,12 +68,14 @@ export class AttendanceController {
   @Patch(":id/approve")
   @RequirePermissions("attendance:write")
   approve(@Param("id") id: string, @Body() body: { remarks?: string }, @Req() request: Request) {
-    return this.attendanceService.updateStatus(id, "PRESENT", body.remarks, getAuditContext(request));
+    const departmentId = getSupervisorDepartmentScope((request as any).user);
+    return this.attendanceService.updateStatus(id, "PRESENT", body.remarks, getAuditContext(request), departmentId);
   }
 
   @Patch(":id/official-business")
   @RequirePermissions("attendance:write")
   officialBusiness(@Param("id") id: string, @Body() body: { remarks?: string }, @Req() request: Request) {
-    return this.attendanceService.updateStatus(id, "OFFICIAL_BUSINESS", body.remarks, getAuditContext(request));
+    const departmentId = getSupervisorDepartmentScope((request as any).user);
+    return this.attendanceService.updateStatus(id, "OFFICIAL_BUSINESS", body.remarks, getAuditContext(request), departmentId);
   }
 }

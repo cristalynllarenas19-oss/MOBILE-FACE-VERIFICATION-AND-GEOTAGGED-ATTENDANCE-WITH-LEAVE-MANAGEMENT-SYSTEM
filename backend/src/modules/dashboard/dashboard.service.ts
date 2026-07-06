@@ -7,7 +7,7 @@ import { isDateWithinLeaveRange } from "../../common/utils/on-leave.util";
 export class DashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async summary(month: number, year: number) {
+  async summary(month: number, year: number, departmentId?: string) {
     const today = new Date();
     const attendanceDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
 
@@ -43,28 +43,45 @@ export class DashboardService {
     ] = await Promise.all([
       // Archived (SEPARATED) employees don't count toward current headcount —
       // matches the "All Employees" tab on the Employees page, which already
-      // excludes them from its count.
+      // excludes them from its count. Every query below is additionally
+      // scoped to a Supervisor's own department when departmentId is set
+      // (see getSupervisorDepartmentScope) — everything downstream (stats,
+      // enrollment, calendar days, department-attendance rows, absence
+      // trends) is computed generically from these results, so scoping the
+      // inputs here scopes the whole dashboard for free.
       this.prisma.employee.findMany({
-        where: { employmentStatus: { not: "SEPARATED" } },
-        select: { id: true, hireDate: true, department: { select: { name: true } } },
+        where: { employmentStatus: { not: "SEPARATED" }, ...(departmentId ? { departmentId } : {}) },
+        select: { id: true, hireDate: true, departmentId: true, department: { select: { name: true } } },
       }),
       this.prisma.attendanceRecord.findMany({
-        where: { attendanceDate },
+        where: { attendanceDate, ...(departmentId ? { employee: { departmentId } } : {}) },
         select: { employeeId: true, attendanceDate: true, timeInAt: true, status: true },
       }),
-      this.prisma.leaveRequest.count({ where: { status: "PENDING" } }),
-      this.prisma.attendanceLog.count({ where: { capturedAt: { gte: attendanceDate } } }),
-      this.prisma.attendanceLog.count({ where: { verificationStatus: "PENDING_REVIEW" } }),
+      this.prisma.leaveRequest.count({
+        where: { status: "PENDING", ...(departmentId ? { employee: { departmentId } } : {}) },
+      }),
+      this.prisma.attendanceLog.count({
+        where: { capturedAt: { gte: attendanceDate }, ...(departmentId ? { employee: { departmentId } } : {}) },
+      }),
+      this.prisma.attendanceLog.count({
+        where: { verificationStatus: "PENDING_REVIEW", ...(departmentId ? { employee: { departmentId } } : {}) },
+      }),
       this.prisma.leaveType.findUnique({ where: { name: "Vacation Leave" } }),
       this.prisma.leaveType.findUnique({ where: { name: "Sick Leave" } }),
       this.prisma.leaveType.findUnique({ where: { name: "Special Leave" } }),
       this.prisma.attendanceRecord.findMany({
-        where: { attendanceDate: { gte: monthStart, lte: monthEnd } },
+        where: {
+          attendanceDate: { gte: monthStart, lte: monthEnd },
+          ...(departmentId ? { employee: { departmentId } } : {}),
+        },
         include: { employee: { include: { department: true } } },
         orderBy: { attendanceDate: "asc" },
       }),
       this.prisma.faceProfile.findMany({
-        where: { enrollmentStatus: "ACTIVE", employee: { employmentStatus: { not: "SEPARATED" } } },
+        where: {
+          enrollmentStatus: "ACTIVE",
+          employee: { employmentStatus: { not: "SEPARATED" }, ...(departmentId ? { departmentId } : {}) },
+        },
         distinct: ["employeeId"],
         select: { employeeId: true },
       }),
@@ -72,16 +89,24 @@ export class DashboardService {
       // WorkLocationEmployee rows (one per assigned site), so a raw count
       // would inflate "assigned employees" past the real headcount.
       this.prisma.workLocationEmployee.findMany({
-        where: { employee: { employmentStatus: { not: "SEPARATED" } } },
+        where: {
+          employee: { employmentStatus: { not: "SEPARATED" }, ...(departmentId ? { departmentId } : {}) },
+        },
         distinct: ["employeeId"],
         select: { employeeId: true },
       }),
       this.prisma.attendanceRecord.findMany({
-        where: { attendanceDate: { gte: weekStart, lte: weekEnd } },
+        where: {
+          attendanceDate: { gte: weekStart, lte: weekEnd },
+          ...(departmentId ? { employee: { departmentId } } : {}),
+        },
         include: { employee: { include: { department: true } } },
       }),
       this.prisma.attendanceRecord.findMany({
-        where: { attendanceDate: { gte: realMonthStart, lte: realMonthEnd } },
+        where: {
+          attendanceDate: { gte: realMonthStart, lte: realMonthEnd },
+          ...(departmentId ? { employee: { departmentId } } : {}),
+        },
         include: { employee: { include: { department: true } } },
       }),
       // Approved leave overlapping the visible month, fetched once so each
@@ -90,7 +115,12 @@ export class DashboardService {
       // own (see on-leave.util.ts), so this is the only way to know who's on
       // leave for a given day.
       this.prisma.leaveRequest.findMany({
-        where: { status: "APPROVED", startDate: { lte: monthEnd }, endDate: { gte: monthStart } },
+        where: {
+          status: "APPROVED",
+          startDate: { lte: monthEnd },
+          endDate: { gte: monthStart },
+          ...(departmentId ? { employee: { departmentId } } : {}),
+        },
         select: { employeeId: true, startDate: true, endDate: true, leaveType: { select: { name: true } } },
       }),
     ]);
@@ -103,6 +133,8 @@ export class DashboardService {
     const lateToday = dedupedTodayStatus.filter((r) => r.status === "LATE").length;
     const absentToday = dedupedTodayStatus.filter((r) => r.status === "ABSENT").length;
 
+    // assignedEmployeeRows and employees are already department-scoped above,
+    // so these — like every other stat below — are correct as-is.
     const assignedEmployees = assignedEmployeeRows.length;
     const monthAttendance = dedupeToLatestVisitPerEmployeeDay(monthAttendanceRaw);
     const weekAttendance = dedupeToLatestVisitPerEmployeeDay(weekAttendanceRaw);

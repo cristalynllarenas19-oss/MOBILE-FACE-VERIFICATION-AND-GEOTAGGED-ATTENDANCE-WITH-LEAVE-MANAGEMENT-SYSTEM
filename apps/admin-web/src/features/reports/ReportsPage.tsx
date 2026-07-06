@@ -73,7 +73,17 @@ function isInDateRange(dateStr: string, from: string, to: string) {
   return date >= fromTime && date <= toTime;
 }
 
-export function ReportsPage() {
+export function ReportsPage({
+  user,
+}: {
+  user?: { roles?: string[]; departmentId?: string; department?: string };
+} = {}) {
+  // Mirrors the backend's getSupervisorDepartmentScope: a Supervisor who is
+  // also an Admin (or not a Supervisor at all) gets full, unscoped access.
+  const roles = user?.roles ?? [];
+  const isDepartmentLocked = roles.includes("SUPERVISOR") && !roles.includes("ADMIN");
+  const lockedDepartmentName = isDepartmentLocked ? user?.department : undefined;
+
   const [data, setData] = useState<ReportData | null>(null);
   const [tab, setTab] = useState<ReportTab>("ALL");
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
@@ -265,15 +275,19 @@ export function ReportsPage() {
       <div className="reports-filter-bar">
         <div className="reports-filter-group">
           <label className="reports-filter-label">Department</label>
-          <DropdownFilter
-            className="reports-select"
-            value={filters.department}
-            onChange={(value) => setFilters((c) => ({ ...c, department: value }))}
-            options={departments.map((d) => ({ value: d, label: d }))}
-            allLabel="All Departments"
-            menuLabel="Filter by department"
-            ariaLabel="Report department"
-          />
+          {isDepartmentLocked ? (
+            <span className="cal-hint">{lockedDepartmentName}</span>
+          ) : (
+            <DropdownFilter
+              className="reports-select"
+              value={filters.department}
+              onChange={(value) => setFilters((c) => ({ ...c, department: value }))}
+              options={departments.map((d) => ({ value: d, label: d }))}
+              allLabel="All Departments"
+              menuLabel="Filter by department"
+              ariaLabel="Report department"
+            />
+          )}
         </div>
 
         <div className="reports-filter-group">

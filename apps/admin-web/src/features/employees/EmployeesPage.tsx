@@ -1,6 +1,6 @@
 import axios from "axios";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { AlertTriangle, Archive, CheckCircle2, Eye, Pencil, Plus, Search, X } from "lucide-react";
+import { AlertTriangle, Archive, Building2, CheckCircle2, Eye, Pencil, Plus, Search, Users, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { apiRequest } from "../../lib/api";
@@ -185,14 +185,19 @@ function EmployeeModal({
 
 function AddEmployeeModal({
   departments,
+  lockedDepartmentName,
   onClose,
   onCreated,
 }: {
   departments: string[];
+  lockedDepartmentName?: string;
   onClose: () => void;
   onCreated: (employee: Employee) => void;
 }) {
-  const [form, setForm] = useState(initialForm);
+  const [form, setForm] = useState(() => ({
+    ...initialForm,
+    department: lockedDepartmentName ?? initialForm.department,
+  }));
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -296,19 +301,25 @@ function AddEmployeeModal({
         <div className="employee-form-grid">
           <label>
             Department
-            <input
-              type="text"
-              value={form.department}
-              onChange={updateField("department")}
-              list="employee-departments"
-              placeholder="Production"
-              required
-            />
-            <datalist id="employee-departments">
-              {departments.map((department) => (
-                <option key={department} value={department} />
-              ))}
-            </datalist>
+            {lockedDepartmentName ? (
+              <input type="text" value={lockedDepartmentName} disabled readOnly />
+            ) : (
+              <>
+                <input
+                  type="text"
+                  value={form.department}
+                  onChange={updateField("department")}
+                  list="employee-departments"
+                  placeholder="Production"
+                  required
+                />
+                <datalist id="employee-departments">
+                  {departments.map((department) => (
+                    <option key={department} value={department} />
+                  ))}
+                </datalist>
+              </>
+            )}
           </label>
           <label>
             Employment Status
@@ -371,12 +382,14 @@ function EditEmployeeModal({
   employee,
   departments,
   positions,
+  lockedDepartmentName,
   onClose,
   onUpdated,
 }: {
   employee: Employee;
   departments: string[];
   positions: string[];
+  lockedDepartmentName?: string;
   onClose: () => void;
   onUpdated: (employee: Employee) => void;
 }) {
@@ -515,12 +528,18 @@ function EditEmployeeModal({
         <div className="employee-form-grid">
           <label>
             Department
-            <input type="text" value={form.department} onChange={updateField("department")} list="edit-employee-departments" required />
-            <datalist id="edit-employee-departments">
-              {departments.map((department) => (
-                <option key={department} value={department} />
-              ))}
-            </datalist>
+            {lockedDepartmentName ? (
+              <input type="text" value={lockedDepartmentName} disabled readOnly />
+            ) : (
+              <>
+                <input type="text" value={form.department} onChange={updateField("department")} list="edit-employee-departments" required />
+                <datalist id="edit-employee-departments">
+                  {departments.map((department) => (
+                    <option key={department} value={department} />
+                  ))}
+                </datalist>
+              </>
+            )}
           </label>
           <label>
             Position
@@ -798,8 +817,18 @@ function ArchiveEmployeeModal({
   );
 }
 
-export function EmployeesPage({ user }: { user?: { permissions: PermissionCode[] } }) {
+export function EmployeesPage({
+  user,
+}: {
+  user?: { permissions: PermissionCode[]; roles?: string[]; departmentId?: string; department?: string };
+}) {
   const canWrite = user?.permissions.includes(permissions.employeesWrite) ?? true;
+  // Mirrors the backend's getSupervisorDepartmentScope: a Supervisor who is
+  // also an Admin (or not a Supervisor at all) gets full, unscoped access.
+  const roles = user?.roles ?? [];
+  const isDepartmentLocked = roles.includes("SUPERVISOR") && !roles.includes("ADMIN");
+  const lockedDepartmentName = isDepartmentLocked ? user?.department : undefined;
+
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [departmentFilter, setDepartmentFilter] = useState("ALL");
   const [showArchivedOnly, setShowArchivedOnly] = useState(false);
@@ -877,6 +906,31 @@ export function EmployeesPage({ user }: { user?: { permissions: PermissionCode[]
         </div>
       )}
 
+      {isDepartmentLocked && (
+        <div className="department-info-card">
+          <div className="department-info-card-left">
+            <div className="department-info-card-icon">
+              <Building2 size={28} />
+            </div>
+            <div>
+              <span className="department-info-card-label">Department</span>
+              <strong className="department-info-card-name">{lockedDepartmentName}</strong>
+            </div>
+          </div>
+
+          <div className="department-info-card-divider" />
+
+          <div className="department-info-card-right">
+            <span className="department-info-card-label">Department Employees</span>
+            <div className="department-info-card-count-row">
+              <Users size={22} />
+              <strong className="department-info-card-count">{activeEmployeeCount}</strong>
+            </div>
+            <span className="department-info-card-caption">Employees</span>
+          </div>
+        </div>
+      )}
+
       <div className="employees-filter-bar">
         {/* VIEW — Active employees tab */}
         <div className="employees-filter-group">
@@ -904,18 +958,20 @@ export function EmployeesPage({ user }: { user?: { permissions: PermissionCode[]
           </div>
         </div>
 
-        <div className="employees-filter-group">
-          <label className="employees-filter-label">Department</label>
-          <DropdownFilter
-            className="department-select"
-            value={departmentFilter}
-            onChange={setDepartmentFilter}
-            options={departments.map((department) => ({ value: department, label: department }))}
-            allLabel="All Departments"
-            menuLabel="Filter by department"
-            ariaLabel="Filter employees by department"
-          />
-        </div>
+        {!isDepartmentLocked && (
+          <div className="employees-filter-group">
+            <label className="employees-filter-label">Department</label>
+            <DropdownFilter
+              className="department-select"
+              value={departmentFilter}
+              onChange={setDepartmentFilter}
+              options={departments.map((department) => ({ value: department, label: department }))}
+              allLabel="All Departments"
+              menuLabel="Filter by department"
+              ariaLabel="Filter employees by department"
+            />
+          </div>
+        )}
 
         <div className="employees-filter-group employees-filter-search-group">
           <label className="employees-filter-label">Search</label>
@@ -1024,6 +1080,7 @@ export function EmployeesPage({ user }: { user?: { permissions: PermissionCode[]
           employee={editEmployee}
           departments={departments}
           positions={positions}
+          lockedDepartmentName={lockedDepartmentName}
           onClose={() => setEditEmployee(null)}
           onUpdated={handleEmployeeUpdated}
         />
@@ -1032,6 +1089,7 @@ export function EmployeesPage({ user }: { user?: { permissions: PermissionCode[]
       {isAddOpen && (
         <AddEmployeeModal
           departments={departments}
+          lockedDepartmentName={lockedDepartmentName}
           onClose={() => setIsAddOpen(false)}
           onCreated={handleEmployeeCreated}
         />

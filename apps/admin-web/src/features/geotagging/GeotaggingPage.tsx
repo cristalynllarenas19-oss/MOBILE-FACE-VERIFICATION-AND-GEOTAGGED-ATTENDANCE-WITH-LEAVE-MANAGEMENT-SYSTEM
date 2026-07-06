@@ -15,7 +15,7 @@ type EmployeeOption = {
   firstName: string;
   lastName: string;
   employeeNo?: string;
-  department: { name: string };
+  department: { id: string; name: string };
   position?: { title: string };
   user?: { email?: string };
   attendanceMode?: "FIXED" | "FIELD";
@@ -31,6 +31,8 @@ type GeotaggedLocation = {
   employeeId?: string | null;
   employee?: EmployeeOption | null;
   isActive?: boolean;
+  departmentId?: string | null;
+  department?: { id: string; name: string } | null;
 };
 
 type ConfirmConfig = {
@@ -49,6 +51,7 @@ const initialForm = {
   latitude: "16.3222",
   longitude: "120.3656",
   radiusMeters: "120",
+  departmentId: "" as string, // "" = no specific department (visible to everyone)
   employeeIds: [] as string[],
 };
 
@@ -216,7 +219,7 @@ function ViewAreaEmployeesModal({
           </button>
         </div>
 
-        {!isGlobal && departmentOptions.length > 0 && (
+        {!isGlobal && departmentOptions.length > 1 && (
           <div className="geotagging-modal-toolbar">
             <span className="geotagging-modal-toolbar-label">
               {deptFilter
@@ -324,8 +327,17 @@ function ViewAreaEmployeesModal({
   );
 }
 
-function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
-  const [form, setForm] = useState(initialForm);
+function GeotaggingPageContent({
+  canWrite,
+  scopedDepartmentId,
+  scopedDepartmentName,
+}: {
+  canWrite: boolean;
+  scopedDepartmentId?: string;
+  scopedDepartmentName?: string;
+}) {
+  const isDepartmentLocked = Boolean(scopedDepartmentId);
+  const [form, setForm] = useState(() => ({ ...initialForm, departmentId: scopedDepartmentId ?? "" }));
   const [locations, setLocations] = useState<GeotaggedLocation[]>([]);
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [employeeSearch, setEmployeeSearch] = useState("");
@@ -474,6 +486,21 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
     return Array.from(names).sort((a, b) => a.localeCompare(b));
   }, [employees]);
 
+  // Admin-only picker for a new/edited area's owning department — built from
+  // whichever departments are already visible in the (role-scoped) employee
+  // list, so no extra endpoint is needed.
+  const departmentIdOptions = useMemo(() => {
+    const byId = new Map<string, string>();
+    employees.forEach((employee) => {
+      if (employee.department?.id) {
+        byId.set(employee.department.id, employee.department.name);
+      }
+    });
+    return Array.from(byId.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [employees]);
+
   const employeeRows = useMemo(() => {
     const query = employeeSearch.trim().toLowerCase();
     return employees
@@ -579,6 +606,7 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
       latitude: Number.isFinite(nextLatitude) ? nextLatitude.toFixed(6) : current.latitude,
       longitude: Number.isFinite(nextLongitude) ? nextLongitude.toFixed(6) : current.longitude,
       radiusMeters: Number(location.radiusMeters).toString(),
+      departmentId: scopedDepartmentId ?? location.departmentId ?? "",
       employeeIds:
         location.employees?.map((entry) => entry.employee.id) ??
         (location.employeeId ? [location.employeeId] : location.employee ? [location.employee.id] : []),
@@ -733,6 +761,9 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
         latitude,
         longitude,
         radiusMeters: Number.isFinite(radiusMeters) && radiusMeters > 0 ? radiusMeters : 100,
+        // A locked Supervisor's field always holds their own department; the
+        // backend force-sets/verifies this regardless of what's sent here.
+        departmentId: form.departmentId || null,
       };
 
       if (editingLocationId) {
@@ -871,6 +902,7 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
       ...initialForm,
       latitude: current.latitude,
       longitude: current.longitude,
+      departmentId: scopedDepartmentId ?? "",
     }));
     setAssignmentError("");
   }
@@ -979,6 +1011,25 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
                   placeholder="e.g., Leaf buying station"
                   required
                 />
+              </label>
+
+              <label>
+                Department
+                {isDepartmentLocked ? (
+                  <input type="text" value={scopedDepartmentName ?? ""} disabled readOnly />
+                ) : (
+                  <select
+                    value={form.departmentId}
+                    onChange={(event) => setForm((current) => ({ ...current, departmentId: event.target.value }))}
+                  >
+                    <option value="">All departments</option>
+                    {departmentIdOptions.map((department) => (
+                      <option key={department.id} value={department.id}>
+                        {department.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </label>
 
               <div className="coordinate-grid">
@@ -1236,64 +1287,70 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
                         type="text"
                         value={employeeSearch}
                         onChange={(event) => setEmployeeSearch(event.target.value)}
-                        placeholder="Search employees or departments"
+                        placeholder="Search employees"
                       />
                     </div>
                   </label>
                   <div className="employee-assignment-label employee-department-label">
                     Department
-                    <div className="department-filter-shell" ref={departmentMenuRef}>
-                      <button
-                        type="button"
-                        className={`department-filter-trigger ${departmentFilter ? "active" : ""}`}
-                        onClick={() => setShowDepartmentMenu((open) => !open)}
-                      >
-                        <span>{departmentFilter || "All departments"}</span>
-                        <ChevronDown size={15} className={showDepartmentMenu ? "department-filter-chevron open" : "department-filter-chevron"} />
-                      </button>
-                      {showDepartmentMenu && (
-                        <div className="department-filter-menu">
-                          <div className="department-filter-menu-header">
-                            <span>Filter by department</span>
-                            {departmentFilter && (
-                              <button
-                                type="button"
-                                className="department-filter-clear"
-                                onClick={() => {
-                                  setDepartmentFilter("");
-                                  setShowDepartmentMenu(false);
-                                }}
-                              >
-                                <X size={13} /> Clear
-                              </button>
-                            )}
-                          </div>
-                          <button
-                            type="button"
-                            className={`department-filter-option ${!departmentFilter ? "active" : ""}`}
-                            onClick={() => {
-                              setDepartmentFilter("");
-                              setShowDepartmentMenu(false);
-                            }}
-                          >
-                            All departments
-                          </button>
-                          {departmentOptions.map((name) => (
+                    {isDepartmentLocked ? (
+                      <div className="department-filter-trigger locked">
+                        <span>{scopedDepartmentName}</span>
+                      </div>
+                    ) : (
+                      <div className="department-filter-shell" ref={departmentMenuRef}>
+                        <button
+                          type="button"
+                          className={`department-filter-trigger ${departmentFilter ? "active" : ""}`}
+                          onClick={() => setShowDepartmentMenu((open) => !open)}
+                        >
+                          <span>{departmentFilter || "All departments"}</span>
+                          <ChevronDown size={15} className={showDepartmentMenu ? "department-filter-chevron open" : "department-filter-chevron"} />
+                        </button>
+                        {showDepartmentMenu && (
+                          <div className="department-filter-menu">
+                            <div className="department-filter-menu-header">
+                              <span>Filter by department</span>
+                              {departmentFilter && (
+                                <button
+                                  type="button"
+                                  className="department-filter-clear"
+                                  onClick={() => {
+                                    setDepartmentFilter("");
+                                    setShowDepartmentMenu(false);
+                                  }}
+                                >
+                                  <X size={13} /> Clear
+                                </button>
+                              )}
+                            </div>
                             <button
                               type="button"
-                              key={name}
-                              className={`department-filter-option ${departmentFilter === name ? "active" : ""}`}
+                              className={`department-filter-option ${!departmentFilter ? "active" : ""}`}
                               onClick={() => {
-                                setDepartmentFilter(name);
+                                setDepartmentFilter("");
                                 setShowDepartmentMenu(false);
                               }}
                             >
-                              {name}
+                              All departments
                             </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                            {departmentOptions.map((name) => (
+                              <button
+                                type="button"
+                                key={name}
+                                className={`department-filter-option ${departmentFilter === name ? "active" : ""}`}
+                                onClick={() => {
+                                  setDepartmentFilter(name);
+                                  setShowDepartmentMenu(false);
+                                }}
+                              >
+                                {name}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Select / Unselect All — placed under the department filter, right-aligned in this column */}
                     {canWrite && (
@@ -1459,11 +1516,31 @@ function GeotaggingPageContent({ canWrite }: { canWrite: boolean }) {
   );
 }
 
-export function GeotaggingPage({ user }: { user?: { permissions: PermissionCode[] } }) {
+export function GeotaggingPage({
+  user,
+}: {
+  user?: {
+    permissions: PermissionCode[];
+    roles?: string[];
+    departmentId?: string;
+    department?: string;
+  };
+}) {
   const canWrite = user?.permissions.includes(permissions.geolocationWrite) ?? true;
+  // Mirrors the backend's getSupervisorDepartmentScope: a Supervisor who is
+  // also an Admin (or not a Supervisor at all) gets full, unscoped access.
+  const roles = user?.roles ?? [];
+  const isScopedSupervisor = roles.includes("SUPERVISOR") && !roles.includes("ADMIN");
+  const scopedDepartmentId = isScopedSupervisor ? user?.departmentId : undefined;
+  const scopedDepartmentName = isScopedSupervisor ? user?.department : undefined;
+
   return (
     <GeotaggingErrorBoundary>
-      <GeotaggingPageContent canWrite={canWrite} />
+      <GeotaggingPageContent
+        canWrite={canWrite}
+        scopedDepartmentId={scopedDepartmentId}
+        scopedDepartmentName={scopedDepartmentName}
+      />
     </GeotaggingErrorBoundary>
   );
 }

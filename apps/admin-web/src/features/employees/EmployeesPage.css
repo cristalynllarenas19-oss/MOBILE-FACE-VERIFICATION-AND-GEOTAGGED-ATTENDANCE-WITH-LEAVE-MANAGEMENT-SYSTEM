@@ -1,3 +1,97 @@
+/* ── Department Information Card (Supervisor's locked department) ── */
+.department-info-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 28px;
+  margin-bottom: 18px;
+  padding: 24px 32px;
+  background: #ffffff;
+  border: 1px solid #e2e5ea;
+  border-radius: 16px;
+  box-shadow: 0 2px 10px rgba(15, 23, 42, 0.06);
+}
+
+.department-info-card-left {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.department-info-card-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  background: #e8f4fd;
+  color: #1a3a5c;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.department-info-card-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: #8fa5bc;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.department-info-card-name {
+  display: block;
+  margin-top: 4px;
+  font-size: 24px;
+  font-weight: 800;
+  color: #1a3a5c;
+  line-height: 1.15;
+}
+
+.department-info-card-divider {
+  align-self: stretch;
+  width: 1px;
+  background: #e2e5ea;
+}
+
+.department-info-card-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.department-info-card-count-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #1a6faf;
+}
+
+.department-info-card-count {
+  font-size: 28px;
+  font-weight: 800;
+  color: #1a3a5c;
+  line-height: 1;
+}
+
+.department-info-card-caption {
+  font-size: 12px;
+  font-weight: 600;
+  color: #8fa5bc;
+}
+
+@media (max-width: 640px) {
+  .department-info-card {
+    flex-wrap: wrap;
+  }
+  .department-info-card-divider {
+    display: none;
+  }
+  .department-info-card-right {
+    align-items: flex-start;
+  }
+}
+
 .employees-filter-bar {
   display: flex;
   align-items: flex-end;

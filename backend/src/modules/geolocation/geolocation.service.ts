@@ -1,7 +1,13 @@
-import { Injectable, BadRequestException } from "@nestjs/common";
+import { Injectable, BadRequestException, ForbiddenException } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
+
+// Present only for a Supervisor (never for ADMIN — see getSupervisorDepartmentScope).
+// When set, every write below is confined to this department: the location
+// being touched must already belong to it, it can never be changed away from
+// it, and every employeeId being assigned must belong to it.
+export type DepartmentScope = { departmentId?: string };
 
 export type GeofenceInput = {
   latitude: number;
@@ -25,6 +31,7 @@ export class GeolocationService {
       try {
         const locations = await this.prisma.workLocation.findMany({
           include: {
+            department: true,
             employees: {
               include: { employee: { include: { department: true, position: true } } },
             },
@@ -36,15 +43,14 @@ export class GeolocationService {
           return locations;
         }
 
-        // A supervisor only sees zones with at least one of their own department's
-        // employees assigned; zones with no assignments at all (e.g. a "Global Zone")
-        // stay visible to everyone, but the employee list is filtered to their department.
+        // A Supervisor only sees areas explicitly owned by their own department,
+        // plus areas with no department (departmentId null — e.g. a shared HQ
+        // "Global Zone"), which stay visible to everyone. Areas owned by any
+        // other department are fully hidden, regardless of who's assigned to
+        // them. The employee list is additionally trimmed to their department
+        // as defense in depth.
         return locations
-          .filter(
-            (location) =>
-              location.employees.length === 0 ||
-              location.employees.some((entry) => entry.employee.departmentId === departmentId),
-          )
+          .filter((location) => location.departmentId === null || location.departmentId === departmentId)
           .map((location) => ({
             ...location,
             employees: location.employees.filter(
@@ -95,8 +101,14 @@ export class GeolocationService {
     radiusMeters: number;
     allowedAccuracyMeters?: number;
     employeeIds?: string[];
-  }, context: AuditLogContext = {}) {
+    departmentId?: string | null;
+  }, context: AuditLogContext = {}, scope: DepartmentScope = {}) {
     const joinTableAvailable = await this.hasJoinTable();
+    // A Supervisor's new area is always auto-associated with their own
+    // department, regardless of what (if anything) was submitted — an Admin's
+    // choice (or none, i.e. a shared/global area) is respected as-is.
+    const departmentId = scope.departmentId ?? data.departmentId ?? null;
+
     const created = await this.prisma.$transaction(async (tx) => {
       const workLocation = await tx.workLocation.create({
         data: {
@@ -106,10 +118,17 @@ export class GeolocationService {
           radiusMeters: data.radiusMeters,
           allowedAccuracyMeters: data.allowedAccuracyMeters ?? 50,
           isActive: true,
+          departmentId,
         },
       });
 
-      await this.replaceAssignments(tx, workLocation.id, data.employeeIds ?? [], joinTableAvailable);
+      await this.replaceAssignments(
+        tx,
+        workLocation.id,
+        data.employeeIds ?? [],
+        joinTableAvailable,
+        scope.departmentId,
+      );
 
       return this.loadLocationById(tx, workLocation.id, joinTableAvailable);
     });
@@ -137,11 +156,23 @@ export class GeolocationService {
       allowedAccuracyMeters?: number;
       isActive?: boolean;
       employeeIds?: string[];
+      departmentId?: string | null;
     },
     context: AuditLogContext = {},
+    scope: DepartmentScope = {},
   ) {
     const joinTableAvailable = await this.hasJoinTable();
     const before = await this.prisma.workLocation.findUnique({ where: { id }, include: { employees: true } });
+
+    if (scope.departmentId) {
+      if (!before || before.departmentId !== scope.departmentId) {
+        throw new ForbiddenException("You can only manage geotagged areas in your own department.");
+      }
+      if (data.departmentId !== undefined && data.departmentId !== scope.departmentId) {
+        throw new ForbiddenException("You cannot move a geotagged area to another department.");
+      }
+    }
+
     const updated = await this.prisma.$transaction(async (tx) => {
       await tx.workLocation.update({
         where: { id },
@@ -154,11 +185,14 @@ export class GeolocationService {
             ? { allowedAccuracyMeters: data.allowedAccuracyMeters }
             : {}),
           ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
+          // Never touched for a scoped Supervisor — the department-ownership
+          // guard above already rejects any attempt to change it.
+          ...(!scope.departmentId && data.departmentId !== undefined ? { departmentId: data.departmentId } : {}),
         },
       });
 
       if (data.employeeIds !== undefined) {
-        await this.replaceAssignments(tx, id, data.employeeIds, joinTableAvailable);
+        await this.replaceAssignments(tx, id, data.employeeIds, joinTableAvailable, scope.departmentId);
       }
 
       return this.loadLocationById(tx, id, joinTableAvailable);
@@ -186,8 +220,13 @@ export class GeolocationService {
     return updated;
   }
 
-  async removeLocation(id: string, context: AuditLogContext = {}) {
+  async removeLocation(id: string, context: AuditLogContext = {}, scope: DepartmentScope = {}) {
     const before = await this.prisma.workLocation.findUnique({ where: { id } });
+
+    if (scope.departmentId && (!before || before.departmentId !== scope.departmentId)) {
+      throw new ForbiddenException("You can only manage geotagged areas in your own department.");
+    }
+
     const removed = await this.prisma.workLocation.delete({
       where: { id },
     });
@@ -205,8 +244,14 @@ export class GeolocationService {
     return removed;
   }
 
-  async addEmployee(locationId: string, employeeId: string, context: AuditLogContext = {}) {
+  async addEmployee(
+    locationId: string,
+    employeeId: string,
+    context: AuditLogContext = {},
+    scope: DepartmentScope = {},
+  ) {
     const joinTableAvailable = await this.hasJoinTable();
+    await this.assertWithinDepartmentScope(locationId, employeeId, scope);
     const updated = await this.prisma.$transaction(async (tx) => {
       if (joinTableAvailable) {
         await this.assertEmployeeAvailable(tx, employeeId, locationId);
@@ -250,8 +295,14 @@ export class GeolocationService {
     return updated;
   }
 
-  async removeEmployee(locationId: string, employeeId: string, context: AuditLogContext = {}) {
+  async removeEmployee(
+    locationId: string,
+    employeeId: string,
+    context: AuditLogContext = {},
+    scope: DepartmentScope = {},
+  ) {
     const joinTableAvailable = await this.hasJoinTable();
+    await this.assertWithinDepartmentScope(locationId, employeeId, scope);
     const updated = await this.prisma.$transaction(async (tx) => {
       if (joinTableAvailable) {
         await tx.workLocationEmployee.deleteMany({
@@ -352,11 +403,36 @@ export class GeolocationService {
     return this.prisma.workLocation.findUnique({ where: { id } });
   }
 
+  // Rejects any attempt by a scoped Supervisor to touch a location or
+  // employee outside their own department — used by the single add/remove
+  // endpoints (createLocation/updateLocation enforce the same rule inline,
+  // since they also need to check the *location* before any employeeId).
+  private async assertWithinDepartmentScope(
+    locationId: string,
+    employeeId: string,
+    scope: DepartmentScope,
+  ) {
+    if (!scope.departmentId) return;
+
+    const [location, employee] = await Promise.all([
+      this.prisma.workLocation.findUnique({ where: { id: locationId }, select: { departmentId: true } }),
+      this.prisma.employee.findUnique({ where: { id: employeeId }, select: { departmentId: true } }),
+    ]);
+
+    if (!location || location.departmentId !== scope.departmentId) {
+      throw new ForbiddenException("You can only manage geotagged areas in your own department.");
+    }
+    if (!employee || employee.departmentId !== scope.departmentId) {
+      throw new ForbiddenException("You can only assign employees from your own department.");
+    }
+  }
+
   private async replaceAssignments(
     tx: Prisma.TransactionClient,
     locationId: string,
     employeeIds: string[],
     joinTableAvailable: boolean,
+    restrictToDepartmentId?: string,
   ) {
     const uniqueEmployeeIds = [...new Set(employeeIds.filter(Boolean))];
 
@@ -388,7 +464,7 @@ export class GeolocationService {
     await tx.workLocationEmployee.deleteMany({ where: { workLocationId: locationId } });
 
     for (const employeeId of uniqueEmployeeIds) {
-      await this.assertEmployeeAvailable(tx, employeeId, locationId);
+      await this.assertEmployeeAvailable(tx, employeeId, locationId, restrictToDepartmentId);
       await tx.workLocationEmployee.create({
         data: { workLocationId: locationId, employeeId },
       });
@@ -399,11 +475,16 @@ export class GeolocationService {
     tx: Prisma.TransactionClient,
     employeeId: string,
     locationId: string,
+    restrictToDepartmentId?: string,
   ) {
     const employee = await tx.employee.findUnique({
       where: { id: employeeId },
-      select: { attendanceMode: true },
+      select: { attendanceMode: true, departmentId: true },
     });
+
+    if (restrictToDepartmentId && employee?.departmentId !== restrictToDepartmentId) {
+      throw new ForbiddenException("You can only assign employees from your own department.");
+    }
 
     // Field technicians are allowed to be assigned to many sites at once —
     // only FIXED employees are restricted to a single geotagged area.
@@ -448,6 +529,7 @@ export class GeolocationService {
         return await tx.workLocation.findUniqueOrThrow({
           where: { id },
           include: {
+            department: true,
             employees: {
               include: { employee: { include: { department: true, position: true } } },
             },

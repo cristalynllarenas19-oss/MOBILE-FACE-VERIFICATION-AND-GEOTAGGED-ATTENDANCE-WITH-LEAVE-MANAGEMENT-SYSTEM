@@ -78,6 +78,8 @@ export default function App() {
       roles: authUser?.roles ?? [],
       permissions: (authUser?.permissions ?? []) as PermissionCode[],
       adminPermissions: authUser?.adminPermissions as PermissionCode[] | undefined,
+      departmentId: authUser?.departmentId,
+      department: authUser?.department,
     }),
     [authUser],
   );
@@ -118,7 +120,7 @@ export default function App() {
       onNavigate={handleNavigate}
       user={user}
     >
-      {renderPage === "dashboard" && <DashboardPage onNavigateToAttendance={navigateToAttendance} />}
+      {renderPage === "dashboard" && <DashboardPage user={user} onNavigateToAttendance={navigateToAttendance} />}
       {renderPage === "users" && <UsersPage />}
       {renderPage === "face-registration" && <FaceRegistrationPage />}
       {renderPage === "employees" && <EmployeesPage user={user} />}
@@ -126,7 +128,7 @@ export default function App() {
       {renderPage === "geotagging" && <GeotaggingPage user={user} />}
       {renderPage === "leave" && <LeavePage user={user} />}
       {renderPage === "schedules" && <SchedulesPage user={user} />}
-      {renderPage === "reports" && <ReportsPage />}
+      {renderPage === "reports" && <ReportsPage user={user} />}
       {renderPage === "utilities" && <UtilitiesPage user={user} />}
       {/* Employee self-service pages (mirrors employee-mobile) */}
       {renderPage === "employee-attendance" && <EmployeeAttendancePage user={authUser!} />}

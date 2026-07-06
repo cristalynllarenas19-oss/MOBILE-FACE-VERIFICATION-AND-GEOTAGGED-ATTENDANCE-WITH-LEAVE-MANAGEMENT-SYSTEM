@@ -33,8 +33,10 @@ export class SchedulesController {
       startsOn: string;
       endsOn?: string;
     },
+    @Req() request: Request,
   ) {
-    return this.schedulesService.createAssignment(dto);
+    const departmentId = getSupervisorDepartmentScope((request as any).user);
+    return this.schedulesService.createAssignment(dto, departmentId);
   }
 
   @Patch(":id")
@@ -47,8 +49,10 @@ export class SchedulesController {
       startsOn?: string;
       endsOn?: string | null;
     },
+    @Req() request: Request,
   ) {
-    return this.schedulesService.updateAssignment(id, dto);
+    const departmentId = getSupervisorDepartmentScope((request as any).user);
+    return this.schedulesService.updateAssignment(id, dto, departmentId);
   }
 
   @Post("shifts")

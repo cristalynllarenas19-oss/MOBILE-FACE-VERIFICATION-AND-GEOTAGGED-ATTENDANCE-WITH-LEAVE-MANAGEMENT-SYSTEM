@@ -43,13 +43,20 @@ export class LeaveController {
     // SUPERVISOR-only actor can only move PENDING -> SUPERVISOR_APPROVED, HR
     // still has to finalize afterward.
     const targetStatus = roles.includes("ADMIN") ? "APPROVED" : "SUPERVISOR_APPROVED";
-    return this.leaveService.updateStatus(id, targetStatus, body.remarks, getAuditContext(request));
+    const departmentId = getSupervisorDepartmentScope(user);
+    return this.leaveService.updateStatus(id, targetStatus, body.remarks, getAuditContext(request), departmentId);
   }
 
   @Patch(":id/reject")
   @RequirePermissions("leave:approve")
+<<<<<<< Updated upstream
   reject(@Param("id") id: string, @Body() body: RejectLeaveRequestDto, @Req() request: Request) {
     return this.leaveService.reject(id, body, getAuditContext(request));
+=======
+  reject(@Param("id") id: string, @Body() body: { remarks?: string }, @Req() request: Request) {
+    const departmentId = getSupervisorDepartmentScope((request as any).user);
+    return this.leaveService.updateStatus(id, "REJECTED", body.remarks, getAuditContext(request), departmentId);
+>>>>>>> Stashed changes
   }
 
   @Patch(":id/cancel")
