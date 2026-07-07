@@ -49,9 +49,9 @@ export class LeaveController {
 
   @Patch(":id/reject")
   @RequirePermissions("leave:approve")
-  reject(@Param("id") id: string, @Body() body: { remarks?: string }, @Req() request: Request) {
+  reject(@Param("id") id: string, @Body() body: RejectLeaveRequestDto, @Req() request: Request) {
     const departmentId = getSupervisorDepartmentScope((request as any).user);
-    return this.leaveService.updateStatus(id, "REJECTED", body.remarks, getAuditContext(request), departmentId);
+    return this.leaveService.reject(id, body, getAuditContext(request), departmentId);
   }
 
   @Patch(":id/cancel")

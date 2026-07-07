@@ -226,8 +226,16 @@ export class LeaveService {
   // flags that the employee just needs to attach something) and, unlike
   // approve/cancel, writes a LeaveRequestNote so the reject/resubmit thread stays
   // intact across however many loops the request goes through.
-  async reject(id: string, dto: RejectLeaveRequestDto, context: AuditLogContext = {}) {
-    const existing = await this.prisma.leaveRequest.findUniqueOrThrow({ where: { id } });
+  async reject(id: string, dto: RejectLeaveRequestDto, context: AuditLogContext = {}, scopeDepartmentId?: string) {
+    const existing = await this.prisma.leaveRequest.findUniqueOrThrow({
+      where: { id },
+      include: { employee: { select: { departmentId: true } } },
+    });
+
+    if (scopeDepartmentId && existing.employee.departmentId !== scopeDepartmentId) {
+      throw new ForbiddenException("You can only manage leave requests from your own department.");
+    }
+
     const wasApproved = existing.status === "APPROVED";
     const requiresAdditionalRequirements = Boolean(dto.requiresAdditionalRequirements);
     const status: LeaveRequestStatus = requiresAdditionalRequirements ? "NEEDS_REVISION" : "REJECTED";
