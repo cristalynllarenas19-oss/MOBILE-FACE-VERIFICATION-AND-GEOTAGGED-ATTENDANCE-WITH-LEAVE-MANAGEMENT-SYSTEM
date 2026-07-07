@@ -121,19 +121,11 @@ model User {
   notifications         Notification[]
   passwordResetOtps     PasswordResetOtp[]
   reviewedLeaveRequests LeaveRequest[]
-<<<<<<< Updated upstream
-  leaveRequestNotes LeaveRequestNote[]
-  createdLeaveTypes LeaveType[] @relation("LeaveTypeCreatedBy")
-  updatedLeaveTypes LeaveType[] @relation("LeaveTypeUpdatedBy")
-  createdShifts     Shift[]     @relation("ShiftCreatedBy")
-  updatedShifts     Shift[]     @relation("ShiftUpdatedBy")
-=======
   leaveRequestNotes     LeaveRequestNote[]
   createdLeaveTypes     LeaveType[]        @relation("LeaveTypeCreatedBy")
   updatedLeaveTypes     LeaveType[]        @relation("LeaveTypeUpdatedBy")
   createdShifts         Shift[]            @relation("ShiftCreatedBy")
   updatedShifts         Shift[]            @relation("ShiftUpdatedBy")
->>>>>>> Stashed changes
 
   @@map("users")
 }
@@ -414,29 +406,6 @@ model LeaveType {
 }
 
 model LeaveRequest {
-<<<<<<< Updated upstream
-  id          String      @id @default(uuid())
-  employeeId  String      @map("employee_id")
-  leaveTypeId String      @map("leave_type_id")
-  startDate   DateTime    @map("start_date")
-  endDate     DateTime    @map("end_date")
-  totalDays   Decimal     @map("total_days")
-  reason      String
-  status      LeaveStatus @default(PENDING)
-  reviewedBy  String?     @map("reviewed_by")
-  reviewedAt  DateTime?   @map("reviewed_at")
-  createdAt   DateTime    @default(now()) @map("created_at")
-  attachmentPath String?  @map("attachment_path")
-  attachmentName String?  @map("attachment_name")
-  attachmentMimeType String? @map("attachment_mime_type")
-  attachmentData String?  @map("attachment_data")
-  extensionRequested Boolean  @default(false) @map("extension_requested")
-  extensionApproved  Boolean? @map("extension_approved")
-  employee    Employee    @relation(fields: [employeeId], references: [id])
-  leaveType   LeaveType   @relation(fields: [leaveTypeId], references: [id])
-  reviewer    User?       @relation(fields: [reviewedBy], references: [id])
-  notes       LeaveRequestNote[]
-=======
   id                 String      @id @default(uuid())
   employeeId         String      @map("employee_id")
   leaveTypeId        String      @map("leave_type_id")
@@ -458,27 +427,17 @@ model LeaveRequest {
   leaveType          LeaveType   @relation(fields: [leaveTypeId], references: [id])
   reviewer           User?       @relation(fields: [reviewedBy], references: [id])
   notes              LeaveRequestNote[]
->>>>>>> Stashed changes
 
   @@index([employeeId, status])
   @@index([startDate])
   @@map("leave_requests")
 }
 
-<<<<<<< Updated upstream
 // The durable, ordered thread behind the reject -> "needs additional
 // requirements" -> employee resubmits -> re-review loop. Kept separate from
 // AuditLog because that table's LeaveRequest lookup only ever surfaces the
 // single most recent entry (see LeaveService.findAll), which breaks down once
 // a request can cycle through multiple rejection/resubmission rounds.
-=======
-// Pre-existing live-DB table not originally tracked in this schema file
-// (created directly against the shared dev database outside of Prisma
-// migrations, same situation as `divisions`/`sections` below) — mirrored
-// here as-is so `prisma db push` does not drop it. Rejection/resubmission
-// notes attached to a leave request, each optionally carrying its own
-// attachment (e.g. a corrected requirement document).
->>>>>>> Stashed changes
 model LeaveRequestNote {
   id                             String               @id @default(uuid())
   leaveRequestId                 String               @map("leave_request_id")
@@ -487,20 +446,12 @@ model LeaveRequestNote {
   requiresAdditionalRequirements Boolean              @default(false) @map("requires_additional_requirements")
   requirementDetails             String?              @map("requirement_details")
   attachmentName                 String?              @map("attachment_name")
-<<<<<<< Updated upstream
-  attachmentMimeType              String?             @map("attachment_mime_type")
-=======
   attachmentMimeType             String?              @map("attachment_mime_type")
->>>>>>> Stashed changes
   attachmentData                 String?              @map("attachment_data")
   authorUserId                   String?              @map("author_user_id")
   createdAt                      DateTime             @default(now()) @map("created_at")
   leaveRequest                   LeaveRequest         @relation(fields: [leaveRequestId], references: [id])
-<<<<<<< Updated upstream
   author                         User?                @relation(fields: [authorUserId], references: [id])
-=======
-  authorUser                     User?                @relation(fields: [authorUserId], references: [id])
->>>>>>> Stashed changes
 
   @@index([leaveRequestId])
   @@map("leave_request_notes")
