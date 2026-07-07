@@ -3,6 +3,7 @@ import {
   View,
   Text,
   Pressable,
+  ScrollView,
   StyleSheet,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -77,26 +78,42 @@ export default function AttendanceScreen({
   const timeOutDisabled = isField ? isLoading || !hasOpenVisit : isLoading || !hasTimedIn || hasTimedOut;
 
   return (
-    <View style={styles.container}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.contentContainer}
+      showsVerticalScrollIndicator={false}
+    >
       <View style={styles.card}>
-        <Text style={styles.date}>
-          {today}
-        </Text>
+        <View style={styles.cardHeader}>
+          <View style={styles.cardHeaderText}>
+            <Text style={styles.date}>
+              {today}
+            </Text>
 
-        <Text style={styles.cardTitle}>
-          Attendance Status
-        </Text>
+            <Text style={styles.cardTitle}>
+              Attendance Status
+            </Text>
+          </View>
 
-        <View style={styles.statusRow}>
-          <Ionicons
-            name="ellipse"
-            size={12}
-            color={statusColor}
-          />
+          <View
+            style={[
+              styles.statusBadge,
+              {
+                backgroundColor: `${statusColor}1A`,
+                borderColor: statusColor,
+              },
+            ]}
+          >
+            <Ionicons
+              name="ellipse"
+              size={8}
+              color={statusColor}
+            />
 
-          <Text style={[styles.statusText, { color: statusColor }]}>
-            {statusLabel}
-          </Text>
+            <Text style={[styles.statusBadgeText, { color: statusColor }]}>
+              {statusLabel}
+            </Text>
+          </View>
         </View>
 
         <Text style={styles.welcomeText}>
@@ -105,33 +122,54 @@ export default function AttendanceScreen({
           {user?.displayName}
         </Text>
 
-        <View style={styles.timeRow}>
-          <Text style={styles.timeLabel}>
-            {isField ? "Visit Start" : "Time In"}
-          </Text>
+        <View style={styles.timeStatsRow}>
+          <View style={styles.timeStatCard}>
+            <View style={[styles.timeStatIcon, { backgroundColor: "#EFF6FF" }]}>
+              <Ionicons
+                name="log-in-outline"
+                size={18}
+                color="#1680D8"
+              />
+            </View>
 
-          <Text style={styles.timeValue}>
-            {formatTime(todayAttendance?.timeInAt)}
-          </Text>
-        </View>
+            <Text style={styles.timeLabel}>
+              {isField ? "Visit Start" : "Time In"}
+            </Text>
 
-        <View style={styles.timeRow}>
-          <Text style={styles.timeLabel}>
-            {isField ? "Visit End" : "Time Out"}
-          </Text>
+            <Text style={styles.timeValue}>
+              {formatTime(todayAttendance?.timeInAt)}
+            </Text>
+          </View>
 
-          <Text style={styles.timeValue}>
-            {formatTime(todayAttendance?.timeOutAt)}
-          </Text>
+          <View style={styles.timeStatDivider} />
+
+          <View style={styles.timeStatCard}>
+            <View style={[styles.timeStatIcon, { backgroundColor: "#F0FDF4" }]}>
+              <Ionicons
+                name="log-out-outline"
+                size={18}
+                color="#17A34A"
+              />
+            </View>
+
+            <Text style={styles.timeLabel}>
+              {isField ? "Visit End" : "Time Out"}
+            </Text>
+
+            <Text style={styles.timeValue}>
+              {formatTime(todayAttendance?.timeOutAt)}
+            </Text>
+          </View>
         </View>
       </View>
 
       <Pressable
         disabled={timeInDisabled}
         onPress={onTimeIn}
-        style={[
+        style={({ pressed }) => [
           styles.timeInButton,
           timeInDisabled && styles.disabledButtonFilled,
+          pressed && !timeInDisabled && styles.buttonPressed,
         ]}
       >
         <Ionicons
@@ -152,11 +190,12 @@ export default function AttendanceScreen({
       <Pressable
         disabled={timeOutDisabled}
         onPress={onTimeOut}
-        style={[
+        style={({ pressed }) => [
           styles.timeOutButton,
           timeOutDisabled
             ? styles.disabledButtonOutline
             : styles.timeOutButtonActive,
+          pressed && !timeOutDisabled && styles.buttonPressed,
         ]}
       >
         <Ionicons
@@ -188,13 +227,18 @@ export default function AttendanceScreen({
           before recording attendance.
         </Text>
       </View>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+
+  contentContainer: {
+    flexGrow: 1,
+    paddingBottom: 24,
   },
 
   card: {
@@ -215,53 +259,95 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
 
+  cardHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+  },
+
+  cardHeaderText: {
+    flexShrink: 1,
+  },
+
   date: {
     color: "#64748B",
     fontSize: 14,
-    marginBottom: 18,
+    marginBottom: 6,
   },
 
   cardTitle: {
     color: "#062B59",
     fontSize: 20,
     fontWeight: "700",
-    marginBottom: 14,
   },
 
-  statusRow: {
+  statusBadge: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 14,
+
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+
+    borderRadius: 20,
+    borderWidth: 1,
+
+    gap: 6,
   },
 
-  statusText: {
-    color: "#EF4444",
+  statusBadgeText: {
     fontWeight: "700",
-    fontSize: 16,
-    marginLeft: 8,
+    fontSize: 12,
   },
 
   welcomeText: {
     color: "#475569",
     fontSize: 14,
+    marginTop: 16,
     marginBottom: 20,
   },
 
-  timeRow: {
+  timeStatsRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 14,
+    alignItems: "center",
+
+    paddingTop: 18,
+    borderTopWidth: 1,
+    borderTopColor: "#EDF1F6",
+  },
+
+  timeStatCard: {
+    flex: 1,
+    alignItems: "center",
+  },
+
+  timeStatDivider: {
+    width: 1,
+    height: 52,
+    backgroundColor: "#E2E8F0",
+    marginHorizontal: 8,
+  },
+
+  timeStatIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+
+    justifyContent: "center",
+    alignItems: "center",
+
+    marginBottom: 8,
   },
 
   timeLabel: {
     color: "#64748B",
-    fontSize: 15,
+    fontSize: 13,
+    marginBottom: 4,
   },
 
   timeValue: {
     color: "#062B59",
     fontWeight: "700",
-    fontSize: 15,
+    fontSize: 16,
   },
 
   timeInButton: {
@@ -275,6 +361,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
 
     marginTop: 20,
+  },
+
+  buttonPressed: {
+    opacity: 0.85,
   },
 
   buttonText: {
