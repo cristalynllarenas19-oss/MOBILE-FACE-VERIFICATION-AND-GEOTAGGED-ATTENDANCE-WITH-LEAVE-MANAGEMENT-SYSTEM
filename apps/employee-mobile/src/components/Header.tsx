@@ -1,9 +1,10 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import {
   View,
   Text,
   StyleSheet,
   Pressable,
+  Animated,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -18,6 +19,36 @@ export default function Header({
   unreadCount = 0,
   onPressNotifications,
 }: Props) {
+  const badgeScale = useRef(new Animated.Value(unreadCount > 0 ? 1 : 0)).current;
+  const bellShake = useRef(new Animated.Value(0)).current;
+  const prevUnreadCount = useRef(unreadCount);
+
+  useEffect(() => {
+    Animated.spring(badgeScale, {
+      toValue: unreadCount > 0 ? 1 : 0,
+      useNativeDriver: true,
+      friction: 5,
+      tension: 140,
+    }).start();
+
+    if (unreadCount > prevUnreadCount.current) {
+      bellShake.setValue(0);
+      Animated.sequence([
+        Animated.timing(bellShake, { toValue: 1, duration: 60, useNativeDriver: true }),
+        Animated.timing(bellShake, { toValue: -1, duration: 100, useNativeDriver: true }),
+        Animated.timing(bellShake, { toValue: 1, duration: 100, useNativeDriver: true }),
+        Animated.timing(bellShake, { toValue: 0, duration: 60, useNativeDriver: true }),
+      ]).start();
+    }
+
+    prevUnreadCount.current = unreadCount;
+  }, [unreadCount]);
+
+  const bellRotate = bellShake.interpolate({
+    inputRange: [-1, 0, 1],
+    outputRange: ["-18deg", "0deg", "18deg"],
+  });
+
   return (
     <View style={styles.container}>
       <View style={styles.topRow}>
@@ -33,17 +64,31 @@ export default function Header({
           </Text>
         </View>
 
-        <Pressable onPress={onPressNotifications} style={styles.bellButton}>
-          <Ionicons
-            name="notifications-outline"
-            size={28}
-            color="#244c7a"
-          />
-          {unreadCount > 0 && (
-            <View style={styles.bellBadge}>
-              <Text style={styles.bellBadgeText}>{unreadCount > 9 ? "9+" : unreadCount}</Text>
-            </View>
-          )}
+        <Pressable
+          onPress={onPressNotifications}
+          hitSlop={8}
+          style={({ pressed }) => [styles.bellButton, pressed && styles.bellButtonPressed]}
+        >
+          <Animated.View style={{ transform: [{ rotate: bellRotate }] }}>
+            <Ionicons
+              name="notifications-outline"
+              size={28}
+              color="#244c7a"
+            />
+          </Animated.View>
+
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.bellBadge,
+              {
+                opacity: badgeScale,
+                transform: [{ scale: badgeScale }],
+              },
+            ]}
+          >
+            <Text style={styles.bellBadgeText}>{unreadCount > 9 ? "9+" : unreadCount}</Text>
+          </Animated.View>
         </Pressable>
       </View>
 
@@ -91,6 +136,10 @@ const styles = StyleSheet.create({
 
   bellButton: {
     position: "relative",
+  },
+
+  bellButtonPressed: {
+    opacity: 0.6,
   },
 
   bellBadge: {

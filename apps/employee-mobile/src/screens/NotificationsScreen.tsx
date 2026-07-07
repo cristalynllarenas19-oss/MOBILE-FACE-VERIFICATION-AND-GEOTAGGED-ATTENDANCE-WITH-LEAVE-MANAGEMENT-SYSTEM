@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   Modal,
   SafeAreaView,
@@ -10,6 +10,7 @@ import {
   RefreshControl,
   ActivityIndicator,
   StyleSheet,
+  Animated,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
@@ -64,6 +65,74 @@ function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function FadeInView({
+  children,
+  delay = 0,
+  style,
+}: {
+  children: React.ReactNode;
+  delay?: number;
+  style?: any;
+}) {
+  const progress = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(progress, {
+      toValue: 1,
+      duration: 260,
+      delay,
+      useNativeDriver: true,
+    }).start();
+  }, []);
+
+  return (
+    <Animated.View
+      style={[
+        style,
+        {
+          opacity: progress,
+          transform: [
+            {
+              translateY: progress.interpolate({
+                inputRange: [0, 1],
+                outputRange: [10, 0],
+              }),
+            },
+          ],
+        },
+      ]}
+    >
+      {children}
+    </Animated.View>
+  );
+}
+
+function PulsingDot() {
+  const pulse = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 900, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 0, useNativeDriver: true }),
+        Animated.delay(600),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, []);
+
+  const scale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 2.2] });
+  const opacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.7, 0] });
+
+  return (
+    <View style={styles.unreadDotWrap}>
+      <Animated.View style={[styles.unreadDotPulse, { opacity, transform: [{ scale }] }]} />
+      <View style={styles.unreadDot} />
+    </View>
+  );
 }
 
 export default function NotificationsScreen({ visible, onClose, onUnreadCountChange, employeeId }: Props) {
@@ -214,11 +283,18 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.header}>
-          <Pressable onPress={onClose} style={styles.headerButton}>
+          <Pressable
+            onPress={onClose}
+            style={({ pressed }) => [styles.headerButton, pressed && styles.headerButtonPressed]}
+          >
             <Ionicons name="chevron-back" size={24} color="#062B59" />
           </Pressable>
           <Text style={styles.headerTitle}>Notifications</Text>
-          <Pressable onPress={handleMarkAllRead} disabled={!hasUnread} style={styles.headerButton}>
+          <Pressable
+            onPress={handleMarkAllRead}
+            disabled={!hasUnread}
+            style={({ pressed }) => [styles.headerButton, pressed && styles.headerButtonPressed]}
+          >
             <Text style={[styles.markAllText, !hasUnread && styles.markAllTextDisabled]}>Mark all read</Text>
           </Pressable>
         </View>
@@ -236,7 +312,7 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
               </View>
             ) : null
           }
-          renderItem={({ item }) => {
+          renderItem={({ item, index }) => {
             const icon = notificationIcon(item.type);
             const isUnread = !item.readAt;
             const isExpanded = expandedId === item.id;
@@ -247,9 +323,13 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
             const stillNeedsRevision = leaveRequest?.status === "NEEDS_REVISION";
 
             return (
-              <View>
+              <FadeInView delay={Math.min(index * 40, 240)}>
                 <Pressable
-                  style={[styles.notificationRow, isUnread && styles.notificationRowUnread]}
+                  style={({ pressed }) => [
+                    styles.notificationRow,
+                    isUnread && styles.notificationRowUnread,
+                    pressed && styles.notificationRowPressed,
+                  ]}
                   onPress={() => handlePressItem(item)}
                 >
                   <View style={[styles.iconCircle, { backgroundColor: `${icon.color}1A` }]}>
@@ -260,18 +340,18 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                     <Text style={styles.notificationMessage}>{item.message}</Text>
                     <Text style={styles.notificationTime}>{timeAgo(item.createdAt)}</Text>
                   </View>
-                  {isUnread && <View style={styles.unreadDot} />}
+                  {isUnread && <PulsingDot />}
                 </Pressable>
 
                 {item.type === "LEAVE_NEEDS_REQUIREMENTS" && justResubmittedId === item.id && (
-                  <View style={styles.resubmitConfirmation}>
+                  <FadeInView style={styles.resubmitConfirmation}>
                     <Ionicons name="checkmark-circle" size={16} color="#15803D" />
                     <Text style={styles.resubmitConfirmationText}>Resubmitted — your reviewer has been notified.</Text>
-                  </View>
+                  </FadeInView>
                 )}
 
                 {isExpanded && (
-                  <View style={styles.resubmitPanel}>
+                  <FadeInView style={styles.resubmitPanel}>
                     {!leaveRequest ? (
                       <ActivityIndicator size="small" color="#1680D8" />
                     ) : !stillNeedsRevision ? (
@@ -302,7 +382,11 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                             </Pressable>
                           </View>
                         ) : (
-                          <Pressable style={styles.attachmentPicker} onPress={pickAttachment} disabled={isPickingFile}>
+                          <Pressable
+                            style={({ pressed }) => [styles.attachmentPicker, pressed && styles.attachmentPickerPressed]}
+                            onPress={pickAttachment}
+                            disabled={isPickingFile}
+                          >
                             {isPickingFile ? (
                               <ActivityIndicator size="small" color="#1680D8" />
                             ) : (
@@ -324,7 +408,11 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                         />
 
                         <Pressable
-                          style={[styles.resubmitButton, isResubmitting && styles.resubmitButtonDisabled]}
+                          style={({ pressed }) => [
+                            styles.resubmitButton,
+                            isResubmitting && styles.resubmitButtonDisabled,
+                            pressed && !isResubmitting && styles.resubmitButtonPressed,
+                          ]}
                           onPress={() => handleResubmit(leaveRequest.id)}
                           disabled={isResubmitting}
                         >
@@ -336,9 +424,9 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                         </Pressable>
                       </>
                     )}
-                  </View>
+                  </FadeInView>
                 )}
-              </View>
+              </FadeInView>
             );
           }}
         />
@@ -365,6 +453,9 @@ const styles = StyleSheet.create({
     minWidth: 40,
     paddingVertical: 4,
     paddingHorizontal: 4,
+  },
+  headerButtonPressed: {
+    opacity: 0.6,
   },
   headerTitle: {
     fontSize: 17,
@@ -410,6 +501,9 @@ const styles = StyleSheet.create({
   notificationRowUnread: {
     backgroundColor: "#F0F7FF",
   },
+  notificationRowPressed: {
+    opacity: 0.7,
+  },
   iconCircle: {
     width: 38,
     height: 38,
@@ -437,12 +531,25 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginTop: 6,
   },
+  unreadDotWrap: {
+    width: 8,
+    height: 8,
+    marginTop: 4,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  unreadDotPulse: {
+    position: "absolute",
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#1680D8",
+  },
   unreadDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
     backgroundColor: "#1680D8",
-    marginTop: 4,
   },
   resubmitPanel: {
     paddingHorizontal: 16,
@@ -476,6 +583,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
+  },
+  attachmentPickerPressed: {
+    backgroundColor: "#EFF6FF",
   },
   attachmentPickerText: {
     color: "#1680D8",
@@ -536,6 +646,9 @@ const styles = StyleSheet.create({
   },
   resubmitButtonDisabled: {
     opacity: 0.7,
+  },
+  resubmitButtonPressed: {
+    opacity: 0.85,
   },
   resubmitButtonText: {
     color: "#FFFFFF",
