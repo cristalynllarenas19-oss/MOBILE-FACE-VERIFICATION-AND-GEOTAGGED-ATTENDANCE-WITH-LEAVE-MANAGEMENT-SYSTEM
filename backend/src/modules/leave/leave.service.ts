@@ -65,6 +65,25 @@ export class LeaveService {
 
     const leaveType = await this.prisma.leaveType.findUniqueOrThrow({ where: { id: dto.leaveTypeId } });
 
+    // Paid, capped leave types must not be requestable past what's left in the
+    // employee's balance for the year — allowWithoutPay/isUnlimitedDays types
+    // (e.g. LWOP) are intentionally exempt, same as in adjustLeaveBalance below.
+    if (!leaveType.allowWithoutPay && !leaveType.isUnlimitedDays) {
+      const year = new Date(dto.startDate).getFullYear();
+      const balance = await this.prisma.leaveBalance.findUnique({
+        where: { employeeId_leaveTypeId_year: { employeeId: dto.employeeId, leaveTypeId: dto.leaveTypeId, year } },
+      });
+      const earnedDays = balance ? Number(balance.earnedDays) : Number(leaveType.defaultDays);
+      const usedDays = balance ? Number(balance.usedDays) : 0;
+      const remainingDays = Math.max(0, earnedDays - usedDays);
+
+      if (Number(dto.totalDays) > remainingDays) {
+        throw new BadRequestException(
+          `Insufficient ${leaveType.name} balance: you have ${remainingDays} day(s) remaining but requested ${dto.totalDays}.`,
+        );
+      }
+    }
+
     // The 30-day unpaid extension only makes sense for Maternity Leave — a
     // crafted request against any other leave type is silently ignored
     // rather than trusted, even though the frontend already gates this.

@@ -86,6 +86,19 @@ export default function LeaveScreen({ employeeId }: Props) {
     item.name.toLowerCase().includes(searchLeave.toLowerCase())
   );
 
+  const remainingByLeaveType = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const b of balances) map.set(b.leaveTypeId, b.remainingDays);
+    return map;
+  }, [balances]);
+
+  function isLeaveTypeExhausted(item: LeaveType) {
+    if (item.allowWithoutPay || item.isUnlimitedDays) return false;
+    const remaining = remainingByLeaveType.get(item.id);
+    const effectiveRemaining = remaining !== undefined ? remaining : Number(item.defaultDays);
+    return effectiveRemaining <= 0;
+  }
+
   const pendingRequests = useMemo(
     () => requests.filter((r) => r.status === "PENDING" || r.status === "SUPERVISOR_APPROVED" || r.status === "NEEDS_REVISION"),
     [requests],
@@ -214,6 +227,18 @@ export default function LeaveScreen({ employeeId }: Props) {
         message: `${selectedLeaveType.name} requires a supporting document. Please attach one before submitting.`,
       });
       return;
+    }
+    if (selectedLeaveType && !selectedLeaveType.allowWithoutPay && !selectedLeaveType.isUnlimitedDays) {
+      const balance = balances.find((b) => b.leaveTypeId === selectedLeaveType.id);
+      const remainingDays = balance ? balance.remainingDays : Number(selectedLeaveType.defaultDays);
+      if (totalDays > remainingDays) {
+        setResultModal({
+          status: "error",
+          title: "Insufficient Balance",
+          message: `You have ${remainingDays} day(s) of ${selectedLeaveType.name} left, but requested ${totalDays}.`,
+        });
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -352,22 +377,33 @@ export default function LeaveScreen({ employeeId }: Props) {
 
                   <ScrollView style={{ maxHeight: 160 }}>
                     {filteredLeaveTypes.length > 0 ? (
-                      filteredLeaveTypes.map((item) => (
-                        <Pressable
-                          key={item.id}
-                          style={styles.inlineItem}
-                          onPress={() => {
-                            setLeaveTypeId(item.id);
-                            setIsDropdownOpen(false);
-                            setSearchLeave("");
-                          }}
-                        >
-                          <Text style={[styles.inlineItemText, leaveTypeId === item.id && styles.selectedItemText]}>
-                            {item.name}
-                            {item.requiresDocument ? " (document required)" : ""}
-                          </Text>
-                        </Pressable>
-                      ))
+                      filteredLeaveTypes.map((item) => {
+                        const exhausted = isLeaveTypeExhausted(item);
+                        return (
+                          <Pressable
+                            key={item.id}
+                            style={[styles.inlineItem, exhausted && styles.inlineItemDisabled]}
+                            disabled={exhausted}
+                            onPress={() => {
+                              setLeaveTypeId(item.id);
+                              setIsDropdownOpen(false);
+                              setSearchLeave("");
+                            }}
+                          >
+                            <Text
+                              style={[
+                                styles.inlineItemText,
+                                leaveTypeId === item.id && styles.selectedItemText,
+                                exhausted && styles.disabledItemText,
+                              ]}
+                            >
+                              {item.name}
+                              {item.requiresDocument ? " (document required)" : ""}
+                              {exhausted ? " (no balance left)" : ""}
+                            </Text>
+                          </Pressable>
+                        );
+                      })
                     ) : (
                       <View style={styles.noResultsBox}>
                         <Text style={styles.noResultsText}>No leave types found</Text>
@@ -649,6 +685,12 @@ const styles = StyleSheet.create({
   inlineItemText: {
     fontSize: 14,
     color: "#334155",
+  },
+  inlineItemDisabled: {
+    backgroundColor: "#F8FAFC",
+  },
+  disabledItemText: {
+    color: "#CBD5E1",
   },
   selectedItemText: {
     color: "#062B59",

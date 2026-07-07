@@ -125,6 +125,8 @@ export type LeaveType = {
   name: string;
   defaultDays: string;
   requiresDocument: boolean;
+  allowWithoutPay: boolean;
+  isUnlimitedDays: boolean;
 };
 
 export type LeaveBalance = {
