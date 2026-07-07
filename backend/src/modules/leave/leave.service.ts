@@ -48,6 +48,21 @@ export class LeaveService {
       throw new BadRequestException("Attachment must be 5MB or smaller.");
     }
 
+    // An employee can only have one request in flight at a time — they must wait for it
+    // to be fully APPROVED (or REJECTED/CANCELLED) before filing another.
+    const activeRequest = await this.prisma.leaveRequest.findFirst({
+      where: {
+        employeeId: dto.employeeId,
+        status: { in: ["PENDING", "SUPERVISOR_APPROVED", "NEEDS_REVISION"] },
+      },
+    });
+
+    if (activeRequest) {
+      throw new BadRequestException(
+        "You already have a leave request awaiting review. Please wait until it is approved, rejected, or cancelled before filing another.",
+      );
+    }
+
     const leaveType = await this.prisma.leaveType.findUniqueOrThrow({ where: { id: dto.leaveTypeId } });
 
     // The 30-day unpaid extension only makes sense for Maternity Leave — a

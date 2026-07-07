@@ -86,7 +86,10 @@ export default function LeaveScreen({ employeeId }: Props) {
     item.name.toLowerCase().includes(searchLeave.toLowerCase())
   );
 
-  const pendingRequests = useMemo(() => requests.filter((r) => r.status === "PENDING"), [requests]);
+  const pendingRequests = useMemo(
+    () => requests.filter((r) => r.status === "PENDING" || r.status === "SUPERVISOR_APPROVED" || r.status === "NEEDS_REVISION"),
+    [requests],
+  );
 
   useEffect(() => {
     loadData();
@@ -271,6 +274,43 @@ export default function LeaveScreen({ employeeId }: Props) {
             onPressPending={() => setShowPending(true)}
           />
         </View>
+      ) : pendingRequests.length > 0 ? (
+        <ScrollView
+          contentContainerStyle={[styles.tabContentPad, { flexGrow: 1 }]}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.card}>
+            <View style={styles.formHeader}>
+              <Ionicons color="#DC2777" name="document-text-outline" size={32} />
+              <Text style={styles.cardTitle}>Leave Request</Text>
+            </View>
+
+            <Text style={styles.pendingNoticeText}>
+              You have a leave request awaiting review. You can submit a new request once it's approved, rejected, or cancelled.
+            </Text>
+
+            {pendingRequests.map((request) => {
+              const tone = statusTone(request.status);
+              return (
+                <View key={request.id} style={styles.requestCard}>
+                  <Text style={styles.requestTitle}>{request.leaveType.name}</Text>
+                  <Text>
+                    {new Date(request.startDate).toLocaleDateString()} - {new Date(request.endDate).toLocaleDateString()}
+                  </Text>
+                  {request.attachmentName && (
+                    <View style={styles.requestAttachmentRow}>
+                      <Ionicons name="attach-outline" size={13} color="#64748B" />
+                      <Text style={styles.requestAttachmentText}>{request.attachmentName}</Text>
+                    </View>
+                  )}
+                  <Text style={[styles.pendingText, { color: tone.color, backgroundColor: tone.bg }]}>
+                    {request.status.replace("_", " ")}
+                  </Text>
+                </View>
+              );
+            })}
+          </View>
+        </ScrollView>
       ) : (
         <ScrollView
           contentContainerStyle={[styles.tabContentPad, { flexGrow: 1 }]}
@@ -536,6 +576,13 @@ const styles = StyleSheet.create({
     color: "#475569",
     marginTop: SCREEN_HEIGHT < 700 ? 6 : 12,
     marginBottom: SCREEN_HEIGHT < 700 ? 2 : 4,
+  },
+  pendingNoticeText: {
+    color: "#64748B",
+    fontSize: 13,
+    marginTop: 12,
+    marginBottom: 4,
+    lineHeight: 18,
   },
 
   dropdownWrapper: {
