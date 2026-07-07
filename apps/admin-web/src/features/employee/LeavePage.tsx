@@ -342,18 +342,12 @@ export function LeavePage({ user }: Props) {
       <h2 className="emp-page-title">Leave</h2>
 
       {/* Tab switcher */}
-      <div style={{ display: "flex", background: "#F1F5F9", borderRadius: 14, padding: 4, marginBottom: 16 }}>
+      <div className="leave-tab-switcher">
         {(["balance", "request"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
-            style={{
-              flex: 1, padding: "10px 0", borderRadius: 11,
-              border: "none", cursor: "pointer",
-              background:  tab === t ? "#062B59" : "transparent",
-              color:       tab === t ? "#FFFFFF"  : "#64748B",
-              fontWeight: 700, fontSize: 14,
-            }}
+            className={`leave-tab-btn${tab === t ? " is-active" : ""}`}
           >
             {t === "balance" ? "Balance" : "Request"}
           </button>
@@ -370,46 +364,35 @@ export function LeavePage({ user }: Props) {
           ) : (
             <>
               {pendingRequests.length > 0 && (
-                <button
-                  onClick={() => setShowPending(true)}
-                  style={{
-                    display: "flex", alignItems: "center", gap: 8, width: "100%",
-                    background: "#FEF3C7", border: "1px solid #FCD34D",
-                    borderRadius: 12, padding: "10px 14px", marginBottom: 14,
-                    cursor: "pointer",
-                  }}
-                >
-                  <span style={{ color: "#B45309", fontSize: 13, fontWeight: 700 }}>
+                <button onClick={() => setShowPending(true)} className="leave-pending-banner">
+                  <span className="leave-pending-banner-text">
                     ⏳ {pendingRequests.length} pending request{pendingRequests.length > 1 ? "s" : ""}
                   </span>
-                  <span style={{ color: "#B45309", fontSize: 12, marginLeft: "auto" }}>View →</span>
+                  <span className="leave-pending-banner-link">View →</span>
                 </button>
               )}
 
-              {balances.map((b) => {
-                const pct = b.earnedDays > 0 ? Math.round((b.usedDays / b.earnedDays) * 100) : 0;
-                return (
-                  <div key={b.leaveTypeId} style={balCard}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
-                      <div>
-                        <p style={{ fontWeight: 700, color: "#062B59", fontSize: 14, marginBottom: 2 }}>{b.leaveTypeName}</p>
-                        <p style={{ color: "#64748B", fontSize: 12, margin: 0 }}>{b.year}</p>
+              <div className="leave-balance-list">
+                {balances.map((b) => {
+                  const pct = b.earnedDays > 0 ? Math.round((b.remainingDays / b.earnedDays) * 100) : 0;
+                  return (
+                    <div key={b.leaveTypeId} className="leave-balance-row">
+                      <p className="leave-balance-row-type">{b.leaveTypeName}</p>
+                      <div className="leave-balance-row-stats">
+                        <span>Earned: <b>{b.earnedDays}</b></span>
+                        <span>Used: <b>{b.usedDays}</b></span>
                       </div>
-                      <div style={{ textAlign: "right" }}>
-                        <p style={{ fontSize: 24, fontWeight: 800, color: "#062B59", margin: 0 }}>{b.remainingDays}</p>
-                        <p style={{ color: "#94A3B8", fontSize: 11, margin: 0 }}>remaining</p>
+                      <div className="leave-balance-row-progress-track">
+                        <div className="leave-balance-row-progress-fill" style={{ width: `${pct}%` }} />
+                      </div>
+                      <div className="leave-balance-row-remaining">
+                        <b>{b.remainingDays}</b>
+                        <span className="leave-balance-row-remaining-label"> remaining</span>
                       </div>
                     </div>
-                    <div style={{ display: "flex", gap: 14, fontSize: 12, color: "#64748B", marginBottom: 8 }}>
-                      <span>Earned: <b style={{ color: "#062B59" }}>{b.earnedDays}</b></span>
-                      <span>Used: <b style={{ color: "#062B59" }}>{b.usedDays}</b></span>
-                    </div>
-                    <div style={{ height: 4, borderRadius: 2, background: "#E2E8F0", overflow: "hidden" }}>
-                      <div style={{ height: "100%", width: `${pct}%`, background: "#1680D8", borderRadius: 2 }} />
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </>
           )}
         </div>
@@ -612,12 +595,6 @@ export function LeavePage({ user }: Props) {
 }
 
 // ── Styles ────────────────────────────────────────────────────────────────────
-const balCard: CSSProperties = {
-  background: "#FFFFFF", borderRadius: 14,
-  border: "1px solid #E2E8F0", padding: "14px 16px",
-  marginBottom: 12,
-  boxShadow: "0 1px 3px rgba(6,43,89,0.06)",
-};
 const fldLbl: CSSProperties = {
   display: "block", fontWeight: 600, color: "#475569",
   fontSize: 14, marginBottom: 5, marginTop: 14,
