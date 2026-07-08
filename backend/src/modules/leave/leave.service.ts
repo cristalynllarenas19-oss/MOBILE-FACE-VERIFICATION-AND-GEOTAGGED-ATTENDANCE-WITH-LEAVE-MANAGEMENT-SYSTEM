@@ -29,7 +29,10 @@ export class LeaveService {
         reviewer: { include: { employee: true } },
         notes: { orderBy: { createdAt: "asc" } },
       },
-      orderBy: { startDate: "desc" },
+      // Newest-filed request first (LIFO) — sorting by startDate instead would
+      // bury a just-submitted request behind an older one whose leave dates
+      // happen to be later.
+      orderBy: { createdAt: "desc" },
     });
 
     const remarks = await this.prisma.auditLog.findMany({
@@ -159,6 +162,7 @@ export class LeaveService {
     remarks?: string,
     context: AuditLogContext = {},
     scopeDepartmentId?: string,
+    selfReviewEmployeeId?: string,
   ) {
     // Load the request first so we know its *current* status before changing anything.
     // This is what lets us tell "first time being approved" apart from "already approved,
@@ -171,6 +175,14 @@ export class LeaveService {
 
     if (scopeDepartmentId && existing.employee.departmentId !== scopeDepartmentId) {
       throw new ForbiddenException("You can only manage leave requests from your own department.");
+    }
+
+    // A Supervisor is also an employee of the department they scope-check
+    // against above, so the department check alone would let them approve
+    // their own request. Their own leave must stay PENDING until HR/Admin
+    // (who never passes selfReviewEmployeeId) reviews it directly.
+    if (selfReviewEmployeeId && existing.employeeId === selfReviewEmployeeId) {
+      throw new ForbiddenException("You cannot approve or reject your own leave request — HR must review it.");
     }
 
     const wasApproved = existing.status === "APPROVED";
@@ -260,7 +272,13 @@ export class LeaveService {
   // flags that the employee just needs to attach something) and, unlike
   // approve/cancel, writes a LeaveRequestNote so the reject/resubmit thread stays
   // intact across however many loops the request goes through.
-  async reject(id: string, dto: RejectLeaveRequestDto, context: AuditLogContext = {}, scopeDepartmentId?: string) {
+  async reject(
+    id: string,
+    dto: RejectLeaveRequestDto,
+    context: AuditLogContext = {},
+    scopeDepartmentId?: string,
+    selfReviewEmployeeId?: string,
+  ) {
     const existing = await this.prisma.leaveRequest.findUniqueOrThrow({
       where: { id },
       include: { employee: { select: { departmentId: true } } },
@@ -268,6 +286,10 @@ export class LeaveService {
 
     if (scopeDepartmentId && existing.employee.departmentId !== scopeDepartmentId) {
       throw new ForbiddenException("You can only manage leave requests from your own department.");
+    }
+
+    if (selfReviewEmployeeId && existing.employeeId === selfReviewEmployeeId) {
+      throw new ForbiddenException("You cannot approve or reject your own leave request — HR must review it.");
     }
 
     const wasApproved = existing.status === "APPROVED";

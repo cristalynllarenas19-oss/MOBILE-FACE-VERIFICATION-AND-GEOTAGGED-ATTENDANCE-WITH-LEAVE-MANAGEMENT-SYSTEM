@@ -43,19 +43,24 @@ export default function App() {
   // Attendance view (department + status + date), cleared on any normal
   // sidebar navigation to Attendance so a stale filter doesn't linger.
   const [attendanceFilter, setAttendanceFilter] = useState<AttendanceInitialFilter | undefined>(undefined);
+  // Lets a clicked Leave notification jump straight into that request's
+  // review modal instead of just landing on the Leave Management list.
+  const [leaveFocusRequestId, setLeaveFocusRequestId] = useState<string | undefined>(undefined);
 
   const navigateToAttendance = (filter: AttendanceNavigateFilter) => {
     setAttendanceFilter(filter);
     setPage("attendance");
   };
 
-  const handleNavigate = (id: string) => {
+  const handleNavigate = (id: string, entityId?: string) => {
     if (id === "attendance") setAttendanceFilter(undefined);
+    setLeaveFocusRequestId(id === "leave" ? entityId : undefined);
     setPage(id);
   };
 
   const switchView = (view: "admin" | "employee") => {
     setAttendanceFilter(undefined);
+    setLeaveFocusRequestId(undefined);
     setPage(view === "employee" ? "employee-attendance" : "dashboard");
   };
 
@@ -126,7 +131,13 @@ export default function App() {
       {renderPage === "employees" && <EmployeesPage user={user} />}
       {renderPage === "attendance" && <AttendancePage user={user} initialFilter={attendanceFilter} />}
       {renderPage === "geotagging" && <GeotaggingPage user={user} />}
-      {renderPage === "leave" && <LeavePage user={user} />}
+      {renderPage === "leave" && (
+        <LeavePage
+          user={user}
+          initialFocusRequestId={leaveFocusRequestId}
+          onFocusRequestHandled={() => setLeaveFocusRequestId(undefined)}
+        />
+      )}
       {renderPage === "schedules" && <SchedulesPage user={user} />}
       {renderPage === "reports" && <ReportsPage user={user} />}
       {renderPage === "utilities" && <UtilitiesPage user={user} />}

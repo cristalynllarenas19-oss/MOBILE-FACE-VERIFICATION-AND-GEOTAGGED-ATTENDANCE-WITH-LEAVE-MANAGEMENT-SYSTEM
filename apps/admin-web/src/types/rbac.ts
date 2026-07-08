@@ -16,6 +16,7 @@ export const permissions = {
   schedulesRead: "schedules:read",
   schedulesWrite: "schedules:write",
   reportsRead: "reports:read",
+  auditRead: "audit:read",
   geolocationWrite: "geolocation:write",
 
   // Employee self-service permissions (mirrors employee-mobile)

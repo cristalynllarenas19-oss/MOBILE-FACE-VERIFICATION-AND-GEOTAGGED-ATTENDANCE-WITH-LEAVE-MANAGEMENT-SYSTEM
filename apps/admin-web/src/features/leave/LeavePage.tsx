@@ -654,8 +654,14 @@ function DateFiledPicker({ value, onChange }: { value: string | null; onChange: 
 
 export function LeavePage({
   user,
+  initialFocusRequestId,
+  onFocusRequestHandled,
 }: {
-  user?: { role: string; roles: string[]; departmentId?: string; department?: string };
+  user?: { role: string; roles: string[]; departmentId?: string; department?: string; employeeId?: string };
+  // Set when arriving here from a clicked Leave notification — opens that
+  // request's review modal directly instead of landing on the plain list.
+  initialFocusRequestId?: string;
+  onFocusRequestHandled?: () => void;
 } = {}) {
   const roles = user?.roles ?? (user?.role ? [user.role] : []);
   const isAdmin = roles.includes("ADMIN");
@@ -719,6 +725,22 @@ export function LeavePage({
   useEffect(loadLeaveTypes, []);
   useEffect(loadSummary, [summaryYear]);
   useEffect(loadDirectory, []);
+
+  // Arrived here from a clicked Leave notification — open that request's
+  // review modal directly once it shows up in the loaded list, same as
+  // clicking its Review button would, then tell the parent we're done with
+  // the focus id so it doesn't reapply on a later re-render.
+  useEffect(() => {
+    if (!initialFocusRequestId) return;
+    const match = requests.find((r) => r.id === initialFocusRequestId);
+    if (!match) return;
+    setReviewRequest(match);
+    setRemarks("");
+    setRequiresAdditionalRequirements(false);
+    setRequirementDetails("");
+    setHistoryViewOnly(false);
+    onFocusRequestHandled?.();
+  }, [requests, initialFocusRequestId]);
 
   useEffect(() => {
     if (!balanceEmployee) {
@@ -820,11 +842,18 @@ export function LeavePage({
     ? leaveTypes.find((t) => t.id === reviewRequest.leaveType.id)
     : undefined;
 
+  // A Supervisor can never review their own leave request — it has to stay
+  // PENDING until HR/Admin acts on it directly (mirrors the backend guard in
+  // leave.service.ts). An Admin reviewing their own request is unaffected.
+  const isOwnRequest = Boolean(reviewRequest && user?.employeeId && reviewRequest.employee.id === user.employeeId);
+
   // A Supervisor's Approve action only pre-approves (server sets
   // SUPERVISOR_APPROVED); only an Admin can act on a request already at that
   // tier to give it the final HR approval.
   const canReviewRequest = Boolean(
-    reviewRequest && (reviewRequest.status === "PENDING" || (reviewRequest.status === "SUPERVISOR_APPROVED" && isAdmin)),
+    reviewRequest &&
+      !(isOwnRequest && !isAdmin) &&
+      (reviewRequest.status === "PENDING" || (reviewRequest.status === "SUPERVISOR_APPROVED" && isAdmin)),
   );
 
   const matchingBalance =
@@ -1425,6 +1454,12 @@ export function LeavePage({
                   </div>
                 ))}
               </div>
+            )}
+
+            {!historyViewOnly && isOwnRequest && !isAdmin && (
+              <p className="leave-remarks-field">
+                This is your own leave request — a Supervisor cannot approve or reject it. It stays pending until HR/Admin reviews it.
+              </p>
             )}
 
             {!historyViewOnly && canReviewRequest && (

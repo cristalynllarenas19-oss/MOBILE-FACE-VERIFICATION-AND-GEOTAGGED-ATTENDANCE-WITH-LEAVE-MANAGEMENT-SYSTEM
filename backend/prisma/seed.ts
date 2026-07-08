@@ -17,6 +17,7 @@ const permissionRows = [
   ["schedules:read", "Schedules"],
   ["schedules:write", "Schedules"],
   ["reports:read", "Reports"],
+  ["audit:read", "Audit"],
   ["geolocation:write", "Geolocation"],
 ] as const;
 
@@ -31,7 +32,12 @@ const rolePermissions: Record<RoleCode, string[]> = {
   // employees:write lets a Supervisor edit/archive employees in their own
   // department — EmployeesService enforces the department boundary the same
   // way (see the scopeDepartmentId checks in create/update/archive).
-  SUPERVISOR: ["dashboard:view", "employees:read", "employees:write", "attendance:read", "schedules:read", "leave:read", "leave:approve", "geolocation:write"],
+  // reports:read lets a Supervisor view the Reports page — ReportsService
+  // already ANDs in getSupervisorDepartmentScope so they only ever see their
+  // own department's data, same as Employees/Leave/Dashboard. Deliberately
+  // does NOT imply audit:read — Utilities/Audit Logs stays HR/Admin-only, so
+  // that page and reports:read must stay on separate permission codes.
+  SUPERVISOR: ["dashboard:view", "employees:read", "employees:write", "attendance:read", "schedules:read", "leave:read", "leave:approve", "geolocation:write", "reports:read"],
   EMPLOYEE: ["dashboard:view", "attendance:write", "leave:read", "leave:write"],
 };
 
@@ -138,7 +144,11 @@ async function main() {
     employeeNo: "UL-003",
     firstName: "Ana",
     lastName: "Reyes",
-    departmentId: quality.id,
+    // Must match `supervisor`'s department (Production) — EmployeesService now
+    // rejects a supervisorId whose department differs from the employee's,
+    // and this employee/supervisor pairing exists specifically to demo that
+    // Employee -> Supervisor -> HR leave approval chain.
+    departmentId: production.id,
     positionId: employeePosition.id,
     hireDate: new Date("2023-03-01"),
   });

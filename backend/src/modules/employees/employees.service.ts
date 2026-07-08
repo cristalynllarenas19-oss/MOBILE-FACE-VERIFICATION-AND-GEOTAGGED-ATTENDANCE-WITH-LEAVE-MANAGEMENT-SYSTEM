@@ -18,9 +18,64 @@ export class EmployeesService {
   findAll(departmentId?: string) {
     return this.prisma.employee.findMany({
       where: departmentId ? { departmentId } : undefined,
-      include: { user: true, department: true, position: true },
+      include: { user: true, department: true, position: true, supervisor: true },
       orderBy: { lastName: "asc" },
     });
+  }
+
+  // Candidates for the "Supervisor" field on Add/Edit Employee — anyone
+  // currently carrying the SUPERVISOR role. A department is only ever
+  // meaningful to pass for a scoped Supervisor (who can only supervise their
+  // own department anyway); HR/Admin gets the full cross-department list and
+  // the frontend narrows it to whatever department the form currently holds.
+  findSupervisors(departmentId?: string) {
+    return this.prisma.employee.findMany({
+      where: {
+        employmentStatus: { not: "SEPARATED" },
+        ...(departmentId ? { departmentId } : {}),
+        user: { userRoles: { some: { role: { code: "SUPERVISOR" } } } },
+      },
+      select: { id: true, firstName: true, lastName: true, employeeNo: true, department: { select: { name: true } } },
+      orderBy: { lastName: "asc" },
+    });
+  }
+
+  // Shared by create()/update(): resolves and validates the incoming
+  // supervisorId against the employee's *target* department (the one they'll
+  // have after this save, not necessarily their current one) so a supervisor
+  // can never be assigned across departments — this must hold for
+  // getSupervisorDepartmentScope-based leave/report scoping to stay correct.
+  private async resolveSupervisorId(
+    supervisorId: string | undefined,
+    targetDepartmentId: string,
+    selfEmployeeId?: string,
+  ) {
+    if (supervisorId === undefined) return undefined;
+    if (!supervisorId) return null;
+
+    if (supervisorId === selfEmployeeId) {
+      throw new BadRequestException("An employee cannot be their own supervisor.");
+    }
+
+    const supervisor = await this.prisma.employee.findUnique({
+      where: { id: supervisorId },
+      include: { user: { include: { userRoles: { include: { role: true } } } } },
+    });
+
+    if (!supervisor) {
+      throw new BadRequestException("Selected supervisor was not found.");
+    }
+
+    const isSupervisor = supervisor.user?.userRoles.some((userRole) => userRole.role.code === "SUPERVISOR");
+    if (!isSupervisor) {
+      throw new BadRequestException("Selected employee does not have the Supervisor role.");
+    }
+
+    if (supervisor.departmentId !== targetDepartmentId) {
+      throw new BadRequestException("A supervisor must belong to the same department as the employee.");
+    }
+
+    return supervisorId;
   }
 
   // Face enrollment and work-location assignment are both prerequisites the
@@ -71,6 +126,8 @@ export class EmployeesService {
     // No password is set at creation time — the employee logs in once with
     // just their email, then is forced to set their own password (see
     // AuthService.login / UsersService.changePassword).
+    const resolvedSupervisorId = await this.resolveSupervisorId(dto.supervisorId, department.id);
+
     const user = await this.prisma.user.create({
       data: {
         email: dto.email,
@@ -92,8 +149,9 @@ export class EmployeesService {
         attendanceMode: dto.attendanceMode ?? "FIXED",
         sex: dto.sex,
         soloParentStatus: dto.soloParentStatus ?? "NOT_APPLICABLE",
+        ...(resolvedSupervisorId !== undefined ? { supervisorId: resolvedSupervisorId } : {}),
       },
-      include: { user: true, department: true, position: true },
+      include: { user: true, department: true, position: true, supervisor: true },
     });
 
     await this.assignGenderLeaveType(created.id, dto.sex);
@@ -172,6 +230,17 @@ export class EmployeesService {
       });
     }
 
+    const targetDepartmentId = department?.id ?? employee.departmentId;
+    let resolvedSupervisorId = await this.resolveSupervisorId(dto.supervisorId, targetDepartmentId, id);
+
+    // Moving departments without an explicit supervisor change would otherwise
+    // leave a dangling cross-department supervisorId — clear it rather than
+    // silently break the "supervisor is always in the employee's own
+    // department" invariant that leave/report scoping depends on.
+    if (resolvedSupervisorId === undefined && department && department.id !== employee.departmentId && employee.supervisorId) {
+      resolvedSupervisorId = null;
+    }
+
     const updated = await this.prisma.employee.update({
       where: { id },
       data: {
@@ -183,8 +252,9 @@ export class EmployeesService {
         ...(dto.employmentStatus ? { employmentStatus: dto.employmentStatus } : {}),
         ...(dto.attendanceMode ? { attendanceMode: dto.attendanceMode } : {}),
         ...(dto.soloParentStatus ? { soloParentStatus: dto.soloParentStatus } : {}),
+        ...(resolvedSupervisorId !== undefined ? { supervisorId: resolvedSupervisorId } : {}),
       },
-      include: { user: true, department: true, position: true },
+      include: { user: true, department: true, position: true, supervisor: true },
     });
 
     if (dto.leaveAllocationDays !== undefined && employee.sex) {

@@ -23,6 +23,17 @@ export class EmployeesController {
     return this.employeesService.findMe(employeeId);
   }
 
+  // Candidates for the "Supervisor" field on Add/Edit Employee. Gated on
+  // employees:write (not :read) since it's only ever consulted from that
+  // write flow — a scoped Supervisor is forced to their own department, same
+  // as findAll above.
+  @Get("supervisors")
+  @RequirePermissions("employees:write")
+  findSupervisors(@Req() request: Request) {
+    const departmentId = getSupervisorDepartmentScope((request as any).user);
+    return this.employeesService.findSupervisors(departmentId);
+  }
+
   @Patch("me/photo")
   updateMyPhoto(
     @Req() request: Request,

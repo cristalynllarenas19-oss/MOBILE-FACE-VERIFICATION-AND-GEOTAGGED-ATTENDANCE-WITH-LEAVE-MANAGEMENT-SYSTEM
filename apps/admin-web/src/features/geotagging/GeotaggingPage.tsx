@@ -331,10 +331,12 @@ function ViewAreaEmployeesModal({
 
 function GeotaggingPageContent({
   canWrite,
+  canManageAreas,
   scopedDepartmentId,
   scopedDepartmentName,
 }: {
   canWrite: boolean;
+  canManageAreas: boolean;
   scopedDepartmentId?: string;
   scopedDepartmentName?: string;
 }) {
@@ -962,30 +964,29 @@ function GeotaggingPageContent({
         </div>
       )}
 
-      <div className="geotagging-top-grid">
-        <section className="geotagging-map-panel" aria-label="OpenStreetMap geotagging map">
-          <div className="map-panel-header">
-            <MapPin size={15} className="map-panel-icon" />
-            <span>Street Map - Click anywhere to pin a location</span>
-          </div>
-          <div ref={mapElementRef} className="geotagging-map" />
-          {loading && <div className="map-loading-overlay">Loading map...</div>}
-        </section>
+      <section className="geotagging-map-panel geotagging-map-panel--full" aria-label="OpenStreetMap geotagging map">
+        <div className="map-panel-header">
+          <MapPin size={15} className="map-panel-icon" />
+          <span>Street Map - Click anywhere to pin a location</span>
+        </div>
+        <div ref={mapElementRef} className="geotagging-map" />
+        {loading && <div className="map-loading-overlay">Loading map...</div>}
+      </section>
 
-        <div className="geotagging-top-right">
-          <div className="geotagging-stats">
-            <div className="geotagging-stat-card">
-              <span className="stat-value">{locations.length}</span>
-              <span className="stat-label">Active Zones</span>
-            </div>
-            <div className="geotagging-stat-card">
-              <span className="stat-value">{assignedEmployees.size}</span>
-              <span className="stat-label">Assigned Employees</span>
-            </div>
-          </div>
+      <div className="geotagging-stats">
+        <div className="geotagging-stat-card">
+          <span className="stat-value">{locations.length}</span>
+          <span className="stat-label">Active Zones</span>
+        </div>
+        <div className="geotagging-stat-card">
+          <span className="stat-value">{assignedEmployees.size}</span>
+          <span className="stat-label">Assigned Employees</span>
+        </div>
+      </div>
 
-          {canWrite && (
-            <form onSubmit={handleSubmit} className="geotagging-form">
+      <div className={`geotagging-bottom-grid${canManageAreas ? " with-form" : ""}`}>
+        {canManageAreas && (
+          <form onSubmit={handleSubmit} className="geotagging-form">
               <div className="panel-heading">
                 <div className="panel-heading-icon">
                   <Plus size={14} />
@@ -1099,10 +1100,7 @@ function GeotaggingPageContent({
               </div>
             </form>
           )}
-        </div>
-      </div>
 
-      <div className="geotagging-bottom-grid">
         <section className="assigned-list" aria-label="Assigned geotagged areas">
           <div className="panel-heading">
             <div className="panel-heading-icon neutral">
@@ -1251,7 +1249,7 @@ function GeotaggingPageContent({
                         >
                           <Edit3 size={13} />
                         </button>
-                        {canWrite && (
+                        {canManageAreas && (
                           <button
                             className={`icon-button location-action-btn location-action-btn--toggle${isActive ? "" : " is-inactive"}`}
                             type="button"
@@ -1262,7 +1260,7 @@ function GeotaggingPageContent({
                             {isActive ? <Power size={13} /> : <PowerOff size={13} />}
                           </button>
                         )}
-                        {canWrite && (
+                        {canManageAreas && (
                           <button
                             className="icon-button location-action-btn location-action-btn--delete"
                             type="button"
@@ -1555,11 +1553,17 @@ export function GeotaggingPage({
   const isScopedSupervisor = roles.includes("SUPERVISOR") && !roles.includes("ADMIN");
   const scopedDepartmentId = isScopedSupervisor ? user?.departmentId : undefined;
   const scopedDepartmentName = isScopedSupervisor ? user?.department : undefined;
+  // A Supervisor may only assign/unassign employees on an area that already
+  // exists (canWrite) — creating, editing, deleting, or activating/
+  // deactivating an area is HR/Admin-only, mirroring the backend guards in
+  // GeolocationController.
+  const canManageAreas = canWrite && !isScopedSupervisor;
 
   return (
     <GeotaggingErrorBoundary>
       <GeotaggingPageContent
         canWrite={canWrite}
+        canManageAreas={canManageAreas}
         scopedDepartmentId={scopedDepartmentId}
         scopedDepartmentName={scopedDepartmentName}
       />

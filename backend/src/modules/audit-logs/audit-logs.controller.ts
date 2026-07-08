@@ -7,7 +7,7 @@ export class AuditLogsController {
   constructor(private readonly auditLogsService: AuditLogsService) {}
 
   @Get()
-  @RequirePermissions("reports:read")
+  @RequirePermissions("audit:read")
   findAll(
     @Query("action") action?: string,
     @Query("entityType") entityType?: string,
@@ -37,7 +37,7 @@ export class AuditLogsController {
   }
 
   @Get("export")
-  @RequirePermissions("reports:read")
+  @RequirePermissions("audit:read")
   findForExport(
     @Query("action") action?: string,
     @Query("entityType") entityType?: string,

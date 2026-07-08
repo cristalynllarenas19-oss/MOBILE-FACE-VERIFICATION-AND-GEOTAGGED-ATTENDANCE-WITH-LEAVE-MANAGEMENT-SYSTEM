@@ -52,6 +52,14 @@ export class CreateEmployeeDto {
   @IsOptional()
   @IsEnum(EmployeeSoloParentStatus)
   soloParentStatus?: EmployeeSoloParentStatus;
+
+  // Must be the id of an existing Employee who carries the SUPERVISOR role in
+  // the same department — validated in EmployeesService, not here, since it
+  // needs a DB lookup. Omit to leave unassigned; not present on this DTO
+  // means "no change" on update, but on create it simply means "no supervisor".
+  @IsOptional()
+  @IsString()
+  supervisorId?: string;
 }
 
 export class UpdateEmployeeDto {
@@ -97,4 +105,11 @@ export class UpdateEmployeeDto {
   @IsInt()
   @Min(0)
   leaveAllocationDays?: number;
+
+  // Same validation as CreateEmployeeDto.supervisorId. An empty string means
+  // "clear the current supervisor"; omitting the field entirely means "leave
+  // it unchanged" — EmployeesService.update() distinguishes undefined from "".
+  @IsOptional()
+  @IsString()
+  supervisorId?: string;
 }

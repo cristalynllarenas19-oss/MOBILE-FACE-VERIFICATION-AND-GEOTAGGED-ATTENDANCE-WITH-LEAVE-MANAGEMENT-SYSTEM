@@ -1,4 +1,5 @@
 import { Controller, Get, Query, Req } from "@nestjs/common";
+import { RequirePermissions } from "../../common/decorators/permissions.decorator";
 import { getSupervisorDepartmentScope } from "../../common/utils/supervisor-scope.util";
 import { ReportsService } from "./reports.service";
 
@@ -7,6 +8,7 @@ export class ReportsController {
   constructor(private readonly reportsService: ReportsService) {}
 
   @Get()
+  @RequirePermissions("reports:read")
   summary(
     @Req() request: Request,
     @Query("from") from?: string,

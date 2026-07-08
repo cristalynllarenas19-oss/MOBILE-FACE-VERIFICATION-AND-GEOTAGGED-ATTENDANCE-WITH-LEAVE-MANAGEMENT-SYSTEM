@@ -58,7 +58,7 @@ export const navItems = [
   { id: "leave",      label: "Leave Management",      icon: ClipboardList,   permission: permissions.leaveRead },
   { id: "schedules",  label: "Schedule Management",   icon: CalendarClock,   permission: permissions.schedulesRead },
   { id: "reports",    label: "Reports",               icon: BarChart3,       permission: permissions.reportsRead },
-  { id: "utilities",    label: "Utilities",               icon: Settings,       permission: permissions.reportsRead },
+  { id: "utilities",    label: "Utilities",               icon: Settings,       permission: permissions.auditRead },
 
   // Employee self-service nav items (mirrors employee-mobile bottom tabs)
   { id: "employee-attendance", label: "Attendance", icon: CheckSquare,   permission: permissions.employeeAttendanceView },
@@ -90,7 +90,9 @@ export function AppLayout({
   children: ReactNode;
   activePage: string;
   activeView: "admin" | "employee";
-  onNavigate: (page: string) => void;
+  // entityId is only meaningful for a "leave" navigation — it's how a clicked
+  // Leave notification tells LeavePage which request to jump straight into.
+  onNavigate: (page: string, entityId?: string) => void;
   onSwitchView: (view: "admin" | "employee") => void;
   onLogout: () => void;
   user: User;
@@ -187,7 +189,9 @@ export function AppLayout({
 
   const handleSelectNotification = (notification: AppNotification) => {
     if (notification.type?.startsWith("LEAVE") && user.permissions.includes(permissions.leaveRead)) {
-      onNavigate("leave");
+      // Jumps straight to this request's review modal instead of dropping HR/
+      // Supervisor onto the Leave Management list to go find and click Review.
+      onNavigate("leave", notification.entityId ?? undefined);
     }
     setNotifOpen(false);
   };

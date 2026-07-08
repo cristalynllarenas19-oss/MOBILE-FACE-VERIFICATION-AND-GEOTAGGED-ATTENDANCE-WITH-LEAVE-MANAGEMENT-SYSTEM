@@ -39,19 +39,28 @@ export class LeaveController {
   approve(@Param("id") id: string, @Body() body: { remarks?: string }, @Req() request: Request) {
     const user = (request as any).user;
     const roles: string[] = user.roles ?? [user.role];
+    const isAdmin = roles.includes("ADMIN");
     // ADMIN always finalizes (from PENDING or SUPERVISOR_APPROVED); a
     // SUPERVISOR-only actor can only move PENDING -> SUPERVISOR_APPROVED, HR
     // still has to finalize afterward.
-    const targetStatus = roles.includes("ADMIN") ? "APPROVED" : "SUPERVISOR_APPROVED";
+    const targetStatus = isAdmin ? "APPROVED" : "SUPERVISOR_APPROVED";
     const departmentId = getSupervisorDepartmentScope(user);
-    return this.leaveService.updateStatus(id, targetStatus, body.remarks, getAuditContext(request), departmentId);
+    // A Supervisor can never approve their own leave request — it must sit
+    // PENDING until HR/Admin acts on it directly, same as the
+    // Employee -> Supervisor -> HR chain requires for everyone else.
+    const selfReviewEmployeeId = isAdmin ? undefined : user.employeeId;
+    return this.leaveService.updateStatus(id, targetStatus, body.remarks, getAuditContext(request), departmentId, selfReviewEmployeeId);
   }
 
   @Patch(":id/reject")
   @RequirePermissions("leave:approve")
   reject(@Param("id") id: string, @Body() body: RejectLeaveRequestDto, @Req() request: Request) {
-    const departmentId = getSupervisorDepartmentScope((request as any).user);
-    return this.leaveService.reject(id, body, getAuditContext(request), departmentId);
+    const user = (request as any).user;
+    const roles: string[] = user.roles ?? [user.role];
+    const isAdmin = roles.includes("ADMIN");
+    const departmentId = getSupervisorDepartmentScope(user);
+    const selfReviewEmployeeId = isAdmin ? undefined : user.employeeId;
+    return this.leaveService.reject(id, body, getAuditContext(request), departmentId, selfReviewEmployeeId);
   }
 
   @Patch(":id/cancel")

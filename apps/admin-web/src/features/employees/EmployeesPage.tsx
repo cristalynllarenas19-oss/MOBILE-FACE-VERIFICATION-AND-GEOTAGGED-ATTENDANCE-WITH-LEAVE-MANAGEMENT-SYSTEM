@@ -25,6 +25,15 @@ type Employee = {
   user?: { email: string } | null;
   department: { name: string };
   position: { title: string };
+  supervisor?: { id: string; firstName: string; lastName: string } | null;
+};
+
+type SupervisorOption = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  employeeNo?: string;
+  department: { name: string };
 };
 
 type EmployeeForm = {
@@ -41,6 +50,8 @@ type EmployeeForm = {
   attendanceMode: "FIXED" | "FIELD";
   soloParentStatus: "NOT_APPLICABLE" | "ELIGIBLE" | "INELIGIBLE";
   sex: "MALE" | "FEMALE";
+  // "" = no supervisor assigned.
+  supervisorId: string;
 };
 
 type EditEmployeeForm = EmployeeForm;
@@ -58,6 +69,7 @@ const initialForm: EmployeeForm = {
   attendanceMode: "FIXED",
   soloParentStatus: "NOT_APPLICABLE",
   sex: "MALE",
+  supervisorId: "",
 };
 
 function getDateInputValue(value?: string) {
@@ -183,11 +195,13 @@ function EmployeeModal({
 
 function AddEmployeeModal({
   departments,
+  supervisors,
   lockedDepartmentName,
   onClose,
   onCreated,
 }: {
   departments: string[];
+  supervisors: SupervisorOption[];
   lockedDepartmentName?: string;
   onClose: () => void;
   onCreated: (employee: Employee) => void;
@@ -198,6 +212,10 @@ function AddEmployeeModal({
   }));
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
+
+  const availableSupervisors = supervisors.filter(
+    (supervisor) => supervisor.department.name === form.department.trim(),
+  );
 
   const updateField =
     (field: keyof EmployeeForm) =>
@@ -239,6 +257,7 @@ function AddEmployeeModal({
           sex: form.sex,
           soloParentStatus: form.soloParentStatus,
           ...(form.hireDate ? { hireDate: form.hireDate } : {}),
+          ...(form.supervisorId ? { supervisorId: form.supervisorId } : {}),
         },
         {
           headers: {
@@ -294,7 +313,9 @@ function AddEmployeeModal({
                 <input
                   type="text"
                   value={form.department}
-                  onChange={updateField("department")}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, department: event.target.value, supervisorId: "" }))
+                  }
                   list="employee-departments"
                   placeholder="Production"
                   required
@@ -318,6 +339,20 @@ function AddEmployeeModal({
               <option value="PIECE_RATE">Piece-rate (Pakyawan) Worker</option>
             </select>
           </label>
+          <label>
+            Supervisor
+            <select value={form.supervisorId} onChange={updateField("supervisorId")}>
+              <option value="">No supervisor assigned</option>
+              {availableSupervisors.map((supervisor) => (
+                <option key={supervisor.id} value={supervisor.id}>
+                  {supervisor.firstName} {supervisor.lastName}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div className="employee-form-grid">
           <label>
             Sex/Gender
             <select value={form.sex} onChange={updateField("sex")}>
@@ -371,6 +406,7 @@ function EditEmployeeModal({
   employee,
   departments,
   positions,
+  supervisors,
   lockedDepartmentName,
   onClose,
   onUpdated,
@@ -378,6 +414,7 @@ function EditEmployeeModal({
   employee: Employee;
   departments: string[];
   positions: string[];
+  supervisors: SupervisorOption[];
   lockedDepartmentName?: string;
   onClose: () => void;
   onUpdated: (employee: Employee) => void;
@@ -393,11 +430,16 @@ function EditEmployeeModal({
     attendanceMode: employee.attendanceMode ?? "FIXED",
     soloParentStatus: employee.soloParentStatus ?? "NOT_APPLICABLE",
     sex: employee.sex === "FEMALE" ? "FEMALE" : "MALE",
+    supervisorId: employee.supervisor?.id ?? "",
   });
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
   const [leaveAllocation, setLeaveAllocation] = useState("");
   const [isAllocationLoading, setIsAllocationLoading] = useState(false);
+
+  const availableSupervisors = supervisors.filter(
+    (supervisor) => supervisor.id !== employee.id && supervisor.department.name === form.department.trim(),
+  );
 
   const genderLeaveLabel =
     employee.sex === "MALE"
@@ -460,6 +502,7 @@ function EditEmployeeModal({
           employmentStatus: form.employmentStatus,
           attendanceMode: form.attendanceMode,
           soloParentStatus: form.soloParentStatus,
+          supervisorId: form.supervisorId,
           ...(form.hireDate ? { hireDate: form.hireDate } : {}),
           ...(employee.sex && leaveAllocation !== "" ? { leaveAllocationDays: Number(leaveAllocation) } : {}),
         },
@@ -521,7 +564,15 @@ function EditEmployeeModal({
               <input type="text" value={lockedDepartmentName} disabled readOnly />
             ) : (
               <>
-                <input type="text" value={form.department} onChange={updateField("department")} list="edit-employee-departments" required />
+                <input
+                  type="text"
+                  value={form.department}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, department: event.target.value, supervisorId: "" }))
+                  }
+                  list="edit-employee-departments"
+                  required
+                />
                 <datalist id="edit-employee-departments">
                   {departments.map((department) => (
                     <option key={department} value={department} />
@@ -551,6 +602,20 @@ function EditEmployeeModal({
             <select value={form.attendanceMode} onChange={updateField("attendanceMode")}>
               <option value="FIXED">Fixed (office/site)</option>
               <option value="FIELD">Field Technician (multi-site)</option>
+            </select>
+          </label>
+        </div>
+
+        <div className="employee-form-grid">
+          <label>
+            Supervisor
+            <select value={form.supervisorId} onChange={updateField("supervisorId")}>
+              <option value="">No supervisor assigned</option>
+              {availableSupervisors.map((supervisor) => (
+                <option key={supervisor.id} value={supervisor.id}>
+                  {supervisor.firstName} {supervisor.lastName}
+                </option>
+              ))}
             </select>
           </label>
         </div>
@@ -629,6 +694,12 @@ function ViewEmployeeModal({
         <div>
           <span>Position</span>
           <strong>{employee.position.title}</strong>
+        </div>
+        <div>
+          <span>Supervisor</span>
+          <strong>
+            {employee.supervisor ? `${employee.supervisor.firstName} ${employee.supervisor.lastName}` : "Unassigned"}
+          </strong>
         </div>
         <div>
           <span>Status</span>
@@ -819,6 +890,7 @@ export function EmployeesPage({
   const lockedDepartmentName = isDepartmentLocked ? user?.department : undefined;
 
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [supervisors, setSupervisors] = useState<SupervisorOption[]>([]);
   const [departmentFilter, setDepartmentFilter] = useState("ALL");
   const [showArchivedOnly, setShowArchivedOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -832,7 +904,12 @@ export function EmployeesPage({
     apiRequest<Employee[]>("/employees").then(setEmployees).catch(() => undefined);
   };
 
+  const loadSupervisors = () => {
+    apiRequest<SupervisorOption[]>("/employees/supervisors").then(setSupervisors).catch(() => undefined);
+  };
+
   useEffect(loadEmployees, []);
+  useEffect(loadSupervisors, []);
 
   useEffect(() => {
     if (!notification) return;
@@ -1069,15 +1146,20 @@ export function EmployeesPage({
           employee={editEmployee}
           departments={departments}
           positions={positions}
+          supervisors={supervisors}
           lockedDepartmentName={lockedDepartmentName}
           onClose={() => setEditEmployee(null)}
-          onUpdated={handleEmployeeUpdated}
+          onUpdated={(updatedEmployee) => {
+            handleEmployeeUpdated(updatedEmployee);
+            loadSupervisors();
+          }}
         />
       )}
 
       {isAddOpen && (
         <AddEmployeeModal
           departments={departments}
+          supervisors={supervisors}
           lockedDepartmentName={lockedDepartmentName}
           onClose={() => setIsAddOpen(false)}
           onCreated={handleEmployeeCreated}
