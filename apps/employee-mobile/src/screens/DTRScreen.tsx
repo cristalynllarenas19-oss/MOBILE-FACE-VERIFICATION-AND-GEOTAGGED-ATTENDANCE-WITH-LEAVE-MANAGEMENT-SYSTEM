@@ -50,6 +50,13 @@ function formatLogTime(value: string) {
   return new Date(value).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" });
 }
 
+function photoTabLabel(tab: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN", isOfficeTab: boolean) {
+  if (tab === "LUNCH_OUT") return "Lunch Out";
+  if (tab === "LUNCH_IN") return "Lunch In";
+  if (tab === "TIME_IN") return isOfficeTab ? "Time In" : "Visit Start";
+  return isOfficeTab ? "Time Out" : "Visit End";
+}
+
 function statusTone(status: string) {
   if (status === "PRESENT") return { color: "#17A34A", bg: "#ECFDF3", icon: "checkmark-circle" as const };
   if (status === "LATE") return { color: "#D97706", bg: "#FFFBEB", icon: "alert-circle" as const };
@@ -78,7 +85,7 @@ export default function DTRScreen({ employeeId }: Props) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("office");
   const [selectedRecord, setSelectedRecord] = useState<AttendanceHistoryRecord | null>(null);
-  const [photoTab, setPhotoTab] = useState<"TIME_IN" | "TIME_OUT">("TIME_IN");
+  const [photoTab, setPhotoTab] = useState<"TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN">("TIME_IN");
   const [amPmFilter, setAmPmFilter] = useState<"ALL" | "AM" | "PM">("ALL");
 
   const load = useCallback(async () => {
@@ -234,6 +241,15 @@ export default function DTRScreen({ employeeId }: Props) {
                 </Text>
               </View>
             </View>
+
+            {isOfficeTab && item.lunchOutAt && (
+              <View style={styles.lunchRow}>
+                <Ionicons name="cafe-outline" size={13} color="#EA580C" />
+                <Text style={styles.lunchRowText}>
+                  Lunch: {formatTime(item.lunchOutAt)} – {formatTime(item.lunchInAt ?? null)}
+                </Text>
+              </View>
+            )}
           </Pressable>
         );
       }}
@@ -258,15 +274,35 @@ export default function DTRScreen({ employeeId }: Props) {
               onPress={() => setPhotoTab("TIME_IN")}
             >
               <Text style={[styles.photoTabText, photoTab === "TIME_IN" && styles.photoTabTextActive]}>
-                {isOfficeTab ? "Time In" : "Visit Start"}
+                {photoTabLabel("TIME_IN", isOfficeTab)}
               </Text>
             </Pressable>
+            {isOfficeTab && selectedRecord?.logs.some((l) => l.logType === "LUNCH_OUT") && (
+              <Pressable
+                style={[styles.photoTabButton, photoTab === "LUNCH_OUT" && styles.photoTabButtonActive]}
+                onPress={() => setPhotoTab("LUNCH_OUT")}
+              >
+                <Text style={[styles.photoTabText, photoTab === "LUNCH_OUT" && styles.photoTabTextActive]}>
+                  Lunch Out
+                </Text>
+              </Pressable>
+            )}
+            {isOfficeTab && selectedRecord?.logs.some((l) => l.logType === "LUNCH_IN") && (
+              <Pressable
+                style={[styles.photoTabButton, photoTab === "LUNCH_IN" && styles.photoTabButtonActive]}
+                onPress={() => setPhotoTab("LUNCH_IN")}
+              >
+                <Text style={[styles.photoTabText, photoTab === "LUNCH_IN" && styles.photoTabTextActive]}>
+                  Lunch In
+                </Text>
+              </Pressable>
+            )}
             <Pressable
               style={[styles.photoTabButton, photoTab === "TIME_OUT" && styles.photoTabButtonActive]}
               onPress={() => setPhotoTab("TIME_OUT")}
             >
               <Text style={[styles.photoTabText, photoTab === "TIME_OUT" && styles.photoTabTextActive]}>
-                {isOfficeTab ? "Time Out" : "Visit End"}
+                {photoTabLabel("TIME_OUT", isOfficeTab)}
               </Text>
             </Pressable>
           </View>
@@ -279,9 +315,7 @@ export default function DTRScreen({ employeeId }: Props) {
                 {log && (
                   <View style={styles.modalPhotoLabelRow}>
                     <Text style={styles.modalPhotoLabel}>
-                      {isOfficeTab
-                        ? photoTab === "TIME_IN" ? "Time In" : "Time Out"
-                        : photoTab === "TIME_IN" ? "Visit Start" : "Visit End"}
+                      {photoTabLabel(photoTab, isOfficeTab)}
                     </Text>
                     <Text style={styles.modalPhotoTime}>{formatLogTime(log.capturedAt)}</Text>
                   </View>
@@ -459,6 +493,17 @@ const styles = StyleSheet.create({
   hoursValueMuted: {
     color: "#94A3B8",
     fontSize: 13,
+    fontWeight: "600",
+  },
+  lunchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginTop: 8,
+  },
+  lunchRowText: {
+    color: "#9A3412",
+    fontSize: 12,
     fontWeight: "600",
   },
   emptyState: {

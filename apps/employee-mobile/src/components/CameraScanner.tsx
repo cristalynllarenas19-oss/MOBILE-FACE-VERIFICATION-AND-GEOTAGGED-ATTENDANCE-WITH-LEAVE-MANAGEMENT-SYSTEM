@@ -16,9 +16,16 @@ import { manipulateAsync, SaveFormat } from "expo-image-manipulator";
 import { detectFace, FaceBox } from "../api";
 
 type CameraScannerProps = {
-  logType: "TIME_IN" | "TIME_OUT";
+  logType: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN";
   onComplete: (location: Location.LocationObject, faceBase64?: string) => void;
   onCancel: () => void;
+};
+
+const LOG_TYPE_LABEL: Record<CameraScannerProps["logType"], string> = {
+  TIME_IN: "Time In",
+  TIME_OUT: "Time Out",
+  LUNCH_OUT: "Lunch Out",
+  LUNCH_IN: "Lunch In",
 };
 
 type MapTileCell = { key: string; url: string; left: number; top: number };
@@ -645,7 +652,7 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
 
       const addressLabel =
         formatAddress(addressResults?.[0]) ?? formatStampCoords(location.coords.latitude, location.coords.longitude);
-      const label = logType === "TIME_IN" ? "TIME IN" : "TIME OUT";
+      const label = LOG_TYPE_LABEL[logType].toUpperCase();
 
       const watermarked = await applyWatermark(photo.uri, location, label, addressLabel);
       const finalImage = watermarked ?? (photo.base64 ? `data:image/jpeg;base64,${photo.base64}` : undefined);
@@ -761,7 +768,7 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
           </View>
         </Pressable>
         <View style={styles.topBarTextWrap}>
-          <Text style={styles.title}>{logType === "TIME_IN" ? "Time In" : "Time Out"} Verification</Text>
+          <Text style={styles.title}>{LOG_TYPE_LABEL[logType]} Verification</Text>
           <Text style={styles.subtitle}>Secure face check with location confirmation</Text>
         </View>
         <View style={styles.topBarSpacer} />
@@ -847,7 +854,7 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
                   <View style={styles.gpsTextColumn}>
                     <View style={styles.dateBadge}>
                       <Text style={styles.dateBadgeText}>
-                        {logType === "TIME_IN" ? "TIME IN" : "TIME OUT"} · {formatStampDate(overlayDate)}
+                        {LOG_TYPE_LABEL[logType].toUpperCase()} · {formatStampDate(overlayDate)}
                       </Text>
                     </View>
                     <Text style={styles.addressText} numberOfLines={2}>{overlayAddress ?? "Locating..."}</Text>

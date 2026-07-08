@@ -16,6 +16,7 @@ import {
   MobileUser,
   TodayAttendance,
   WorkLocation,
+  AttendanceEligibility,
   login,
   logout,
   restoreSession,
@@ -24,6 +25,7 @@ import {
   submitAttendance,
   getMyWorkLocation,
   getMyWorkLocations,
+  getMyProfile,
   forgotPassword,
 } from "./src/api";
 import { getFriendlyReason } from "./src/utils/attendanceMessages";
@@ -48,10 +50,14 @@ export default function App() {
   const [todayAttendance, setTodayAttendance] =
     useState<TodayAttendance | null>(null);
 
+  // Null while still loading — treated the same as "not eligible" so the
+  // buttons never flash enabled before this resolves.
+  const [eligibility, setEligibility] = useState<AttendanceEligibility | null>(null);
+
   const [isLoading, setIsLoading] =
     useState(false);
 
-  const [scanType, setScanType] = useState<"TIME_IN" | "TIME_OUT" | null>(null);
+  const [scanType, setScanType] = useState<"TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN" | null>(null);
   const [resultModal, setResultModal] = useState<ResultModalState | null>(null);
 
   // FIELD-employee site visit state: which site they're about to start a
@@ -97,6 +103,7 @@ export default function App() {
   useEffect(() => {
     if (user?.employeeId) {
       refreshTodayAttendance(user.employeeId);
+      refreshEligibility(user.employeeId, user.attendanceMode);
     }
   }, [user?.employeeId]);
 
@@ -106,6 +113,21 @@ export default function App() {
       setTodayAttendance(attendance);
     } catch (error) {
       console.error("Failed to load today's attendance", error);
+    }
+  }
+
+  async function refreshEligibility(employeeId: string, attendanceMode?: "FIXED" | "FIELD") {
+    try {
+      const [profile, hasWorkLocation] = await Promise.all([
+        getMyProfile(),
+        attendanceMode === "FIELD"
+          ? getMyWorkLocations().then((sites) => sites.length > 0)
+          : getMyWorkLocation().then((location) => location !== null),
+      ]);
+      setEligibility({ faceEnrolled: Boolean(profile.hasActiveFaceEnrollment), hasWorkLocation });
+    } catch (error) {
+      console.error("Failed to load attendance eligibility", error);
+      setEligibility({ faceEnrolled: false, hasWorkLocation: false });
     }
   }
 
@@ -164,13 +186,14 @@ export default function App() {
     await logout();
     setUser(null);
     setTodayAttendance(null);
+    setEligibility(null);
 
     // Clear fields after logout
     setEmail("");
     setPassword("");
   }
 
-  async function startScan(type: "TIME_IN" | "TIME_OUT") {
+  async function startScan(type: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN") {
     if (!user?.employeeId) {
       setResultModal({
         status: "error",
@@ -180,8 +203,25 @@ export default function App() {
       return;
     }
 
+    const isEligible = Boolean(eligibility?.faceEnrolled && eligibility?.hasWorkLocation);
+    if (!isEligible) {
+      const missingBoth = !eligibility?.faceEnrolled && !eligibility?.hasWorkLocation;
+      setResultModal({
+        status: "error",
+        title: "Attendance Not Available",
+        message: missingBoth
+          ? "Your face is not yet registered and you haven't been assigned a work location. Contact HR to get set up before recording attendance."
+          : !eligibility?.faceEnrolled
+            ? "Your face is not yet registered for attendance verification. Contact HR to complete your face enrollment."
+            : "You haven't been assigned a work location yet. Contact HR or your supervisor.",
+      });
+      return;
+    }
+
     if (user.attendanceMode === "FIELD") {
-      await startFieldScan(type);
+      // Lunch break is OFFICE-only — AttendanceScreen never wires these
+      // buttons up for a FIELD employee, so this cast is safe.
+      await startFieldScan(type as "TIME_IN" | "TIME_OUT");
       return;
     }
 
@@ -210,6 +250,53 @@ export default function App() {
         message: "You've already timed out today. See you next shift!",
       });
       return;
+    }
+
+    if (type === "LUNCH_OUT" || type === "LUNCH_IN") {
+      if (!todayAttendance?.timeInAt) {
+        setResultModal({
+          status: "info",
+          title: "Time In Required",
+          message: "You need to time in before logging your lunch break.",
+        });
+        return;
+      }
+
+      if (todayAttendance?.timeOutAt) {
+        setResultModal({
+          status: "info",
+          title: "Already Timed Out",
+          message: "You've already timed out today.",
+        });
+        return;
+      }
+
+      if (type === "LUNCH_OUT" && todayAttendance?.lunchOutAt) {
+        setResultModal({
+          status: "info",
+          title: "Lunch Break Already Started",
+          message: "You've already logged the start of your lunch break.",
+        });
+        return;
+      }
+
+      if (type === "LUNCH_IN" && !todayAttendance?.lunchOutAt) {
+        setResultModal({
+          status: "info",
+          title: "Lunch Break Not Started",
+          message: "Log Lunch Out before Lunch In.",
+        });
+        return;
+      }
+
+      if (type === "LUNCH_IN" && todayAttendance?.lunchInAt) {
+        setResultModal({
+          status: "info",
+          title: "Lunch Break Already Ended",
+          message: "You've already logged the end of your lunch break.",
+        });
+        return;
+      }
     }
 
     const isOutsideWorkArea = await checkOutsideWorkArea();
@@ -356,6 +443,10 @@ export default function App() {
         // FIXED-employee submission resolve their site without this.
         workLocationId:
           user.attendanceMode === "FIELD" && scanType === "TIME_IN" ? selectedWorkLocation?.id : undefined,
+        // Disambiguates Time Out / Lunch Out / Lunch In, which can all be
+        // legal next actions once timed in — omitted for Time In, where the
+        // server always infers it from state alone.
+        action: scanType !== "TIME_IN" ? scanType : undefined,
       });
 
       // The server is the authority on whether this was a Time In or Time Out.
@@ -366,7 +457,11 @@ export default function App() {
             : "Visit End"
           : result.logType === "TIME_IN"
             ? "Time In"
-            : "Time Out";
+            : result.logType === "TIME_OUT"
+              ? "Time Out"
+              : result.logType === "LUNCH_OUT"
+                ? "Lunch Break Start"
+                : "Lunch Break End";
       const reason = result.faceResult.reason ?? result.geoResult.reason;
       const friendlyMessage = getFriendlyReason(reason, result.verificationStatus);
       const timestamp = new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
@@ -454,9 +549,12 @@ export default function App() {
           user={user}
           isLoading={isLoading}
           todayAttendance={todayAttendance}
+          eligibility={eligibility}
           onLogout={handleLogout}
           onTimeIn={() => startScan("TIME_IN")}
           onTimeOut={() => startScan("TIME_OUT")}
+          onLunchOut={() => startScan("LUNCH_OUT")}
+          onLunchIn={() => startScan("LUNCH_IN")}
         />
       )}
 

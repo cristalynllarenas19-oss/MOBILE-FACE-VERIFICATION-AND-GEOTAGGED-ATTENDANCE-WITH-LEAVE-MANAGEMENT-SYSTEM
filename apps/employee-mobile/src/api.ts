@@ -46,15 +46,27 @@ export type TodayAttendance = {
   status: string;
   timeInAt: string | null;
   timeOutAt: string | null;
+  // Optional, OFFICE-only lunch break window — always null for FIELD visits.
+  lunchOutAt?: string | null;
+  lunchInAt?: string | null;
   visitNumber?: number;
   workLocationId?: string | null;
   recordType?: AttendanceRecordType;
 };
 
+// Both must hold before Time In (and therefore Lunch/Time Out, which all
+// require having timed in first) is even attempted — checked up front so an
+// employee never goes through the whole camera/liveness flow only to be
+// rejected by the backend's own equivalent check inside submit().
+export type AttendanceEligibility = {
+  faceEnrolled: boolean;
+  hasWorkLocation: boolean;
+};
+
 export type AttendanceSubmitResult = {
   approved: boolean;
   verificationStatus: string;
-  logType: "TIME_IN" | "TIME_OUT";
+  logType: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN";
   geoResult: { reason?: string | null };
   faceResult: { reason?: string | null };
   faceImage?: string | null;
@@ -73,11 +85,16 @@ export type SubmitAttendanceInput = {
   // visit as a FIELD employee, omitted for FIXED employees and for ending
   // a visit (the server resolves the site from the open record itself).
   workLocationId?: string;
+  // Which of several legal next actions this scan is for, once the employee
+  // has already timed in — the server can no longer infer this from state
+  // alone since Time Out, Lunch Out, and Lunch In can all be valid at once.
+  // Omitted for Time In.
+  action?: "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN";
 };
 
 export type AttendanceLogPhoto = {
   id: string;
-  logType: "TIME_IN" | "TIME_OUT" | "FAILED_ATTEMPT";
+  logType: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN" | "FAILED_ATTEMPT";
   capturedAt: string;
   verificationStatus: string;
   failureReason: string | null;
@@ -90,6 +107,8 @@ export type AttendanceHistoryRecord = {
   attendanceDate: string;
   timeInAt: string | null;
   timeOutAt: string | null;
+  lunchOutAt?: string | null;
+  lunchInAt?: string | null;
   status: string;
   totalMinutes: number;
   visitNumber?: number;
@@ -115,6 +134,9 @@ export type EmployeeProfile = {
   contactNumber: string | null;
   profilePhotoData: string | null;
   profilePhotoMimeType: string | null;
+  // Only present on the GET /employees/me response (not on the photo-update
+  // response) — whether this employee has an ACTIVE FaceProfile enrolled.
+  hasActiveFaceEnrollment?: boolean;
   user: { email: string };
   department: { name: string };
   position: { title: string };
@@ -214,7 +236,12 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}) {
     throw new Error(extractErrorMessage(body) || `Request failed with status ${response.status}`);
   }
 
-  return response.json() as Promise<T>;
+  // Nest's Express adapter treats a controller returning `null` the same as
+  // `undefined` and sends a completely empty body (not the literal string
+  // "null") — response.json() throws "Unexpected end of input" on that, so
+  // an empty-but-ok body is read as text first and treated as `null`.
+  const text = await response.text();
+  return (text ? JSON.parse(text) : null) as T;
 }
 
 function extractErrorMessage(body: string) {

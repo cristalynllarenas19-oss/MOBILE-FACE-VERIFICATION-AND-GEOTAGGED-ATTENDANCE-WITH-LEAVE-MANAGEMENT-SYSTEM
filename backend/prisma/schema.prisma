@@ -69,6 +69,8 @@ enum AttendanceStatus {
 enum AttendanceLogType {
   TIME_IN
   TIME_OUT
+  LUNCH_OUT
+  LUNCH_IN
   FAILED_ATTEMPT
 }
 
@@ -326,6 +328,10 @@ model AttendanceRecord {
   workLocationId   String?              @map("work_location_id")
   timeInAt         DateTime?            @map("time_in_at")
   timeOutAt        DateTime?            @map("time_out_at")
+  // Optional, OFFICE-only lunch break window — logged for DTR/admin
+  // visibility only, never deducted from totalMinutes/late/undertime math.
+  lunchOutAt       DateTime?            @map("lunch_out_at")
+  lunchInAt        DateTime?            @map("lunch_in_at")
   status           AttendanceStatus     @default(PENDING_REVIEW)
   totalMinutes     Int                  @default(0) @map("total_minutes")
   lateMinutes      Int                  @default(0) @map("late_minutes")

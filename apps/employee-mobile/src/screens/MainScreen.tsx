@@ -15,7 +15,7 @@ import Header from "../components/Header";
 import BottomTab from "../components/BottomTab";
 
 import { Tab } from "../types";
-import { EmployeeProfile, TodayAttendance, getMyProfile, getUnreadNotificationCount } from "../api";
+import { AttendanceEligibility, EmployeeProfile, TodayAttendance, getMyProfile, getUnreadNotificationCount } from "../api";
 
 const NOTIFICATION_POLL_MS = 30000;
 
@@ -24,8 +24,11 @@ type Props = {
   onLogout: () => void;
   onTimeIn: () => void;
   onTimeOut: () => void;
+  onLunchOut: () => void;
+  onLunchIn: () => void;
   isLoading: boolean;
   todayAttendance: TodayAttendance | null;
+  eligibility: AttendanceEligibility | null;
 };
 
 export default function MainScreen({
@@ -33,8 +36,11 @@ export default function MainScreen({
   onLogout,
   onTimeIn,
   onTimeOut,
+  onLunchOut,
+  onLunchIn,
   isLoading,
   todayAttendance,
+  eligibility,
 }: Props) {
   const [tab, setTab] =
     useState<Tab>("attendance");
@@ -89,8 +95,11 @@ export default function MainScreen({
           user={user}
           isLoading={isLoading}
           todayAttendance={todayAttendance}
+          eligibility={eligibility}
           onTimeIn={onTimeIn}
           onTimeOut={onTimeOut}
+          onLunchOut={onLunchOut}
+          onLunchIn={onLunchIn}
       />
         )}
 

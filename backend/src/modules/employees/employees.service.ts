@@ -23,11 +23,22 @@ export class EmployeesService {
     });
   }
 
-  findMe(employeeId: string) {
-    return this.prisma.employee.findUniqueOrThrow({
+  // Face enrollment and work-location assignment are both prerequisites the
+  // mobile app checks before letting an employee attempt Time In/Out at all
+  // (rather than only failing after they've already gone through the camera
+  // scan) — see AttendanceScreen's eligibility gate.
+  async findMe(employeeId: string) {
+    const { faceProfiles, ...employee } = await this.prisma.employee.findUniqueOrThrow({
       where: { id: employeeId },
-      include: { user: true, department: true, position: true },
+      include: {
+        user: true,
+        department: true,
+        position: true,
+        faceProfiles: { where: { enrollmentStatus: "ACTIVE" }, select: { id: true }, take: 1 },
+      },
     });
+
+    return { ...employee, hasActiveFaceEnrollment: faceProfiles.length > 0 };
   }
 
   updateMyPhoto(employeeId: string, profilePhotoData: string, profilePhotoMimeType: string) {

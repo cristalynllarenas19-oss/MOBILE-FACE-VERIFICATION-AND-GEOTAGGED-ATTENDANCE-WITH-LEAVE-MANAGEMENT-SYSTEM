@@ -7,15 +7,32 @@ import {
   StyleSheet,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { TodayAttendance } from "../api";
+import { AttendanceEligibility, TodayAttendance } from "../api";
 
 type Props = {
   user: any;
   isLoading: boolean;
   todayAttendance: TodayAttendance | null;
+  eligibility: AttendanceEligibility | null;
   onTimeIn: () => void;
   onTimeOut: () => void;
+  onLunchOut: () => void;
+  onLunchIn: () => void;
 };
+
+function getEligibilityMessage(eligibility: AttendanceEligibility | null) {
+  if (!eligibility) return "Checking your attendance eligibility...";
+  if (!eligibility.faceEnrolled && !eligibility.hasWorkLocation) {
+    return "Your face is not yet registered and you haven't been assigned a work location. Contact HR to get set up before recording attendance.";
+  }
+  if (!eligibility.faceEnrolled) {
+    return "Your face is not yet registered for attendance verification. Contact HR to complete your face enrollment.";
+  }
+  if (!eligibility.hasWorkLocation) {
+    return "You haven't been assigned a work location yet. Contact HR or your supervisor.";
+  }
+  return null;
+}
 
 function formatTime(value: string | null | undefined) {
   if (!value) return "--:--";
@@ -29,8 +46,11 @@ export default function AttendanceScreen({
   user,
   isLoading,
   todayAttendance,
+  eligibility,
   onTimeIn,
   onTimeOut,
+  onLunchOut,
+  onLunchIn,
 }: Props) {
   const today = new Date().toLocaleDateString(
     "en-US",
@@ -74,8 +94,28 @@ export default function AttendanceScreen({
         ? "#1680D8"
         : "#EF4444";
 
-  const timeInDisabled = isLoading || (isField ? hasOpenVisit : hasTimedIn);
-  const timeOutDisabled = isField ? isLoading || !hasOpenVisit : isLoading || !hasTimedIn || hasTimedOut;
+  // Time In/Out (and therefore Lunch, which requires having timed in) is
+  // unavailable until the employee has completed face registration and been
+  // assigned a work location — mirrors the same gate enforced server-side.
+  const isEligible = Boolean(eligibility?.faceEnrolled && eligibility?.hasWorkLocation);
+  const eligibilityMessage = getEligibilityMessage(eligibility);
+
+  const timeInDisabled = isLoading || !isEligible || (isField ? hasOpenVisit : hasTimedIn);
+  const timeOutDisabled = isField
+    ? isLoading || !isEligible || !hasOpenVisit
+    : isLoading || !isEligible || !hasTimedIn || hasTimedOut;
+
+  // Lunch break is optional and OFFICE-only: shown once timed in, hidden for
+  // FIELD employees entirely. The single button toggles between logging the
+  // start and the end of the break, then goes inert once both are logged —
+  // it never blocks Time Out either way.
+  const hasLunchOut = Boolean(todayAttendance?.lunchOutAt);
+  const hasLunchIn = Boolean(todayAttendance?.lunchInAt);
+  const showLunchSection = !isField && hasTimedIn;
+  const lunchCompleted = hasLunchOut && hasLunchIn;
+  const lunchButtonDisabled = isLoading || !isEligible || hasTimedOut || lunchCompleted;
+  const lunchButtonLabel = lunchCompleted ? "LUNCH COMPLETED" : hasLunchOut ? "LUNCH IN" : "LUNCH OUT";
+  const handleLunchPress = hasLunchOut && !hasLunchIn ? onLunchIn : onLunchOut;
 
   return (
     <ScrollView
@@ -161,7 +201,63 @@ export default function AttendanceScreen({
             </Text>
           </View>
         </View>
+
+        {showLunchSection && (
+          <View style={styles.timeStatsRow}>
+            <View style={styles.timeStatCard}>
+              <View style={[styles.timeStatIcon, { backgroundColor: "#FFF7ED" }]}>
+                <Ionicons
+                  name="cafe-outline"
+                  size={18}
+                  color="#EA580C"
+                />
+              </View>
+
+              <Text style={styles.timeLabel}>
+                Lunch Out
+              </Text>
+
+              <Text style={styles.timeValue}>
+                {formatTime(todayAttendance?.lunchOutAt)}
+              </Text>
+            </View>
+
+            <View style={styles.timeStatDivider} />
+
+            <View style={styles.timeStatCard}>
+              <View style={[styles.timeStatIcon, { backgroundColor: "#FFF7ED" }]}>
+                <Ionicons
+                  name="cafe"
+                  size={18}
+                  color="#EA580C"
+                />
+              </View>
+
+              <Text style={styles.timeLabel}>
+                Lunch In
+              </Text>
+
+              <Text style={styles.timeValue}>
+                {formatTime(todayAttendance?.lunchInAt)}
+              </Text>
+            </View>
+          </View>
+        )}
       </View>
+
+      {eligibilityMessage && (
+        <View style={styles.eligibilityWarningCard}>
+          <Ionicons
+            name="alert-circle-outline"
+            size={22}
+            color="#DC2626"
+          />
+
+          <Text style={styles.eligibilityWarningText}>
+            {eligibilityMessage}
+          </Text>
+        </View>
+      )}
 
       <Pressable
         disabled={timeInDisabled}
@@ -214,19 +310,50 @@ export default function AttendanceScreen({
         </Text>
       </Pressable>
 
-      <View style={styles.infoCard}>
-        <Ionicons
-          name="information-circle-outline"
-          size={22}
-          color="#1680D8"
-        />
+      {showLunchSection && (
+        <Pressable
+          disabled={lunchButtonDisabled}
+          onPress={handleLunchPress}
+          style={({ pressed }) => [
+            styles.lunchButton,
+            lunchButtonDisabled
+              ? styles.disabledButtonOutline
+              : styles.lunchButtonActive,
+            pressed && !lunchButtonDisabled && styles.buttonPressed,
+          ]}
+        >
+          <Ionicons
+            name="cafe-outline"
+            size={20}
+            color={lunchButtonDisabled ? "#94A3B8" : "#EA580C"}
+          />
 
-        <Text style={styles.infoText}>
-          Please ensure your location and
-          camera permissions are enabled
-          before recording attendance.
-        </Text>
-      </View>
+          <Text
+            style={[
+              styles.lunchButtonText,
+              { color: lunchButtonDisabled ? "#94A3B8" : "#EA580C" },
+            ]}
+          >
+            {isLoading ? "Loading..." : lunchButtonLabel}
+          </Text>
+        </Pressable>
+      )}
+
+      {isEligible && (
+        <View style={styles.infoCard}>
+          <Ionicons
+            name="information-circle-outline"
+            size={22}
+            color="#1680D8"
+          />
+
+          <Text style={styles.infoText}>
+            Please ensure your location and
+            camera permissions are enabled
+            before recording attendance.
+          </Text>
+        </View>
+      )}
     </ScrollView>
   );
 }
@@ -394,6 +521,31 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
 
+  lunchButton: {
+    height: 54,
+    borderRadius: 14,
+
+    justifyContent: "center",
+    alignItems: "center",
+
+    flexDirection: "row",
+
+    marginTop: 12,
+
+    borderWidth: 1,
+  },
+
+  lunchButtonActive: {
+    borderColor: "#EA580C",
+    backgroundColor: "#FFF7ED",
+  },
+
+  lunchButtonText: {
+    fontSize: 15,
+    fontWeight: "700",
+    marginLeft: 8,
+  },
+
   disabledButtonOutline: {
     borderColor: "#CBD5E1",
     backgroundColor: "#F8FAFC",
@@ -428,6 +580,30 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: 10,
     color: "#1E3A8A",
+    fontSize: 13,
+    lineHeight: 18,
+  },
+
+  eligibilityWarningCard: {
+    flexDirection: "row",
+    alignItems: "center",
+
+    backgroundColor: "#FEF2F2",
+
+    borderWidth: 1,
+    borderColor: "#FECACA",
+
+    borderRadius: 14,
+
+    padding: 14,
+
+    marginTop: 20,
+  },
+
+  eligibilityWarningText: {
+    flex: 1,
+    marginLeft: 10,
+    color: "#991B1B",
     fontSize: 13,
     lineHeight: 18,
   },

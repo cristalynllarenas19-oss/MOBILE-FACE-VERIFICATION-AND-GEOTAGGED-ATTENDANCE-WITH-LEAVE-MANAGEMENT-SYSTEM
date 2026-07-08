@@ -23,6 +23,8 @@ type AttendanceRecord = {
   attendanceDate: string;
   timeInAt?: string | null;
   timeOutAt?: string | null;
+  lunchOutAt?: string | null;
+  lunchInAt?: string | null;
   status: AttendanceStatus;
   visitNumber?: number;
   workLocation?: { name: string } | null;
@@ -140,6 +142,8 @@ function AttendanceDetailsModal({
           <div><span>Date</span><strong>{formatDate(record.attendanceDate)}</strong></div>
           <div><span>Time In</span><strong>{formatTime(record.timeInAt)}</strong></div>
           <div><span>Time Out</span><strong>{formatTime(record.timeOutAt)}</strong></div>
+          <div><span>Lunch Out</span><strong>{formatTime(record.lunchOutAt)}</strong></div>
+          <div><span>Lunch In</span><strong>{formatTime(record.lunchInAt)}</strong></div>
           <div><span>Status</span><Badge tone={getStatusTone(record.status)}>{getStatusLabel(record.status)}</Badge></div>
           {record.status === "ON_LEAVE" && (
             <div><span>Leave Type</span><strong>{record.leaveTypeName ?? "—"}</strong></div>
@@ -322,13 +326,14 @@ export function AttendancePage({
               <th>DATE</th>
               <th>TIME IN</th>
               <th>TIME OUT</th>
+              <th>LUNCH BREAK</th>
               <th>STATUS</th>
               <th>ACTION</th>
             </tr>
           </thead>
           <tbody>
             {records.length === 0 ? (
-              <tr><td colSpan={8} className="attendance-empty-state">No attendance records found.</td></tr>
+              <tr><td colSpan={9} className="attendance-empty-state">No attendance records found.</td></tr>
             ) : (
               records.map((record) => (
                 <tr key={record.id}>
@@ -338,6 +343,9 @@ export function AttendancePage({
                   <td data-label="Date">{formatDate(record.attendanceDate)}</td>
                   <td data-label="Time In">{formatTime(record.timeInAt)}</td>
                   <td data-label="Time Out">{formatTime(record.timeOutAt)}</td>
+                  <td data-label="Lunch Break">
+                    {record.lunchOutAt ? `${formatTime(record.lunchOutAt)} – ${formatTime(record.lunchInAt)}` : "—"}
+                  </td>
                   <td data-label="Status"><Badge tone={getStatusTone(record.status)}>{getStatusLabel(record.status)}</Badge></td>
                   <td data-label="Action">
                     <button className="attendance-view-button" onClick={() => setViewRecord(record)}>

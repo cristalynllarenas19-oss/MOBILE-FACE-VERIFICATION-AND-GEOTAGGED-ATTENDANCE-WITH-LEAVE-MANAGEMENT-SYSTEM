@@ -135,6 +135,8 @@ export class AttendanceService {
         workLocation: null,
         timeInAt: null,
         timeOutAt: null,
+        lunchOutAt: null,
+        lunchInAt: null,
         totalMinutes: 0,
         lateMinutes: 0,
         undertimeMinutes: 0,
@@ -233,6 +235,8 @@ export class AttendanceService {
       status: "ABSENT",
       timeInAt: null,
       timeOutAt: null,
+      lunchOutAt: null,
+      lunchInAt: null,
     }
   );
 }
@@ -290,7 +294,7 @@ export class AttendanceService {
     let recordType: "OFFICE" | "FIELD" = isField ? "FIELD" : "OFFICE";
 
     let existingRecord: AttendanceRecord | null;
-    let logType: "TIME_IN" | "TIME_OUT" | null;
+    let logType: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN" | null;
     let visitNumber: number;
     let location: any;
 
@@ -341,11 +345,31 @@ export class AttendanceService {
 
       // The server, not the button the employee tapped, is the authority on whether
       // this scan is a Time In or Time Out, derived from the latest attendance entry.
-      logType = !existingRecord?.timeInAt
-        ? "TIME_IN"
-        : !existingRecord?.timeOutAt
-          ? "TIME_OUT"
-          : null;
+      // The one exception is the window after Time In and before Time Out: lunch
+      // break is optional, so Time Out, Lunch Out, and Lunch In can all be legal
+      // next actions simultaneously — state alone can't disambiguate them, so the
+      // client's requested `action` decides which one this scan is for. The server
+      // still validates it's actually legal for the current state below.
+      if (!existingRecord?.timeInAt) {
+        logType = "TIME_IN";
+      } else if (existingRecord.timeOutAt) {
+        logType = null;
+      } else if (dto.action === "LUNCH_OUT") {
+        if (existingRecord.lunchOutAt) {
+          throw new BadRequestException("Lunch break has already started.");
+        }
+        logType = "LUNCH_OUT";
+      } else if (dto.action === "LUNCH_IN") {
+        if (!existingRecord.lunchOutAt) {
+          throw new BadRequestException("Start your lunch break before ending it.");
+        }
+        if (existingRecord.lunchInAt) {
+          throw new BadRequestException("Lunch break has already ended.");
+        }
+        logType = "LUNCH_IN";
+      } else {
+        logType = "TIME_OUT";
+      }
       visitNumber = 1;
 
       if (!logType) {
@@ -530,6 +554,11 @@ export class AttendanceService {
                 ...(!isField && undertimeMinutesValue !== undefined ? { undertimeMinutes: undertimeMinutesValue } : {}),
               }
             : {}),
+
+          // Lunch break is logged for visibility only — no effect on
+          // totalMinutes/late/undertime math.
+          ...(logType === "LUNCH_OUT" ? { lunchOutAt: now } : {}),
+          ...(logType === "LUNCH_IN" ? { lunchInAt: now } : {}),
         },
       })
       : existingRecord;
@@ -557,14 +586,21 @@ export class AttendanceService {
         },
       });
 
+      const logTypeLabel: Record<typeof logType & string, string> = {
+        TIME_IN: "time in",
+        TIME_OUT: "time out",
+        LUNCH_OUT: "lunch break start",
+        LUNCH_IN: "lunch break end",
+      };
+
       await this.auditLogs.record({
         ...context,
         actorUserId: context.actorUserId,
-        action: logType === "TIME_IN" ? "TIME_IN" : "TIME_OUT",
+        action: logType,
         module: "Attendance",
         entityType: "AttendanceRecord",
         entityId: record?.id ?? null,
-        description: `${employee.firstName} ${employee.lastName} recorded ${logType === "TIME_IN" ? "time in" : "time out"}.`,
+        description: `${employee.firstName} ${employee.lastName} recorded ${logTypeLabel[logType]}.`,
         newValues: {
           employeeId: dto.employeeId,
           logType,
