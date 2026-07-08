@@ -66,4 +66,13 @@ export class NotificationsService {
     });
     return admins.map((admin) => admin.id);
   }
+
+  async userHasRole(userId: string | null | undefined, roleCode: "ADMIN" | "SUPERVISOR" | "EMPLOYEE") {
+    if (!userId) return false;
+    const match = await this.prisma.user.findFirst({
+      where: { id: userId, userRoles: { some: { role: { code: roleCode } } } },
+      select: { id: true },
+    });
+    return Boolean(match);
+  }
 }

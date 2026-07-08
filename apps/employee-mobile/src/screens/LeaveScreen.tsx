@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -71,6 +71,8 @@ export default function LeaveScreen({ employeeId }: Props) {
   const [isStartPickerVisible, setStartPickerVisibility] = useState(false);
   const [isEndPickerVisible, setEndPickerVisibility] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [dropdownLayout, setDropdownLayout] = useState({ x: 0, y: 0, width: 0 });
+  const dropdownButtonRef = useRef<View>(null);
 
   const [attachment, setAttachment] = useState<PickedAttachment | null>(null);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
@@ -97,6 +99,14 @@ export default function LeaveScreen({ employeeId }: Props) {
     const remaining = remainingByLeaveType.get(item.id);
     const effectiveRemaining = remaining !== undefined ? remaining : Number(item.defaultDays);
     return effectiveRemaining <= 0;
+  }
+
+  function openLeaveTypeDropdown() {
+    dropdownButtonRef.current?.measureInWindow((x, y, width, height) => {
+      setDropdownLayout({ x, y: y + height, width });
+      setIsDropdownOpen(true);
+    });
+    setSearchLeave("");
   }
 
   const pendingRequests = useMemo(
@@ -350,69 +360,78 @@ export default function LeaveScreen({ employeeId }: Props) {
             <Text style={styles.label}>Leave Type</Text>
             <View style={styles.dropdownWrapper}>
               <Pressable
+                ref={dropdownButtonRef}
                 style={[styles.dropdownButton, isDropdownOpen && { borderColor: "#062B59" }]}
-                onPress={() => {
-                  setIsDropdownOpen(!isDropdownOpen);
-                  setSearchLeave("");
-                }}
+                onPress={() => (isDropdownOpen ? setIsDropdownOpen(false) : openLeaveTypeDropdown())}
               >
                 <Text style={[styles.dropdownText, !leaveTypeId && { color: "#94A3B8" }]}>
                   {selectedLeaveType?.name || (isLoadingData ? "Loading leave types…" : "Select Leave Type")}
                 </Text>
                 <Ionicons name={isDropdownOpen ? "chevron-up" : "chevron-down"} size={20} color="#64748B" />
               </Pressable>
-
-              {isDropdownOpen && (
-                <View style={styles.inlineDropdownContainer}>
-                  <View style={styles.searchBarWrapper}>
-                    <Ionicons name="search-outline" size={16} color="#94A3B8" style={styles.searchIcon} />
-                    <TextInput
-                      placeholder="Search leave type..."
-                      value={searchLeave}
-                      onChangeText={setSearchLeave}
-                      style={styles.inlineSearchInput}
-                      autoFocus={true}
-                    />
-                  </View>
-
-                  <ScrollView style={{ maxHeight: 160 }}>
-                    {filteredLeaveTypes.length > 0 ? (
-                      filteredLeaveTypes.map((item) => {
-                        const exhausted = isLeaveTypeExhausted(item);
-                        return (
-                          <Pressable
-                            key={item.id}
-                            style={[styles.inlineItem, exhausted && styles.inlineItemDisabled]}
-                            disabled={exhausted}
-                            onPress={() => {
-                              setLeaveTypeId(item.id);
-                              setIsDropdownOpen(false);
-                              setSearchLeave("");
-                            }}
-                          >
-                            <Text
-                              style={[
-                                styles.inlineItemText,
-                                leaveTypeId === item.id && styles.selectedItemText,
-                                exhausted && styles.disabledItemText,
-                              ]}
-                            >
-                              {item.name}
-                              {item.requiresDocument ? " (document required)" : ""}
-                              {exhausted ? " (no balance left)" : ""}
-                            </Text>
-                          </Pressable>
-                        );
-                      })
-                    ) : (
-                      <View style={styles.noResultsBox}>
-                        <Text style={styles.noResultsText}>No leave types found</Text>
-                      </View>
-                    )}
-                  </ScrollView>
-                </View>
-              )}
             </View>
+
+            <Modal
+              visible={isDropdownOpen}
+              transparent
+              animationType="none"
+              onRequestClose={() => setIsDropdownOpen(false)}
+            >
+              <Pressable style={StyleSheet.absoluteFill} onPress={() => setIsDropdownOpen(false)} />
+              <View
+                style={[
+                  styles.inlineDropdownContainer,
+                  { top: dropdownLayout.y, left: dropdownLayout.x, width: dropdownLayout.width },
+                ]}
+              >
+                <View style={styles.searchBarWrapper}>
+                  <Ionicons name="search-outline" size={16} color="#94A3B8" style={styles.searchIcon} />
+                  <TextInput
+                    placeholder="Search leave type..."
+                    value={searchLeave}
+                    onChangeText={setSearchLeave}
+                    style={styles.inlineSearchInput}
+                    autoFocus={true}
+                  />
+                </View>
+
+                <ScrollView style={{ maxHeight: 160 }} persistentScrollbar={true} indicatorStyle="black">
+                  {filteredLeaveTypes.length > 0 ? (
+                    filteredLeaveTypes.map((item) => {
+                      const exhausted = isLeaveTypeExhausted(item);
+                      return (
+                        <Pressable
+                          key={item.id}
+                          style={[styles.inlineItem, exhausted && styles.inlineItemDisabled]}
+                          disabled={exhausted}
+                          onPress={() => {
+                            setLeaveTypeId(item.id);
+                            setIsDropdownOpen(false);
+                            setSearchLeave("");
+                          }}
+                        >
+                          <Text
+                            style={[
+                              styles.inlineItemText,
+                              leaveTypeId === item.id && styles.selectedItemText,
+                              exhausted && styles.disabledItemText,
+                            ]}
+                          >
+                            {item.name}
+                            {item.requiresDocument ? " (document required)" : ""}
+                            {exhausted ? " (no balance left)" : ""}
+                          </Text>
+                        </Pressable>
+                      );
+                    })
+                  ) : (
+                    <View style={styles.noResultsBox}>
+                      <Text style={styles.noResultsText}>No leave types found</Text>
+                    </View>
+                  )}
+                </ScrollView>
+              </View>
+            </Modal>
 
             <Text style={styles.label}>Leave Duration</Text>
             <View style={styles.dateRow}>
@@ -641,9 +660,6 @@ const styles = StyleSheet.create({
   },
   inlineDropdownContainer: {
     position: "absolute",
-    top: SCREEN_HEIGHT < 700 ? 46 : 52,
-    left: 0,
-    right: 0,
     backgroundColor: "#FFFFFF",
     borderRadius: 12,
     borderWidth: 1,

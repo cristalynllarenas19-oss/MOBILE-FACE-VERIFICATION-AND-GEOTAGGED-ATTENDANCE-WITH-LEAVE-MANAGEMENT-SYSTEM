@@ -73,6 +73,19 @@ export function LeavePage({ user }: Props) {
     [requests],
   );
 
+  const remainingByLeaveType = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const b of balances) map.set(b.leaveTypeId, b.remainingDays);
+    return map;
+  }, [balances]);
+
+  function isLeaveTypeExhausted(t: LeaveType) {
+    if (t.allowWithoutPay || t.isUnlimitedDays) return false;
+    const remaining = remainingByLeaveType.get(t.id);
+    const effectiveRemaining = remaining !== undefined ? remaining : Number(t.defaultDays);
+    return effectiveRemaining <= 0;
+  }
+
   async function loadData() {
     setLoadingData(true);
     try {
@@ -192,6 +205,14 @@ export function LeavePage({ user }: Props) {
     if (isDocumentRequired && !attachment) {
       setResultModal({ ok: false, title: "Document Required", msg: `${selectedType?.name} requires a supporting document. Please attach one before submitting.` });
       return;
+    }
+    if (selectedType && !selectedType.allowWithoutPay && !selectedType.isUnlimitedDays) {
+      const balance = balances.find((b) => b.leaveTypeId === selectedType.id);
+      const remainingDays = balance ? balance.remainingDays : Number(selectedType.defaultDays);
+      if (totalDays > remainingDays) {
+        setResultModal({ ok: false, title: "Insufficient Balance", msg: `You have ${remainingDays} day(s) of ${selectedType.name} left, but requested ${totalDays}.` });
+        return;
+      }
     }
 
     setIsSubmitting(true);
@@ -414,23 +435,29 @@ export function LeavePage({ user }: Props) {
                   <div style={{ maxHeight: 158, overflowY: "auto" }}>
                     {filteredTypes.length === 0
                       ? <p style={{ padding: 14, textAlign: "center", color: "#94A3B8", fontSize: 13, margin: 0 }}>No leave types found</p>
-                      : filteredTypes.map((t) => (
-                          <button
-                            key={t.id}
-                            onClick={() => { setLeaveTypeId(t.id); setDropOpen(false); setSearchLeave(""); }}
-                            style={{
-                              display: "block", width: "100%", textAlign: "left",
-                              padding: "11px 14px", border: "none",
-                              borderBottom: "1px solid #F1F5F9",
-                              background: "none", cursor: "pointer",
-                              color:      leaveTypeId === t.id ? "#062B59" : "#334155",
-                              fontWeight: leaveTypeId === t.id ? 700 : 400,
-                              fontSize: 14,
-                            }}
-                          >
-                            {t.name}{t.requiresDocument ? (t.supportingDocumentAfterDays ? ` (document required after ${t.supportingDocumentAfterDays}+ days)` : " (document required)") : ""}
-                          </button>
-                        ))
+                      : filteredTypes.map((t) => {
+                          const exhausted = isLeaveTypeExhausted(t);
+                          return (
+                            <button
+                              key={t.id}
+                              disabled={exhausted}
+                              onClick={() => { setLeaveTypeId(t.id); setDropOpen(false); setSearchLeave(""); }}
+                              style={{
+                                display: "block", width: "100%", textAlign: "left",
+                                padding: "11px 14px", border: "none",
+                                borderBottom: "1px solid #F1F5F9",
+                                background: exhausted ? "#F8FAFC" : "none",
+                                cursor: exhausted ? "not-allowed" : "pointer",
+                                color:      exhausted ? "#CBD5E1" : leaveTypeId === t.id ? "#062B59" : "#334155",
+                                fontWeight: leaveTypeId === t.id ? 700 : 400,
+                                fontSize: 14,
+                              }}
+                            >
+                              {t.name}{t.requiresDocument ? (t.supportingDocumentAfterDays ? ` (document required after ${t.supportingDocumentAfterDays}+ days)` : " (document required)") : ""}
+                              {exhausted ? " (no balance left)" : ""}
+                            </button>
+                          );
+                        })
                     }
                   </div>
                 </div>

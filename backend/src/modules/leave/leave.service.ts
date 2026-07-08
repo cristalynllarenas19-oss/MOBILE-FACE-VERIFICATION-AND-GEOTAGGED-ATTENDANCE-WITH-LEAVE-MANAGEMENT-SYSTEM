@@ -140,8 +140,13 @@ export class LeaveService {
     employee: { userId: string | null; firstName: string; lastName: string; supervisor: { userId: string | null } | null };
     leaveType: { name: string };
   }) {
-    const adminUserIds = await this.notifications.adminUserIds();
-    const recipientIds = [...adminUserIds, request.employee.supervisor?.userId].filter(
+    // A regular employee's request goes to their supervisor only; a supervisor has no
+    // supervisor above them, so their own requests route to HR/Admin instead.
+    const filerIsSupervisor = await this.notifications.userHasRole(request.employee.userId, "SUPERVISOR");
+    const candidateIds = filerIsSupervisor
+      ? await this.notifications.adminUserIds()
+      : [request.employee.supervisor?.userId];
+    const recipientIds = candidateIds.filter(
       (id): id is string => Boolean(id) && id !== request.employee.userId,
     );
 
@@ -446,8 +451,11 @@ export class LeaveService {
     employee: { userId: string | null; firstName: string; lastName: string; supervisor: { userId: string | null } | null };
     leaveType: { name: string };
   }) {
-    const adminUserIds = await this.notifications.adminUserIds();
-    const recipientIds = [...adminUserIds, request.employee.supervisor?.userId].filter(
+    const filerIsSupervisor = await this.notifications.userHasRole(request.employee.userId, "SUPERVISOR");
+    const candidateIds = filerIsSupervisor
+      ? await this.notifications.adminUserIds()
+      : [request.employee.supervisor?.userId];
+    const recipientIds = candidateIds.filter(
       (id): id is string => Boolean(id) && id !== request.employee.userId,
     );
 
