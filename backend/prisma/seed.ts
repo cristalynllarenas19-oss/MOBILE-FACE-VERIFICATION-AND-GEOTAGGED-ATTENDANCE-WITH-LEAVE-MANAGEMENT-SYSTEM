@@ -157,15 +157,23 @@ async function main() {
   const allClassifications = ["REGULAR", "CONTRACTUAL_SEASONAL", "PIECE_RATE", "SEPARATED"] as const;
 
   const leaveTypeSeeds = [
-    { name: "Sick Leave", defaultDays: 15, requiresDocument: true, supportingDocumentAfterDays: 2, isAutoCredited: true },
+    { name: "Sick Leave", defaultDays: 15, requiresDocument: true, supportingDocumentAfterDays: 2, isAutoCredited: true, isSingleDayOnly: true },
+    { name: "Emergency Leave", defaultDays: 5, requiresDocument: false, isAutoCredited: true, isSingleDayOnly: true },
     { name: "Vacation Leave", defaultDays: 15, requiresDocument: false, isAutoCredited: true },
-    { name: "Study Leave", defaultDays: 0, requiresDocument: true, requiresHrValidation: true, isUnlimitedDays: true },
+    // Admin-grant-only: an employee applies to HR/Admin, who then grants this
+    // specific leave type (and day count) to that employee via the "Grant
+    // Leave Type" action on the Leave page — see LeaveBalancesService.grant.
+    // Until granted, the employee has 0 days of it.
+    { name: "Study Leave", defaultDays: 15, requiresDocument: true, requiresHrValidation: true, requiresAdminGrant: true },
     { name: "Adverse Weather Leave", defaultDays: 0, requiresDocument: false, requiresEhsActivation: true, isUnlimitedDays: true },
     { name: "Bereavement Leave", defaultDays: 5, requiresDocument: true },
-    { name: "Solo Parent Leave", defaultDays: 7, requiresDocument: true, requiresHrValidation: true },
+    { name: "Solo Parent Leave", defaultDays: 7, requiresDocument: true, requiresHrValidation: true, requiresAdminGrant: true },
     { name: "Maternity Leave", defaultDays: 105, requiresDocument: true, requiresHrValidation: true },
     { name: "Paternity Leave", defaultDays: 7, requiresDocument: false },
-    { name: "Leave Without Pay", defaultDays: 0, requiresDocument: false, isUnlimitedDays: true, allowWithoutPay: true },
+    // The extra days a mother can transfer from her own Maternity Leave to
+    // the father (RA 11210) — the count is whatever she chooses to transfer,
+    // so it starts at 0 and HR sets it per grant.
+    { name: "Added Paternity Leave", defaultDays: 0, requiresDocument: true, requiresHrValidation: true, isTransferable: true, requiresAdminGrant: true },
   ] as const;
 
   for (const seedType of leaveTypeSeeds) {
@@ -180,12 +188,23 @@ async function main() {
         requiresHrValidation: "requiresHrValidation" in seedType ? seedType.requiresHrValidation : false,
         requiresEhsActivation: "requiresEhsActivation" in seedType ? seedType.requiresEhsActivation : false,
         isUnlimitedDays: "isUnlimitedDays" in seedType ? seedType.isUnlimitedDays : false,
-        allowWithoutPay: "allowWithoutPay" in seedType ? seedType.allowWithoutPay : false,
+        allowWithoutPay: false,
         isAutoCredited: "isAutoCredited" in seedType ? seedType.isAutoCredited : false,
+        isTransferable: "isTransferable" in seedType ? seedType.isTransferable : false,
+        requiresAdminGrant: "requiresAdminGrant" in seedType ? seedType.requiresAdminGrant : false,
+        isSingleDayOnly: "isSingleDayOnly" in seedType ? seedType.isSingleDayOnly : false,
         applicableStatuses: [...allClassifications],
       },
     });
   }
+
+  // Leave Without Pay is retired — archive it (not delete) so any pre-existing
+  // DB that seeded it before this change loses employee-facing access to it
+  // while historical leave records/balances referencing it stay intact.
+  await prisma.leaveType.updateMany({
+    where: { name: "Leave Without Pay" },
+    data: { isActive: false },
+  });
 
   const sickLeave = await prisma.leaveType.findUniqueOrThrow({ where: { name: "Sick Leave" } });
   const regularShift = await prisma.shift.upsert({

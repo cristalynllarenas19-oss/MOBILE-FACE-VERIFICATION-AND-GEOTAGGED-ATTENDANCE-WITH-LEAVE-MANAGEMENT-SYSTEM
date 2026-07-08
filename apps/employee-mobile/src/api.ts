@@ -147,8 +147,14 @@ export type LeaveType = {
   name: string;
   defaultDays: string;
   requiresDocument: boolean;
+  supportingDocumentAfterDays?: number | null;
+  requiresEhsActivation?: boolean;
+  ehsActivated?: boolean;
   allowWithoutPay: boolean;
   isUnlimitedDays: boolean;
+  isActive: boolean;
+  requiresAdminGrant: boolean;
+  isSingleDayOnly: boolean;
 };
 
 export type LeaveBalance = {

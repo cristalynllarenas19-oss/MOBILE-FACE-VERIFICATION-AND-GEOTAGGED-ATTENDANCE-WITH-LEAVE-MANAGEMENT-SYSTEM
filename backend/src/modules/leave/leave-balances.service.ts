@@ -64,7 +64,15 @@ export class LeaveBalancesService {
       .filter((leaveType) => leaveType.applicableStatuses.includes(employee.employmentStatus))
       .map((leaveType) => {
       const balance = balances.find((row) => row.leaveTypeId === leaveType.id);
-      const earnedDays = balance ? Number(balance.earnedDays) : Number(leaveType.defaultDays);
+      // Admin-grant-only types (Solo Parent, Study Leave, Added Paternity
+      // Leave) never fall back to the type's default allotment — an employee
+      // has 0 days of these until HR/Admin explicitly grants them a balance
+      // row via LeaveBalancesService.grant.
+      const earnedDays = balance
+        ? Number(balance.earnedDays)
+        : leaveType.requiresAdminGrant
+          ? 0
+          : Number(leaveType.defaultDays);
       const usedDays = balance ? Number(balance.usedDays) : 0;
 
       return {
@@ -76,6 +84,33 @@ export class LeaveBalancesService {
         remainingDays: Math.max(0, earnedDays - usedDays),
       };
     });
+  }
+
+  // Grants (or adjusts) an employee's balance for a specific leave type/year —
+  // the mechanism HR/Admin uses on the Leave page to give a specific employee
+  // access to an admin-grant-only leave type (Solo Parent, Study Leave, Added
+  // Paternity Leave) after they've applied for it outside the system.
+  async grant(employeeId: string, dto: { leaveTypeId: string; earnedDays: number; year?: number }, actorUserId?: string) {
+    const leaveType = await this.prisma.leaveType.findUniqueOrThrow({ where: { id: dto.leaveTypeId } });
+    const year = dto.year ?? new Date().getFullYear();
+
+    const balance = await this.prisma.leaveBalance.upsert({
+      where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId: dto.leaveTypeId, year } },
+      update: { earnedDays: dto.earnedDays },
+      create: { employeeId, leaveTypeId: dto.leaveTypeId, year, earnedDays: dto.earnedDays, usedDays: 0 },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        actorUserId,
+        action: "GRANT_LEAVE_BALANCE",
+        entityType: "LeaveBalance",
+        entityId: balance.id,
+        newValues: { employeeId, leaveTypeId: dto.leaveTypeId, leaveTypeName: leaveType.name, year, earnedDays: dto.earnedDays },
+      },
+    });
+
+    return balance;
   }
 
  
@@ -136,7 +171,7 @@ export class LeaveBalancesService {
         if (!leaveType.applicableStatuses.includes(status)) continue;
 
         const existing = balanceLookup.get(`${employee.id}::${leaveType.id}`);
-        const earnedDays = existing ? existing.earnedDays : Number(leaveType.defaultDays);
+        const earnedDays = existing ? existing.earnedDays : leaveType.requiresAdminGrant ? 0 : Number(leaveType.defaultDays);
         const usedDays = existing ? existing.usedDays : 0;
 
         const statusEntry =

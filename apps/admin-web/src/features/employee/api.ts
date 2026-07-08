@@ -90,6 +90,9 @@ export type LeaveType = {
   ehsActivated: boolean;
   allowWithoutPay: boolean;
   isUnlimitedDays: boolean;
+  isActive: boolean;
+  requiresAdminGrant: boolean;
+  isSingleDayOnly: boolean;
 };
 
 export type LeaveBalance = {

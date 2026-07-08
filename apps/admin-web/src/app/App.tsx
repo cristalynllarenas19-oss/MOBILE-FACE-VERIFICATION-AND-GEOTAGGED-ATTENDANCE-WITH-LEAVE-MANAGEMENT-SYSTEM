@@ -17,7 +17,7 @@ import { LeavePage as EmployeeLeavePage } from "../features/employee/LeavePage";
 import { DtrPage } from "../features/employee/DtrPage";
 import { WorkAreaPage } from "../features/employee/WorkAreaPage";
 import { SettingsPage } from "../features/employee/SettingsPage";
-import { AppLayout, getVisibleNavItems, navItems } from "../components/layout/AppLayout";
+import { AppLayout, getVisibleNavItems, isNavItemVisible, navItems } from "../components/layout/AppLayout";
 import { PermissionCode } from "../types/rbac";
 import { AuthUser, getStoredUser, logout, setOnSessionExpired } from "../lib/api";
 import { useInactivityLogout } from "../hooks/useInactivityLogout";
@@ -107,10 +107,10 @@ export default function App() {
   const activeView: "admin" | "employee" = page.startsWith("employee-") ? "employee" : "admin";
   const activeNavItem = navItems.find((item) => item.id === page);
   const adminScopedPermissions = user.adminPermissions ?? user.permissions;
-  const visibleItems = getVisibleNavItems(activeView, adminScopedPermissions);
+  const visibleItems = getVisibleNavItems(activeView, adminScopedPermissions, user.roles);
   const hasAccess = activeView === "employee"
     ? page.startsWith("employee-")
-    : !activeNavItem || adminScopedPermissions.includes(activeNavItem.permission);
+    : !activeNavItem || isNavItemVisible(activeNavItem, adminScopedPermissions, user.roles);
   const renderPage = hasAccess ? page : (visibleItems[0]?.id ?? "employee-attendance");
 
   return (

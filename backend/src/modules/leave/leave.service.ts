@@ -68,6 +68,16 @@ export class LeaveService {
 
     const leaveType = await this.prisma.leaveType.findUniqueOrThrow({ where: { id: dto.leaveTypeId } });
 
+    // Sick Leave / Emergency Leave (and any other isSingleDayOnly type) are
+    // always exactly one day — the frontend already forces this, but a
+    // crafted request is validated the same way every other rule here is.
+    if (leaveType.isSingleDayOnly) {
+      const sameDay = new Date(dto.startDate).toDateString() === new Date(dto.endDate).toDateString();
+      if (!sameDay || Number(dto.totalDays) !== 1) {
+        throw new BadRequestException(`${leaveType.name} can only be requested for a single day.`);
+      }
+    }
+
     // Paid, capped leave types must not be requestable past what's left in the
     // employee's balance for the year — allowWithoutPay/isUnlimitedDays types
     // (e.g. LWOP) are intentionally exempt, same as in adjustLeaveBalance below.
@@ -76,6 +86,16 @@ export class LeaveService {
       const balance = await this.prisma.leaveBalance.findUnique({
         where: { employeeId_leaveTypeId_year: { employeeId: dto.employeeId, leaveTypeId: dto.leaveTypeId, year } },
       });
+
+      // Admin-grant-only types (Solo Parent, Study Leave, Added Paternity
+      // Leave) never fall back to the type's default allotment — an employee
+      // has 0 days until HR/Admin explicitly grants them a balance.
+      if (!balance && leaveType.requiresAdminGrant) {
+        throw new BadRequestException(
+          `${leaveType.name} must be granted by HR/Admin before you can request it. Please apply to HR/Admin first.`,
+        );
+      }
+
       const earnedDays = balance ? Number(balance.earnedDays) : Number(leaveType.defaultDays);
       const usedDays = balance ? Number(balance.usedDays) : 0;
       const remainingDays = Math.max(0, earnedDays - usedDays);

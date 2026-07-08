@@ -35,6 +35,8 @@ type LeaveType = {
   applicableStatuses: EmploymentStatus[];
   isActive: boolean;
   isUnlimitedDays: boolean;
+  requiresAdminGrant: boolean;
+  isSingleDayOnly: boolean;
   createdAt: string;
   updatedAt: string;
   createdByUser?: ActorRef;
@@ -83,6 +85,8 @@ const emptyForm = {
   allowWithoutPay: false,
   classifications: [] as EmploymentStatus[],
   isUnlimitedDays: false,
+  requiresAdminGrant: false,
+  isSingleDayOnly: false,
 };
 
 export function LeaveTypesTab({
@@ -164,6 +168,8 @@ export function LeaveTypesTab({
       allowWithoutPay: type.allowWithoutPay,
       classifications: type.applicableStatuses.filter((s) => s !== "REGULAR"),
       isUnlimitedDays: type.isUnlimitedDays,
+      requiresAdminGrant: type.requiresAdminGrant,
+      isSingleDayOnly: type.isSingleDayOnly,
     });
     setNameError(null);
     setViewLeaveType(null);
@@ -193,6 +199,8 @@ export function LeaveTypesTab({
         allowWithoutPay: form.allowWithoutPay,
         applicableStatuses: ["REGULAR", ...form.classifications],
         isUnlimitedDays: form.isUnlimitedDays,
+        requiresAdminGrant: form.requiresAdminGrant,
+        isSingleDayOnly: form.isSingleDayOnly,
       };
 
       if (formMode === "create") {
@@ -528,6 +536,24 @@ export function LeaveTypesTab({
                 />
                 <span>Allow without pay</span>
               </label>
+
+              <label className="utilities-checkbox">
+                <input
+                  type="checkbox"
+                  checked={form.requiresAdminGrant}
+                  onChange={(e) => setForm((c) => ({ ...c, requiresAdminGrant: e.target.checked }))}
+                />
+                <span>Admin-grant only (employee applies to HR/Admin, who grants it per employee)</span>
+              </label>
+
+              <label className="utilities-checkbox">
+                <input
+                  type="checkbox"
+                  checked={form.isSingleDayOnly}
+                  onChange={(e) => setForm((c) => ({ ...c, isSingleDayOnly: e.target.checked }))}
+                />
+                <span>Single day only (each request is automatically 1 day, no date range)</span>
+              </label>
             </div>
 
             <div className="utilities-modal-actions">
@@ -598,6 +624,18 @@ export function LeaveTypesTab({
                   <span>Allow Without Pay</span>
                   <Badge tone={viewLeaveType.allowWithoutPay ? "warning" : "neutral"}>
                     {viewLeaveType.allowWithoutPay ? "Allowed" : "Not allowed"}
+                  </Badge>
+                </div>
+                <div>
+                  <span>Admin-Grant Only</span>
+                  <Badge tone={viewLeaveType.requiresAdminGrant ? "warning" : "neutral"}>
+                    {viewLeaveType.requiresAdminGrant ? "Yes — granted per employee" : "No — available to all"}
+                  </Badge>
+                </div>
+                <div>
+                  <span>Single Day Only</span>
+                  <Badge tone={viewLeaveType.isSingleDayOnly ? "warning" : "neutral"}>
+                    {viewLeaveType.isSingleDayOnly ? "Yes" : "No"}
                   </Badge>
                 </div>
                 <div>

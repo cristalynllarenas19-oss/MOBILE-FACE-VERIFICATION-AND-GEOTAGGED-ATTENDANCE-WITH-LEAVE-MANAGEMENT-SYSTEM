@@ -437,6 +437,15 @@ function EditEmployeeModal({
   const [leaveAllocation, setLeaveAllocation] = useState("");
   const [isAllocationLoading, setIsAllocationLoading] = useState(false);
 
+  // Admin-grant-only leave types (Solo Parent, Study Leave, Added Paternity
+  // Leave) — checking one here grants that type's default day allotment to
+  // this employee; unchecking revokes it. Until granted, employees can't
+  // select these when applying for leave.
+  const [adminGrantTypes, setAdminGrantTypes] = useState<{ id: string; name: string; defaultDays: string }[]>([]);
+  const [grantedTypeIds, setGrantedTypeIds] = useState<Set<string>>(new Set());
+  const [initialGrantedTypeIds, setInitialGrantedTypeIds] = useState<Set<string>>(new Set());
+  const [isGrantsLoading, setIsGrantsLoading] = useState(false);
+
   const availableSupervisors = supervisors.filter(
     (supervisor) => supervisor.id !== employee.id && supervisor.department.name === form.department.trim(),
   );
@@ -461,6 +470,46 @@ function EditEmployeeModal({
       .catch(() => undefined)
       .finally(() => setIsAllocationLoading(false));
   }, [employee.id, employee.sex]);
+
+  useEffect(() => {
+    setIsGrantsLoading(true);
+    Promise.all([
+      apiRequest<{ id: string; name: string; defaultDays: string; requiresAdminGrant: boolean; isActive: boolean }[]>(
+        "/leave-types",
+      ),
+      apiRequest<{ leaveTypeId: string; earnedDays: number }[]>(`/leave-balances/${employee.id}`),
+    ])
+      .then(([types, balances]) => {
+        // Added Paternity Leave (the extra days a mother transfers from her
+        // own Maternity Leave) only ever applies to a male employee — hide
+        // the checkbox for anyone else so it can't be granted where it
+        // doesn't make sense.
+        const grantTypes = types.filter((t) => {
+          if (!t.requiresAdminGrant || !t.isActive) return false;
+          if (t.name === "Added Paternity Leave" && employee.sex !== "MALE") return false;
+          return true;
+        });
+        setAdminGrantTypes(grantTypes);
+        const granted = new Set(
+          balances
+            .filter((b) => b.earnedDays > 0 && grantTypes.some((t) => t.id === b.leaveTypeId))
+            .map((b) => b.leaveTypeId),
+        );
+        setGrantedTypeIds(granted);
+        setInitialGrantedTypeIds(granted);
+      })
+      .catch(() => undefined)
+      .finally(() => setIsGrantsLoading(false));
+  }, [employee.id]);
+
+  const toggleGrantedType = (typeId: string) => {
+    setGrantedTypeIds((current) => {
+      const next = new Set(current);
+      if (next.has(typeId)) next.delete(typeId);
+      else next.add(typeId);
+      return next;
+    });
+  };
 
   const updateField =
     (field: keyof EditEmployeeForm) =>
@@ -514,6 +563,30 @@ function EditEmployeeModal({
         },
       );
 
+      // Grant/revoke access to the admin-grant-only leave types whose
+      // checkbox state changed — checking grants that type's default day
+      // allotment, unchecking zeroes it back out (findForEmployee treats a
+      // 0-day admin-grant balance as "not granted").
+      const changedTypeIds = adminGrantTypes
+        .filter((t) => grantedTypeIds.has(t.id) !== initialGrantedTypeIds.has(t.id))
+        .map((t) => t.id);
+
+      if (changedTypeIds.length > 0) {
+        await Promise.all(
+          changedTypeIds.map((typeId) => {
+            const type = adminGrantTypes.find((t) => t.id === typeId)!;
+            const isGranted = grantedTypeIds.has(typeId);
+            return apiRequest(`/leave-balances/${employee.id}/grant`, {
+              method: "POST",
+              body: JSON.stringify({
+                leaveTypeId: typeId,
+                earnedDays: isGranted ? Number(type.defaultDays) : 0,
+              }),
+            });
+          }),
+        );
+      }
+
       onUpdated(response.data);
     } catch (err) {
       const message =
@@ -521,7 +594,9 @@ function EditEmployeeModal({
           ? typeof err.response.data === "string"
             ? err.response.data
             : "Unable to update employee."
-          : "Unable to update employee.";
+          : err instanceof Error
+            ? err.message
+            : "Unable to update employee.";
       setError(message);
     } finally {
       setIsSaving(false);
@@ -645,6 +720,31 @@ function EditEmployeeModal({
                 disabled={isAllocationLoading}
               />
             </label>
+          </div>
+        )}
+
+        {adminGrantTypes.length > 0 && (
+          <div className="employee-leave-grants">
+            <p className="employee-leave-grants-title">
+              Additional Leave Types{isGrantsLoading ? " (loading…)" : ""}
+            </p>
+            <p className="employee-leave-grants-hint">
+              These leave types are only available to an employee once granted here. Checking one grants its default
+              day allotment; unchecking revokes it.
+            </p>
+            {adminGrantTypes.map((type) => (
+              <label key={type.id} className="employee-leave-grant-row">
+                <input
+                  type="checkbox"
+                  checked={grantedTypeIds.has(type.id)}
+                  disabled={isGrantsLoading}
+                  onChange={() => toggleGrantedType(type.id)}
+                />
+                <span>
+                  {type.name} <span className="grant-days">({type.defaultDays} day{Number(type.defaultDays) === 1 ? "" : "s"})</span>
+                </span>
+              </label>
+            ))}
           </div>
         )}
 

@@ -66,6 +66,7 @@ export function LeavePage({ user }: Props) {
 
   const selectedType    = leaveTypes.find((t) => t.id === leaveTypeId);
   const filteredTypes   = leaveTypes
+    .filter((t) => t.isActive)
     .filter((t) => !t.requiresEhsActivation || t.ehsActivated)
     .filter((t) => t.name.toLowerCase().includes(searchLeave.toLowerCase()));
   const pendingRequests = useMemo(
@@ -79,12 +80,27 @@ export function LeavePage({ user }: Props) {
     return map;
   }, [balances]);
 
+  function remainingDaysFor(t: LeaveType) {
+    const remaining = remainingByLeaveType.get(t.id);
+    if (remaining !== undefined) return remaining;
+    return t.requiresAdminGrant ? 0 : Number(t.defaultDays);
+  }
+
   function isLeaveTypeExhausted(t: LeaveType) {
     if (t.allowWithoutPay || t.isUnlimitedDays) return false;
-    const remaining = remainingByLeaveType.get(t.id);
-    const effectiveRemaining = remaining !== undefined ? remaining : Number(t.defaultDays);
-    return effectiveRemaining <= 0;
+    return remainingDaysFor(t) <= 0;
   }
+
+  // Admin-grant-only types (Solo Parent, Study Leave, Added Paternity Leave)
+  // that this employee hasn't been granted yet shouldn't clutter the balance
+  // view with a 0/0 row — they only show up there once HR/Admin grants them.
+  const visibleBalances = useMemo(() => {
+    return balances.filter((b) => {
+      const type = leaveTypes.find((t) => t.id === b.leaveTypeId);
+      if (type?.requiresAdminGrant && b.earnedDays <= 0) return false;
+      return true;
+    });
+  }, [balances, leaveTypes]);
 
   async function loadData() {
     setLoadingData(true);
@@ -156,6 +172,32 @@ export function LeavePage({ user }: Props) {
     return Math.max(1, Math.round((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86_400_000) + 1);
   }, [startDate, endDate]);
 
+  // The date range a request can span cannot exceed the leave type's
+  // remaining allotment (e.g. Vacation Leave with 15 days left caps the end
+  // date 15 days after the start date) — unlimited/without-pay types are
+  // exempt, same as the balance check in handleSubmit below.
+  const maxEndDate = useMemo(() => {
+    if (!selectedType || !startDate) return undefined;
+    if (selectedType.allowWithoutPay || selectedType.isUnlimitedDays) return undefined;
+    const remaining = remainingDaysFor(selectedType);
+    const max = new Date(startDate);
+    max.setDate(max.getDate() + Math.max(0, remaining - 1));
+    return max.toISOString().slice(0, 10);
+  }, [selectedType, startDate, remainingByLeaveType]);
+
+  // Single-day-only types (Sick Leave, Emergency Leave) always mirror the end
+  // date to the start date the moment either one is known.
+  useEffect(() => {
+    if (selectedType?.isSingleDayOnly && startDate) setEndDate(startDate);
+  }, [selectedType?.isSingleDayOnly, startDate]);
+
+  // Clamp a previously-picked end date if switching leave type (or the
+  // remaining balance) shrinks the allowed range below it.
+  useEffect(() => {
+    if (!maxEndDate || !endDate) return;
+    if (endDate > maxEndDate) setEndDate(maxEndDate);
+  }, [maxEndDate]);
+
   const isDocumentRequired =
     Boolean(selectedType?.requiresDocument) &&
     (selectedType?.supportingDocumentAfterDays == null || totalDays >= selectedType.supportingDocumentAfterDays);
@@ -207,8 +249,11 @@ export function LeavePage({ user }: Props) {
       return;
     }
     if (selectedType && !selectedType.allowWithoutPay && !selectedType.isUnlimitedDays) {
-      const balance = balances.find((b) => b.leaveTypeId === selectedType.id);
-      const remainingDays = balance ? balance.remainingDays : Number(selectedType.defaultDays);
+      const remainingDays = remainingDaysFor(selectedType);
+      if (selectedType.requiresAdminGrant && remainingDays <= 0) {
+        setResultModal({ ok: false, title: "Not Yet Granted", msg: `${selectedType.name} must be granted by HR/Admin before you can request it. Please apply to HR/Admin first.` });
+        return;
+      }
       if (totalDays > remainingDays) {
         setResultModal({ ok: false, title: "Insufficient Balance", msg: `You have ${remainingDays} day(s) of ${selectedType.name} left, but requested ${totalDays}.` });
         return;
@@ -379,7 +424,7 @@ export function LeavePage({ user }: Props) {
       {/* ── Balance tab ──────────────────────────────────────────────────────── */}
       {tab === "balance" && (
         <LeaveBalanceChart
-          balances={balances}
+          balances={visibleBalances}
           loading={loadingData}
           pendingCount={pendingRequests.length}
           onPressPending={() => setShowPending(true)}
@@ -454,7 +499,11 @@ export function LeavePage({ user }: Props) {
                               }}
                             >
                               {t.name}{t.requiresDocument ? (t.supportingDocumentAfterDays ? ` (document required after ${t.supportingDocumentAfterDays}+ days)` : " (document required)") : ""}
-                              {exhausted ? " (no balance left)" : ""}
+                              {exhausted
+                                ? t.requiresAdminGrant
+                                  ? " (apply to HR/Admin first)"
+                                  : " (no balance left)"
+                                : ""}
                             </button>
                           );
                         })
@@ -465,14 +514,23 @@ export function LeavePage({ user }: Props) {
             </div>
 
             {/* Dates */}
-            <label style={fldLbl}>Leave Duration</label>
-            <div style={{ display: "flex", gap: 10 }}>
+            <label style={fldLbl}>{selectedType?.isSingleDayOnly ? "Date" : "Leave Duration"}</label>
+            {selectedType?.isSingleDayOnly ? (
               <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={dateInp} />
-              <input type="date" value={endDate} min={startDate} onChange={(e) => setEndDate(e.target.value)} style={dateInp} />
-            </div>
-            {startDate && endDate && (
+            ) : (
+              <div style={{ display: "flex", gap: 10 }}>
+                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={dateInp} />
+                <input type="date" value={endDate} min={startDate} max={maxEndDate} onChange={(e) => setEndDate(e.target.value)} style={dateInp} />
+              </div>
+            )}
+            {startDate && endDate && !selectedType?.isSingleDayOnly && (
               <p style={{ fontSize: 12, fontWeight: 600, color: "#1680D8", margin: "5px 0 0" }}>
                 {totalDays} day{totalDays === 1 ? "" : "s"} total
+              </p>
+            )}
+            {maxEndDate && !selectedType?.isSingleDayOnly && (
+              <p style={{ fontSize: 11, color: "#94A3B8", margin: "4px 0 0" }}>
+                {remainingDaysFor(selectedType!)} day{remainingDaysFor(selectedType!) === 1 ? "" : "s"} available for {selectedType!.name} — end date can't go past {maxEndDate}.
               </p>
             )}
 

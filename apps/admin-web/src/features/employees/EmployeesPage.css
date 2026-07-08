@@ -401,10 +401,13 @@
 
 .employee-modal {
   width: min(480px, 100%);
+  max-height: calc(100vh - 36px);
   background: #ffffff;
   border-radius: 14px;
   box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ── Smaller archive modal ── */
@@ -419,6 +422,7 @@
   gap: 16px;
   padding: 18px 20px 14px;
   border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
 }
 
 .employee-modal-header:has(h2:empty) {
@@ -442,6 +446,9 @@
   display: grid;
   gap: 14px;
   padding: 16px 20px 20px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
 }
 
 .employee-form-grid {
@@ -485,6 +492,64 @@
   color: #dc2626;
   font-size: 12px;
   font-weight: 600;
+}
+
+.employee-leave-grants {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 14px 16px;
+  border: 1px solid #dbe5ef;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.employee-leave-grants-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #193d69;
+  margin: 0 0 2px;
+}
+
+.employee-leave-grants-hint {
+  font-size: 11.5px;
+  font-weight: 400;
+  color: #64748b;
+  margin: 0 0 8px;
+  line-height: 1.4;
+}
+
+/* Two classes deep so this beats ".employee-form label"'s `display: grid`
+   (which otherwise splits each checkbox from its text onto separate grid
+   rows/columns — see the Edit Employee "Additional Leave Types" section). */
+.employee-leave-grants .employee-leave-grant-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 6px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #334155;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.employee-leave-grants .employee-leave-grant-row:hover {
+  background: #eef2f8;
+}
+
+.employee-leave-grant-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  accent-color: #193d69;
+  cursor: pointer;
+}
+
+.employee-leave-grant-row .grant-days {
+  font-weight: 400;
+  color: #64748b;
 }
 
 .employee-form-actions,

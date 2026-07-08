@@ -407,6 +407,14 @@ model LeaveType {
   applicableStatuses          EmploymentStatus[] @default([]) @map("applicable_statuses")
   isActive                    Boolean            @default(true) @map("is_active")
   isUnlimitedDays             Boolean            @default(false) @map("is_unlimited_days")
+  // True for leave types an employee cannot self-select until HR/Admin has
+  // explicitly granted them a balance for the year (Solo Parent, Study
+  // Leave, Added Paternity Leave) — see LeaveBalancesService.findForEmployee.
+  requiresAdminGrant          Boolean            @default(false) @map("requires_admin_grant")
+  // True for leave types where a single request is always exactly one day
+  // (Sick Leave, Emergency Leave) — the application form skips the end-date
+  // picker and forces startDate = endDate, totalDays = 1.
+  isSingleDayOnly             Boolean            @default(false) @map("is_single_day_only")
   createdAt                   DateTime           @default(now()) @map("created_at")
   updatedAt                   DateTime           @updatedAt @map("updated_at")
   createdBy                   String?            @map("created_by")

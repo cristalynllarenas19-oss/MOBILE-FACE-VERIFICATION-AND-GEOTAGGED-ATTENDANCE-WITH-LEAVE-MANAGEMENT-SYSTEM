@@ -121,11 +121,38 @@
   align-items: start;
 }
 
-/* Admin/HR only — the Add/Edit Location form takes a third, narrower column
-   alongside Assigned Areas and Assigned Employees. A Supervisor never has
-   this column since they can't create/edit areas, only assign employees. */
-.geotagging-bottom-grid.with-form {
-  grid-template-columns: 340px 1fr 1fr;
+
+/* Admin only — map sits beside the stats + Add/Edit Location form instead of
+   spanning full width. Supervisor uses the full-width map layout below
+   (.geotagging-map-panel--full) since they never see the form. */
+.geotagging-top-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 18px;
+  align-items: stretch;
+}
+
+.geotagging-top-right {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  height: 100%;
+}
+
+/* Cancel the standalone full-width stats row's spacing when it's nested in
+   the admin top-right column instead — it already gets spacing from
+   .geotagging-top-right's flex gap. */
+.geotagging-top-right .geotagging-stats {
+  margin: 0;
+  gap: 10px;
+}
+
+.geotagging-top-grid .geotagging-map {
+  height: 460px;
+}
+
+.geotagging-top-grid .map-loading-overlay {
+  min-height: 460px;
 }
 
 
@@ -1712,7 +1739,7 @@
 
 @media (max-width: 1180px) {
   .geotagging-bottom-grid,
-  .geotagging-bottom-grid.with-form {
+  .geotagging-top-grid {
     grid-template-columns: 1fr;
   }
 

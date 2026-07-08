@@ -68,14 +68,23 @@ export const navItems = [
   { id: "employee-settings",   label: "Settings",    icon: Settings2,     permission: permissions.employeeSettingsView },
 ];
 
+// A `supervisorOnly` nav item (Geotagged Areas) is hidden from Admin even
+// though Admin holds the same permission that gates it — kept as a single
+// helper so the sidebar filter and the route guard in App.tsx can't drift.
+export function isNavItemVisible(item: { permission: PermissionCode; supervisorOnly?: boolean }, userPermissions: PermissionCode[], roles: string[]) {
+  if (!userPermissions.includes(item.permission)) return false;
+  if (item.supervisorOnly && roles.includes("ADMIN")) return false;
+  return true;
+}
+
 // Which nav items are visible depends on which portal is active, not just
 // on the account's roles — a multi-role account (e.g. SUPERVISOR + EMPLOYEE)
 // sees the employee-only set while it has switched into the employee view,
 // even though its primary role isn't EMPLOYEE.
-export function getVisibleNavItems(activeView: "admin" | "employee", userPermissions: PermissionCode[]) {
+export function getVisibleNavItems(activeView: "admin" | "employee", userPermissions: PermissionCode[], roles: string[] = []) {
   return activeView === "employee"
     ? navItems.filter((item) => item.id.startsWith("employee-"))
-    : navItems.filter((item) => userPermissions.includes(item.permission));
+    : navItems.filter((item) => isNavItemVisible(item, userPermissions, roles));
 }
 
 export function AppLayout({
@@ -110,7 +119,7 @@ export function AppLayout({
   // Scoped to ADMIN/SUPERVISOR permissions only in the admin view, so a
   // Supervisor's implicit EMPLOYEE-role permissions (granted for their own
   // attendance/leave self-service) never leak extra modules into their nav.
-  const visibleItems = getVisibleNavItems(activeView, user.adminPermissions ?? user.permissions);
+  const visibleItems = getVisibleNavItems(activeView, user.adminPermissions ?? user.permissions, user.roles);
   const canSwitchView = user.roles.length > 1;
   const adminViewLabel = user.roles.includes("ADMIN")
     ? "Admin Dashboard"

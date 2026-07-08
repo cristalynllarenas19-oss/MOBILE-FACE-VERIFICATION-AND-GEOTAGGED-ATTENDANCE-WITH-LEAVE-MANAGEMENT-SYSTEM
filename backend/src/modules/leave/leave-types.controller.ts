@@ -47,6 +47,14 @@ export class CreateLeaveTypeDto {
   @IsOptional()
   @IsBoolean()
   isUnlimitedDays?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  requiresAdminGrant?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isSingleDayOnly?: boolean;
 }
 
 export class UpdateLeaveTypeDto {
@@ -94,6 +102,14 @@ export class UpdateLeaveTypeDto {
   @IsOptional()
   @IsBoolean()
   isUnlimitedDays?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  requiresAdminGrant?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isSingleDayOnly?: boolean;
 }
 
 export class SetLeaveTypeStatusDto {

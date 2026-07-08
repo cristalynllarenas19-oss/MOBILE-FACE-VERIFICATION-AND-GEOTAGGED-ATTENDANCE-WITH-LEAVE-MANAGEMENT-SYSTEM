@@ -29,6 +29,8 @@ type LeaveType = {
   defaultDays: string;
   requiresDocument: boolean;
   allowWithoutPay: boolean;
+  requiresAdminGrant: boolean;
+  isSingleDayOnly: boolean;
 };
 
 type LeaveRequestNote = {
@@ -696,7 +698,6 @@ export function LeavePage({
   const [monitorClassification, setMonitorClassification] = useState("ALL");
   const [searchClearKey, setSearchClearKey]             = useState(0);
 
-
   const loadRequests = () => {
     apiRequest<LeaveRequest[]>("/leave-requests")
       .then(setRequests)
@@ -742,7 +743,7 @@ export function LeavePage({
     onFocusRequestHandled?.();
   }, [requests, initialFocusRequestId]);
 
-  useEffect(() => {
+  const loadEmployeeBalances = () => {
     if (!balanceEmployee) {
       setEmployeeBalances(null);
       return;
@@ -750,7 +751,9 @@ export function LeavePage({
     apiRequest<LeaveBalance[]>(`/leave-balances/${balanceEmployee.id}?year=${summaryYear}`)
       .then(setEmployeeBalances)
       .catch(() => setEmployeeBalances(null));
-  }, [balanceEmployee, summaryYear]);
+  };
+
+  useEffect(loadEmployeeBalances, [balanceEmployee, summaryYear]);
 
   useEffect(() => {
     if (!notification) return;
@@ -889,6 +892,18 @@ export function LeavePage({
         : directory.filter((employee) => employee.employmentStatus === monitorClassification),
     [directory, monitorClassification]
   );
+
+  // Admin-grant-only types (Solo Parent, Study Leave, Added Paternity Leave)
+  // the selected employee hasn't been granted yet shouldn't clutter their
+  // balance list with a 0/0 row — the "Grant Leave Type" checkboxes on Edit
+  // Employee are where those get turned on.
+  const visibleEmployeeBalances = useMemo(() => {
+    return (employeeBalances ?? []).filter((b) => {
+      const type = leaveTypes.find((t) => t.id === b.leaveTypeId);
+      if (type?.requiresAdminGrant && b.earnedDays <= 0) return false;
+      return true;
+    });
+  }, [employeeBalances, leaveTypes]);
 
   const employeeTotals = useMemo(() => {
     const rows = employeeBalances ?? [];
@@ -1032,7 +1047,7 @@ export function LeavePage({
 
             {!employeeBalances ? (
               <p className="leave-summary-empty">Loading leave balance…</p>
-            ) : employeeBalances.length === 0 ? (
+            ) : visibleEmployeeBalances.length === 0 ? (
               <p className="leave-summary-empty">No leave balance records for this employee.</p>
             ) : (
               <>
@@ -1061,7 +1076,7 @@ export function LeavePage({
                 <p className="employee-summary-caption">{balanceEmployee.firstName.toUpperCase()}'S BALANCE</p>
 
                 <div className="employee-leave-row-list">
-                  {employeeBalances.map((b) => (
+                  {visibleEmployeeBalances.map((b) => (
                     <EmployeeLeaveTypeRow
                       key={b.leaveTypeId}
                       label={b.leaveTypeName}

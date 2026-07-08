@@ -332,11 +332,15 @@ function ViewAreaEmployeesModal({
 function GeotaggingPageContent({
   canWrite,
   canManageAreas,
+  isScopedSupervisor,
   scopedDepartmentId,
   scopedDepartmentName,
 }: {
   canWrite: boolean;
   canManageAreas: boolean;
+  // Supervisor gets the full-width map layout; Admin keeps the original
+  // map-beside-form-and-stats layout (see the top-grid/top-right CSS).
+  isScopedSupervisor: boolean;
   scopedDepartmentId?: string;
   scopedDepartmentName?: string;
 }) {
@@ -964,143 +968,171 @@ function GeotaggingPageContent({
         </div>
       )}
 
-      <section className="geotagging-map-panel geotagging-map-panel--full" aria-label="OpenStreetMap geotagging map">
-        <div className="map-panel-header">
-          <MapPin size={15} className="map-panel-icon" />
-          <span>Street Map - Click anywhere to pin a location</span>
-        </div>
-        <div ref={mapElementRef} className="geotagging-map" />
-        {loading && <div className="map-loading-overlay">Loading map...</div>}
-      </section>
+      {isScopedSupervisor ? (
+        <>
+          <section className="geotagging-map-panel geotagging-map-panel--full" aria-label="OpenStreetMap geotagging map">
+            <div className="map-panel-header">
+              <MapPin size={15} className="map-panel-icon" />
+              <span>Street Map - Click anywhere to pin a location</span>
+            </div>
+            <div ref={mapElementRef} className="geotagging-map" />
+            {loading && <div className="map-loading-overlay">Loading map...</div>}
+          </section>
 
-      <div className="geotagging-stats">
-        <div className="geotagging-stat-card">
-          <span className="stat-value">{locations.length}</span>
-          <span className="stat-label">Active Zones</span>
-        </div>
-        <div className="geotagging-stat-card">
-          <span className="stat-value">{assignedEmployees.size}</span>
-          <span className="stat-label">Assigned Employees</span>
-        </div>
-      </div>
+          <div className="geotagging-stats">
+            <div className="geotagging-stat-card">
+              <span className="stat-value">{locations.length}</span>
+              <span className="stat-label">Active Zones</span>
+            </div>
+            <div className="geotagging-stat-card">
+              <span className="stat-value">{assignedEmployees.size}</span>
+              <span className="stat-label">Assigned Employees</span>
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="geotagging-top-grid">
+          <section className="geotagging-map-panel" aria-label="OpenStreetMap geotagging map">
+            <div className="map-panel-header">
+              <MapPin size={15} className="map-panel-icon" />
+              <span>Street Map - Click anywhere to pin a location</span>
+            </div>
+            <div ref={mapElementRef} className="geotagging-map" />
+            {loading && <div className="map-loading-overlay">Loading map...</div>}
+          </section>
 
-      <div className={`geotagging-bottom-grid${canManageAreas ? " with-form" : ""}`}>
-        {canManageAreas && (
-          <form onSubmit={handleSubmit} className="geotagging-form">
-              <div className="panel-heading">
-                <div className="panel-heading-icon">
-                  <Plus size={14} />
-                </div>
-                <h3>{editingLocationId ? "Edit Location" : "Add Location"}</h3>
+          <div className="geotagging-top-right">
+            <div className="geotagging-stats">
+              <div className="geotagging-stat-card">
+                <span className="stat-value">{locations.length}</span>
+                <span className="stat-label">Active Zones</span>
               </div>
+              <div className="geotagging-stat-card">
+                <span className="stat-value">{assignedEmployees.size}</span>
+                <span className="stat-label">Assigned Employees</span>
+              </div>
+            </div>
 
-              {editingIsGlobalZone && (
-                <div className="geotagging-banner info" role="note">
-                  Global Zone is assignment-locked. Remove employees from their current area before assigning them to a new
-                  location.
+            {canManageAreas && (
+              <form onSubmit={handleSubmit} className="geotagging-form">
+                <div className="panel-heading">
+                  <div className="panel-heading-icon">
+                    <Plus size={14} />
+                  </div>
+                  <h3>{editingLocationId ? "Edit Location" : "Add Location"}</h3>
                 </div>
-              )}
 
-              {assignmentError && (
-                <div className="geotagging-banner error" role="alert">
-                  {assignmentError}
-                </div>
-              )}
-
-              <label>
-                Location name
-                <input
-                  type="text"
-                  value={form.name}
-                  onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-                  placeholder="e.g., Leaf buying station"
-                  required
-                />
-              </label>
-
-              <label>
-                Department
-                {isDepartmentLocked ? (
-                  <input type="text" value={scopedDepartmentName ?? ""} disabled readOnly />
-                ) : (
-                  <select
-                    value={form.departmentId}
-                    onChange={(event) => setForm((current) => ({ ...current, departmentId: event.target.value }))}
-                  >
-                    <option value="">All departments</option>
-                    {departmentIdOptions.map((department) => (
-                      <option key={department.id} value={department.id}>
-                        {department.name}
-                      </option>
-                    ))}
-                  </select>
+                {editingIsGlobalZone && (
+                  <div className="geotagging-banner info" role="note">
+                    Global Zone is assignment-locked. Remove employees from their current area before assigning them to a new
+                    location.
+                  </div>
                 )}
-              </label>
 
-              <label>
-                Area type
-                <select
-                  value={form.type}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, type: event.target.value as "OFFICE" | "FIELD" }))
-                  }
-                >
-                  <option value="OFFICE">Office</option>
-                  <option value="FIELD">Field</option>
-                </select>
-              </label>
+                {assignmentError && (
+                  <div className="geotagging-banner error" role="alert">
+                    {assignmentError}
+                  </div>
+                )}
 
-              <div className="coordinate-grid">
                 <label>
-                  Latitude
+                  Location name
                   <input
-                    type="number"
-                    step="0.000001"
-                    value={form.latitude}
-                    onChange={(event) => setForm((current) => ({ ...current, latitude: event.target.value }))}
+                    type="text"
+                    value={form.name}
+                    onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+                    placeholder="e.g., Leaf buying station"
                     required
                   />
                 </label>
-                <label>
-                  Longitude
-                  <input
-                    type="number"
-                    step="0.000001"
-                    value={form.longitude}
-                    onChange={(event) => setForm((current) => ({ ...current, longitude: event.target.value }))}
-                    required
-                  />
-                </label>
-              </div>
 
-              <label>
-                Area radius (meters)
-                <div className="radius-input-wrap">
-                  <input
-                    type="number"
-                    min="25"
-                    max="1000"
-                    step="5"
-                    value={form.radiusMeters}
-                    onChange={(event) => setForm((current) => ({ ...current, radiusMeters: event.target.value }))}
-                    required
-                  />
-                  <span className="radius-unit">m</span>
+                <label>
+                  Department
+                  {isDepartmentLocked ? (
+                    <input type="text" value={scopedDepartmentName ?? ""} disabled readOnly />
+                  ) : (
+                    <select
+                      value={form.departmentId}
+                      onChange={(event) => setForm((current) => ({ ...current, departmentId: event.target.value }))}
+                    >
+                      <option value="">All departments</option>
+                      {departmentIdOptions.map((department) => (
+                        <option key={department.id} value={department.id}>
+                          {department.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </label>
+
+                <label>
+                  Area type
+                  <select
+                    value={form.type}
+                    onChange={(event) =>
+                      setForm((current) => ({ ...current, type: event.target.value as "OFFICE" | "FIELD" }))
+                    }
+                  >
+                    <option value="OFFICE">Office</option>
+                    <option value="FIELD">Field</option>
+                  </select>
+                </label>
+
+                <div className="coordinate-grid">
+                  <label>
+                    Latitude
+                    <input
+                      type="number"
+                      step="0.000001"
+                      value={form.latitude}
+                      onChange={(event) => setForm((current) => ({ ...current, latitude: event.target.value }))}
+                      required
+                    />
+                  </label>
+                  <label>
+                    Longitude
+                    <input
+                      type="number"
+                      step="0.000001"
+                      value={form.longitude}
+                      onChange={(event) => setForm((current) => ({ ...current, longitude: event.target.value }))}
+                      required
+                    />
+                  </label>
                 </div>
-              </label>
 
-              <div className="geotagging-actions">
-                <button className="primary-button" type="submit" disabled={loading}>
-                  <Plus size={14} />
-                  <span>{editingLocationId ? "Save Changes" : "Add New Area"}</span>
-                </button>
-                <button className="outline-button" type="button" onClick={startCreateMode}>
-                  <span>Cancel</span>
-                </button>
-              </div>
-            </form>
-          )}
+                <label>
+                  Area radius (meters)
+                  <div className="radius-input-wrap">
+                    <input
+                      type="number"
+                      min="25"
+                      max="1000"
+                      step="5"
+                      value={form.radiusMeters}
+                      onChange={(event) => setForm((current) => ({ ...current, radiusMeters: event.target.value }))}
+                      required
+                    />
+                    <span className="radius-unit">m</span>
+                  </div>
+                </label>
 
+                <div className="geotagging-actions">
+                  <button className="primary-button" type="submit" disabled={loading}>
+                    <Plus size={14} />
+                    <span>{editingLocationId ? "Save Changes" : "Add New Area"}</span>
+                  </button>
+                  <button className="outline-button" type="button" onClick={startCreateMode}>
+                    <span>Cancel</span>
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
+
+      <div className="geotagging-bottom-grid">
         <section className="assigned-list" aria-label="Assigned geotagged areas">
           <div className="panel-heading">
             <div className="panel-heading-icon neutral">
@@ -1564,6 +1596,7 @@ export function GeotaggingPage({
       <GeotaggingPageContent
         canWrite={canWrite}
         canManageAreas={canManageAreas}
+        isScopedSupervisor={isScopedSupervisor}
         scopedDepartmentId={scopedDepartmentId}
         scopedDepartmentName={scopedDepartmentName}
       />

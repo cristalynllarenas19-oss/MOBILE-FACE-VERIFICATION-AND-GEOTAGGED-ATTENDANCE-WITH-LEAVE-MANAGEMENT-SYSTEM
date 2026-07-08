@@ -36,6 +36,8 @@ export class LeaveTypesService {
       isAutoCredited?: boolean;
       applicableStatuses?: EmploymentStatus[];
       isUnlimitedDays?: boolean;
+      requiresAdminGrant?: boolean;
+      isSingleDayOnly?: boolean;
     },
     actorUserId?: string,
   ) {
@@ -61,6 +63,8 @@ export class LeaveTypesService {
         isAutoCredited: dto.isAutoCredited ?? false,
         applicableStatuses,
         isUnlimitedDays: dto.isUnlimitedDays ?? false,
+        requiresAdminGrant: dto.requiresAdminGrant ?? false,
+        isSingleDayOnly: dto.isSingleDayOnly ?? false,
         createdBy: actorUserId,
       },
     });
@@ -83,6 +87,8 @@ export class LeaveTypesService {
           isAutoCredited: created.isAutoCredited,
           applicableStatuses: created.applicableStatuses,
           isUnlimitedDays: created.isUnlimitedDays,
+          requiresAdminGrant: created.requiresAdminGrant,
+          isSingleDayOnly: created.isSingleDayOnly,
         },
       },
     });
@@ -104,6 +110,8 @@ export class LeaveTypesService {
       isAutoCredited?: boolean;
       applicableStatuses?: EmploymentStatus[];
       isUnlimitedDays?: boolean;
+      requiresAdminGrant?: boolean;
+      isSingleDayOnly?: boolean;
     },
     actorUserId?: string,
   ) {
@@ -132,6 +140,8 @@ export class LeaveTypesService {
         isAutoCredited: dto.isAutoCredited,
         applicableStatuses,
         isUnlimitedDays: dto.isUnlimitedDays,
+        requiresAdminGrant: dto.requiresAdminGrant,
+        isSingleDayOnly: dto.isSingleDayOnly,
         updatedBy: actorUserId,
       },
       include: {
@@ -158,6 +168,8 @@ export class LeaveTypesService {
           isAutoCredited: existing.isAutoCredited,
           applicableStatuses: existing.applicableStatuses,
           isUnlimitedDays: existing.isUnlimitedDays,
+          requiresAdminGrant: existing.requiresAdminGrant,
+          isSingleDayOnly: existing.isSingleDayOnly,
         },
         newValues: {
           name: updated.name,
@@ -171,6 +183,8 @@ export class LeaveTypesService {
           isAutoCredited: updated.isAutoCredited,
           applicableStatuses: updated.applicableStatuses,
           isUnlimitedDays: updated.isUnlimitedDays,
+          requiresAdminGrant: updated.requiresAdminGrant,
+          isSingleDayOnly: updated.isSingleDayOnly,
         },
       },
     });

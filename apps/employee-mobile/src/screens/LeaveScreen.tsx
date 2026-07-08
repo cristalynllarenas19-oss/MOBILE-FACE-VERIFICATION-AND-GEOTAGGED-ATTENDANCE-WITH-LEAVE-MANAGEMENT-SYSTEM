@@ -84,9 +84,9 @@ export default function LeaveScreen({ employeeId }: Props) {
   const [resultModal, setResultModal] = useState<{ status: ResultModalStatus; title: string; message: string } | null>(null);
 
   const selectedLeaveType = leaveTypes.find((t) => t.id === leaveTypeId);
-  const filteredLeaveTypes = leaveTypes.filter((item) =>
-    item.name.toLowerCase().includes(searchLeave.toLowerCase())
-  );
+  const filteredLeaveTypes = leaveTypes
+    .filter((item) => item.isActive)
+    .filter((item) => item.name.toLowerCase().includes(searchLeave.toLowerCase()));
 
   const remainingByLeaveType = useMemo(() => {
     const map = new Map<string, number>();
@@ -94,11 +94,26 @@ export default function LeaveScreen({ employeeId }: Props) {
     return map;
   }, [balances]);
 
+  function remainingDaysFor(item: LeaveType) {
+    const remaining = remainingByLeaveType.get(item.id);
+    if (remaining !== undefined) return remaining;
+    return item.requiresAdminGrant ? 0 : Number(item.defaultDays);
+  }
+
+  // Admin-grant-only types (Solo Parent, Study Leave, Added Paternity Leave)
+  // that this employee hasn't been granted yet shouldn't clutter the balance
+  // view with a 0/0 row — they only show up there once HR/Admin grants them.
+  const visibleBalances = useMemo(() => {
+    return balances.filter((b) => {
+      const type = leaveTypes.find((t) => t.id === b.leaveTypeId);
+      if (type?.requiresAdminGrant && b.earnedDays <= 0) return false;
+      return true;
+    });
+  }, [balances, leaveTypes]);
+
   function isLeaveTypeExhausted(item: LeaveType) {
     if (item.allowWithoutPay || item.isUnlimitedDays) return false;
-    const remaining = remainingByLeaveType.get(item.id);
-    const effectiveRemaining = remaining !== undefined ? remaining : Number(item.defaultDays);
-    return effectiveRemaining <= 0;
+    return remainingDaysFor(item) <= 0;
   }
 
   function openLeaveTypeDropdown() {
@@ -143,6 +158,11 @@ export default function LeaveScreen({ employeeId }: Props) {
     setStartPickerVisibility(false);
     setStartDate(selectedDate);
     setStartDateSelected(true);
+    if (selectedLeaveType?.isSingleDayOnly) {
+      setEndDate(selectedDate);
+      setEndDateSelected(true);
+      return;
+    }
     if (endDateSelected && selectedDate > endDate) {
       setEndDate(selectedDate);
     }
@@ -163,6 +183,35 @@ export default function LeaveScreen({ employeeId }: Props) {
     const diff = Math.round((endDate.getTime() - startDate.getTime()) / 86400000) + 1;
     return Math.max(1, diff);
   }, [startDate, endDate, startDateSelected, endDateSelected]);
+
+  // The date range a request can span cannot exceed the leave type's
+  // remaining allotment (e.g. Vacation Leave with 15 days left caps the end
+  // date 15 days after the start date) — unlimited/without-pay types are
+  // exempt, same as the balance check in handleSubmit below.
+  const maxEndDate = useMemo(() => {
+    if (!selectedLeaveType || !startDateSelected) return undefined;
+    if (selectedLeaveType.allowWithoutPay || selectedLeaveType.isUnlimitedDays) return undefined;
+    const remaining = remainingDaysFor(selectedLeaveType);
+    const max = new Date(startDate);
+    max.setDate(max.getDate() + Math.max(0, remaining - 1));
+    return max;
+  }, [selectedLeaveType, startDate, startDateSelected, remainingByLeaveType]);
+
+  // Single-day-only types (Sick Leave, Emergency Leave) always mirror the end
+  // date to the start date the moment either one is known.
+  useEffect(() => {
+    if (selectedLeaveType?.isSingleDayOnly && startDateSelected) {
+      setEndDate(startDate);
+      setEndDateSelected(true);
+    }
+  }, [selectedLeaveType?.isSingleDayOnly, startDate, startDateSelected]);
+
+  // Clamp a previously-picked end date if switching leave type (or the
+  // remaining balance) shrinks the allowed range below it.
+  useEffect(() => {
+    if (!maxEndDate || !endDateSelected) return;
+    if (endDate > maxEndDate) setEndDate(maxEndDate);
+  }, [maxEndDate]);
 
   async function pickAttachment() {
     setAttachmentError(null);
@@ -239,8 +288,15 @@ export default function LeaveScreen({ employeeId }: Props) {
       return;
     }
     if (selectedLeaveType && !selectedLeaveType.allowWithoutPay && !selectedLeaveType.isUnlimitedDays) {
-      const balance = balances.find((b) => b.leaveTypeId === selectedLeaveType.id);
-      const remainingDays = balance ? balance.remainingDays : Number(selectedLeaveType.defaultDays);
+      const remainingDays = remainingDaysFor(selectedLeaveType);
+      if (selectedLeaveType.requiresAdminGrant && remainingDays <= 0) {
+        setResultModal({
+          status: "info",
+          title: "Not Yet Granted",
+          message: `${selectedLeaveType.name} must be granted by HR/Admin before you can request it. Please apply to HR/Admin first.`,
+        });
+        return;
+      }
       if (totalDays > remainingDays) {
         setResultModal({
           status: "error",
@@ -303,7 +359,7 @@ export default function LeaveScreen({ employeeId }: Props) {
       {activeTab === "balance" ? (
         <View style={[styles.tabContentPad, { flex: 1 }]}>
           <LeaveBalanceChart
-            balances={balances}
+            balances={visibleBalances}
             loading={isLoadingData}
             pendingCount={pendingRequests.length}
             onPressPending={() => setShowPending(true)}
@@ -419,7 +475,11 @@ export default function LeaveScreen({ employeeId }: Props) {
                           >
                             {item.name}
                             {item.requiresDocument ? " (document required)" : ""}
-                            {exhausted ? " (no balance left)" : ""}
+                            {exhausted
+                              ? item.requiresAdminGrant
+                                ? " (apply to HR/Admin first)"
+                                : " (no balance left)"
+                              : ""}
                           </Text>
                         </Pressable>
                       );
@@ -433,24 +493,40 @@ export default function LeaveScreen({ employeeId }: Props) {
               </View>
             </Modal>
 
-            <Text style={styles.label}>Leave Duration</Text>
-            <View style={styles.dateRow}>
-              <Pressable style={styles.dateBox} onPress={() => setStartPickerVisibility(true)}>
-                <Text style={[styles.dateText, !startDateSelected && { color: "#94A3B8" }]}>
-                  {startDateSelected ? formatDate(startDate) : "Start Date"}
-                </Text>
-                <Ionicons name="calendar-outline" size={20} color="#64748B" />
-              </Pressable>
+            <Text style={styles.label}>{selectedLeaveType?.isSingleDayOnly ? "Date" : "Leave Duration"}</Text>
+            {selectedLeaveType?.isSingleDayOnly ? (
+              <View style={styles.dateRow}>
+                <Pressable style={styles.dateBox} onPress={() => setStartPickerVisibility(true)}>
+                  <Text style={[styles.dateText, !startDateSelected && { color: "#94A3B8" }]}>
+                    {startDateSelected ? formatDate(startDate) : "Select Date"}
+                  </Text>
+                  <Ionicons name="calendar-outline" size={20} color="#64748B" />
+                </Pressable>
+              </View>
+            ) : (
+              <View style={styles.dateRow}>
+                <Pressable style={styles.dateBox} onPress={() => setStartPickerVisibility(true)}>
+                  <Text style={[styles.dateText, !startDateSelected && { color: "#94A3B8" }]}>
+                    {startDateSelected ? formatDate(startDate) : "Start Date"}
+                  </Text>
+                  <Ionicons name="calendar-outline" size={20} color="#64748B" />
+                </Pressable>
 
-              <Pressable style={styles.dateBox} onPress={() => setEndPickerVisibility(true)}>
-                <Text style={[styles.dateText, !endDateSelected && { color: "#94A3B8" }]}>
-                  {endDateSelected ? formatDate(endDate) : "End Date"}
-                </Text>
-                <Ionicons name="calendar-outline" size={20} color="#64748B" />
-              </Pressable>
-            </View>
-            {startDateSelected && endDateSelected && (
+                <Pressable style={styles.dateBox} onPress={() => setEndPickerVisibility(true)}>
+                  <Text style={[styles.dateText, !endDateSelected && { color: "#94A3B8" }]}>
+                    {endDateSelected ? formatDate(endDate) : "End Date"}
+                  </Text>
+                  <Ionicons name="calendar-outline" size={20} color="#64748B" />
+                </Pressable>
+              </View>
+            )}
+            {startDateSelected && endDateSelected && !selectedLeaveType?.isSingleDayOnly && (
               <Text style={styles.totalDaysText}>{totalDays} day{totalDays === 1 ? "" : "s"} total</Text>
+            )}
+            {maxEndDate && !selectedLeaveType?.isSingleDayOnly && (
+              <Text style={styles.totalDaysText}>
+                {remainingDaysFor(selectedLeaveType!)} day{remainingDaysFor(selectedLeaveType!) === 1 ? "" : "s"} available for {selectedLeaveType!.name} — end date can't go past {formatDate(maxEndDate)}
+              </Text>
             )}
 
             <DateTimePickerModal
@@ -464,6 +540,7 @@ export default function LeaveScreen({ employeeId }: Props) {
               isVisible={isEndPickerVisible}
               mode="date"
               minimumDate={startDateSelected ? startDate : undefined}
+              maximumDate={maxEndDate}
               onConfirm={handleEndDateConfirm}
               onCancel={() => setEndPickerVisibility(false)}
             />
