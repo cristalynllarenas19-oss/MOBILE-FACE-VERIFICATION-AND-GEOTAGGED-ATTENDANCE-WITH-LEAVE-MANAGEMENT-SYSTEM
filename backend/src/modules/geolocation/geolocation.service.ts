@@ -102,6 +102,7 @@ export class GeolocationService {
     allowedAccuracyMeters?: number;
     employeeIds?: string[];
     departmentId?: string | null;
+    type?: "OFFICE" | "FIELD";
   }, context: AuditLogContext = {}, scope: DepartmentScope = {}) {
     const joinTableAvailable = await this.hasJoinTable();
     // A Supervisor's new area is always auto-associated with their own
@@ -119,6 +120,7 @@ export class GeolocationService {
           allowedAccuracyMeters: data.allowedAccuracyMeters ?? 50,
           isActive: true,
           departmentId,
+          type: data.type ?? "OFFICE",
         },
       });
 
@@ -157,6 +159,7 @@ export class GeolocationService {
       isActive?: boolean;
       employeeIds?: string[];
       departmentId?: string | null;
+      type?: "OFFICE" | "FIELD";
     },
     context: AuditLogContext = {},
     scope: DepartmentScope = {},
@@ -188,6 +191,7 @@ export class GeolocationService {
           // Never touched for a scoped Supervisor — the department-ownership
           // guard above already rejects any attempt to change it.
           ...(!scope.departmentId && data.departmentId !== undefined ? { departmentId: data.departmentId } : {}),
+          ...(data.type !== undefined ? { type: data.type } : {}),
         },
       });
 
@@ -212,6 +216,7 @@ export class GeolocationService {
         radiusMeters: before.radiusMeters,
         allowedAccuracyMeters: before.allowedAccuracyMeters,
         isActive: before.isActive,
+        type: before.type,
         employeeIds: before.employees?.map((entry) => entry.employeeId),
       } : null,
       newValues: { ...data },

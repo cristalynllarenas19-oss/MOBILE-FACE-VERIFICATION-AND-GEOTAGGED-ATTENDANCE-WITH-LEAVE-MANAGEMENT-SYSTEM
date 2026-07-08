@@ -38,6 +38,7 @@ export class GeolocationController {
       allowedAccuracyMeters: data.allowedAccuracyMeters !== undefined ? Number(data.allowedAccuracyMeters) : undefined,
       employeeIds: Array.isArray(data.employeeIds) ? data.employeeIds : [],
       departmentId: data.departmentId !== undefined ? data.departmentId : undefined,
+      type: data.type === "FIELD" ? "FIELD" : data.type === "OFFICE" ? "OFFICE" : undefined,
     }, getAuditContext(request), { departmentId });
   }
 
@@ -54,6 +55,7 @@ export class GeolocationController {
       isActive: data.isActive !== undefined ? Boolean(data.isActive) : undefined,
       employeeIds: Array.isArray(data.employeeIds) ? data.employeeIds : undefined,
       departmentId: data.departmentId !== undefined ? data.departmentId : undefined,
+      type: data.type === "FIELD" ? "FIELD" : data.type === "OFFICE" ? "OFFICE" : undefined,
     }, getAuditContext(request), { departmentId });
   }
 

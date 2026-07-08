@@ -33,6 +33,7 @@ type GeotaggedLocation = {
   isActive?: boolean;
   departmentId?: string | null;
   department?: { id: string; name: string } | null;
+  type?: "OFFICE" | "FIELD";
 };
 
 type ConfirmConfig = {
@@ -53,6 +54,7 @@ const initialForm = {
   radiusMeters: "120",
   departmentId: "" as string, // "" = no specific department (visible to everyone)
   employeeIds: [] as string[],
+  type: "OFFICE" as "OFFICE" | "FIELD",
 };
 
 const markerIcon = L.icon({
@@ -607,6 +609,7 @@ function GeotaggingPageContent({
       longitude: Number.isFinite(nextLongitude) ? nextLongitude.toFixed(6) : current.longitude,
       radiusMeters: Number(location.radiusMeters).toString(),
       departmentId: scopedDepartmentId ?? location.departmentId ?? "",
+      type: location.type ?? "OFFICE",
       employeeIds:
         location.employees?.map((entry) => entry.employee.id) ??
         (location.employeeId ? [location.employeeId] : location.employee ? [location.employee.id] : []),
@@ -764,6 +767,7 @@ function GeotaggingPageContent({
         // A locked Supervisor's field always holds their own department; the
         // backend force-sets/verifies this regardless of what's sent here.
         departmentId: form.departmentId || null,
+        type: form.type,
       };
 
       if (editingLocationId) {
@@ -1032,6 +1036,19 @@ function GeotaggingPageContent({
                 )}
               </label>
 
+              <label>
+                Area type
+                <select
+                  value={form.type}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, type: event.target.value as "OFFICE" | "FIELD" }))
+                  }
+                >
+                  <option value="OFFICE">Office</option>
+                  <option value="FIELD">Field</option>
+                </select>
+              </label>
+
               <div className="coordinate-grid">
                 <label>
                   Latitude
@@ -1207,9 +1224,14 @@ function GeotaggingPageContent({
                       </small>
                     </button>
                     <div className="assigned-location-footer">
-                      <span className={`assigned-location-status ${isActive ? "active" : "inactive"}`}>
-                        {isActive ? "Active" : "Inactive"}
-                      </span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span className={`assigned-location-status ${isActive ? "active" : "inactive"}`}>
+                          {isActive ? "Active" : "Inactive"}
+                        </span>
+                        <span className={`assigned-location-type ${location.type === "FIELD" ? "field" : "office"}`}>
+                          {location.type === "FIELD" ? "Field" : "Office"}
+                        </span>
+                      </div>
                       <div className="assigned-location-actions">
                         <button
                           className="icon-button location-action-btn location-action-btn--view"

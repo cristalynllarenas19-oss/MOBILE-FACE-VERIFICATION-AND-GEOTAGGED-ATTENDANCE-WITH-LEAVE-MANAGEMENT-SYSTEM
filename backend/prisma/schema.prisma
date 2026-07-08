@@ -46,12 +46,12 @@ enum AttendanceMode {
   FIELD
 }
 
-// Tags an attendance record as the regular office routine vs a field visit —
-// implied entirely by the employee's AttendanceMode (FIXED employees only
-// ever produce OFFICE records, FIELD employees only ever produce FIELD
-// ones). Kept as its own column, rather than just derived from the
-// employee's mode, so the DTR screen's Office/Field tabs are a simple query
-// regardless of which mode an employee was assigned at the time.
+// Tags an attendance record as the regular office routine vs a field visit.
+// For a FIXED employee this is always OFFICE. For a FIELD employee it's
+// auto-detected per visit from the WorkLocation.type of the area they
+// actually checked into, so a single FIELD employee can have both OFFICE
+// and FIELD records on the same day. Kept as its own column, rather than
+// derived on read, so the DTR screen's Office/Field tabs are a simple query.
 enum AttendanceRecordType {
   OFFICE
   FIELD
@@ -279,6 +279,11 @@ model WorkLocation {
   radiusMeters          Decimal                @map("radius_meters")
   allowedAccuracyMeters Decimal                @map("allowed_accuracy_meters")
   isActive              Boolean                @default(true) @map("is_active")
+  // Classifies the area itself as an Office or a Field site. A FIELD employee's
+  // visit here is auto-tagged with this same type (see attendance.service.ts),
+  // so a field technician who checks in at an office-classified area is
+  // recorded as an OFFICE visit rather than a FIELD one.
+  type                  AttendanceRecordType   @default(OFFICE)
   // Null = a global/shared area, visible to every department (e.g. HQ).
   // Set automatically to the creating Supervisor's department and never
   // client-editable by a Supervisor afterwards — see supervisor-scope.util.
