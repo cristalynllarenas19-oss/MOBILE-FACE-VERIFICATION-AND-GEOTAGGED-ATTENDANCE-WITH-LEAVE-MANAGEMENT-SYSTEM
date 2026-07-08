@@ -17,7 +17,6 @@ type Shift = {
   name: string;
   startTime: string;
   endTime: string;
-  gracePeriodMinutes: number;
 };
 
 type Schedule = {
@@ -460,7 +459,6 @@ export function SchedulesPage({
               <th>Position</th>
               <th>Shift</th>
               <th>Time</th>
-              <th>Grace Period</th>
               <th>Effective Dates</th>
               <th>Action</th>
             </tr>
@@ -468,7 +466,7 @@ export function SchedulesPage({
           <tbody>
             {schedules.length === 0 ? (
               <tr>
-                <td colSpan={8} className="schedules-empty-state">
+                <td colSpan={7} className="schedules-empty-state">
                   No schedule assignments found.
                 </td>
               </tr>
@@ -482,7 +480,6 @@ export function SchedulesPage({
                   <td data-label="Time">
                     {schedule.shift.startTime} – {schedule.shift.endTime}
                   </td>
-                  <td data-label="Grace Period">{schedule.shift.gracePeriodMinutes} min</td>
                   <td data-label="Effective Dates">
                     {formatDate(schedule.startsOn)} – {formatDate(schedule.endsOn)}
                   </td>
@@ -545,10 +542,6 @@ export function SchedulesPage({
                 <strong>
                   {viewSchedule.shift.startTime} – {viewSchedule.shift.endTime}
                 </strong>
-              </div>
-              <div>
-                <span>Grace Period</span>
-                <strong>{viewSchedule.shift.gracePeriodMinutes} minutes</strong>
               </div>
               <div>
                 <span>Effective Dates</span>

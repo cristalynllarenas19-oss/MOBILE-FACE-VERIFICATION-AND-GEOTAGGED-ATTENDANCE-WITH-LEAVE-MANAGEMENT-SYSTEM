@@ -12,14 +12,13 @@ type Shift = {
   name: string;
   startTime: string;
   endTime: string;
-  gracePeriodMinutes: number;
   morningBreakMinutes: number;
   afternoonBreakMinutes: number;
   lunchBreakMinutes: number;
   enableRounding: boolean;
   roundingIntervalMinutes: number;
-  lateThresholdMinutes: number | null;
-  undertimeThresholdMinutes: number | null;
+  lateThresholdMinutes: number;
+  undertimeThresholdMinutes: number;
   autoShiftAdjustment: boolean;
   isActive: boolean;
   createdAt: string;
@@ -59,14 +58,13 @@ const emptyForm = {
   name: "",
   startTime: "",
   endTime: "",
-  gracePeriodMinutes: "0",
   morningBreakMinutes: "15",
   afternoonBreakMinutes: "15",
   lunchBreakMinutes: "60",
   enableRounding: false,
   roundingIntervalMinutes: "15",
-  lateThresholdMinutes: "",
-  undertimeThresholdMinutes: "",
+  lateThresholdMinutes: "0",
+  undertimeThresholdMinutes: "0",
   autoShiftAdjustment: false,
 };
 
@@ -117,14 +115,13 @@ export function ShiftsTab({
       name: shift.name,
       startTime: shift.startTime,
       endTime: shift.endTime,
-      gracePeriodMinutes: String(shift.gracePeriodMinutes),
       morningBreakMinutes: String(shift.morningBreakMinutes),
       afternoonBreakMinutes: String(shift.afternoonBreakMinutes),
       lunchBreakMinutes: String(shift.lunchBreakMinutes),
       enableRounding: shift.enableRounding,
       roundingIntervalMinutes: String(shift.roundingIntervalMinutes),
-      lateThresholdMinutes: shift.lateThresholdMinutes != null ? String(shift.lateThresholdMinutes) : "",
-      undertimeThresholdMinutes: shift.undertimeThresholdMinutes != null ? String(shift.undertimeThresholdMinutes) : "",
+      lateThresholdMinutes: String(shift.lateThresholdMinutes),
+      undertimeThresholdMinutes: String(shift.undertimeThresholdMinutes),
       autoShiftAdjustment: shift.autoShiftAdjustment,
     });
     setNameError(null);
@@ -150,14 +147,13 @@ export function ShiftsTab({
         name: form.name.trim(),
         startTime: form.startTime,
         endTime: form.endTime,
-        gracePeriodMinutes: Number(form.gracePeriodMinutes || 0),
         morningBreakMinutes: Number(form.morningBreakMinutes || 0),
         afternoonBreakMinutes: Number(form.afternoonBreakMinutes || 0),
         lunchBreakMinutes: Number(form.lunchBreakMinutes || 0),
         enableRounding: form.enableRounding,
         roundingIntervalMinutes: Number(form.roundingIntervalMinutes || 15),
-        lateThresholdMinutes: form.lateThresholdMinutes ? Number(form.lateThresholdMinutes) : undefined,
-        undertimeThresholdMinutes: form.undertimeThresholdMinutes ? Number(form.undertimeThresholdMinutes) : undefined,
+        lateThresholdMinutes: Number(form.lateThresholdMinutes || 0),
+        undertimeThresholdMinutes: Number(form.undertimeThresholdMinutes || 0),
         autoShiftAdjustment: form.autoShiftAdjustment,
       };
 
@@ -249,7 +245,6 @@ export function ShiftsTab({
             <tr>
               <th>NAME</th>
               <th>TIME</th>
-              <th>GRACE PERIOD</th>
               <th>EMPLOYEES ASSIGNED</th>
               <th>STATUS</th>
               <th>ACTIONS</th>
@@ -258,7 +253,7 @@ export function ShiftsTab({
           <tbody>
             {visibleShifts.length === 0 ? (
               <tr>
-                <td colSpan={6} className="utilities-empty-state">
+                <td colSpan={5} className="utilities-empty-state">
                   {shifts.length === 0 ? (
                     <div className="utilities-empty-block">
                       <CalendarClock size={28} />
@@ -274,7 +269,6 @@ export function ShiftsTab({
                 <tr key={shift.id}>
                   <td data-label="Name">{shift.name}</td>
                   <td data-label="Time">{shift.startTime} – {shift.endTime}</td>
-                  <td data-label="Grace Period">{shift.gracePeriodMinutes} min</td>
                   <td data-label="Employees Assigned">{shift._count?.schedules ?? 0}</td>
                   <td data-label="Status">
                     <Badge tone={shift.isActive ? "success" : "neutral"}>{shift.isActive ? "Active" : "Inactive"}</Badge>
@@ -364,28 +358,17 @@ export function ShiftsTab({
                   liveHours && <span className="utilities-hint">Total working hours: {liveHours}</span>
                 )}
 
-                <label className="utilities-field">
-                  <span className="utilities-field-label">Grace Period (minutes)</span>
-                  <input
-                    className="utilities-input"
-                    type="number"
-                    min="0"
-                    value={form.gracePeriodMinutes}
-                    onChange={(e) => setForm((c) => ({ ...c, gracePeriodMinutes: e.target.value }))}
-                    placeholder="0"
-                  />
-                  <span className="utilities-hint">How many minutes late is still considered on time</span>
-                </label>
-
-                <div className="utilities-field-row">
+                <div className="utilities-field-row utilities-equal-field-row">
                   <label className="utilities-field">
                     <span className="utilities-field-label">Morning Break (minutes)</span>
                     <input
                       className="utilities-input"
                       type="number"
                       min="0"
+                      step="1"
                       value={form.morningBreakMinutes}
                       onChange={(e) => setForm((c) => ({ ...c, morningBreakMinutes: e.target.value }))}
+                      placeholder="0"
                     />
                   </label>
                   <label className="utilities-field">
@@ -394,21 +377,26 @@ export function ShiftsTab({
                       className="utilities-input"
                       type="number"
                       min="0"
+                      step="1"
                       value={form.afternoonBreakMinutes}
                       onChange={(e) => setForm((c) => ({ ...c, afternoonBreakMinutes: e.target.value }))}
-                    />
-                  </label>
-                  <label className="utilities-field">
-                    <span className="utilities-field-label">Lunch Break (minutes)</span>
-                    <input
-                      className="utilities-input"
-                      type="number"
-                      min="0"
-                      value={form.lunchBreakMinutes}
-                      onChange={(e) => setForm((c) => ({ ...c, lunchBreakMinutes: e.target.value }))}
+                      placeholder="0"
                     />
                   </label>
                 </div>
+
+                <label className="utilities-field">
+                  <span className="utilities-field-label">Lunch Break (minutes)</span>
+                  <input
+                    className="utilities-input"
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={form.lunchBreakMinutes}
+                    onChange={(e) => setForm((c) => ({ ...c, lunchBreakMinutes: e.target.value }))}
+                    placeholder="0"
+                  />
+                </label>
                 <span className="utilities-hint">
                   For a straight schedule (no morning/afternoon breaks), set Morning and Afternoon to 0 and Lunch to 30.
                 </span>
@@ -429,30 +417,33 @@ export function ShiftsTab({
                       className="utilities-input"
                       type="number"
                       min="1"
+                      step="1"
                       value={form.roundingIntervalMinutes}
                       onChange={(e) => setForm((c) => ({ ...c, roundingIntervalMinutes: e.target.value }))}
                     />
                   </label>
                 )}
 
-                <div className="utilities-field-row">
+                <div className="utilities-field-row utilities-equal-field-row">
                   <label className="utilities-field">
-                    <span className="utilities-field-label">Late Threshold (min)</span>
+                    <span className="utilities-field-label">Late Threshold (minutes)</span>
                     <input
                       className="utilities-input"
                       type="number"
                       min="0"
+                      step="1"
                       value={form.lateThresholdMinutes}
                       onChange={(e) => setForm((c) => ({ ...c, lateThresholdMinutes: e.target.value }))}
                       placeholder="0"
                     />
                   </label>
                   <label className="utilities-field">
-                    <span className="utilities-field-label">Undertime Threshold (min)</span>
+                    <span className="utilities-field-label">Undertime Threshold (minutes)</span>
                     <input
                       className="utilities-input"
                       type="number"
                       min="0"
+                      step="1"
                       value={form.undertimeThresholdMinutes}
                       onChange={(e) => setForm((c) => ({ ...c, undertimeThresholdMinutes: e.target.value }))}
                       placeholder="0"
@@ -469,7 +460,7 @@ export function ShiftsTab({
                   <span>Auto shift adjustment</span>
                 </label>
                 <span className="utilities-hint">
-                  If an employee arrives past the grace period but within another shift's start window, automatically apply that shift's rules for the day instead of marking them late.
+                  If an employee arrives within another shift's late threshold window, automatically apply that shift's rules for the day.
                 </span>
               </div>
 
@@ -515,10 +506,6 @@ export function ShiftsTab({
                   <strong>{computeShiftHours(viewShift.startTime, viewShift.endTime) ?? "—"}</strong>
                 </div>
                 <div>
-                  <span>Grace Period</span>
-                  <strong>{viewShift.gracePeriodMinutes} minutes</strong>
-                </div>
-                <div>
                   <span>Breaks</span>
                   <strong>
                     Morning {viewShift.morningBreakMinutes}m · Afternoon {viewShift.afternoonBreakMinutes}m · Lunch {viewShift.lunchBreakMinutes}m
@@ -532,11 +519,11 @@ export function ShiftsTab({
                 </div>
                 <div>
                   <span>Late Threshold</span>
-                  <strong>{viewShift.lateThresholdMinutes ?? 0} minutes</strong>
+                  <strong>{viewShift.lateThresholdMinutes} minutes</strong>
                 </div>
                 <div>
                   <span>Undertime Threshold</span>
-                  <strong>{viewShift.undertimeThresholdMinutes ?? 0} minutes</strong>
+                  <strong>{viewShift.undertimeThresholdMinutes} minutes</strong>
                 </div>
                 <div>
                   <span>Auto Shift Adjustment</span>

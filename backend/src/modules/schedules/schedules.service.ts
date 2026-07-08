@@ -126,12 +126,47 @@ export class SchedulesService {
     }
   }
 
+  private optionalWholeMinutes(value: number | undefined, fieldLabel: string, min = 0) {
+    if (value === undefined) return undefined;
+    if (!Number.isInteger(value) || value < min) {
+      throw new BadRequestException(`${fieldLabel} must be a whole number greater than or equal to ${min}.`);
+    }
+    return value;
+  }
+
+  private shiftAuditValues(shift: {
+    name: string;
+    startTime: string;
+    endTime: string;
+    morningBreakMinutes: number;
+    afternoonBreakMinutes: number;
+    lunchBreakMinutes: number;
+    enableRounding: boolean;
+    roundingIntervalMinutes: number;
+    lateThresholdMinutes: number;
+    undertimeThresholdMinutes: number;
+    autoShiftAdjustment: boolean;
+  }) {
+    return {
+      name: shift.name,
+      startTime: shift.startTime,
+      endTime: shift.endTime,
+      morningBreakMinutes: shift.morningBreakMinutes,
+      afternoonBreakMinutes: shift.afternoonBreakMinutes,
+      lunchBreakMinutes: shift.lunchBreakMinutes,
+      enableRounding: shift.enableRounding,
+      roundingIntervalMinutes: shift.roundingIntervalMinutes,
+      lateThresholdMinutes: shift.lateThresholdMinutes,
+      undertimeThresholdMinutes: shift.undertimeThresholdMinutes,
+      autoShiftAdjustment: shift.autoShiftAdjustment,
+    };
+  }
+
   async createShift(
     dto: {
       name: string;
       startTime: string;
       endTime: string;
-      gracePeriodMinutes?: number;
       morningBreakMinutes?: number;
       afternoonBreakMinutes?: number;
       lunchBreakMinutes?: number;
@@ -146,20 +181,25 @@ export class SchedulesService {
     const name = dto.name.trim();
     await this.assertNoDuplicateShiftName(name);
     this.assertValidShiftTimes(dto.startTime, dto.endTime);
+    const morningBreakMinutes = this.optionalWholeMinutes(dto.morningBreakMinutes, "Morning Break") ?? 15;
+    const afternoonBreakMinutes = this.optionalWholeMinutes(dto.afternoonBreakMinutes, "Afternoon Break") ?? 15;
+    const lunchBreakMinutes = this.optionalWholeMinutes(dto.lunchBreakMinutes, "Lunch Break") ?? 60;
+    const roundingIntervalMinutes = this.optionalWholeMinutes(dto.roundingIntervalMinutes, "Rounding Interval", 1) ?? 15;
+    const lateThresholdMinutes = this.optionalWholeMinutes(dto.lateThresholdMinutes, "Late Threshold") ?? 0;
+    const undertimeThresholdMinutes = this.optionalWholeMinutes(dto.undertimeThresholdMinutes, "Undertime Threshold") ?? 0;
 
     const created = await this.prisma.shift.create({
       data: {
         name,
         startTime: dto.startTime,
         endTime: dto.endTime,
-        gracePeriodMinutes: dto.gracePeriodMinutes ?? 0,
-        morningBreakMinutes: dto.morningBreakMinutes ?? 15,
-        afternoonBreakMinutes: dto.afternoonBreakMinutes ?? 15,
-        lunchBreakMinutes: dto.lunchBreakMinutes ?? 60,
+        morningBreakMinutes,
+        afternoonBreakMinutes,
+        lunchBreakMinutes,
         enableRounding: dto.enableRounding ?? false,
-        roundingIntervalMinutes: dto.roundingIntervalMinutes ?? 15,
-        lateThresholdMinutes: dto.lateThresholdMinutes,
-        undertimeThresholdMinutes: dto.undertimeThresholdMinutes,
+        roundingIntervalMinutes,
+        lateThresholdMinutes,
+        undertimeThresholdMinutes,
         autoShiftAdjustment: dto.autoShiftAdjustment ?? false,
         createdBy: actorUserId,
       },
@@ -171,20 +211,7 @@ export class SchedulesService {
         action: "CREATE_SHIFT",
         entityType: "Shift",
         entityId: created.id,
-        newValues: {
-          name: created.name,
-          startTime: created.startTime,
-          endTime: created.endTime,
-          gracePeriodMinutes: created.gracePeriodMinutes,
-          morningBreakMinutes: created.morningBreakMinutes,
-          afternoonBreakMinutes: created.afternoonBreakMinutes,
-          lunchBreakMinutes: created.lunchBreakMinutes,
-          enableRounding: created.enableRounding,
-          roundingIntervalMinutes: created.roundingIntervalMinutes,
-          lateThresholdMinutes: created.lateThresholdMinutes,
-          undertimeThresholdMinutes: created.undertimeThresholdMinutes,
-          autoShiftAdjustment: created.autoShiftAdjustment,
-        },
+        newValues: this.shiftAuditValues(created),
       },
     });
 
@@ -197,7 +224,6 @@ export class SchedulesService {
       name?: string;
       startTime?: string;
       endTime?: string;
-      gracePeriodMinutes?: number;
       morningBreakMinutes?: number;
       afternoonBreakMinutes?: number;
       lunchBreakMinutes?: number;
@@ -218,6 +244,12 @@ export class SchedulesService {
     const startTime = dto.startTime ?? existing.startTime;
     const endTime = dto.endTime ?? existing.endTime;
     this.assertValidShiftTimes(startTime, endTime);
+    const morningBreakMinutes = this.optionalWholeMinutes(dto.morningBreakMinutes, "Morning Break");
+    const afternoonBreakMinutes = this.optionalWholeMinutes(dto.afternoonBreakMinutes, "Afternoon Break");
+    const lunchBreakMinutes = this.optionalWholeMinutes(dto.lunchBreakMinutes, "Lunch Break");
+    const roundingIntervalMinutes = this.optionalWholeMinutes(dto.roundingIntervalMinutes, "Rounding Interval", 1);
+    const lateThresholdMinutes = this.optionalWholeMinutes(dto.lateThresholdMinutes, "Late Threshold");
+    const undertimeThresholdMinutes = this.optionalWholeMinutes(dto.undertimeThresholdMinutes, "Undertime Threshold");
 
     const updated = await this.prisma.shift.update({
       where: { id },
@@ -225,14 +257,13 @@ export class SchedulesService {
         name,
         startTime: dto.startTime,
         endTime: dto.endTime,
-        gracePeriodMinutes: dto.gracePeriodMinutes,
-        morningBreakMinutes: dto.morningBreakMinutes,
-        afternoonBreakMinutes: dto.afternoonBreakMinutes,
-        lunchBreakMinutes: dto.lunchBreakMinutes,
+        morningBreakMinutes,
+        afternoonBreakMinutes,
+        lunchBreakMinutes,
         enableRounding: dto.enableRounding,
-        roundingIntervalMinutes: dto.roundingIntervalMinutes,
-        lateThresholdMinutes: dto.lateThresholdMinutes,
-        undertimeThresholdMinutes: dto.undertimeThresholdMinutes,
+        roundingIntervalMinutes,
+        lateThresholdMinutes,
+        undertimeThresholdMinutes,
         autoShiftAdjustment: dto.autoShiftAdjustment,
         updatedBy: actorUserId,
       },
@@ -245,34 +276,8 @@ export class SchedulesService {
         action: "UPDATE_SHIFT",
         entityType: "Shift",
         entityId: id,
-        oldValues: {
-          name: existing.name,
-          startTime: existing.startTime,
-          endTime: existing.endTime,
-          gracePeriodMinutes: existing.gracePeriodMinutes,
-          morningBreakMinutes: existing.morningBreakMinutes,
-          afternoonBreakMinutes: existing.afternoonBreakMinutes,
-          lunchBreakMinutes: existing.lunchBreakMinutes,
-          enableRounding: existing.enableRounding,
-          roundingIntervalMinutes: existing.roundingIntervalMinutes,
-          lateThresholdMinutes: existing.lateThresholdMinutes,
-          undertimeThresholdMinutes: existing.undertimeThresholdMinutes,
-          autoShiftAdjustment: existing.autoShiftAdjustment,
-        },
-        newValues: {
-          name: updated.name,
-          startTime: updated.startTime,
-          endTime: updated.endTime,
-          gracePeriodMinutes: updated.gracePeriodMinutes,
-          morningBreakMinutes: updated.morningBreakMinutes,
-          afternoonBreakMinutes: updated.afternoonBreakMinutes,
-          lunchBreakMinutes: updated.lunchBreakMinutes,
-          enableRounding: updated.enableRounding,
-          roundingIntervalMinutes: updated.roundingIntervalMinutes,
-          lateThresholdMinutes: updated.lateThresholdMinutes,
-          undertimeThresholdMinutes: updated.undertimeThresholdMinutes,
-          autoShiftAdjustment: updated.autoShiftAdjustment,
-        },
+        oldValues: this.shiftAuditValues(existing),
+        newValues: this.shiftAuditValues(updated),
       },
     });
 

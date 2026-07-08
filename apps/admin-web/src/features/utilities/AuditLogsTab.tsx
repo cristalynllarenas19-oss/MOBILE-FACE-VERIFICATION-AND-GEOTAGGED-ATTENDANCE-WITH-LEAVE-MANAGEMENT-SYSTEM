@@ -22,12 +22,6 @@ type AuditLog = {
   } | null;
 };
 
-type UserOption = {
-  id: string;
-  email: string;
-  employee?: { firstName: string; lastName: string } | null;
-};
-
 type AuditLogPage = {
   items: AuditLog[];
   total: number;
@@ -36,46 +30,6 @@ type AuditLogPage = {
 };
 
 type BadgeTone = "neutral" | "success" | "danger" | "warning" | "role";
-
-const MODULE_OPTIONS = [
-  { value: "Authentication", label: "Authentication" },
-  { value: "Users", label: "Users" },
-  { value: "Leave", label: "Leave" },
-  { value: "Schedules", label: "Schedules" },
-  { value: "Employees", label: "Employees" },
-  { value: "Attendance", label: "Attendance" },
-  { value: "FaceVerification", label: "Face Verification" },
-  { value: "Geotagging", label: "Geotagging" },
-  { value: "Settings", label: "Settings" },
-];
-
-const ROLE_OPTIONS = [
-  { value: "ADMIN", label: "Admin" },
-  { value: "SUPERVISOR", label: "Supervisor" },
-  { value: "EMPLOYEE", label: "Employee" },
-];
-
-const ACTION_OPTIONS = [
-  "LOGIN",
-  "LOGOUT",
-  "CREATE_EMPLOYEE",
-  "UPDATE_EMPLOYEE",
-  "ARCHIVE_EMPLOYEE",
-  "GRANT_USER_ROLE",
-  "ACTIVATE_USER",
-  "DEACTIVATE_USER",
-  "TIME_IN",
-  "TIME_OUT",
-  "CORRECT_ATTENDANCE",
-  "CREATE_LEAVE_REQUEST",
-  "APPROVE_LEAVE",
-  "REJECT_LEAVE",
-  "REGISTER_FACE",
-  "FACE_VERIFICATION",
-  "CREATE_WORK_LOCATION",
-  "UPDATE_WORK_LOCATION",
-  "DELETE_WORK_LOCATION",
-].map((action) => ({ value: action, label: formatAction(action) }));
 
 const AUDIT_PAGE_SIZE = 25;
 
@@ -205,12 +159,7 @@ export function AuditLogsTab({
   const [auditPage, setAuditPage] = useState(1);
   const [auditLoading, setAuditLoading] = useState(false);
   const [auditLoadingMore, setAuditLoadingMore] = useState(false);
-  const [moduleFilter, setModuleFilter] = useState("ALL");
-  const [roleFilter, setRoleFilter] = useState("ALL");
-  const [actionFilter, setActionFilter] = useState("ALL");
-  const [userFilter, setUserFilter] = useState("ALL");
   const [sortOrder, setSortOrder] = useState<"newest" | "oldest">("newest");
-  const [userOptions, setUserOptions] = useState<UserOption[]>([]);
   const [auditSearch, setAuditSearch] = useState("");
   const [auditFrom, setAuditFrom] = useState("");
   const [auditTo, setAuditTo] = useState("");
@@ -219,20 +168,12 @@ export function AuditLogsTab({
   const [isExporting, setIsExporting] = useState(false);
 
   const hasActiveAuditFilters =
-    moduleFilter !== "ALL" ||
-    roleFilter !== "ALL" ||
-    actionFilter !== "ALL" ||
-    userFilter !== "ALL" ||
     auditSearch.trim() !== "" ||
     auditFrom !== "" ||
     auditTo !== "";
 
   const buildParams = () => {
     const params = new URLSearchParams();
-    if (moduleFilter !== "ALL") params.set("module", moduleFilter);
-    if (roleFilter !== "ALL") params.set("role", roleFilter);
-    if (actionFilter !== "ALL") params.set("action", actionFilter);
-    if (userFilter !== "ALL") params.set("actorUserId", userFilter);
     params.set("sort", sortOrder);
     if (auditSearch.trim()) params.set("search", auditSearch.trim());
     if (auditFrom) params.set("from", auditFrom);
@@ -265,11 +206,7 @@ export function AuditLogsTab({
   useEffect(() => {
     loadAuditLogs(1, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [moduleFilter, roleFilter, actionFilter, userFilter, sortOrder, auditFrom, auditTo]);
-
-  useEffect(() => {
-    apiRequest<UserOption[]>("/users").then(setUserOptions).catch(() => undefined);
-  }, []);
+  }, [sortOrder, auditFrom, auditTo]);
 
   useEffect(() => {
     setShowRawJson(false);
@@ -311,8 +248,8 @@ export function AuditLogsTab({
         </div>
       </div>
 
-      <div className="utilities-filter-bar">
-        <div className="utilities-filter-group">
+      <div className="utilities-filter-bar utilities-audit-filter-bar">
+        <div className="utilities-filter-group utilities-audit-search-group">
           <label className="utilities-filter-label">Search</label>
           <div className="utilities-search-input-wrap">
             <Search size={14} className="utilities-search-icon" />
@@ -337,45 +274,6 @@ export function AuditLogsTab({
               </button>
             )}
           </div>
-        </div>
-
-        <div className="utilities-filter-group">
-          <label className="utilities-filter-label">Module</label>
-          <DropdownFilter
-            className="utilities-filter-select"
-            value={moduleFilter}
-            onChange={setModuleFilter}
-            options={MODULE_OPTIONS}
-            allLabel="All Modules"
-            menuLabel="Filter by module"
-            ariaLabel="Filter by module"
-          />
-        </div>
-
-        <div className="utilities-filter-group">
-          <label className="utilities-filter-label">Role</label>
-          <DropdownFilter className="utilities-filter-select" value={roleFilter} onChange={setRoleFilter} options={ROLE_OPTIONS} allLabel="All Roles" menuLabel="Filter by role" ariaLabel="Filter by role" />
-        </div>
-
-        <div className="utilities-filter-group">
-          <label className="utilities-filter-label">Action</label>
-          <DropdownFilter className="utilities-filter-select" value={actionFilter} onChange={setActionFilter} options={ACTION_OPTIONS} allLabel="All Actions" menuLabel="Filter by action" ariaLabel="Filter by action" />
-        </div>
-
-        <div className="utilities-filter-group">
-          <label className="utilities-filter-label">User</label>
-          <DropdownFilter
-            className="utilities-filter-select"
-            value={userFilter}
-            onChange={setUserFilter}
-            options={userOptions.map((user) => ({
-              value: user.id,
-              label: user.employee ? `${user.employee.firstName} ${user.employee.lastName}` : user.email,
-            }))}
-            allLabel="All Users"
-            menuLabel="Filter by user"
-            ariaLabel="Filter by user"
-          />
         </div>
 
         <div className="utilities-filter-group">
@@ -409,10 +307,6 @@ export function AuditLogsTab({
           <button className="utilities-export-button" disabled={isExporting} onClick={() => runExport("excel")}>
             <FileSpreadsheet size={14} />
             <span>Excel</span>
-          </button>
-          <button className="utilities-export-button" disabled={isExporting} onClick={() => runExport("csv")}>
-            <FileText size={14} />
-            <span>CSV</span>
           </button>
           <button className="utilities-export-button" disabled={isExporting} onClick={() => runExport("pdf")}>
             <FileText size={14} />

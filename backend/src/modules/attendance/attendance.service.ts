@@ -471,7 +471,7 @@ export class AttendanceService {
           let effectiveShift = shift;
           let minutesLate = computeMinutesLate(shift, arrivalForRules, attendanceDate);
 
-          if (minutesLate > (shift.lateThresholdMinutes ?? 0) && shift.autoShiftAdjustment) {
+          if (minutesLate > 0 && shift.autoShiftAdjustment) {
             const otherShifts = await this.prisma.shift.findMany({
               where: { isActive: true, id: { not: shift.id } },
             });

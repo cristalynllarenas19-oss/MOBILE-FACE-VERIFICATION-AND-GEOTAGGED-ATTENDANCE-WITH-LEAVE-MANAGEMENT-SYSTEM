@@ -63,7 +63,6 @@ export class SchedulesController {
       name: string;
       startTime: string;
       endTime: string;
-      gracePeriodMinutes?: number;
       morningBreakMinutes?: number;
       afternoonBreakMinutes?: number;
       lunchBreakMinutes?: number;
@@ -87,7 +86,6 @@ export class SchedulesController {
       name?: string;
       startTime?: string;
       endTime?: string;
-      gracePeriodMinutes?: number;
       morningBreakMinutes?: number;
       afternoonBreakMinutes?: number;
       lunchBreakMinutes?: number;
