@@ -106,7 +106,10 @@ enum Sex {
 model User {
   id                    String             @id @default(uuid())
   email                 String             @unique
-  passwordHash          String             @map("password_hash")
+  // Nullable so a new employee can be created without a password and log in
+  // once with just their email; they're then forced to set one (see
+  // mustChangePassword) which populates this and flips the flag back to false.
+  passwordHash          String?            @map("password_hash")
   status                UserStatus         @default(ACTIVE)
   // Pre-existing live-DB column not originally tracked in this schema file (see the
   // `divisions`/`sections` note below) — mirrored as-is so `prisma db push` does not drop it.

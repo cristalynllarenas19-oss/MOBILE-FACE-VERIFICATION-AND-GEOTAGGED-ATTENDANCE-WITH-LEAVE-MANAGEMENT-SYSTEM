@@ -11,22 +11,42 @@ export class UsersService {
     private readonly auditLogs: AuditLogsService,
   ) {}
 
-  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+  async changePassword(userId: string, currentPassword: string | undefined, newPassword: string) {
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
-    const valid = await argon2.verify(user.passwordHash, currentPassword);
-    if (!valid) {
-      throw new UnauthorizedException("Current password is incorrect.");
-    }
-    if (currentPassword === newPassword) {
-      throw new BadRequestException("New password must be different from the current password.");
+
+    if (user.passwordHash) {
+      const valid = currentPassword ? await argon2.verify(user.passwordHash, currentPassword) : false;
+      if (!valid) {
+        throw new UnauthorizedException("Current password is incorrect.");
+      }
+      if (currentPassword === newPassword) {
+        throw new BadRequestException("New password must be different from the current password.");
+      }
+    } else {
+      // First-time setup: no existing password to verify against, but the
+      // employee's chosen password must meet the stricter initial policy.
+      this.assertValidInitialPassword(newPassword);
     }
 
     await this.prisma.user.update({
       where: { id: userId },
-      data: { passwordHash: await argon2.hash(newPassword) },
+      data: { passwordHash: await argon2.hash(newPassword), mustChangePassword: false },
     });
 
     return { message: "Password updated." };
+  }
+
+  // Standard for a brand-new employee's first password: at least 10
+  // characters, letters and digits only, with at least one of each.
+  private assertValidInitialPassword(password: string) {
+    if (password.length < 10 || !/^[A-Za-z0-9]+$/.test(password)) {
+      throw new BadRequestException(
+        "Password must be at least 10 characters and contain only letters and numbers.",
+      );
+    }
+    if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
+      throw new BadRequestException("Password must include at least one letter and one number.");
+    }
   }
 
   // Only accounts that have actually been granted a system role ever show up

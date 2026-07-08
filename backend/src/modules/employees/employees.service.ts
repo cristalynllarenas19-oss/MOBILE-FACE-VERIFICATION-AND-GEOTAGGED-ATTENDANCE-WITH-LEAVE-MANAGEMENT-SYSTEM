@@ -1,5 +1,4 @@
 import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
-import * as argon2 from "argon2";
 import { PrismaService } from "../../prisma/prisma.service";
 import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
 import { CreateEmployeeDto, CreateEmployeeSex, UpdateEmployeeDto } from "./dto/create-employee.dto";
@@ -58,10 +57,13 @@ export class EmployeesService {
       (await this.prisma.position.findFirst({ where: { title: "Employee" } })) ??
       (await this.prisma.position.create({ data: { title: "Employee" } }));
 
+    // No password is set at creation time — the employee logs in once with
+    // just their email, then is forced to set their own password (see
+    // AuthService.login / UsersService.changePassword).
     const user = await this.prisma.user.create({
       data: {
         email: dto.email,
-        passwordHash: await argon2.hash(dto.password),
+        mustChangePassword: true,
         userRoles: { create: { roleId: role.id } },
       },
     });

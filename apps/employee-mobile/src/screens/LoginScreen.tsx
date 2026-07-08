@@ -121,7 +121,7 @@ export default function LoginScreen({
 
               <TextInput
                 style={styles.input}
-                placeholder="Enter your password"
+                placeholder="Leave blank on first login"
                 placeholderTextColor="#94A3B8"
                 secureTextEntry={
                   !showPassword

@@ -25,7 +25,7 @@ export class AuthService {
     private readonly auditLogs: AuditLogsService,
   ) {}
 
-  async login(email: string, password: string, context: AuditLogContext = {}) {
+  async login(email: string, password: string | undefined, context: AuditLogContext = {}) {
     const user = await this.prisma.user.findUnique({
       where: { email },
       include: {
@@ -44,9 +44,13 @@ export class AuthService {
       throw new UnauthorizedException("Invalid credentials");
     }
 
-    const passwordValid = await argon2.verify(user.passwordHash, password);
-    if (!passwordValid) {
-      throw new UnauthorizedException("Invalid credentials");
+    // A brand-new employee has no password yet (passwordHash is null) and is
+    // let in on email alone; they're forced to set one right after (see
+    // mustChangePassword below and UsersService.changePassword).
+    if (user.passwordHash) {
+      if (!password || !(await argon2.verify(user.passwordHash, password))) {
+        throw new UnauthorizedException("Invalid credentials");
+      }
     }
 
     const roleObjs = user.userRoles.map((userRole) => userRole.role);
@@ -117,6 +121,7 @@ export class AuthService {
         displayName,
         attendanceMode: user.employee?.attendanceMode,
         defaultView: user.defaultView,
+        mustChangePassword: user.mustChangePassword,
       },
     };
   }

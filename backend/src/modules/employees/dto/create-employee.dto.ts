@@ -1,4 +1,4 @@
-import { IsDateString, IsEmail, IsEnum, IsInt, IsOptional, IsString, Min, MinLength } from "class-validator";
+import { IsDateString, IsEmail, IsEnum, IsInt, IsOptional, IsString, Min } from "class-validator";
 
 export enum CreateEmployeeEmploymentStatus {
   REGULAR = "REGULAR",
@@ -31,10 +31,6 @@ export class CreateEmployeeDto {
 
   @IsEmail()
   email!: string;
-
-  @IsString()
-  @MinLength(8)
-  password!: string;
 
   @IsString()
   department!: string;

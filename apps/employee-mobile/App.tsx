@@ -9,6 +9,7 @@ import CameraScanner from "./src/components/CameraScanner";
 import ResultModal, { ResultModalStatus } from "./src/components/ResultModal";
 import VerifyOtpScreen from "./src/screens/VerifyOtpScreen";
 import NewPasswordScreen from "./src/screens/NewPasswordScreen";
+import SetInitialPasswordScreen from "./src/screens/SetInitialPasswordScreen";
 import SplashScreen from "./src/screens/SplashScreen";
 
 import {
@@ -109,10 +110,10 @@ export default function App() {
   }
 
   async function handleLogin() {
-    if (!email.trim() || !password.trim()) {
+    if (!email.trim()) {
       Alert.alert(
         "Missing Information",
-        "Please enter your email and password."
+        "Please enter your email address."
       );
       return;
     }
@@ -122,7 +123,7 @@ export default function App() {
     try {
       await checkApiHealth();
       const loggedInUser =
-        await login(email, password);
+        await login(email.trim(), password.trim() || undefined);
 
       setUser(loggedInUser);
     } catch (error) {
@@ -133,6 +134,12 @@ export default function App() {
     } finally {
       setIsLoading(false);
     }
+  }
+
+  // Called once a first-time employee finishes setting their password — they
+  // must log back in with it, so this just reuses the normal logout path.
+  async function handlePasswordSetupComplete() {
+    await handleLogout();
   }
 
   async function handleForgotPassword() {
@@ -431,6 +438,8 @@ export default function App() {
           onLogin={handleLogin}
           onForgotPassword={handleForgotPassword}
         />
+      ) : user.mustChangePassword ? (
+        <SetInitialPasswordScreen onDone={handlePasswordSetupComplete} />
       ) : scanType ? (
         <CameraScanner
           logType={scanType}

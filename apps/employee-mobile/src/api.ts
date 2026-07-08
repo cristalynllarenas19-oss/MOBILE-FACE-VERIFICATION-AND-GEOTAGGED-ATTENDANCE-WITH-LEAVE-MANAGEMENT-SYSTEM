@@ -232,10 +232,10 @@ export async function checkApiHealth() {
   return apiRequest<{ ok: boolean; service: string; checkedAt: string }>("/health");
 }
 
-export async function login(email: string, password: string) {
+export async function login(email: string, password?: string) {
   const data = await apiRequest<{ accessToken: string; refreshToken: string; user: MobileUser }>("/auth/login", {
     method: "POST",
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify(password ? { email, password } : { email }),
   });
   await SecureStore.setItemAsync("accessToken", data.accessToken);
   await SecureStore.setItemAsync("refreshToken", data.refreshToken);

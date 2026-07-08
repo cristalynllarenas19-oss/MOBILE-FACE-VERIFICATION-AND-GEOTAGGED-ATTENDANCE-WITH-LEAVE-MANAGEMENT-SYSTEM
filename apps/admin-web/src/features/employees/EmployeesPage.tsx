@@ -31,7 +31,6 @@ type EmployeeForm = {
   firstName: string;
   lastName: string;
   email: string;
-  password: string;
   department: string;
   // Kept here (rather than split into two types) because EditEmployeeForm
   // reuses this shape and Edit still collects a position — only the Add
@@ -44,7 +43,7 @@ type EmployeeForm = {
   sex: "MALE" | "FEMALE";
 };
 
-type EditEmployeeForm = Omit<EmployeeForm, "password">;
+type EditEmployeeForm = EmployeeForm;
 
 type Notification = { type: "success" | "error"; message: string } | null;
 
@@ -52,7 +51,6 @@ const initialForm: EmployeeForm = {
   firstName: "",
   lastName: "",
   email: "",
-  password: "",
   department: "",
   position: "",
   hireDate: "",
@@ -211,7 +209,6 @@ function AddEmployeeModal({
     if (!form.firstName.trim() || !form.lastName.trim()) return "Employee name is required.";
     if (!form.email.trim()) return "Email is required.";
     if (!/^\S+@\S+\.\S+$/.test(form.email.trim())) return "Enter a valid email address.";
-    if (form.password.length < 8) return "Password must be at least 8 characters.";
     if (!form.department.trim()) return "Department is required.";
     return "";
   };
@@ -236,7 +233,6 @@ function AddEmployeeModal({
           firstName: form.firstName.trim(),
           lastName: form.lastName.trim(),
           email: form.email.trim(),
-          password: form.password,
           department: form.department.trim(),
           employmentStatus: form.employmentStatus,
           attendanceMode: form.attendanceMode,
@@ -267,7 +263,11 @@ function AddEmployeeModal({
   };
 
   return (
-    <EmployeeModal title="Add Employee" description="Create an employee profile and login account." onClose={onClose}>
+    <EmployeeModal
+      title="Add Employee"
+      description="Create an employee profile. They'll set their own password on first login."
+      onClose={onClose}
+    >
       <form className="employee-form" onSubmit={handleSubmit}>
         <div className="employee-form-grid">
           <label>
@@ -285,20 +285,6 @@ function AddEmployeeModal({
             Email
             <input type="email" value={form.email} onChange={updateField("email")} placeholder="employee@example.com" required />
           </label>
-          <label>
-            Password
-            <input
-              type="password"
-              value={form.password}
-              onChange={updateField("password")}
-              minLength={8}
-              placeholder="Minimum 8 characters"
-              required
-            />
-          </label>
-        </div>
-
-        <div className="employee-form-grid">
           <label>
             Department
             {lockedDepartmentName ? (
@@ -321,6 +307,9 @@ function AddEmployeeModal({
               </>
             )}
           </label>
+        </div>
+
+        <div className="employee-form-grid">
           <label>
             Employment Status
             <select value={form.employmentStatus} onChange={updateField("employmentStatus")}>
@@ -329,9 +318,6 @@ function AddEmployeeModal({
               <option value="PIECE_RATE">Piece-rate (Pakyawan) Worker</option>
             </select>
           </label>
-        </div>
-
-        <div className="employee-form-grid">
           <label>
             Sex/Gender
             <select value={form.sex} onChange={updateField("sex")}>
@@ -339,6 +325,9 @@ function AddEmployeeModal({
               <option value="FEMALE">Female</option>
             </select>
           </label>
+        </div>
+
+        <div className="employee-form-grid">
           <label>
             Solo Parent Eligibility
             <select value={form.soloParentStatus} onChange={updateField("soloParentStatus")}>
@@ -347,13 +336,13 @@ function AddEmployeeModal({
               <option value="INELIGIBLE">Ineligible</option>
             </select>
           </label>
-        </div>
-
-        <div className="employee-form-grid">
           <label>
             Hire Date
             <input type="date" value={form.hireDate} onChange={updateField("hireDate")} />
           </label>
+        </div>
+
+        <div className="employee-form-grid">
           <label>
             Attendance Mode
             <select value={form.attendanceMode} onChange={updateField("attendanceMode")}>
