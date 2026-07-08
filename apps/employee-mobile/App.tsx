@@ -7,7 +7,6 @@ import LoginScreen from "./src/screens/LoginScreen";
 import MainScreen from "./src/screens/MainScreen";
 import CameraScanner from "./src/components/CameraScanner";
 import ResultModal, { ResultModalStatus } from "./src/components/ResultModal";
-import SitePickerModal from "./src/components/SitePickerModal";
 import VerifyOtpScreen from "./src/screens/VerifyOtpScreen";
 import NewPasswordScreen from "./src/screens/NewPasswordScreen";
 import SplashScreen from "./src/screens/SplashScreen";
@@ -55,11 +54,9 @@ export default function App() {
   const [resultModal, setResultModal] = useState<ResultModalState | null>(null);
 
   // FIELD-employee site visit state: which site they're about to start a
-  // visit at (carried through to the camera capture and the submission),
-  // and the picker listing their assigned sites when there's more than one.
+  // visit at (auto-detected from GPS, carried through to the camera capture
+  // and the submission).
   const [selectedWorkLocation, setSelectedWorkLocation] = useState<WorkLocation | null>(null);
-  const [sitePickerSites, setSitePickerSites] = useState<WorkLocation[]>([]);
-  const [isSitePickerVisible, setIsSitePickerVisible] = useState(false);
 
   const [authView, setAuthView] = useState<AuthView>("login");
   const [resetEmail, setResetEmail] = useState("");
@@ -226,9 +223,11 @@ export default function App() {
 
   // FIELD employees have no single fixed time-in/out pair — sequencing
   // (can't start a new visit while one's still open) is enforced by the
-  // server, not re-derived here. Starting a visit needs the technician to
-  // pick which assigned site they're at; ending one doesn't, since the
-  // server resolves the site from whichever visit is currently open.
+  // server, not re-derived here. Starting a visit auto-detects which
+  // assigned site the technician is at from their current GPS position
+  // (closest assigned site wins) rather than asking them to pick one;
+  // ending one doesn't need this, since the server resolves the site from
+  // whichever visit is currently open.
   async function startFieldScan(type: "TIME_IN" | "TIME_OUT") {
     if (type === "TIME_OUT") {
       setScanType("TIME_OUT");
@@ -251,19 +250,28 @@ export default function App() {
         return;
       }
 
-      setSitePickerSites(sites);
-      setIsSitePickerVisible(true);
+      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const nearestSite = sites.reduce((closest, site) => {
+        const distance = distanceInMeters(
+          position.coords.latitude,
+          position.coords.longitude,
+          Number(site.latitude),
+          Number(site.longitude),
+        );
+        return distance < closest.distance ? { site, distance } : closest;
+      }, { site: sites[0], distance: Infinity });
+
+      await handleSiteSelected(nearestSite.site);
     } catch (error) {
       setResultModal({
         status: "error",
-        title: "Failed to Load Sites",
+        title: "Failed to Detect Location",
         message: error instanceof Error ? error.message : "Please try again.",
       });
     }
   }
 
   async function handleSiteSelected(site: WorkLocation) {
-    setIsSitePickerVisible(false);
     setSelectedWorkLocation(site);
 
     const isOutsideSite = await checkOutsideSite(site);
@@ -442,13 +450,6 @@ export default function App() {
           onTimeOut={() => startScan("TIME_OUT")}
         />
       )}
-
-      <SitePickerModal
-        visible={isSitePickerVisible}
-        sites={sitePickerSites}
-        onSelect={handleSiteSelected}
-        onCancel={() => setIsSitePickerVisible(false)}
-      />
 
       <ResultModal
         visible={!!resultModal}
