@@ -7,11 +7,12 @@ import ChangePasswordScreen from "./ChangePasswordScreen";
 
 type Props = {
   onLogout: () => void;
+  onProfileChanged?: () => void;
 };
 
 type SettingsView = "root" | "profile" | "password";
 
-export default function SettingsScreen({ onLogout }: Props) {
+export default function SettingsScreen({ onLogout, onProfileChanged }: Props) {
   const [view, setView] = useState<SettingsView>("root");
   const [profile, setProfile] = useState<EmployeeProfile | null>(null);
 
@@ -24,7 +25,15 @@ export default function SettingsScreen({ onLogout }: Props) {
   }, [loadProfile]);
 
   if (view === "profile") {
-    return <ViewProfileScreen onClose={() => setView("root")} />;
+    return (
+      <ViewProfileScreen
+        onClose={() => {
+          setView("root");
+          loadProfile();
+          onProfileChanged?.();
+        }}
+      />
+    );
   }
   if (view === "password") {
     return <ChangePasswordScreen onClose={() => setView("root")} />;
@@ -124,15 +133,21 @@ const styles = StyleSheet.create({
 
   logoutButton: {
     marginTop: 20,
-    backgroundColor: "#dc2626",
-    height: 46,
-    borderRadius: 8,
+    height: 60,
+    borderRadius: 16,
+    backgroundColor: "#062B59",
     justifyContent: "center",
     alignItems: "center",
+    shadowColor: "#062B59",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
   },
 
   logoutText: {
-    color: "#fff",
-    fontWeight: "bold",
+    color: "#FFFFFF",
+    fontWeight: "700",
+    fontSize: 17,
   },
 });

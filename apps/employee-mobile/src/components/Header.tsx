@@ -2,23 +2,30 @@ import React, { useEffect, useRef } from "react";
 import {
   View,
   Text,
+  Image,
   StyleSheet,
   Pressable,
   Animated,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { EmployeeProfile } from "../api";
 
 type Props = {
   user: any;
+  profile?: EmployeeProfile | null;
   unreadCount?: number;
   onPressNotifications?: () => void;
 };
 
 export default function Header({
   user,
+  profile,
   unreadCount = 0,
   onPressNotifications,
 }: Props) {
+  const avatarSource = profile?.profilePhotoData
+    ? `data:${profile.profilePhotoMimeType ?? "image/jpeg"};base64,${profile.profilePhotoData}`
+    : null;
   const badgeScale = useRef(new Animated.Value(unreadCount > 0 ? 1 : 0)).current;
   const bellShake = useRef(new Animated.Value(0)).current;
   const prevUnreadCount = useRef(unreadCount);
@@ -53,11 +60,15 @@ export default function Header({
     <View style={styles.container}>
       <View style={styles.topRow}>
         <View style={styles.userSection}>
-          <Ionicons
-            name="person-circle"
-            size={40}
-            color="#244c7a"
-          />
+          {avatarSource ? (
+            <Image source={{ uri: avatarSource }} style={styles.avatar} />
+          ) : (
+            <Ionicons
+              name="person-circle"
+              size={40}
+              color="#244c7a"
+            />
+          )}
 
           <Text style={styles.name}>
             {user?.displayName}
@@ -118,6 +129,12 @@ const styles = StyleSheet.create({
   userSection: {
     flexDirection: "row",
     alignItems: "center",
+  },
+
+  avatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
   },
 
   name: {

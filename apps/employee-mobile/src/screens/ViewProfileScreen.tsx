@@ -1,7 +1,11 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, Image, Pressable, StyleSheet, ActivityIndicator } from "react-native";
+import { View, Text, Image, Pressable, StyleSheet, ActivityIndicator, Alert } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { EmployeeProfile, getMyProfile } from "../api";
+import * as DocumentPicker from "expo-document-picker";
+import { File } from "expo-file-system";
+import { EmployeeProfile, getMyProfile, updateMyPhoto } from "../api";
+
+const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 
 type Props = {
   onClose: () => void;
@@ -10,12 +14,46 @@ type Props = {
 export default function ViewProfileScreen({ onClose }: Props) {
   const [profile, setProfile] = useState<EmployeeProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
   useEffect(() => {
     getMyProfile()
       .then(setProfile)
       .finally(() => setIsLoading(false));
   }, []);
+
+  async function handleChangePhoto() {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: "image/*",
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled || !result.assets?.[0]) return;
+      const asset = result.assets[0];
+
+      if (asset.size && asset.size > MAX_PHOTO_BYTES) {
+        Alert.alert("Photo Too Large", "Please choose an image under 5MB.");
+        return;
+      }
+
+      const base64 = asset.base64 ?? (await new File(asset.uri).base64());
+      const sizeBytes = asset.size ?? Math.ceil((base64.length * 3) / 4);
+
+      if (sizeBytes > MAX_PHOTO_BYTES) {
+        Alert.alert("Photo Too Large", "Please choose an image under 5MB.");
+        return;
+      }
+
+      setIsUploadingPhoto(true);
+      const updated = await updateMyPhoto(base64, asset.mimeType ?? "image/jpeg");
+      setProfile(updated);
+    } catch (error) {
+      Alert.alert("Upload Failed", error instanceof Error ? error.message : "Please try again.");
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  }
 
   const avatarSource = profile?.profilePhotoData
     ? `data:${profile.profilePhotoMimeType ?? "image/jpeg"};base64,${profile.profilePhotoData}`
@@ -33,13 +71,27 @@ export default function ViewProfileScreen({ onClose }: Props) {
         <ActivityIndicator size="large" color="#1680D8" style={{ marginTop: 20 }} />
       ) : (
         <>
-          {avatarSource ? (
-            <Image source={{ uri: avatarSource }} style={styles.avatar} />
-          ) : (
-            <View style={[styles.avatar, styles.avatarPlaceholder]}>
-              <Ionicons name="person" size={32} color="#94A3B8" />
-            </View>
-          )}
+          <View style={styles.avatarWrap}>
+            {avatarSource ? (
+              <Image source={{ uri: avatarSource }} style={styles.avatar} />
+            ) : (
+              <View style={[styles.avatar, styles.avatarPlaceholder]}>
+                <Ionicons name="person" size={32} color="#94A3B8" />
+              </View>
+            )}
+
+            <Pressable
+              onPress={handleChangePhoto}
+              disabled={isUploadingPhoto}
+              style={({ pressed }) => [styles.avatarEditButton, pressed && { opacity: 0.8 }]}
+            >
+              {isUploadingPhoto ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Ionicons name="camera" size={16} color="#FFFFFF" />
+              )}
+            </Pressable>
+          </View>
 
           <View style={styles.card}>
             <InfoRow icon="person-outline" label="Full Name" value={`${profile?.firstName ?? ""} ${profile?.lastName ?? ""}`} />
@@ -50,7 +102,8 @@ export default function ViewProfileScreen({ onClose }: Props) {
           </View>
 
           <Text style={styles.note}>
-            Profile information is managed by HR. Contact HR/Admin if any details need to be updated.
+            You can update your profile photo above. Other profile information is managed by HR — contact HR/Admin
+            if any details need to be updated.
           </Text>
         </>
       )}
@@ -84,8 +137,22 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#FFFFFF", paddingHorizontal: 20, paddingTop: 4, paddingBottom: 16 },
   backButton: { width: 40, height: 40, justifyContent: "center" },
   title: { fontSize: 20, fontWeight: "700", color: "#062B59", marginTop: 0, marginBottom: 12 },
-  avatar: { width: 68, height: 68, borderRadius: 34, alignSelf: "center", marginBottom: 12 },
+  avatarWrap: { alignSelf: "center", marginBottom: 12 },
+  avatar: { width: 68, height: 68, borderRadius: 34 },
   avatarPlaceholder: { backgroundColor: "#F1F5F9", alignItems: "center", justifyContent: "center" },
+  avatarEditButton: {
+    position: "absolute",
+    bottom: -2,
+    right: -2,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: "#1680D8",
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   card: {
     backgroundColor: "#FFFFFF",
     borderRadius: 14,

@@ -7,12 +7,14 @@ import {
   TextInput,
   Pressable,
   FlatList,
+  ScrollView,
   RefreshControl,
   ActivityIndicator,
   StyleSheet,
   Animated,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { BlurView } from "expo-blur";
 import * as DocumentPicker from "expo-document-picker";
 import { File } from "expo-file-system";
 import {
@@ -141,7 +143,10 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
   const [isLoading, setIsLoading] = useState(true);
   const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
 
-  // Only one notification's inline resubmit form is open at a time.
+  // Which notification's full details are currently popped up.
+  const [detailNotification, setDetailNotification] = useState<AppNotification | null>(null);
+
+  // Only one notification's resubmit form is open at a time.
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [attachment, setAttachment] = useState<PickedAttachment | null>(null);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
@@ -196,16 +201,19 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
     }
 
     if (notification.type === "LEAVE_NEEDS_REQUIREMENTS") {
-      if (expandedId === notification.id) {
-        collapseResubmitForm();
-      } else {
-        setExpandedId(notification.id);
-        setAttachment(null);
-        setAttachmentError(null);
-        setNote("");
-        setJustResubmittedId(null);
-      }
+      setExpandedId(notification.id);
+      setAttachment(null);
+      setAttachmentError(null);
+      setNote("");
+      setJustResubmittedId(null);
     }
+
+    setDetailNotification(notification);
+  }
+
+  function handleCloseDetail() {
+    setDetailNotification(null);
+    collapseResubmitForm();
   }
 
   async function handleMarkAllRead() {
@@ -268,6 +276,7 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
       });
       const resubmittedNotificationId = expandedId;
       collapseResubmitForm();
+      setDetailNotification(null);
       setJustResubmittedId(resubmittedNotificationId);
       await load();
     } catch (error) {
@@ -279,7 +288,17 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
 
   const hasUnread = notifications.some((item) => !item.readAt);
 
+  const detailIcon = detailNotification ? notificationIcon(detailNotification.type) : null;
+  const detailLeaveRequest = detailNotification?.entityId
+    ? leaveRequests.find((r) => r.id === detailNotification.entityId)
+    : undefined;
+  const detailLastRejection = detailLeaveRequest
+    ? [...(detailLeaveRequest.notes ?? [])].reverse().find((n) => n.type === "REJECTED")
+    : undefined;
+  const detailStillNeedsRevision = detailLeaveRequest?.status === "NEEDS_REVISION";
+
   return (
+    <>
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.header}>
@@ -315,12 +334,6 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
           renderItem={({ item, index }) => {
             const icon = notificationIcon(item.type);
             const isUnread = !item.readAt;
-            const isExpanded = expandedId === item.id;
-            const leaveRequest = item.entityId ? leaveRequests.find((r) => r.id === item.entityId) : undefined;
-            const lastRejection = leaveRequest
-              ? [...(leaveRequest.notes ?? [])].reverse().find((n) => n.type === "REJECTED")
-              : undefined;
-            const stillNeedsRevision = leaveRequest?.status === "NEEDS_REVISION";
 
             return (
               <FadeInView delay={Math.min(index * 40, 240)}>
@@ -337,7 +350,7 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                   </View>
                   <View style={styles.notificationBody}>
                     <Text style={styles.notificationTitle}>{item.title}</Text>
-                    <Text style={styles.notificationMessage}>{item.message}</Text>
+                    <Text style={styles.notificationMessage} numberOfLines={2}>{item.message}</Text>
                     <Text style={styles.notificationTime}>{timeAgo(item.createdAt)}</Text>
                   </View>
                   {isUnread && <PulsingDot />}
@@ -349,20 +362,53 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                     <Text style={styles.resubmitConfirmationText}>Resubmitted — your reviewer has been notified.</Text>
                   </FadeInView>
                 )}
+              </FadeInView>
+            );
+          }}
+        />
+      </SafeAreaView>
+    </Modal>
 
-                {isExpanded && (
-                  <FadeInView style={styles.resubmitPanel}>
-                    {!leaveRequest ? (
+    <Modal visible={!!detailNotification} animationType="fade" transparent onRequestClose={handleCloseDetail}>
+      <Pressable style={styles.detailBackdrop} onPress={handleCloseDetail}>
+        <BlurView intensity={45} tint="dark" style={StyleSheet.absoluteFillObject} />
+        <Pressable style={styles.detailSheet} onPress={(event) => event.stopPropagation()}>
+          {detailNotification && detailIcon && (
+            <>
+              <View style={styles.detailHeader}>
+                <View style={[styles.iconCircle, { backgroundColor: `${detailIcon.color}1A` }]}>
+                  <Ionicons name={detailIcon.name} size={22} color={detailIcon.color} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.detailTitle}>{detailNotification.title}</Text>
+                  <Text style={styles.detailTime}>
+                    {new Date(detailNotification.createdAt).toLocaleString("en-US", {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    })}
+                  </Text>
+                </View>
+                <Pressable onPress={handleCloseDetail} style={styles.detailCloseButton} hitSlop={8}>
+                  <Ionicons name="close" size={22} color="#64748B" />
+                </Pressable>
+              </View>
+
+              <ScrollView contentContainerStyle={styles.detailScrollContent}>
+                <Text style={styles.detailMessage}>{detailNotification.message}</Text>
+
+                {detailNotification.type === "LEAVE_NEEDS_REQUIREMENTS" && expandedId === detailNotification.id && (
+                  <View style={styles.resubmitPanel}>
+                    {!detailLeaveRequest ? (
                       <ActivityIndicator size="small" color="#1680D8" />
-                    ) : !stillNeedsRevision ? (
+                    ) : !detailStillNeedsRevision ? (
                       <Text style={styles.resubmitInfoText}>
                         This request has already moved on — check the Leave tab for its current status.
                       </Text>
                     ) : (
                       <>
-                        {lastRejection?.requirementDetails && (
+                        {detailLastRejection?.requirementDetails && (
                           <Text style={styles.resubmitRequirementText}>
-                            Requirement needed: {lastRejection.requirementDetails}
+                            Requirement needed: {detailLastRejection.requirementDetails}
                           </Text>
                         )}
 
@@ -413,7 +459,7 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                             isResubmitting && styles.resubmitButtonDisabled,
                             pressed && !isResubmitting && styles.resubmitButtonPressed,
                           ]}
-                          onPress={() => handleResubmit(leaveRequest.id)}
+                          onPress={() => handleResubmit(detailLeaveRequest.id)}
                           disabled={isResubmitting}
                         >
                           {isResubmitting ? (
@@ -424,14 +470,15 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                         </Pressable>
                       </>
                     )}
-                  </FadeInView>
+                  </View>
                 )}
-              </FadeInView>
-            );
-          }}
-        />
-      </SafeAreaView>
+              </ScrollView>
+            </>
+          )}
+        </Pressable>
+      </Pressable>
     </Modal>
+    </>
   );
 }
 
@@ -552,11 +599,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#1680D8",
   },
   resubmitPanel: {
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    marginTop: 16,
+    padding: 14,
     backgroundColor: "#F8FAFC",
-    borderBottomWidth: 1,
-    borderBottomColor: "#F1F5F9",
+    borderRadius: 14,
     gap: 8,
   },
   resubmitInfoText: {
@@ -666,5 +712,59 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
     color: "#15803D",
+  },
+  detailBackdrop: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+  },
+  detailSheet: {
+    width: "100%",
+    maxWidth: 420,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    maxHeight: "78%",
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 22,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  detailHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    marginBottom: 14,
+  },
+  detailTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#062B59",
+  },
+  detailTime: {
+    fontSize: 12,
+    color: "#94A3B8",
+    fontWeight: "600",
+    marginTop: 3,
+  },
+  detailCloseButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: "#F1F5F9",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  detailScrollContent: {
+    paddingBottom: 4,
+  },
+  detailMessage: {
+    fontSize: 15,
+    color: "#334155",
+    lineHeight: 22,
   },
 });

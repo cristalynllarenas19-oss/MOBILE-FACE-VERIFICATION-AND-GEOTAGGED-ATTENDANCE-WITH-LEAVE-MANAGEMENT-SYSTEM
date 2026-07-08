@@ -311,6 +311,13 @@ export async function getMyProfile() {
   return apiRequest<EmployeeProfile>("/employees/me");
 }
 
+export async function updateMyPhoto(profilePhotoData: string, profilePhotoMimeType: string) {
+  return apiRequest<EmployeeProfile>("/employees/me/photo", {
+    method: "PATCH",
+    body: JSON.stringify({ profilePhotoData, profilePhotoMimeType }),
+  });
+}
+
 export async function changePassword(currentPassword: string, newPassword: string) {
   return apiRequest<{ message: string }>("/users/me/password", {
     method: "PATCH",

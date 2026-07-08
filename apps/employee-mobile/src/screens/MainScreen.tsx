@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   SafeAreaView,
   View,
@@ -15,7 +15,7 @@ import Header from "../components/Header";
 import BottomTab from "../components/BottomTab";
 
 import { Tab } from "../types";
-import { TodayAttendance, getUnreadNotificationCount } from "../api";
+import { EmployeeProfile, TodayAttendance, getMyProfile, getUnreadNotificationCount } from "../api";
 
 const NOTIFICATION_POLL_MS = 30000;
 
@@ -41,6 +41,15 @@ export default function MainScreen({
 
   const [unreadCount, setUnreadCount] = useState(0);
   const [notificationsVisible, setNotificationsVisible] = useState(false);
+  const [profile, setProfile] = useState<EmployeeProfile | null>(null);
+
+  const loadProfile = useCallback(() => {
+    getMyProfile().then(setProfile).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    loadProfile();
+  }, [loadProfile]);
 
   useEffect(() => {
     const refreshUnreadCount = () => {
@@ -57,6 +66,7 @@ export default function MainScreen({
     <SafeAreaView style={{ flex: 1 }}>
       <Header
         user={user}
+        profile={profile}
         unreadCount={unreadCount}
         onPressNotifications={() => setNotificationsVisible(true)}
       />
@@ -102,6 +112,7 @@ export default function MainScreen({
         {tab === "settings" && (
           <SettingsScreen
             onLogout={onLogout}
+            onProfileChanged={loadProfile}
           />
         )}
       </View>
