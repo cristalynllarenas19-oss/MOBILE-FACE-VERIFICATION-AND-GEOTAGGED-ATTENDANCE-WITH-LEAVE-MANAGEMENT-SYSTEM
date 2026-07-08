@@ -222,37 +222,49 @@ export function AttendancePage({ user }: Props) {
   return (
     <div className="emp-form-page">
         <div className="att-card" style={{ ...card, padding: 36 }}>
-          <p className="att-date" style={{ color: "#64748B", fontSize: 13, marginBottom: 20 }}>{todayLabel}</p>
-          <h2 className="att-heading" style={{ color: "#062B59", fontSize: 26, fontWeight: 800, marginBottom: 16 }}>
-            Attendance Status
-          </h2>
-          <div className="att-status-row" style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
-            <div style={{ width: 12, height: 12, borderRadius: "50%", background: statusColor, flexShrink: 0 }} />
-            <span style={{ color: statusColor, fontWeight: 700, fontSize: 18 }}>{statusLabel}</span>
+          <div className="att-header-row" style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+            <div className="att-header-text" style={{ minWidth: 0 }}>
+              <p className="att-date" style={{ color: "#64748B", fontSize: 13, marginBottom: 6 }}>{todayLabel}</p>
+              <h2 className="att-heading" style={{ color: "#062B59", fontSize: 20, fontWeight: 700, margin: 0 }}>
+                Attendance Status
+              </h2>
+            </div>
+            <div
+              className="att-status-badge"
+              style={{
+                display: "flex", alignItems: "center", gap: 6, flexShrink: 0,
+                background: `${statusColor}1A`, border: `1px solid ${statusColor}`,
+                borderRadius: 20, padding: "6px 10px",
+              }}
+            >
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: statusColor, flexShrink: 0 }} />
+              <span style={{ color: statusColor, fontWeight: 700, fontSize: 12 }}>{statusLabel}</span>
+            </div>
           </div>
-          <p className="att-welcome" style={{ color: "#475569", fontSize: 14, marginBottom: 28 }}>
+
+          <p className="att-welcome" style={{ color: "#475569", fontSize: 14, marginTop: 16, marginBottom: 20 }}>
             Welcome back, {user.displayName}
           </p>
 
-          {/* Hero time display */}
-          <div className="att-time-hero" style={{
-            display: "grid", gridTemplateColumns: "1fr 1fr",
-            gap: 16, background: "#F8FAFC", borderRadius: 16,
-            padding: "24px 28px", marginBottom: 4,
-          }}>
-            <div>
-              <p style={{ color: "#94A3B8", fontSize: 12, fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>
-                TIME IN
-              </p>
-              <p className="att-time-val" style={{ color: "#062B59", fontSize: 40, fontWeight: 800, lineHeight: 1, margin: 0 }}>
+          <div className="att-stats-row" style={{ display: "flex", alignItems: "center", paddingTop: 18, borderTop: "1px solid #EDF1F6" }}>
+            <div className="att-stat-col" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
+              <div style={{ width: 36, height: 36, borderRadius: 18, background: "#EFF6FF", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 8 }}>
+                <LogIn size={18} color="#1680D8" />
+              </div>
+              <p style={{ color: "#64748B", fontSize: 13, marginBottom: 4 }}>{isField ? "Visit Start" : "Time In"}</p>
+              <p className="att-time-val" style={{ color: "#062B59", fontWeight: 700, fontSize: 16, margin: 0 }}>
                 {fmtTime(todayAtt?.timeInAt)}
               </p>
             </div>
-            <div style={{ borderLeft: "1px solid #E2E8F0", paddingLeft: 16 }}>
-              <p style={{ color: "#94A3B8", fontSize: 12, fontWeight: 700, letterSpacing: 1, marginBottom: 8 }}>
-                TIME OUT
-              </p>
-              <p className="att-time-val" style={{ color: "#062B59", fontSize: 40, fontWeight: 800, lineHeight: 1, margin: 0 }}>
+
+            <div className="att-stat-divider" style={{ width: 1, height: 52, background: "#E2E8F0", margin: "0 8px" }} />
+
+            <div className="att-stat-col" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
+              <div style={{ width: 36, height: 36, borderRadius: 18, background: "#F0FDF4", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 8 }}>
+                <LogOut size={18} color="#17A34A" />
+              </div>
+              <p style={{ color: "#64748B", fontSize: 13, marginBottom: 4 }}>{isField ? "Visit End" : "Time Out"}</p>
+              <p className="att-time-val" style={{ color: "#062B59", fontWeight: 700, fontSize: 16, margin: 0 }}>
                 {fmtTime(todayAtt?.timeOutAt)}
               </p>
             </div>
@@ -271,7 +283,7 @@ export function AttendancePage({ user }: Props) {
           }}
         >
           <LogIn size={18} color="#FFFFFF" />
-          <span>{isSubmitting ? "Processing…" : "TIME IN"}</span>
+          <span>{isSubmitting ? "Processing…" : isField ? "START VISIT" : "TIME IN"}</span>
         </button>
 
         <button
@@ -288,7 +300,7 @@ export function AttendancePage({ user }: Props) {
         >
           <LogOut size={18} color={timeOutDisabled ? "#94A3B8" : "#FFFFFF"} />
           <span style={{ color: timeOutDisabled ? "#94A3B8" : "#FFFFFF" }}>
-            TIME OUT
+            {isField ? "END VISIT" : "TIME OUT"}
           </span>
         </button>
 

@@ -202,8 +202,15 @@ export function WorkAreaPage({ user }: Props) {
           ) : locations.length === 0 ? (
             <div className="work-area-map-placeholder">
               <MapPin size={32} color="#CBD5E1" />
-              <p style={{ color: "#94A3B8", fontSize: 13, fontWeight: 600, marginTop: 8 }}>
-                No work location assigned yet.
+              <p style={{ color: "#94A3B8", fontSize: 13, fontWeight: 600, marginTop: 8, textAlign: "center" }}>
+                {isField
+                  ? "No client/work sites have been assigned to you yet."
+                  : "No geotagged work area has been assigned to you yet."}
+              </p>
+              <p style={{ color: "#CBD5E1", fontSize: 12, marginTop: 4, textAlign: "center" }}>
+                {isField
+                  ? "Contact your supervisor if you believe this is a mistake."
+                  : "Contact HR if you believe this is a mistake."}
               </p>
             </div>
           ) : (

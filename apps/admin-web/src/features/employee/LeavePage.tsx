@@ -8,6 +8,7 @@ import {
   LeaveType, LeaveBalance, LeaveRequest,
   getLeaveTypes, getLeaveBalances, getLeaveRequests, createLeaveRequest, cancelLeaveRequest, resubmitLeaveRequest,
 } from "./api";
+import { LeaveBalanceChart } from "./components/LeaveBalanceChart";
 import type { AuthUser } from "../../lib/api";
 
 type Props = { user: AuthUser };
@@ -356,46 +357,12 @@ export function LeavePage({ user }: Props) {
 
       {/* ── Balance tab ──────────────────────────────────────────────────────── */}
       {tab === "balance" && (
-        <div>
-          {loadingData ? (
-            <p style={{ color: "#64748B", textAlign: "center", padding: 32 }}>Loading…</p>
-          ) : balances.length === 0 ? (
-            <p style={{ color: "#94A3B8", textAlign: "center", padding: 32 }}>No leave balances found.</p>
-          ) : (
-            <>
-              {pendingRequests.length > 0 && (
-                <button onClick={() => setShowPending(true)} className="leave-pending-banner">
-                  <span className="leave-pending-banner-text">
-                    ⏳ {pendingRequests.length} pending request{pendingRequests.length > 1 ? "s" : ""}
-                  </span>
-                  <span className="leave-pending-banner-link">View →</span>
-                </button>
-              )}
-
-              <div className="leave-balance-list">
-                {balances.map((b) => {
-                  const pct = b.earnedDays > 0 ? Math.round((b.remainingDays / b.earnedDays) * 100) : 0;
-                  return (
-                    <div key={b.leaveTypeId} className="leave-balance-row">
-                      <p className="leave-balance-row-type">{b.leaveTypeName}</p>
-                      <div className="leave-balance-row-stats">
-                        <span>Earned: <b>{b.earnedDays}</b></span>
-                        <span>Used: <b>{b.usedDays}</b></span>
-                      </div>
-                      <div className="leave-balance-row-progress-track">
-                        <div className="leave-balance-row-progress-fill" style={{ width: `${pct}%` }} />
-                      </div>
-                      <div className="leave-balance-row-remaining">
-                        <b>{b.remainingDays}</b>
-                        <span className="leave-balance-row-remaining-label"> remaining</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
-        </div>
+        <LeaveBalanceChart
+          balances={balances}
+          loading={loadingData}
+          pendingCount={pendingRequests.length}
+          onPressPending={() => setShowPending(true)}
+        />
       )}
 
       {/* ── Request tab ──────────────────────────────────────────────────────── */}

@@ -1,0 +1,188 @@
+.lbc-card {
+  background: #ffffff;
+  border: 1px solid var(--emp-border);
+  border-radius: var(--emp-radius-lg);
+  box-shadow: var(--emp-shadow-card);
+  padding: 24px;
+}
+
+.lbc-centered {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100px;
+  color: #64748b;
+  font-size: 14px;
+}
+
+.lbc-empty {
+  color: #94a3b8;
+}
+
+.lbc-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.lbc-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--emp-navy);
+}
+
+.lbc-pending-pill {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: #fffbeb;
+  border: 1px solid #fef3c7;
+  border-radius: 999px;
+  padding: 5px 11px;
+  color: #92400e;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.lbc-summary-row {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+}
+
+.lbc-ring-wrap {
+  position: relative;
+  width: 96px;
+  height: 96px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lbc-ring-center {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.lbc-ring-value {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--emp-navy);
+}
+
+.lbc-ring-label {
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 1px;
+}
+
+.lbc-ring-percent {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--emp-blue);
+  margin-top: 2px;
+}
+
+.lbc-stats-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lbc-stat-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.lbc-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.lbc-stat-label {
+  flex: 1;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.lbc-stat-value {
+  font-weight: 700;
+  color: var(--emp-navy);
+  font-size: 14px;
+}
+
+.lbc-divider {
+  height: 1px;
+  background: #f1f5f9;
+  margin: 20px 0;
+}
+
+/* Two columns at mobile widths (matches employee-mobile exactly), growing to
+   more columns as the viewport widens instead of stretching two fixed
+   columns across the full desktop width. */
+.lbc-bars-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px 20px;
+}
+
+.lbc-bar-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.lbc-bar-label-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.lbc-bar-label {
+  flex: 1;
+  font-size: 13px;
+  color: #334155;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lbc-bar-value {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--emp-navy);
+}
+
+.lbc-bar-track {
+  height: 6px;
+  border-radius: 3px;
+  background: #f1f5f9;
+  overflow: hidden;
+}
+
+.lbc-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+}
+
+@media (max-width: 640px) {
+  .lbc-card {
+    padding: 18px;
+  }
+
+  .lbc-bars-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px 12px;
+  }
+}

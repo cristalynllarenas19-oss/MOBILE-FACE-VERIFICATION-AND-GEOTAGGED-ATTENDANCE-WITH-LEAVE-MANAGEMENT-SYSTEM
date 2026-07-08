@@ -8,32 +8,25 @@
   }
 
   .att-date {
-    margin-bottom: 10px !important;
+    margin-bottom: 4px !important;
   }
 
   .att-heading {
     font-size: 17px !important;
-    margin-bottom: 8px !important;
-  }
-
-  .att-status-row {
-    margin-bottom: 8px !important;
   }
 
   .att-welcome {
     font-size: 13px !important;
+    margin-top: 12px !important;
     margin-bottom: 14px !important;
   }
 
-  /* Shrink the hero time display */
-  .att-time-hero {
-    padding: 10px 14px !important;
-    gap: 8px !important;
-    margin-bottom: 0 !important;
+  .att-stats-row {
+    padding-top: 12px !important;
   }
 
   .att-time-val {
-    font-size: 21px !important;
+    font-size: 14px !important;
   }
 
   /* Shrink the action buttons */
