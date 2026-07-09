@@ -358,10 +358,10 @@ export async function changePassword(currentPassword: string, newPassword: strin
   });
 }
 
-export async function setInitialPassword(newPassword: string) {
+export async function setInitialPassword(currentPassword: string, newPassword: string) {
   return apiRequest<{ message: string }>("/users/me/password", {
     method: "PATCH",
-    body: JSON.stringify({ newPassword }),
+    body: JSON.stringify({ currentPassword, newPassword }),
   });
 }
 

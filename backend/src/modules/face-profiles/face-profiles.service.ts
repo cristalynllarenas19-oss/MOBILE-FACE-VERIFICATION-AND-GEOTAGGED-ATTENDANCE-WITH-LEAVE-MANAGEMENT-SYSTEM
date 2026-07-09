@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { PrismaService } from "../../prisma/prisma.service";
 import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
 import { UpsertFaceProfileDto } from "./dto/upsert-face-profile.dto";
+import { ArchiveFaceProfileDto } from "./dto/archive-face-profile.dto";
 
 @Injectable()
 export class FaceProfilesService {
@@ -12,6 +13,7 @@ export class FaceProfilesService {
 
   findAll() {
     return this.prisma.faceProfile.findMany({
+      where: { isArchived: false },
       include: {
         employee: {
           include: { department: true, position: true, user: true },
@@ -66,6 +68,39 @@ export class FaceProfilesService {
     });
 
     return created;
+  }
+
+  async archive(id: string, dto: ArchiveFaceProfileDto, context: AuditLogContext = {}) {
+    const profile = await this.prisma.faceProfile.findUnique({
+      where: { id },
+      include: { employee: true },
+    });
+    if (!profile) {
+      throw new NotFoundException("Face profile not found.");
+    }
+
+    const archived = await this.prisma.faceProfile.update({
+      where: { id },
+      data: { isArchived: true },
+      include: {
+        employee: {
+          include: { department: true, position: true, user: true },
+        },
+      },
+    });
+
+    await this.auditLogs.record({
+      ...context,
+      action: "ARCHIVE_FACE_PROFILE",
+      module: "Face Verification",
+      entityType: "FaceProfile",
+      entityId: id,
+      description: `Archived face profile for ${profile.employee.firstName} ${profile.employee.lastName}.`,
+      oldValues: { isArchived: profile.isArchived },
+      newValues: { isArchived: true, reason: dto.reason?.trim() || "No reason provided" },
+    });
+
+    return archived;
   }
 
   async remove(id: string, context: AuditLogContext = {}) {
