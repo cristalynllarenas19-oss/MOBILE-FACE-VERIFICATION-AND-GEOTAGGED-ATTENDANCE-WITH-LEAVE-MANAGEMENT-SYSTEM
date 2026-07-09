@@ -386,6 +386,7 @@ model FaceProfile {
   descriptors        Json?                @map("descriptors")
   enrollmentStatus   FaceEnrollmentStatus @default(PENDING) @map("enrollment_status")
   enrolledAt         DateTime?            @map("enrolled_at")
+  isArchived         Boolean              @default(false) @map("is_archived")
   employee           Employee             @relation(fields: [employeeId], references: [id])
 
   @@index([employeeId])

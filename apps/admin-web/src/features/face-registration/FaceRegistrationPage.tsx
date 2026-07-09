@@ -1,8 +1,9 @@
 import * as faceapi from "face-api.js";
-import { Camera, CheckCircle2, Eye, Pencil, RotateCcw, ScanFace, Trash2, X } from "lucide-react";
+import { Archive, Camera, CheckCircle2, Eye, Pencil, RotateCcw, ScanFace, Search, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { apiRequest } from "../../lib/api";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
+import { Badge } from "../../components/ui/Badge";
 import "./FaceRegistrationPage.css";
 
 type Enrollment = {
@@ -84,10 +85,12 @@ export function FaceRegistrationPage() {
   const [lastActionWasEdit, setLastActionWasEdit] = useState(false);
   const [departmentFilter, setDepartmentFilter] = useState<string>("ALL");
   const [listDepartmentFilter, setListDepartmentFilter] = useState<string>("ALL");
+  const [listSearch, setListSearch] = useState("");
   const [viewProfile, setViewProfile] = useState<FaceProfile | null>(null);
   const [editingEnrollmentId, setEditingEnrollmentId] = useState<string | null>(null);
   const captureCardRef = useRef<HTMLDivElement>(null);
-  const [deleteTarget, setDeleteTarget] = useState<FaceProfile | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<FaceProfile | null>(null);
+  const [archiving, setArchiving] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -378,11 +381,14 @@ export function FaceRegistrationPage() {
     }
   }
 
-  function removeEnrollment(id: string) {
-    apiRequest(`/face-profiles/${id}`, { method: "DELETE" }).then(() => {
-      setEnrollments((current) => current.filter((item) => item.id !== id));
-      setDeleteTarget(null);
-    });
+  function archiveEnrollment(id: string) {
+    setArchiving(true);
+    apiRequest(`/face-profiles/${id}/archive`, { method: "PATCH", body: JSON.stringify({}) })
+      .then(() => {
+        setEnrollments((current) => current.filter((item) => item.id !== id));
+        setArchiveTarget(null);
+      })
+      .finally(() => setArchiving(false));
   }
 
   function dismissSuccessModal() {
@@ -431,9 +437,22 @@ export function FaceRegistrationPage() {
     new Set(enrollments.map((item) => item.employee.department?.name).filter((name): name is string => Boolean(name))),
   ).sort((a, b) => a.localeCompare(b));
 
-  const visibleEnrollments = enrollments.filter(
-    (item) => listDepartmentFilter === "ALL" || item.employee.department?.name === listDepartmentFilter,
-  );
+  const visibleEnrollments = enrollments
+    .filter((item) => listDepartmentFilter === "ALL" || item.employee.department?.name === listDepartmentFilter)
+    .filter((item) => {
+      const query = listSearch.trim().toLowerCase();
+      if (!query) return true;
+      return (
+        employeeLabel(item.employee).toLowerCase().includes(query) ||
+        item.employee.employeeNo.toLowerCase().includes(query)
+      );
+    });
+
+  function enrollmentStatusTone(status: FaceProfile["enrollmentStatus"]) {
+    if (status === "ACTIVE") return "success" as const;
+    if (status === "REJECTED") return "danger" as const;
+    return "warning" as const;
+  }
 
   return (
     <div className="face-page">
@@ -614,6 +633,24 @@ export function FaceRegistrationPage() {
         <div className="list-heading">
           <h3>Registered Employees</h3>
           <div className="list-heading-right">
+            <div className="registered-search">
+              <Search size={14} className="registered-search-icon" />
+              <input
+                type="text"
+                value={listSearch}
+                onChange={(event) => setListSearch(event.target.value)}
+                placeholder="Search by name"
+                aria-label="Search registered employees by name"
+              />
+              <button
+                type="button"
+                className="registered-search-clear"
+                onClick={() => setListSearch("")}
+                aria-label="Clear search"
+              >
+                <X size={13} />
+              </button>
+            </div>
             <DropdownFilter
               value={listDepartmentFilter}
               onChange={setListDepartmentFilter}
@@ -628,46 +665,47 @@ export function FaceRegistrationPage() {
 
         {enrollments.length === 0 ? (
           <p className="empty-enrollments">No employees have been registered yet.</p>
-        ) : visibleEnrollments.length === 0 ? (
-          <p className="empty-enrollments">No registered employees match this department filter.</p>
         ) : (
-          <div className="face-grid">
-            {visibleEnrollments.map((item) => (
-              <article
-                className="face-item"
-                key={item.id}
-                onClick={() => openViewModal(item)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") openViewModal(item);
-                }}
-              >
-                <img src={item.referenceImageData ?? ""} alt="" />
-                <div>
-                  <strong>{employeeLabel(item.employee)}</strong>
-                  <span>{item.employee.employeeNo}</span>
-                  <small>{item.employee.department?.name ?? "Unknown department"}</small>
-                  <small>{item.enrolledAt ? new Date(item.enrolledAt).toLocaleString() : "Pending"}</small>
-                </div>
-                <div className="face-item-actions">
-                  <button
-                    className="face-item-view"
-                    onClick={(event) => { event.stopPropagation(); openViewModal(item); }}
-                    aria-label={`View ${employeeLabel(item.employee)}`}
-                  >
-                    <Eye size={16} />
-                  </button>
-                  <button
-                    onClick={(event) => { event.stopPropagation(); setDeleteTarget(item); }}
-                    aria-label={`Delete ${employeeLabel(item.employee)}`}
-                  >
-                    <Trash2 size={17} />
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
+          <>
+            {visibleEnrollments.length === 0 ? (
+              <p className="empty-enrollments">No registered employees match this search or filter.</p>
+            ) : (
+              <div className="table-card">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>NAME</th>
+                      <th>EMPLOYEE NO.</th>
+                      <th>DEPARTMENT</th>
+                      <th>STATUS</th>
+                      <th>DATE REGISTERED</th>
+                      <th>ACTION</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleEnrollments.map((item) => (
+                      <tr key={item.id}>
+                        <td data-label="Name">{employeeLabel(item.employee)}</td>
+                        <td data-label="Employee No.">{item.employee.employeeNo}</td>
+                        <td data-label="Department">{item.employee.department?.name ?? "Unknown"}</td>
+                        <td data-label="Status">
+                          <Badge tone={enrollmentStatusTone(item.enrollmentStatus)}>{item.enrollmentStatus}</Badge>
+                        </td>
+                        <td data-label="Date Registered">
+                          {item.enrolledAt ? new Date(item.enrolledAt).toLocaleDateString() : "Pending"}
+                        </td>
+                        <td data-label="Action">
+                          <button className="face-row-view" onClick={() => openViewModal(item)}>
+                            <Eye size={14} /> View
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
       </section>
 
@@ -677,8 +715,9 @@ export function FaceRegistrationPage() {
             <button className="view-modal-close" onClick={closeViewModal} aria-label="Close">
               <X size={18} />
             </button>
+
             <div className="view-modal-photo">
-              <img src={viewProfile.referenceImageData ?? ""} alt="" />
+              <img src={viewProfile.referenceImageData ?? ""} alt={`Registered face for ${employeeLabel(viewProfile.employee)}`} />
             </div>
             <h3>{employeeLabel(viewProfile.employee)}</h3>
             <p className="view-modal-sub">{viewProfile.employee.employeeNo} · {viewProfile.employee.department?.name ?? "No department"}</p>
@@ -688,7 +727,7 @@ export function FaceRegistrationPage() {
                 <dd>{viewProfile.enrollmentStatus}</dd>
               </div>
               <div>
-                <dt>Enrolled</dt>
+                <dt>Date of Registration</dt>
                 <dd>{viewProfile.enrolledAt ? new Date(viewProfile.enrolledAt).toLocaleString() : "Pending"}</dd>
               </div>
             </dl>
@@ -696,37 +735,39 @@ export function FaceRegistrationPage() {
               <button className="primary-button" onClick={() => editProfilePhoto(viewProfile)}>
                 <Pencil size={16} /> Re-register Face
               </button>
-              <button className="outline-button" onClick={closeViewModal}>Close</button>
+              <button
+                className="archive-button"
+                onClick={() => { setArchiveTarget(viewProfile); closeViewModal(); }}
+              >
+                <Archive size={16} /> Archive
+              </button>
             </div>
           </div>
         </div>
       )}
 
-      {deleteTarget && (
-        <div className="delete-modal-overlay" onClick={() => setDeleteTarget(null)}>
+      {archiveTarget && (
+        <div className="delete-modal-overlay" onClick={() => (archiving ? null : setArchiveTarget(null))}>
           <div className="delete-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="delete-modal-icon">
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"
-                  fill="#fee2e2" stroke="#ef4444" strokeWidth="1.5" strokeLinejoin="round"
-                />
-                <line x1="12" y1="9" x2="12" y2="13" stroke="#ef4444" strokeWidth="1.5" strokeLinecap="round" />
-                <circle cx="12" cy="17" r="0.8" fill="#ef4444" />
-              </svg>
+            <div className="archive-modal-icon">
+              <Archive size={26} />
             </div>
-            <h3>Delete Face Registration</h3>
+            <h3>Archive Face Registration</h3>
             <p className="delete-modal-message">
-              Are you sure you want to delete the face profile for{" "}
-              <strong>{employeeLabel(deleteTarget.employee)}</strong>?
+              Are you sure you want to archive the face profile for{" "}
+              <strong>{employeeLabel(archiveTarget.employee)}</strong>?
+              <br />
+              This removes them from the registered employees list until re-registered.
               <br />
               <span className="delete-modal-id">
-                {deleteTarget.employee.employeeNo} · {deleteTarget.employee.department?.name ?? "No department"}
+                {archiveTarget.employee.employeeNo} · {archiveTarget.employee.department?.name ?? "No department"}
               </span>
             </p>
             <div className="delete-modal-actions">
-              <button className="danger-button" onClick={() => removeEnrollment(deleteTarget.id)}>Delete</button>
-              <button className="outline-button" onClick={() => setDeleteTarget(null)}>Cancel</button>
+              <button className="archive-button" onClick={() => archiveEnrollment(archiveTarget.id)} disabled={archiving}>
+                {archiving ? "Archiving..." : "Archive"}
+              </button>
+              <button className="outline-button" onClick={() => setArchiveTarget(null)} disabled={archiving}>Cancel</button>
             </div>
           </div>
         </div>

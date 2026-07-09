@@ -1,8 +1,9 @@
-import { Body, Controller, Delete, Get, Param, Post, Req } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Req } from "@nestjs/common";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
 import { getAuditContext } from "../../common/utils/audit-context.util";
 import { FaceProfilesService } from "./face-profiles.service";
 import { UpsertFaceProfileDto } from "./dto/upsert-face-profile.dto";
+import { ArchiveFaceProfileDto } from "./dto/archive-face-profile.dto";
 
 @Controller("face-profiles")
 export class FaceProfilesController {
@@ -18,6 +19,12 @@ export class FaceProfilesController {
   @RequirePermissions("users:write")
   create(@Body() dto: UpsertFaceProfileDto, @Req() request: Request) {
     return this.faceProfilesService.create(dto, getAuditContext(request));
+  }
+
+  @Patch(":id/archive")
+  @RequirePermissions("users:write")
+  archive(@Param("id") id: string, @Body() dto: ArchiveFaceProfileDto, @Req() request: Request) {
+    return this.faceProfilesService.archive(id, dto, getAuditContext(request));
   }
 
   @Delete(":id")

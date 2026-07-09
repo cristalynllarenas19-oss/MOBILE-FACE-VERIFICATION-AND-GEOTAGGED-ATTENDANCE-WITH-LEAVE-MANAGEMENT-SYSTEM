@@ -25,22 +25,26 @@ const STRENGTH_COPY: Record<"weak" | "strong", { label: string; color: string }>
 };
 
 export default function SetInitialPasswordScreen({ onDone }: Props) {
+  const [defaultPassword, setDefaultPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [showDefaultPassword, setShowDefaultPassword] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
   const requirements = checkRequirements(newPassword);
   const strength = getStrength(newPassword);
   const passwordsMatch = newPassword.length > 0 && newPassword === confirmPassword;
-  const canSubmit = requirements.isValid && passwordsMatch && !isLoading;
+  const sameAsDefault = defaultPassword.length > 0 && newPassword.length > 0 && newPassword === defaultPassword;
+  const canSubmit =
+    defaultPassword.length > 0 && requirements.isValid && passwordsMatch && !sameAsDefault && !isLoading;
 
   async function handleSubmit() {
     if (!canSubmit) return;
 
     setIsLoading(true);
     try {
-      await setInitialPassword(newPassword);
+      await setInitialPassword(defaultPassword, newPassword);
       Alert.alert(
         "Password Set",
         "Your password has been saved. Please log in again using your new password.",
@@ -62,6 +66,24 @@ export default function SetInitialPasswordScreen({ onDone }: Props) {
           <Text style={styles.subtitle}>
             For your account's security, you need to set a password before you can continue using the app.
           </Text>
+
+          <Text style={styles.label}>Default Password</Text>
+          <View style={styles.inputContainer}>
+            <Ionicons name="key-outline" size={20} color="#64748B" />
+            <TextInput
+              style={styles.input}
+              placeholder="Enter the temporary password from your email"
+              placeholderTextColor="#94A3B8"
+              secureTextEntry={!showDefaultPassword}
+              value={defaultPassword}
+              onChangeText={setDefaultPassword}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <Pressable onPress={() => setShowDefaultPassword(!showDefaultPassword)}>
+              <Ionicons name={showDefaultPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748B" />
+            </Pressable>
+          </View>
 
           <Text style={styles.label}>New Password</Text>
           <View style={styles.inputContainer}>
@@ -99,6 +121,10 @@ export default function SetInitialPasswordScreen({ onDone }: Props) {
 
           {newPassword.length > 0 && !passwordsMatch && confirmPassword.length > 0 && (
             <Text style={styles.mismatch}>Passwords don't match.</Text>
+          )}
+
+          {sameAsDefault && (
+            <Text style={styles.mismatch}>New password must be different from the default password.</Text>
           )}
 
           <View style={styles.requirements}>
