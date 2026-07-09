@@ -5,6 +5,7 @@ import * as Location from "expo-location";
 
 import LoginScreen from "./src/screens/LoginScreen";
 import MainScreen from "./src/screens/MainScreen";
+import SupervisorMainScreen from "./src/screens/SupervisorMainScreen";
 import CameraScanner from "./src/components/CameraScanner";
 import ResultModal, { ResultModalStatus } from "./src/components/ResultModal";
 import VerifyOtpScreen from "./src/screens/VerifyOtpScreen";
@@ -30,6 +31,7 @@ import {
 } from "./src/api";
 import { getFriendlyReason } from "./src/utils/attendanceMessages";
 import { distanceInMeters } from "./src/utils/geofence";
+import { Portal } from "./src/types";
 
 type ResultModalState = {
   status: ResultModalStatus;
@@ -39,6 +41,19 @@ type ResultModalState = {
 
 type AuthView = "login" | "forgot-otp" | "forgot-new-password";
 
+// Mirrors admin-web's getLandingPage (apps/admin-web/src/app/App.tsx:31-37):
+// single-role accounts always land on their one portal; multi-role accounts
+// honor the saved defaultView, falling back to the supervisor/admin portal
+// when unset.
+function getLandingPortal(user: MobileUser | null): Portal {
+  if (!user) return "employee";
+  const roles = user.roles ?? [user.role];
+  if (roles.length <= 1) {
+    return user.role === "EMPLOYEE" ? "employee" : "supervisor";
+  }
+  return user.defaultView === "EMPLOYEE" ? "employee" : "supervisor";
+}
+
 export default function App() {
   // Empty by default
   const [email, setEmail] = useState("");
@@ -46,6 +61,8 @@ export default function App() {
 
   const [user, setUser] =
     useState<MobileUser | null>(null);
+
+  const [portal, setPortal] = useState<Portal>("employee");
 
   const [todayAttendance, setTodayAttendance] =
     useState<TodayAttendance | null>(null);
@@ -83,6 +100,7 @@ export default function App() {
         const restoredUser = await restoreSession();
         if (isMounted && restoredUser) {
           setUser(restoredUser);
+          setPortal(getLandingPortal(restoredUser));
         }
       } catch (error) {
         console.error("Failed to restore saved session", error);
@@ -148,6 +166,7 @@ export default function App() {
         await login(email.trim(), password.trim() || undefined);
 
       setUser(loggedInUser);
+      setPortal(getLandingPortal(loggedInUser));
     } catch (error) {
       Alert.alert(
         "Login Failed",
@@ -185,6 +204,7 @@ export default function App() {
   async function handleLogout() {
     await logout();
     setUser(null);
+    setPortal("employee");
     setTodayAttendance(null);
     setEligibility(null);
 
@@ -544,6 +564,13 @@ export default function App() {
             setSelectedWorkLocation(null);
           }}
         />
+      ) : portal === "supervisor" ? (
+        <SupervisorMainScreen
+          user={user}
+          onLogout={handleLogout}
+          canSwitchToEmployeePortal={(user.roles ?? [user.role]).includes("EMPLOYEE")}
+          onSwitchToEmployeePortal={() => setPortal("employee")}
+        />
       ) : (
         <MainScreen
           user={user}
@@ -555,6 +582,8 @@ export default function App() {
           onTimeOut={() => startScan("TIME_OUT")}
           onLunchOut={() => startScan("LUNCH_OUT")}
           onLunchIn={() => startScan("LUNCH_IN")}
+          canSwitchToSupervisorPortal={(user.roles ?? [user.role]).includes("SUPERVISOR")}
+          onSwitchToSupervisorPortal={() => setPortal("supervisor")}
         />
       )}
 

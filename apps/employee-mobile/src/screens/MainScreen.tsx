@@ -29,6 +29,8 @@ type Props = {
   isLoading: boolean;
   todayAttendance: TodayAttendance | null;
   eligibility: AttendanceEligibility | null;
+  canSwitchToSupervisorPortal?: boolean;
+  onSwitchToSupervisorPortal?: () => void;
 };
 
 export default function MainScreen({
@@ -41,6 +43,8 @@ export default function MainScreen({
   isLoading,
   todayAttendance,
   eligibility,
+  canSwitchToSupervisorPortal,
+  onSwitchToSupervisorPortal,
 }: Props) {
   const [tab, setTab] =
     useState<Tab>("attendance");
@@ -122,6 +126,8 @@ export default function MainScreen({
           <SettingsScreen
             onLogout={onLogout}
             onProfileChanged={loadProfile}
+            canSwitchToSupervisorPortal={canSwitchToSupervisorPortal}
+            onSwitchToSupervisorPortal={onSwitchToSupervisorPortal}
           />
         )}
       </View>

@@ -8,11 +8,13 @@ import ChangePasswordScreen from "./ChangePasswordScreen";
 type Props = {
   onLogout: () => void;
   onProfileChanged?: () => void;
+  canSwitchToSupervisorPortal?: boolean;
+  onSwitchToSupervisorPortal?: () => void;
 };
 
 type SettingsView = "root" | "profile" | "password";
 
-export default function SettingsScreen({ onLogout, onProfileChanged }: Props) {
+export default function SettingsScreen({ onLogout, onProfileChanged, canSwitchToSupervisorPortal, onSwitchToSupervisorPortal }: Props) {
   const [view, setView] = useState<SettingsView>("root");
   const [profile, setProfile] = useState<EmployeeProfile | null>(null);
 
@@ -65,6 +67,9 @@ export default function SettingsScreen({ onLogout, onProfileChanged }: Props) {
 
       <SettingsRow icon="person-outline" label="My Profile" onPress={() => setView("profile")} />
       <SettingsRow icon="key-outline" label="Change Password" onPress={() => setView("password")} />
+      {canSwitchToSupervisorPortal && onSwitchToSupervisorPortal && (
+        <SettingsRow icon="swap-horizontal-outline" label="Switch to Supervisor View" onPress={onSwitchToSupervisorPortal} />
+      )}
 
       <Pressable onPress={onLogout} style={styles.logoutButton}>
         <Text style={styles.logoutText}>Logout</Text>

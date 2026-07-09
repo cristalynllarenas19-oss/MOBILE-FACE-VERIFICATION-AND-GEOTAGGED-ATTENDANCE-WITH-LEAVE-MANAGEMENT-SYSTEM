@@ -35,6 +35,14 @@ export type MobileUser = {
   id: string;
   email: string;
   role: string;
+  // All optional so a stale cached session from before these fields existed
+  // still type-checks — anywhere these are read, treat undefined as "no
+  // elevated role"/"no extra permissions" (i.e. plain employee behavior).
+  roles?: string[];
+  permissions?: string[];
+  departmentId?: string;
+  department?: { name: string };
+  defaultView?: "ADMIN" | "EMPLOYEE";
   employeeId?: string;
   displayName: string;
   mustChangePassword?: boolean;
@@ -405,4 +413,210 @@ export async function markNotificationRead(id: string) {
 
 export async function markAllNotificationsRead() {
   return apiRequest("/notifications/read-all", { method: "PATCH" });
+}
+
+// ── Supervisor endpoints ─────────────────────────────────────────────────
+// Every call below hits the same backend routes admin-web's Supervisor
+// portal uses, so department-scoping and read/write permission enforcement
+// (getSupervisorDepartmentScope, @RequirePermissions) is identical — nothing
+// extra to re-implement client-side beyond mirroring the UI gating.
+
+export type DashboardSummary = {
+  stats: {
+    totalEmployees: number;
+    presentToday: number;
+    lateToday: number;
+    absentToday: number;
+    pendingLeaves: number;
+    geotaggedLogs: number;
+  };
+  enrollment: { enrolled: number; total: number };
+  geotagging: { assigned: number; total: number };
+  calendar: { monthLabel: string; days: { date: string; status?: string }[] };
+};
+
+export async function getDashboardSummary(month?: number, year?: number) {
+  const params = new URLSearchParams();
+  if (month !== undefined) params.set("month", String(month + 1));
+  if (year !== undefined) params.set("year", String(year));
+  const qs = params.toString();
+  return apiRequest<DashboardSummary>(`/dashboard/summary${qs ? `?${qs}` : ""}`);
+}
+
+export type TeamEmployee = {
+  id: string;
+  employeeNo: string;
+  firstName: string;
+  lastName: string;
+  email?: string;
+  employmentStatus: string;
+  attendanceMode?: AttendanceMode;
+  sex?: "MALE" | "FEMALE";
+  hireDate?: string;
+  department?: { id: string; name: string } | null;
+  position?: { title: string } | null;
+  supervisorId?: string | null;
+};
+
+export type CreateTeamEmployeeInput = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  department: string;
+  hireDate?: string;
+  employmentStatus: "REGULAR" | "CONTRACTUAL_SEASONAL" | "PIECE_RATE";
+  attendanceMode?: AttendanceMode;
+  sex: "MALE" | "FEMALE";
+  supervisorId?: string;
+};
+
+export type UpdateTeamEmployeeInput = Partial<Omit<CreateTeamEmployeeInput, "email">> & { email?: string };
+
+export async function getTeamEmployees() {
+  return apiRequest<TeamEmployee[]>("/employees");
+}
+
+export async function getSupervisorOptions() {
+  return apiRequest<TeamEmployee[]>("/employees/supervisors");
+}
+
+export async function createTeamEmployee(input: CreateTeamEmployeeInput) {
+  return apiRequest<TeamEmployee>("/employees", { method: "POST", body: JSON.stringify(input) });
+}
+
+export async function updateTeamEmployee(id: string, input: UpdateTeamEmployeeInput) {
+  return apiRequest<TeamEmployee>(`/employees/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export async function archiveTeamEmployee(id: string, reason?: string) {
+  return apiRequest<TeamEmployee>(`/employees/${id}/archive`, { method: "PATCH", body: JSON.stringify({ reason }) });
+}
+
+export type TeamAttendanceRecord = {
+  id: string;
+  attendanceDate: string;
+  timeInAt?: string | null;
+  timeOutAt?: string | null;
+  lunchOutAt?: string | null;
+  lunchInAt?: string | null;
+  status: string;
+  visitNumber?: number;
+  workLocation?: { name: string } | null;
+  employee: {
+    employeeNo?: string;
+    firstName: string;
+    lastName: string;
+    department: { name: string };
+  };
+};
+
+export async function getTeamAttendance(params?: { department?: string; status?: string; date?: string; from?: string; to?: string }) {
+  const qs = new URLSearchParams(params as Record<string, string>).toString();
+  return apiRequest<TeamAttendanceRecord[]>(`/attendance${qs ? `?${qs}` : ""}`);
+}
+
+export type GeoEmployeeOption = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  department: { id: string; name: string };
+};
+
+export type GeotaggedLocation = {
+  id: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  radiusMeters: number;
+  isActive?: boolean;
+  departmentId?: string | null;
+  department?: { id: string; name: string } | null;
+  type?: "OFFICE" | "FIELD";
+  employees?: Array<{ employee: GeoEmployeeOption }>;
+};
+
+export async function getGeotaggedLocations() {
+  return apiRequest<GeotaggedLocation[]>("/geolocation/locations");
+}
+
+export async function assignEmployeeToLocation(locationId: string, employeeId: string) {
+  return apiRequest<GeotaggedLocation>(`/geolocation/locations/${locationId}/employees/${employeeId}`, { method: "POST" });
+}
+
+export async function unassignEmployeeFromLocation(locationId: string, employeeId: string) {
+  return apiRequest<GeotaggedLocation>(`/geolocation/locations/${locationId}/employees/${employeeId}`, { method: "DELETE" });
+}
+
+export type TeamLeaveRequest = {
+  id: string;
+  startDate: string;
+  endDate: string;
+  totalDays: string;
+  status: string;
+  reason: string;
+  createdAt: string;
+  adminRemarks?: { remarks?: string } | null;
+  attachmentName?: string | null;
+  extensionRequested?: boolean;
+  extensionApproved?: boolean | null;
+  employee: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    department?: { name: string };
+  };
+  leaveType: { id: string; name: string };
+};
+
+export async function getTeamLeaveRequests() {
+  return apiRequest<TeamLeaveRequest[]>("/leave-requests");
+}
+
+export async function approveLeaveRequest(id: string, remarks?: string) {
+  return apiRequest<TeamLeaveRequest>(`/leave-requests/${id}/approve`, {
+    method: "PATCH",
+    body: JSON.stringify({ remarks: remarks?.trim() ?? "" }),
+  });
+}
+
+export async function rejectLeaveRequest(
+  id: string,
+  input: { remarks: string; requiresAdditionalRequirements?: boolean; requirementDetails?: string },
+) {
+  return apiRequest<TeamLeaveRequest>(`/leave-requests/${id}/reject`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export type ScheduleAssignment = {
+  id: string;
+  startsOn: string;
+  endsOn?: string | null;
+  employee: { id: string; firstName: string; lastName: string; department: { name: string } };
+  shift: { id: string; name: string; startTime: string; endTime: string };
+};
+
+export type Shift = { id: string; name: string; startTime: string; endTime: string };
+
+export async function getSchedules() {
+  return apiRequest<ScheduleAssignment[]>("/schedules");
+}
+
+export async function getShifts() {
+  return apiRequest<Shift[]>("/schedules/shifts");
+}
+
+export type ReportsSummary = {
+  generatedAt: string;
+  totals: {
+    attendanceRecords: number;
+    approvedLeaves: number;
+    pendingLeaves: number;
+    activeSchedules: number;
+  };
+  attendanceByStatus: Record<string, number>;
+  leaveByStatus: Record<string, number>;
+};
+
+export async function getReportsSummary(params?: { from?: string; to?: string; department?: string }) {
+  const qs = new URLSearchParams(params as Record<string, string>).toString();
+  return apiRequest<ReportsSummary>(`/reports${qs ? `?${qs}` : ""}`);
 }

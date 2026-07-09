@@ -160,7 +160,12 @@ export default function WorkAreaScreen({ employeeId, attendanceMode }: Props) {
   return (
     <View style={styles.container}>
       {isField && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.siteChipRow} contentContainerStyle={{ gap: 8 }}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.siteChipRow}
+          contentContainerStyle={styles.siteChipRowContent}
+        >
           {workLocations.map((site) => {
             const isSelected = site.id === selectedSiteId;
             return (
@@ -224,11 +229,18 @@ const styles = StyleSheet.create({
   },
   siteChipRow: {
     flexGrow: 0,
+    height: 48,
     marginBottom: 12,
   },
+  siteChipRowContent: {
+    alignItems: "center",
+    gap: 8,
+  },
   siteChip: {
+    height: 40,
     paddingHorizontal: 14,
-    paddingVertical: 8,
+    alignItems: "center",
+    justifyContent: "center",
     borderRadius: 999,
     backgroundColor: "#F1F5F9",
     borderWidth: 1,
@@ -241,6 +253,8 @@ const styles = StyleSheet.create({
   siteChipText: {
     color: "#475569",
     fontSize: 13,
+    lineHeight: 18,
+    includeFontPadding: false,
     fontWeight: "700",
   },
   siteChipTextActive: {

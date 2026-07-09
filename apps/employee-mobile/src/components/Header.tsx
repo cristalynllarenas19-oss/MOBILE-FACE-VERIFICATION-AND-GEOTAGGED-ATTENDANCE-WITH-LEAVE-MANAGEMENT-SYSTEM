@@ -15,6 +15,7 @@ type Props = {
   profile?: EmployeeProfile | null;
   unreadCount?: number;
   onPressNotifications?: () => void;
+  subtitle?: string;
 };
 
 export default function Header({
@@ -22,6 +23,7 @@ export default function Header({
   profile,
   unreadCount = 0,
   onPressNotifications,
+  subtitle = "Employee",
 }: Props) {
   const avatarSource = profile?.profilePhotoData
     ? `data:${profile.profilePhotoMimeType ?? "image/jpeg"};base64,${profile.profilePhotoData}`
@@ -104,7 +106,7 @@ export default function Header({
       </View>
 
       <Text style={styles.subtitle}>
-        Employee
+        {subtitle}
       </Text>
     </View>
   );

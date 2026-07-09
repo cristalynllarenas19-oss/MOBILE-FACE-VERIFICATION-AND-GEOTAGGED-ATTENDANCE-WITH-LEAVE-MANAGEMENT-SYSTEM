@@ -9,14 +9,16 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Tab } from "../types";
+import { Tab, SupervisorTab } from "../types";
 
-type Props = {
-  tab: Tab;
-  setTab: (tab: Tab) => void;
+export type TabItemDef<T extends string> = {
+  key: T;
+  icon: keyof typeof Ionicons.glyphMap;
+  activeIcon: keyof typeof Ionicons.glyphMap;
+  label: string;
 };
 
-const TABS: { key: Tab; icon: keyof typeof Ionicons.glyphMap; activeIcon: keyof typeof Ionicons.glyphMap; label: string }[] = [
+export const EMPLOYEE_TABS: TabItemDef<Tab>[] = [
   { key: "attendance", icon: "time-outline", activeIcon: "time", label: "Attendance" },
   { key: "leave", icon: "calendar-outline", activeIcon: "calendar", label: "Leave" },
   { key: "dtr", icon: "document-text-outline", activeIcon: "document-text", label: "DTR" },
@@ -24,17 +26,32 @@ const TABS: { key: Tab; icon: keyof typeof Ionicons.glyphMap; activeIcon: keyof 
   { key: "settings", icon: "settings-outline", activeIcon: "settings", label: "Settings" },
 ];
 
-export default function BottomTab({ tab, setTab }: Props) {
+export const SUPERVISOR_TABS: TabItemDef<SupervisorTab>[] = [
+  { key: "dashboard", icon: "grid-outline", activeIcon: "grid", label: "Dashboard" },
+  { key: "team", icon: "people-outline", activeIcon: "people", label: "Team" },
+  { key: "leave", icon: "calendar-outline", activeIcon: "calendar", label: "Leave" },
+  { key: "attendance", icon: "time-outline", activeIcon: "time", label: "Attendance" },
+  { key: "more", icon: "menu-outline", activeIcon: "menu", label: "More" },
+];
+
+type Props<T extends string> = {
+  tab: T;
+  setTab: (tab: T) => void;
+  tabs?: TabItemDef<T>[];
+};
+
+export default function BottomTab<T extends string = Tab>({ tab, setTab, tabs }: Props<T>) {
   const insets = useSafeAreaInsets();
   // RN's built-in SafeAreaView (used by the screen wrapping this bar) only
   // reserves bottom inset space on iOS. On Android it's a no-op, which is
   // what made this bar sit flush against the gesture/nav bar — so only add
   // the extra padding there; iOS already gets correct spacing for free.
   const extraBottomInset = Platform.OS === "android" ? insets.bottom : 0;
+  const items = tabs ?? (EMPLOYEE_TABS as unknown as TabItemDef<T>[]);
 
   return (
     <View style={[styles.container, { paddingBottom: Math.max(extraBottomInset, 10) }]}>
-      {TABS.map((item) => (
+      {items.map((item) => (
         <TabItem
           key={item.key}
           icon={item.icon}
