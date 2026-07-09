@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronDown, Eye, Filter, FileSpreadsheet, FileText, Printer, Search, X } from "lucide-react";
+import { ChevronDown, Eye, Search, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { apiRequest } from "../../lib/api";
@@ -106,54 +106,11 @@ function buildChangeRows(log: AuditLog) {
   });
 }
 
-async function exportToExcel(rows: AuditLog[]) {
-  const XLSX = await import("xlsx");
-  const data = rows.map((log) => ({
-    "Date/Time": formatDateTime(log.createdAt),
-    Actor: actorName(log),
-    Role: actorRoleLabel(log),
-    Module: moduleLabel(log.entityType),
-    Action: formatAction(log.action),
-    "Affected Record": affectedRecordLabel(log),
-    Description: auditMeta(log).description ?? "",
-    "IP Address": log.ipAddress ?? "",
-    "Device/Browser": auditMeta(log).userAgent ?? "",
-  }));
-  const worksheet = XLSX.utils.json_to_sheet(data);
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, "Audit Logs");
-  XLSX.writeFile(workbook, `audit-logs-${Date.now()}.xlsx`);
-}
-
-async function exportToPdf(rows: AuditLog[]) {
-  const { jsPDF } = await import("jspdf");
-  const autoTable = (await import("jspdf-autotable")).default;
-  const doc = new jsPDF({ orientation: "landscape" });
-  doc.setFontSize(14);
-  doc.text("Audit Logs", 14, 16);
-  autoTable(doc, {
-    startY: 22,
-    head: [["Date/Time", "Actor", "Role", "Module", "Action", "Affected Record"]],
-    body: rows.map((log) => [
-      formatDateTime(log.createdAt),
-      actorName(log),
-      actorRoleLabel(log),
-      moduleLabel(log.entityType),
-      formatAction(log.action),
-      affectedRecordLabel(log),
-    ]),
-    styles: { fontSize: 8 },
-    headStyles: { fillColor: [26, 58, 92] },
-  });
-  doc.save(`audit-logs-${Date.now()}.pdf`);
-}
-
 export function AuditLogsTab({
   notify,
 }: {
   notify: (notification: Notification) => void;
 }) {
-  const [generatedAt, setGeneratedAt] = useState(() => new Date());
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [auditTotal, setAuditTotal] = useState(0);
   const [auditPage, setAuditPage] = useState(1);
@@ -165,7 +122,6 @@ export function AuditLogsTab({
   const [auditTo, setAuditTo] = useState("");
   const [viewLog, setViewLog] = useState<AuditLog | null>(null);
   const [showRawJson, setShowRawJson] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
 
   const hasActiveAuditFilters =
     auditSearch.trim() !== "" ||
@@ -194,7 +150,6 @@ export function AuditLogsTab({
         setAuditLogs((current) => (append ? [...current, ...res.items] : res.items));
         setAuditTotal(res.total);
         setAuditPage(res.page);
-        setGeneratedAt(new Date());
       })
       .catch(() => undefined)
       .finally(() => {
@@ -212,22 +167,6 @@ export function AuditLogsTab({
     setShowRawJson(false);
   }, [viewLog]);
 
-  const runExport = async (kind: "csv" | "excel" | "pdf") => {
-    setIsExporting(true);
-    try {
-      const params = buildParams();
-      const rows = await apiRequest<AuditLog[]>(`/audit-logs/export?${params.toString()}`);
-      if (kind === "csv") exportToCsv(rows);
-      else if (kind === "excel") await exportToExcel(rows);
-      else await exportToPdf(rows);
-      notify({ type: "success", message: `Exported ${rows.length} audit log entries.` });
-    } catch (err) {
-      notify({ type: "error", message: err instanceof Error ? err.message : "Export failed." });
-    } finally {
-      setIsExporting(false);
-    }
-  };
-
   const clearAuditSearch = () => {
     setAuditSearch("");
     loadAuditLogs(1, false);
@@ -241,7 +180,6 @@ export function AuditLogsTab({
       <div className="utilities-toolbar-header">
         <div className="utilities-toolbar-header-left">
           <h3 className="utilities-toolbar-title">Audit Logs</h3>
-          <span className="utilities-toolbar-meta">Generated {generatedAt.toLocaleString()}</span>
         </div>
         <div className="utilities-result-count">
           <span>{auditTotal} result{auditTotal !== 1 ? "s" : ""}</span>
@@ -298,93 +236,73 @@ export function AuditLogsTab({
           <label className="utilities-filter-label">To</label>
           <input type="date" value={auditTo} onChange={(e) => setAuditTo(e.target.value)} aria-label="Audit log to date" />
         </div>
-
-        <div className="utilities-filter-actions">
-          <button className="utilities-generate-button" onClick={() => loadAuditLogs(1, false)}>
-            <Filter size={14} />
-            <span>Apply</span>
-          </button>
-          <button className="utilities-export-button" disabled={isExporting} onClick={() => runExport("excel")}>
-            <FileSpreadsheet size={14} />
-            <span>Excel</span>
-          </button>
-          <button className="utilities-export-button" disabled={isExporting} onClick={() => runExport("pdf")}>
-            <FileText size={14} />
-            <span>PDF</span>
-          </button>
-          <button className="utilities-export-button" onClick={() => window.print()}>
-            <Printer size={14} />
-            <span>Print</span>
-          </button>
-        </div>
       </div>
 
       <section className="table-card utilities-table-card utilities-audit-table">
-        <table>
-          <thead>
-            <tr>
-              <th>DATE/TIME</th>
-              <th>ACTOR</th>
-              <th>ROLE</th>
-              <th>MODULE</th>
-              <th>ACTION</th>
-              <th>AFFECTED RECORD</th>
-              <th>DETAILS</th>
-            </tr>
-          </thead>
-          <tbody>
-            {auditLoading ? (
+        <div className="utilities-table-scroll">
+          <table>
+            <thead>
               <tr>
-                <td colSpan={7} className="utilities-empty-state">
-                  <span className="utilities-loading-dot" /> Loading audit logs…
-                </td>
+                <th>DATE/TIME</th>
+                <th>ACTOR</th>
+                <th>ROLE</th>
+                <th>MODULE</th>
+                <th>ACTION</th>
+                <th>AFFECTED RECORD</th>
+                <th>DETAILS</th>
               </tr>
-            ) : auditLogs.length === 0 ? (
-              <tr>
-                <td colSpan={7} className="utilities-empty-state">
-                  {hasActiveAuditFilters
-                    ? "No audit log entries match your current filters."
-                    : "No audit log entries found."}
-                </td>
-              </tr>
-            ) : (
-              auditLogs.map((log) => (
-                <tr key={log.id}>
-                  <td data-label="Date/Time">{formatDateTime(log.createdAt)}</td>
-                  <td data-label="Actor">{actorName(log)}</td>
-                  <td data-label="Role">{actorRoleLabel(log)}</td>
-                  <td data-label="Module">{moduleLabel(log.entityType)}</td>
-                  <td data-label="Action">
-                    <div className="utilities-action-cell">
-                      <Badge tone={actionTone(log.action)}>{formatAction(log.action)}</Badge>
-                    </div>
-                  </td>
-                  <td data-label="Affected Record">{affectedRecordLabel(log)}</td>
-                  <td data-label="Details">
-                    <button type="button" className="utilities-view-button" onClick={() => setViewLog(log)}>
-                      <Eye size={13} /> View
-                    </button>
+            </thead>
+            <tbody>
+              {auditLoading ? (
+                <tr>
+                  <td colSpan={7} className="utilities-empty-state">
+                    <span className="utilities-loading-dot" /> Loading audit logs…
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </section>
-
-      {!auditLoading && auditTotal > AUDIT_PAGE_SIZE && (
-        <div className="utilities-load-more">
-          <button className="outline-button" onClick={() => loadAuditLogs(auditPage - 1, false)} disabled={auditLoadingMore || auditPage <= 1}>
-            Previous
-          </button>
-          <span className="utilities-toolbar-meta">
-            Page {auditPage} of {Math.max(1, Math.ceil(auditTotal / AUDIT_PAGE_SIZE))}
-          </span>
-          <button className="outline-button" onClick={() => loadAuditLogs(auditPage + 1, false)} disabled={auditLoadingMore || auditPage >= Math.ceil(auditTotal / AUDIT_PAGE_SIZE)}>
-            Next
-          </button>
+              ) : auditLogs.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="utilities-empty-state">
+                    {hasActiveAuditFilters
+                      ? "No audit log entries match your current filters."
+                      : "No audit log entries found."}
+                  </td>
+                </tr>
+              ) : (
+                auditLogs.map((log) => (
+                  <tr key={log.id}>
+                    <td data-label="Date/Time">{formatDateTime(log.createdAt)}</td>
+                    <td data-label="Actor">{actorName(log)}</td>
+                    <td data-label="Role">{actorRoleLabel(log)}</td>
+                    <td data-label="Module">{moduleLabel(log.entityType)}</td>
+                    <td data-label="Action">
+                      <div className="utilities-action-cell">
+                        <Badge tone={actionTone(log.action)}>{formatAction(log.action)}</Badge>
+                      </div>
+                    </td>
+                    <td data-label="Affected Record">{affectedRecordLabel(log)}</td>
+                    <td data-label="Details">
+                      <button type="button" className="utilities-view-button" onClick={() => setViewLog(log)}>
+                        <Eye size={13} /> View
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
-      )}
+        {auditTotal > AUDIT_PAGE_SIZE && (
+          <div className="utilities-pagination utilities-pagination-footer">
+            <button className="outline-button" onClick={() => loadAuditLogs(auditPage - 1, false)} disabled={auditLoadingMore || auditPage <= 1}>
+              Previous
+            </button>
+            <span>Page {auditPage} of {Math.max(1, Math.ceil(auditTotal / AUDIT_PAGE_SIZE))}</span>
+            <button className="outline-button" onClick={() => loadAuditLogs(auditPage + 1, false)} disabled={auditLoadingMore || auditPage >= Math.ceil(auditTotal / AUDIT_PAGE_SIZE)}>
+              Next
+            </button>
+          </div>
+        )}
+      </section>
 
       {/* ── Audit log detail modal ── */}
       {viewLog && (
@@ -513,27 +431,4 @@ export function AuditLogsTab({
       )}
     </>
   );
-}
-
-function exportToCsv(rows: AuditLog[]) {
-  const headers = ["Date/Time", "Actor", "Role", "Module", "Action", "Affected Record", "Description", "IP Address", "Device/Browser"];
-  const escape = (value: unknown) => `"${String(value ?? "").replace(/"/g, '""')}"`;
-  const body = rows.map((log) => [
-    formatDateTime(log.createdAt),
-    actorName(log),
-    actorRoleLabel(log),
-    moduleLabel(log.entityType),
-    formatAction(log.action),
-    affectedRecordLabel(log),
-    auditMeta(log).description ?? "",
-    log.ipAddress ?? "",
-    auditMeta(log).userAgent ?? "",
-  ].map(escape).join(","));
-  const blob = new Blob([[headers.map(escape).join(","), ...body].join("\n")], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `audit-logs-${Date.now()}.csv`;
-  link.click();
-  URL.revokeObjectURL(url);
 }

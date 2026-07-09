@@ -119,18 +119,6 @@ export function LeaveTypesTab({
     setPage(1);
   }, [search, classificationFilter]);
 
-  const stats = useMemo(() => {
-    const requiresDocument = leaveTypes.filter((t) => t.requiresDocument).length;
-    const active = leaveTypes.filter((t) => t.isActive).length;
-    const classificationsCovered = new Set(leaveTypes.flatMap((t) => t.applicableStatuses)).size;
-    return {
-      total: leaveTypes.length,
-      requiresDocument,
-      active,
-      classificationsCovered,
-    };
-  }, [leaveTypes]);
-
   const visibleLeaveTypes = useMemo(
     () =>
       leaveTypes.filter((type) => {
@@ -285,25 +273,6 @@ export function LeaveTypesTab({
 
   return (
     <>
-      <div className="utilities-stats-row">
-        <div className="utilities-stat-card">
-          <span>Total Leave Types</span>
-          <strong>{stats.total}</strong>
-        </div>
-        <div className="utilities-stat-card">
-          <span>Requires Document</span>
-          <strong>{stats.requiresDocument}</strong>
-        </div>
-        <div className="utilities-stat-card">
-          <span>Active</span>
-          <strong>{stats.active}</strong>
-        </div>
-        <div className="utilities-stat-card">
-          <span>Classifications Covered</span>
-          <strong>{stats.classificationsCovered} / 4</strong>
-        </div>
-      </div>
-
       <div className="utilities-section-header">
         <h3>Leave Types</h3>
         <div className="utilities-section-header-controls">
@@ -333,6 +302,7 @@ export function LeaveTypesTab({
       </div>
 
       <section className="table-card utilities-table-card">
+        <div className="utilities-table-scroll">
         <table>
           <thead>
             <tr>
@@ -385,6 +355,7 @@ export function LeaveTypesTab({
             )}
           </tbody>
         </table>
+        </div>
         {pageCount > 1 && (
           <div className="utilities-pagination utilities-pagination-footer">
             <button className="outline-button" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
@@ -575,7 +546,7 @@ export function LeaveTypesTab({
       {/* ── View Leave Type modal ── */}
       {viewLeaveType && (
         <div className="utilities-modal-backdrop" role="presentation">
-          <section className="utilities-modal utilities-modal--sm" role="dialog" aria-modal="true" aria-labelledby="view-type-title">
+          <section className="utilities-modal utilities-modal--view" role="dialog" aria-modal="true" aria-labelledby="view-type-title">
             <div className="utilities-modal-header">
               <div>
                 <h2 id="view-type-title">{viewLeaveType.name}</h2>

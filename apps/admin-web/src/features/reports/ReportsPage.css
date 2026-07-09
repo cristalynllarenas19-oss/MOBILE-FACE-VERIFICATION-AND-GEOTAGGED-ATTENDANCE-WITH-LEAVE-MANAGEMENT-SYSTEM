@@ -1,16 +1,4 @@
 
-.reports-summary-grid {
-  display: flex;
-  flex-wrap: nowrap;
-  gap: 8px;
-  margin-bottom: 12px;
-}
-
-.reports-summary-grid > * {
-  flex: 1 1 0;
-  min-width: 0;
-}
-
 
 .reports-toolbar {
   display: flex;
@@ -32,12 +20,6 @@
   font-weight: 700;
   letter-spacing: -0.2px;
   margin: 0;
-}
-
-.reports-meta {
-  color: #9aaabb;
-  font-size: 11px;
-  font-weight: 500;
 }
 
 .reports-result-count span {
@@ -110,7 +92,6 @@
   padding-bottom: 1px; 
 }
 
-.report-generate-button,
 .report-export-button {
   height: 34px;
   padding: 0 14px;
@@ -123,21 +104,6 @@
   gap: 6px;
   transition: background 0.15s, box-shadow 0.15s;
   white-space: nowrap;
-}
-
-.report-generate-button {
-  border: none;
-  background: #1a3a5c;
-  color: #ffffff;
-  box-shadow: 0 1px 3px rgba(26, 58, 92, 0.25);
-}
-
-.report-generate-button:hover {
-  background: #15304e;
-  box-shadow: 0 2px 6px rgba(26, 58, 92, 0.35);
-}
-
-.report-export-button {
   border: 1.5px solid #c8d6e6;
   background: #ffffff;
   color: #1a3a5c;
@@ -154,8 +120,7 @@
   border-radius: 12px;
   overflow-x: auto;
   overflow-y: auto;
-  max-height: calc(100vh - 360px);
-  min-height: 200px;
+  height: calc(100vh - 360px);
   background: #ffffff;
   box-shadow: 0 1px 4px rgba(15, 23, 42, 0.05);
   -webkit-overflow-scrolling: touch;
@@ -230,8 +195,44 @@
 }
 
 
+.reports-status-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px 0;
+}
+
+.reports-status-tabs button {
+  flex: 0 0 auto;
+  border: 1px solid transparent;
+  background: #f4f8fc;
+  color: #41536b;
+  padding: 7px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.reports-status-tabs button:hover {
+  border-color: #dbe5ef;
+}
+
+.reports-status-tabs button.active {
+  background: #dbeafe;
+  border-color: #93c5fd;
+  color: #1a3a5c;
+}
+
 .reports-table-label {
-  padding: 8px 14px 6px;
+  height: 30px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.5px;
@@ -239,6 +240,13 @@
   color: #1a3a5c;
   background: #eef4fb;
   border-bottom: 1px solid #e3eaf2;
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+
+.reports-table-label + table thead {
+  top: 30px;
 }
 
 
@@ -316,14 +324,13 @@
     width: 100%;
   }
 
-  .report-generate-button,
   .report-export-button {
     flex: 1;
     justify-content: center;
   }
 
   .reports-table-card {
-    max-height: 400px;
+    height: 400px;
   }
 }
 
@@ -340,5 +347,100 @@
   .reports-toolbar {
     flex-direction: column;
     align-items: flex-start;
+  }
+}
+
+/* ── Print ──
+   Only the active report's table should print, headed by the company logo
+   (not the app chrome) with the department + result count as plain text. */
+
+.reports-print-header,
+.reports-print-meta {
+  display: none;
+}
+
+@media print {
+  /* Hide everything in the document by default, then explicitly reveal only
+     the printable region below. This doesn't depend on naming every sibling
+     element (sidebar, topbar, filter bar, buttons, chips, etc.) — whatever
+     else exists in the app shell stays hidden regardless. */
+  body * {
+    visibility: hidden !important;
+  }
+
+  .reports-printable,
+  .reports-printable * {
+    visibility: visible !important;
+  }
+
+  .reports-printable {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    width: 100%;
+  }
+
+  /* The Pending/Approved/Rejected filter chips are interactive controls,
+     not report data — keep them out of the printed output even though
+     they live inside the printable region. */
+  .reports-printable .reports-status-tabs {
+    display: none !important;
+  }
+
+  /* The app shell clips to the viewport on screen (height: 100vh; overflow:
+     hidden) so a printed table longer than one screen would otherwise be
+     cut off instead of flowing onto extra pages. */
+  .app-shell,
+  .main-area,
+  .page-content {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .reports-print-header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .reports-print-logo {
+    width: 220px;
+    height: 220px;
+    object-fit: contain;
+  }
+
+  .reports-print-title {
+    align-self: stretch;
+    margin: 0;
+    font-family: Georgia, "Times New Roman", serif;
+    font-size: 24px;
+    font-weight: 400;
+    color: #1a3a5c;
+    text-align: left;
+  }
+
+  .reports-print-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #d7e2ec;
+    font-size: 11px;
+    font-weight: 700;
+    color: #2d4a65;
+  }
+
+  .reports-table-card {
+    height: auto !important;
+    overflow: visible !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+
+  .reports-table-card thead {
+    position: static;
   }
 }

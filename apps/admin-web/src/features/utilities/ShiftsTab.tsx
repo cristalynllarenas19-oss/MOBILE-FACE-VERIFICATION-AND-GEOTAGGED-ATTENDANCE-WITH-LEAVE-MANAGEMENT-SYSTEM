@@ -240,6 +240,7 @@ export function ShiftsTab({
       </div>
 
       <section className="table-card utilities-table-card">
+        <div className="utilities-table-scroll">
         <table>
           <thead>
             <tr>
@@ -283,6 +284,7 @@ export function ShiftsTab({
             )}
           </tbody>
         </table>
+        </div>
       </section>
 
       {/* ── Add/Edit Shift modal ── */}
