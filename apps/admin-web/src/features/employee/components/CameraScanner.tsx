@@ -4,9 +4,11 @@
  * Matches the mobile behaviour exactly:
  *  • Front camera via getUserMedia (mirrored selfie preview via CSS)
  *  • Polls /face/detect every 250 ms with an unmirrored canvas snapshot
- *  • Tracks the returned bounding box on-screen (same computeFaceScreenBox math)
- *  • "Hold steady" progress advances while a face is continuously detected;
- *    resets to 0 the moment detection is lost (HOLD_TO_LOCK_MS = 1 500 ms)
+ *  • Static oval face guide, fixed spot/size (same computeFaceGuideRect math
+ *    as mobile's faceGuideRect) — not a box that tracks the detected face
+ *  • Blink-based liveness check (same EAR-dip algorithm as mobile) must pass
+ *    before "hold steady" progress starts advancing; resets to 0 the moment
+ *    detection is lost (HOLD_TO_LOCK_MS = 1 500 ms)
  *  • Auto-captures on lock: takes high-quality frame, gets high-accuracy GPS,
  *    reverse-geocodes via Nominatim, bakes the GPS watermark with Canvas 2D
  *    (equivalent of mobile's react-native-view-shot composite), then calls
@@ -16,12 +18,28 @@
 
 import { CSSProperties, useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircle, CheckCircle, Loader2, ScanFace, X } from "lucide-react";
-import { detectFace, FaceBox } from "../api";
+import { detectFace } from "../api";
 
 // ── Constants matching mobile exactly ────────────────────────────────────────
 const DETECT_POLL_MS  = 250;
 const HOLD_TO_LOCK_MS = 1500;
 const TICK_MS         = 100;
+// Blink-based liveness check — same rationale as mobile CameraScanner: this
+// must pass BEFORE hold-to-lock starts counting (and therefore before
+// capture), so a held-up photo (which can never blink) can't be verified.
+// One comparison per sample against a running "eyes open" baseline; the dip
+// sample itself is never folded into the baseline.
+const REQUIRED_BLINKS      = 1;
+const MIN_BASELINE_SAMPLES = 2;
+const EAR_DIP_RATIO        = 0.95;
+const BLINK_POLL_MS        = 120; // faster cadence while actively sampling for a blink
+// Static face guide, same fixed spot/size as mobile's FACE_GUIDE_WIDTH_RATIO
+// / FACE_GUIDE_ASPECT_RATIO — width/height ratio makes it read as an oval,
+// a bit taller than wide, like a face.
+const FACE_GUIDE_WIDTH_RATIO  = 0.46;
+const FACE_GUIDE_ASPECT_RATIO = 0.75;
+const GUIDE_BOX_COLOR = "#1D4ED8";
+const LOCKED_COLOR    = "#22C55E";
 const WATERMARK_WIDTH = 1080;
 const TILE_SIZE       = 256;
 const MAP_ZOOM        = 16;
@@ -40,36 +58,20 @@ type Props = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/** Same math as mobile CameraScanner.computeFaceScreenBox */
-function computeFaceScreenBox(
-  box: FaceBox | null,
+/**
+ * Static on-screen face guide — same as mobile CameraScanner's faceGuideRect:
+ * a fixed oval (not a box that tracks the detected face), always centered in
+ * the stage at a consistent size, so the user lines their face up the same
+ * way every time. CSS renders it as an ellipse via a large border-radius on
+ * a non-square box.
+ */
+function computeFaceGuideRect(
   stageW: number, stageH: number,
-  photoW: number, photoH: number,
 ): { x: number; y: number; w: number; h: number } | null {
-  if (!box || !stageW || !stageH || !photoW || !photoH) return null;
-
-  const scale = Math.max(stageW / photoW, stageH / photoH);
-  const rw = photoW * scale;
-  const rh = photoH * scale;
-  const cx = (rw - stageW) / 2;
-  const cy = (rh - stageH) / 2;
-
-  const bx = box.x * photoW;
-  const by = box.y * photoH;
-  const bw = box.width  * photoW;
-  const bh = box.height * photoH;
-
-  const padX = bw * 0.08;
-  const padY = bh * 0.12;
-
-  const rawX = Math.max(0, bx * scale - cx - padX);
-  const y    = Math.max(0, by * scale - cy - padY);
-  const w    = Math.min(stageW - rawX, bw * scale + padX * 2);
-  const h    = Math.min(stageH - y,   bh * scale + padY * 2);
-  // Mirror horizontally — front camera preview is selfie-flipped via CSS
-  const x    = Math.max(0, stageW - rawX - w);
-
-  return { x, y, w, h };
+  if (!stageW || !stageH) return null;
+  const w = stageW * FACE_GUIDE_WIDTH_RATIO;
+  const h = w / FACE_GUIDE_ASPECT_RATIO;
+  return { x: (stageW - w) / 2, y: (stageH - h) / 2, w, h };
 }
 
 /** Same Carto tile grid as mobile CameraScanner.buildMapGrid */
@@ -273,15 +275,22 @@ export default function CameraScanner({ logType, onComplete, onCancel }: Props) 
   const stageRef       = useRef<HTMLDivElement>(null);
   const isFinishingRef = useRef(false);
   const faceDetRef     = useRef(false);
+  // Blink liveness refs — blinkCountRef mirrors blinkCount so the
+  // interval-driven progress tick can read the latest value without a
+  // stale-closure dependency on it. openBaselineRef/openSampleCountRef track
+  // the running "eyes open" reference for the current attempt.
+  const blinkCountRef      = useRef(0);
+  const openBaselineRef    = useRef<number | null>(null);
+  const openSampleCountRef = useRef(0);
 
   const [permDenied,   setPermDenied]   = useState(false);
   const [cameraReady,  setCameraReady]  = useState(false);
   const [faceDetected, setFaceDetected] = useState(false);
-  const [faceBox,      setFaceBox]      = useState<FaceBox | null>(null);
   const [photoSize,    setPhotoSize]    = useState({ w: 0, h: 0 });
   const [stageSize,    setStageSize]    = useState({ w: 0, h: 0 });
   const [confidence,   setConfidence]   = useState(0);
   const [scanProgress, setScanProgress] = useState(0);
+  const [blinkCount,   setBlinkCount]   = useState(0);
   const [isScanning,   setIsScanning]   = useState(false);
   const [scanError,    setScanError]    = useState<string | null>(null);
   const [frozenSrc,    setFrozenSrc]    = useState<string | null>(null);
@@ -411,7 +420,33 @@ export default function CameraScanner({ logType, onComplete, onCancel }: Props) 
     }
   }, [logType, onComplete]);
 
-  // Face detection polling — chain-scheduled, same pattern as mobile
+  // One comparison, nothing to get stuck in: if this sample reads
+  // meaningfully lower than the running "eyes open" baseline, it's a blink.
+  // The dip sample itself is never folded into the baseline (that would drag
+  // the baseline down and make the next blink harder to trigger). Same logic
+  // as mobile CameraScanner.registerEyeSample.
+  function registerEyeSample(ear: number | null) {
+    if (ear === null) return;
+
+    const baseline = openBaselineRef.current;
+    const ready = openSampleCountRef.current >= MIN_BASELINE_SAMPLES && baseline !== null;
+    const isBlink = ready && ear < (baseline as number) * EAR_DIP_RATIO;
+
+    if (isBlink) {
+      blinkCountRef.current = Math.min(REQUIRED_BLINKS, blinkCountRef.current + 1);
+      setBlinkCount(blinkCountRef.current);
+      return;
+    }
+
+    openBaselineRef.current = baseline === null ? ear : baseline * 0.7 + ear * 0.3;
+    openSampleCountRef.current += 1;
+  }
+
+  // Face detection polling — chain-scheduled, same pattern as mobile. While
+  // the blink check hasn't passed yet, each poll requests "precise" mode
+  // (larger detector input + full landmark model) for sharper eye-landmark
+  // accuracy and samples the returned ear; once a blink is registered it
+  // falls back to the cheaper plain-tracking poll, same as mobile.
   useEffect(() => {
     if (!cameraReady || isScanning || scanError) return;
     let cancelled = false;
@@ -425,31 +460,34 @@ export default function CameraScanner({ logType, onComplete, onCancel }: Props) 
         return;
       }
 
+      const samplingBlink = blinkCountRef.current < REQUIRED_BLINKS;
       let failed = false;
       try {
         const c = document.createElement("canvas");
         c.width  = video.videoWidth;
         c.height = video.videoHeight;
         c.getContext("2d")!.drawImage(video, 0, 0); // unmirrored for detection
-        const dataUrl = c.toDataURL("image/jpeg", 0.3);
+        const dataUrl = c.toDataURL("image/jpeg", samplingBlink ? 0.5 : 0.3);
 
         setPhotoSize({ w: video.videoWidth, h: video.videoHeight });
 
-        const result = await detectFace(dataUrl);
+        const result = await detectFace(dataUrl, samplingBlink);
         if (cancelled) return;
 
         faceDetRef.current = result.detected;
         setFaceDetected(result.detected);
         setConfidence(result.detected ? result.confidence : 0);
-        setFaceBox(result.detected ? result.box : null);
+        if (result.detected && samplingBlink) registerEyeSample(result.ear);
       } catch {
         if (cancelled) return;
         failed = true;
         faceDetRef.current = false;
         setFaceDetected(false);
-        setFaceBox(null);
       } finally {
-        if (!cancelled) tid = setTimeout(pollOnce, failed ? DETECT_POLL_MS * 3 : DETECT_POLL_MS);
+        if (!cancelled) {
+          const nextDelay = failed ? DETECT_POLL_MS * 3 : samplingBlink ? BLINK_POLL_MS : DETECT_POLL_MS;
+          tid = setTimeout(pollOnce, nextDelay);
+        }
       }
     }
 
@@ -457,12 +495,23 @@ export default function CameraScanner({ logType, onComplete, onCancel }: Props) 
     return () => { cancelled = true; clearTimeout(tid); };
   }, [cameraReady, isScanning, scanError]);
 
-  // Progress tick — same as mobile
+  // Progress tick — same as mobile. Only starts advancing once the blink
+  // liveness check has passed; resets (along with the whole liveness
+  // attempt) the moment the face is lost.
   useEffect(() => {
     if (!cameraReady || isScanning || scanError) return;
     const tick = setInterval(() => {
       setScanProgress((prev) => {
-        if (!faceDetRef.current) return 0;
+        if (!faceDetRef.current) {
+          if (blinkCountRef.current > 0 || prev > 0) {
+            openBaselineRef.current    = null;
+            openSampleCountRef.current = 0;
+            blinkCountRef.current      = 0;
+            setBlinkCount(0);
+          }
+          return 0;
+        }
+        if (blinkCountRef.current < REQUIRED_BLINKS) return 0;
         const next = Math.min(100, prev + (TICK_MS / HOLD_TO_LOCK_MS) * 100);
         if (next >= 100 && !isFinishingRef.current) {
           isFinishingRef.current = true;
@@ -477,20 +526,24 @@ export default function CameraScanner({ logType, onComplete, onCancel }: Props) 
   function retryScan() {
     isFinishingRef.current = false;
     faceDetRef.current     = false;
+    blinkCountRef.current      = 0;
+    openBaselineRef.current    = null;
+    openSampleCountRef.current = 0;
     setFaceDetected(false);
-    setFaceBox(null);
     setConfidence(0);
     setScanProgress(0);
+    setBlinkCount(0);
     setScanError(null);
     setFrozenSrc(null);
     setIsScanning(false);
   }
 
   // ── Derived ────────────────────────────────────────────────────────────────
-  const screenBox = computeFaceScreenBox(faceBox, stageSize.w, stageSize.h, photoSize.w, photoSize.h);
+  const faceGuideRect = computeFaceGuideRect(stageSize.w, stageSize.h);
   const isLocked  = scanProgress >= 100;
+  const livenessVerified = blinkCount >= REQUIRED_BLINKS;
   const secondsLeft =
-    faceDetected && !isLocked
+    faceDetected && livenessVerified && !isLocked
       ? Math.max(1, Math.ceil(((100 - scanProgress) / 100) * (HOLD_TO_LOCK_MS / 1000)))
       : null;
   const liveTiles = liveCoords ? buildMapGrid(liveCoords.lat, liveCoords.lon, MAP_LIVE_PX) : null;
@@ -500,7 +553,7 @@ export default function CameraScanner({ logType, onComplete, onCancel }: Props) 
     : isLocked
       ? "Face locked!"
       : faceDetected
-        ? "Face detected, hold steady..."
+        ? (livenessVerified ? "Liveness verified — hold steady..." : "Please blink to verify you're not a photo")
         : "No face detected — position your face inside the frame";
 
   // ── Error / permission screen ──────────────────────────────────────────────
@@ -584,17 +637,19 @@ export default function CameraScanner({ logType, onComplete, onCancel }: Props) 
             <div style={S.countdown}>{secondsLeft}</div>
           )}
 
-          {/* Face bounding box overlay */}
-          {!frozenSrc && screenBox && (
+          {/* Static oval face guide — same fixed spot/size as mobile's faceGuide,
+              not a box that tracks the detected face */}
+          {!frozenSrc && faceGuideRect && (
             <div
               style={{
                 position: "absolute",
-                left:   screenBox.x,
-                top:    screenBox.y,
-                width:  screenBox.w,
-                height: screenBox.h,
-                border: `3px solid ${isLocked ? "#22C55E" : "#1D4ED8"}`,
-                borderRadius: 14,
+                left:   faceGuideRect.x,
+                top:    faceGuideRect.y,
+                width:  faceGuideRect.w,
+                height: faceGuideRect.h,
+                border: `3px dashed ${faceDetected ? LOCKED_COLOR : GUIDE_BOX_COLOR}`,
+                borderRadius: "50%",
+                background: "rgba(255,255,255,0.03)",
                 pointerEvents: "none",
                 boxSizing: "border-box",
               }}

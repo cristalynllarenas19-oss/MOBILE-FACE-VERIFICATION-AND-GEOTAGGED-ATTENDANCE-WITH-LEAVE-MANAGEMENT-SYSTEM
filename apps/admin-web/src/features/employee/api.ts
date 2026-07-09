@@ -6,6 +6,8 @@ export type TodayAttendance = {
   status: string;
   timeInAt: string | null;
   timeOutAt: string | null;
+  lunchOutAt?: string | null;
+  lunchInAt?: string | null;
   visitNumber?: number;
   workLocationId?: string | null;
   recordType?: AttendanceRecordType;
@@ -13,7 +15,7 @@ export type TodayAttendance = {
 
 export type AttendanceLogPhoto = {
   id: string;
-  logType: "TIME_IN" | "TIME_OUT" | "FAILED_ATTEMPT";
+  logType: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN" | "FAILED_ATTEMPT";
   capturedAt: string;
   verificationStatus: string;
   failureReason: string | null;
@@ -26,6 +28,8 @@ export type AttendanceHistoryRecord = {
   attendanceDate: string;
   timeInAt: string | null;
   timeOutAt: string | null;
+  lunchOutAt?: string | null;
+  lunchInAt?: string | null;
   status: string;
   totalMinutes: number;
   visitNumber?: number;
@@ -38,7 +42,7 @@ export type AttendanceHistoryRecord = {
 export type AttendanceSubmitResult = {
   approved: boolean;
   verificationStatus: string;
-  logType: "TIME_IN" | "TIME_OUT";
+  logType: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN";
   geoResult: { reason?: string | null };
   faceResult: { reason?: string | null };
   faceImage?: string | null;
@@ -54,6 +58,7 @@ export type SubmitAttendanceInput = {
   faceImageBase64: string;
   deviceId: string;
   workLocationId?: string;
+  action?: "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN";
 };
 
 export type FaceBox = { x: number; y: number; width: number; height: number };
@@ -74,9 +79,15 @@ export type EmployeeProfile = {
   contactNumber: string | null;
   profilePhotoData: string | null;
   profilePhotoMimeType: string | null;
+  hasActiveFaceEnrollment?: boolean;
   user: { email: string };
   department: { name: string };
   position: { title: string };
+};
+
+export type AttendanceEligibility = {
+  faceEnrolled: boolean;
+  hasWorkLocation: boolean;
 };
 
 export type LeaveType = {
@@ -157,10 +168,10 @@ export function getAttendanceHistory(employeeId: string, limit = 30) {
   return apiRequest<AttendanceHistoryRecord[]>(`/attendance/history/${employeeId}?limit=${limit}`);
 }
 
-export function detectFace(imageBase64: string) {
-  return apiRequest<{ detected: boolean; confidence: number; box: FaceBox | null }>("/face/detect", {
+export function detectFace(imageBase64: string, precise = false) {
+  return apiRequest<{ detected: boolean; confidence: number; box: FaceBox | null; ear: number | null }>("/face/detect", {
     method: "POST",
-    body: JSON.stringify({ imageBase64 }),
+    body: JSON.stringify({ imageBase64, precise }),
   });
 }
 
