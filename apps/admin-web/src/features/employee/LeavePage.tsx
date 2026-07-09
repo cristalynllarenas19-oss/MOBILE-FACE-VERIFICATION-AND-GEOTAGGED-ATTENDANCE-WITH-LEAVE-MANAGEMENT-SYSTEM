@@ -11,7 +11,11 @@ import {
 import { LeaveBalanceChart } from "./components/LeaveBalanceChart";
 import type { AuthUser } from "../../lib/api";
 
-type Props = { user: AuthUser };
+type Props = {
+  user: AuthUser;
+  initialFocusRequestId?: string;
+  onFocusRequestHandled?: () => void;
+};
 type Tab   = "balance" | "request";
 
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -28,7 +32,7 @@ function fmtBytes(b: number) {
   return `${(b / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function LeavePage({ user }: Props) {
+export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }: Props) {
   const [tab,          setTab]          = useState<Tab>("balance");
   const [leaveTypes,   setLeaveTypes]   = useState<LeaveType[]>([]);
   const [balances,     setBalances]     = useState<LeaveBalance[]>([]);
@@ -53,6 +57,7 @@ export function LeavePage({ user }: Props) {
   const [showPending,  setShowPending]   = useState(false);
   const [resultModal,  setResultModal]   = useState<{ ok: boolean; title: string; msg: string } | null>(null);
   const [cancellingId, setCancellingId]  = useState<string | null>(null);
+  const [focusedRequestId, setFocusedRequestId] = useState<string | null>(null);
 
   // Inline "attach requirement & resubmit" — only one row can be expanded at a time.
   const [resubmittingId,  setResubmittingId]  = useState<string | null>(null);
@@ -62,7 +67,6 @@ export function LeavePage({ user }: Props) {
   const [isResubmitting,  setIsResubmitting]  = useState(false);
 
   const fileRef = useRef<HTMLInputElement>(null);
-  const resubmitFileRef = useRef<HTMLInputElement>(null);
 
   const selectedType    = leaveTypes.find((t) => t.id === leaveTypeId);
   const filteredTypes   = leaveTypes
@@ -72,6 +76,10 @@ export function LeavePage({ user }: Props) {
   const pendingRequests = useMemo(
     () => requests.filter((r) => r.status === "PENDING" || r.status === "SUPERVISOR_APPROVED" || r.status === "NEEDS_REVISION"),
     [requests],
+  );
+  const focusedRequest = useMemo(
+    () => requests.find((r) => r.id === focusedRequestId),
+    [requests, focusedRequestId],
   );
 
   const remainingByLeaveType = useMemo(() => {
@@ -119,6 +127,23 @@ export function LeavePage({ user }: Props) {
   }
 
   useEffect(() => { loadData(); }, [user.employeeId]);
+
+  useEffect(() => {
+    if (!initialFocusRequestId || loadingData) return;
+    const request = requests.find((r) => r.id === initialFocusRequestId);
+    setTab("request");
+    if (request) {
+      setFocusedRequestId(request.id);
+      if (request.status === "NEEDS_REVISION") openResubmit(request.id);
+    } else {
+      setResultModal({
+        ok: false,
+        title: "Leave Request Not Found",
+        msg: "This notification is linked to a leave request that could not be loaded.",
+      });
+    }
+    onFocusRequestHandled?.();
+  }, [initialFocusRequestId, loadingData, requests, onFocusRequestHandled]);
 
   async function handleCancel(requestId: string) {
     setCancellingId(requestId);
@@ -285,6 +310,7 @@ export function LeavePage({ user }: Props) {
   function renderRequestCard(r: LeaveRequest) {
     const tone = statusTone(r.status);
     const needsRevision = r.status === "NEEDS_REVISION";
+    const canCancel = r.status === "PENDING" || r.status === "SUPERVISOR_APPROVED";
     const lastRejection = needsRevision
       ? [...(r.notes ?? [])].reverse().find((n) => n.type === "REJECTED")
       : undefined;
@@ -330,7 +356,7 @@ export function LeavePage({ user }: Props) {
             >
               {isExpanded ? "Cancel" : "Attach & Resubmit"}
             </button>
-          ) : (
+          ) : canCancel ? (
             <button
               onClick={() => handleCancel(r.id)}
               disabled={cancellingId === r.id}
@@ -342,7 +368,7 @@ export function LeavePage({ user }: Props) {
             >
               {cancellingId === r.id ? "Cancelling…" : "Cancel"}
             </button>
-          )}
+          ) : null}
         </div>
 
         {needsRevision && isExpanded && (
@@ -361,19 +387,25 @@ export function LeavePage({ user }: Props) {
                 </button>
               </div>
             ) : (
-              <button
-                onClick={() => resubmitFileRef.current?.click()}
+              <label
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
                   width: "100%", height: 40,
                   border: "1.5px dashed #BFDBFE", borderRadius: 10,
                   background: "#F8FAFF", cursor: "pointer",
                   color: "#1680D8", fontSize: 12, fontWeight: 600,
+                  position: "relative", overflow: "hidden",
                 }}
               >
                 <Paperclip size={14} color="#1680D8" />
                 Attach the requested requirement
-              </button>
+                <input
+                  type="file"
+                  accept="image/*,.pdf"
+                  style={hiddenFileInput}
+                  onChange={handleResubmitFileChange}
+                />
+              </label>
             )}
             {resubmitErr && <p style={{ color: "#DC2626", fontSize: 11, fontWeight: 600, marginTop: 4 }}>{resubmitErr}</p>}
             <textarea
@@ -618,7 +650,24 @@ export function LeavePage({ user }: Props) {
               ) : pendingRequests.map(renderRequestCard)}
             </div>
             <button onClick={() => { setShowPending(false); setResubmittingId(null); }} style={{ ...primBtn, marginTop: 10 }}>Close</button>
-            <input ref={resubmitFileRef} type="file" accept="image/*,.pdf" style={{ display: "none" }} onChange={handleResubmitFileChange} />
+          </div>
+        </div>
+      )}
+
+      {focusedRequest && (
+        <div style={overlayS}>
+          <div style={modalCard}>
+            <h3 style={{ color: "#062B59", fontWeight: 700, marginBottom: 14 }}>Leave Request Details</h3>
+            {renderRequestCard(focusedRequest)}
+            <button
+              onClick={() => {
+                setFocusedRequestId(null);
+                setResubmittingId(null);
+              }}
+              style={{ ...primBtn, marginTop: 10 }}
+            >
+              Close
+            </button>
           </div>
         </div>
       )}
@@ -682,6 +731,12 @@ const primBtn: CSSProperties = {
   borderRadius: 14, border: "none",
   background: "#062B59", color: "#FFFFFF",
   fontSize: 14, fontWeight: 700, cursor: "pointer",
+};
+const hiddenFileInput: CSSProperties = {
+  position: "absolute",
+  inset: 0,
+  opacity: 0,
+  cursor: "pointer",
 };
 const overlayS: CSSProperties = {
   position: "fixed", inset: 0,

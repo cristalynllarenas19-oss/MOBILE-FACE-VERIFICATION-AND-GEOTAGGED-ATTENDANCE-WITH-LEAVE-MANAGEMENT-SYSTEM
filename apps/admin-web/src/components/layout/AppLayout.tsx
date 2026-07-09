@@ -197,10 +197,12 @@ export function AppLayout({
   };
 
   const handleSelectNotification = (notification: AppNotification) => {
-    if (notification.type?.startsWith("LEAVE") && user.permissions.includes(permissions.leaveRead)) {
+    if (notification.type?.startsWith("LEAVE") && activeView === "admin" && (user.adminPermissions ?? user.permissions).includes(permissions.leaveRead)) {
       // Jumps straight to this request's review modal instead of dropping HR/
       // Supervisor onto the Leave Management list to go find and click Review.
       onNavigate("leave", notification.entityId ?? undefined);
+    } else if (notification.type?.startsWith("LEAVE") && activeView === "employee") {
+      onNavigate("employee-leave", notification.entityId ?? undefined);
     }
     setNotifOpen(false);
   };

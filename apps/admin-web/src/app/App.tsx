@@ -46,6 +46,7 @@ export default function App() {
   // Lets a clicked Leave notification jump straight into that request's
   // review modal instead of just landing on the Leave Management list.
   const [leaveFocusRequestId, setLeaveFocusRequestId] = useState<string | undefined>(undefined);
+  const [employeeLeaveFocusRequestId, setEmployeeLeaveFocusRequestId] = useState<string | undefined>(undefined);
 
   const navigateToAttendance = (filter: AttendanceNavigateFilter) => {
     setAttendanceFilter(filter);
@@ -55,12 +56,14 @@ export default function App() {
   const handleNavigate = (id: string, entityId?: string) => {
     if (id === "attendance") setAttendanceFilter(undefined);
     setLeaveFocusRequestId(id === "leave" ? entityId : undefined);
+    setEmployeeLeaveFocusRequestId(id === "employee-leave" ? entityId : undefined);
     setPage(id);
   };
 
   const switchView = (view: "admin" | "employee") => {
     setAttendanceFilter(undefined);
     setLeaveFocusRequestId(undefined);
+    setEmployeeLeaveFocusRequestId(undefined);
     setPage(view === "employee" ? "employee-attendance" : "dashboard");
   };
 
@@ -143,7 +146,13 @@ export default function App() {
       {renderPage === "utilities" && <UtilitiesPage user={user} />}
       {/* Employee self-service pages (mirrors employee-mobile) */}
       {renderPage === "employee-attendance" && <EmployeeAttendancePage user={authUser!} />}
-      {renderPage === "employee-leave"      && <EmployeeLeavePage user={authUser!} />}
+      {renderPage === "employee-leave"      && (
+        <EmployeeLeavePage
+          user={authUser!}
+          initialFocusRequestId={employeeLeaveFocusRequestId}
+          onFocusRequestHandled={() => setEmployeeLeaveFocusRequestId(undefined)}
+        />
+      )}
       {renderPage === "employee-dtr"        && <DtrPage user={authUser!} />}
       {renderPage === "employee-work-area"  && <WorkAreaPage user={authUser!} />}
       {renderPage === "employee-settings"   && (
