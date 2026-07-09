@@ -64,35 +64,44 @@ export default function AttendanceScreen({
 
   const isField = user?.attendanceMode === "FIELD";
 
+  // Sunday is a company-wide rest day for every role — no attendance is
+  // taken or required from anyone, mirrored from the same rule enforced
+  // server-side in AttendanceService.submit().
+  const isTodayDayOff = new Date().getDay() === 0;
+
   const hasTimedIn = Boolean(todayAttendance?.timeInAt);
   const hasTimedOut = Boolean(todayAttendance?.timeOutAt);
   // For FIELD employees, todayAttendance is the latest visit of the day —
   // an "open" visit is one that's started but hasn't been ended yet.
   const hasOpenVisit = hasTimedIn && !hasTimedOut;
 
-  const statusLabel = isField
-    ? hasOpenVisit
-      ? "Visit In Progress"
-      : hasTimedIn
-        ? "No Active Visit"
-        : "No Visit Started"
-    : hasTimedOut
-      ? "Day Completed"
-      : hasTimedIn
-        ? "Timed In"
-        : "Not Timed In";
+  const statusLabel = isTodayDayOff && !hasTimedIn
+    ? "Day Off"
+    : isField
+      ? hasOpenVisit
+        ? "Visit In Progress"
+        : hasTimedIn
+          ? "No Active Visit"
+          : "No Visit Started"
+      : hasTimedOut
+        ? "Day Completed"
+        : hasTimedIn
+          ? "Timed In"
+          : "Not Timed In";
 
-  const statusColor = isField
-    ? hasOpenVisit
-      ? "#1680D8"
-      : hasTimedIn
-        ? "#17A34A"
-        : "#EF4444"
-    : hasTimedOut
-      ? "#17A34A"
-      : hasTimedIn
+  const statusColor = isTodayDayOff && !hasTimedIn
+    ? "#64748B"
+    : isField
+      ? hasOpenVisit
         ? "#1680D8"
-        : "#EF4444";
+        : hasTimedIn
+          ? "#17A34A"
+          : "#EF4444"
+      : hasTimedOut
+        ? "#17A34A"
+        : hasTimedIn
+          ? "#1680D8"
+          : "#EF4444";
 
   // Time In/Out (and therefore Lunch, which requires having timed in) is
   // unavailable until the employee has completed face registration and been
@@ -100,10 +109,10 @@ export default function AttendanceScreen({
   const isEligible = Boolean(eligibility?.faceEnrolled && eligibility?.hasWorkLocation);
   const eligibilityMessage = getEligibilityMessage(eligibility);
 
-  const timeInDisabled = isLoading || !isEligible || (isField ? hasOpenVisit : hasTimedIn);
+  const timeInDisabled = isLoading || !isEligible || isTodayDayOff || (isField ? hasOpenVisit : hasTimedIn);
   const timeOutDisabled = isField
-    ? isLoading || !isEligible || !hasOpenVisit
-    : isLoading || !isEligible || !hasTimedIn || hasTimedOut;
+    ? isLoading || !isEligible || isTodayDayOff || !hasOpenVisit
+    : isLoading || !isEligible || isTodayDayOff || !hasTimedIn || hasTimedOut;
 
   // Lunch break is optional and OFFICE-only: shown once timed in, hidden for
   // FIELD employees entirely. The single button toggles between logging the
@@ -244,6 +253,20 @@ export default function AttendanceScreen({
           </View>
         )}
       </View>
+
+      {isTodayDayOff && !hasTimedIn && (
+        <View style={styles.dayOffCard}>
+          <Ionicons
+            name="moon-outline"
+            size={22}
+            color="#64748B"
+          />
+
+          <Text style={styles.dayOffText}>
+            Today is your day off (Sunday). Attendance is not required.
+          </Text>
+        </View>
+      )}
 
       {eligibilityMessage && (
         <View style={styles.eligibilityWarningCard}>
@@ -604,6 +627,30 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: 10,
     color: "#991B1B",
+    fontSize: 13,
+    lineHeight: 18,
+  },
+
+  dayOffCard: {
+    flexDirection: "row",
+    alignItems: "center",
+
+    backgroundColor: "#F1F5F9",
+
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+
+    borderRadius: 14,
+
+    padding: 14,
+
+    marginTop: 20,
+  },
+
+  dayOffText: {
+    flex: 1,
+    marginLeft: 10,
+    color: "#475569",
     fontSize: 13,
     lineHeight: 18,
   },

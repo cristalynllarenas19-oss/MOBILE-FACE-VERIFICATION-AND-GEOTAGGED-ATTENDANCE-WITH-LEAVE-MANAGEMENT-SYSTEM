@@ -75,6 +75,7 @@ export default function SetInitialPasswordScreen({ onDone }: Props) {
               onChangeText={setNewPassword}
               autoCapitalize="none"
               autoCorrect={false}
+              contextMenuHidden
             />
             <Pressable onPress={() => setShowPassword(!showPassword)}>
               <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#64748B" />

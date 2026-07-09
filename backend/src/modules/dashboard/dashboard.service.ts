@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { dedupeToLatestVisitPerEmployeeDay } from "../attendance/attendance-dedup.util";
 import { isDateWithinLeaveRange } from "../../common/utils/on-leave.util";
+import { isDayOff } from "../../common/utils/schedule.util";
 
 @Injectable()
 export class DashboardService {
@@ -190,7 +191,7 @@ export class DashboardService {
 
       // Count no-shows as absent (or on leave, if covered by an approved
       // LeaveRequest) for a specific day scope.
-      if (scope === "day" && scopeDate) {
+      if (scope === "day" && scopeDate && !isDayOff(scopeDate)) {
         const isPast = scopeDate < attendanceDate;
         const isToday = scopeDate.toDateString() === attendanceDate.toDateString();
         if (isPast || isToday) {
@@ -220,7 +221,7 @@ export class DashboardService {
 
       const explicitAbsentees = records.filter((r) => r.status === "ABSENT");
       const recordedEmployeeIds = new Set(records.map((r) => r.employeeId));
-      const noShowAbsentees = isPastDate
+      const noShowAbsentees = isPastDate && !isDayOff(date)
         ? employees.filter((e) => e.hireDate <= date && !recordedEmployeeIds.has(e.id) && !onLeaveMap.has(e.id))
         : [];
       const onLeaveNoRecord = isPastDate
@@ -252,6 +253,9 @@ export class DashboardService {
         absent,
         onLeave: records.filter((r) => r.status === "ON_LEAVE").length + onLeaveNoRecord.length,
         officialBusiness: records.filter((r) => r.status === "OFFICIAL_BUSINESS").length,
+        // Lets the frontend distinguish a Sunday (company-wide day off) from
+        // a day with genuinely no data yet — both otherwise sum to all-zero.
+        isDayOff: isDayOff(date),
         // Per-department breakdown for the day modal
         departments: buildDeptRows(records, "day", date, onLeaveMap),
       };

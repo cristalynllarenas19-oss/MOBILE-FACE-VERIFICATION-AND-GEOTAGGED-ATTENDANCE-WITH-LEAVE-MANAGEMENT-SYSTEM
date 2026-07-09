@@ -8,6 +8,7 @@ import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.serv
 import { SubmitAttendanceDto } from "./dto/submit-attendance.dto";
 import { computeMinutesLate, computeMinutesUndertime, findBestMatchingShift, roundToInterval } from "./attendance-shift.util";
 import { getApprovedLeaveByEmployee } from "../../common/utils/on-leave.util";
+import { isDayOff } from "../../common/utils/schedule.util";
 
 type AttendanceFilters = {
   department?: string;
@@ -157,7 +158,7 @@ export class AttendanceService {
 
       if (onLeave && wantsStatus("ON_LEAVE")) {
         syntheticRows.push({ ...base, status: "ON_LEAVE" as const, leaveTypeName: onLeave.leaveTypeName });
-      } else if (!onLeave && employee.hireDate <= singleDay && wantsStatus("ABSENT")) {
+      } else if (!onLeave && !isDayOff(singleDay) && employee.hireDate <= singleDay && wantsStatus("ABSENT")) {
         syntheticRows.push({ ...base, status: "ABSENT" as const });
       }
     }
@@ -232,7 +233,7 @@ export class AttendanceService {
 
   return (
     record ?? {
-      status: "ABSENT",
+      status: isDayOff(attendanceDate) ? "DAY_OFF" : "ABSENT",
       timeInAt: null,
       timeOutAt: null,
       lunchOutAt: null,
@@ -282,6 +283,13 @@ export class AttendanceService {
 
     const now = new Date();
     const attendanceDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    // Sunday is a company-wide rest day for every role — employee, supervisor,
+    // and admin/HR alike — so no attendance is taken or required from anyone.
+    if (isDayOff(attendanceDate)) {
+      throw new BadRequestException("Today is a scheduled day off (Sunday). Attendance is not required.");
+    }
+
     const isField = employee.attendanceMode === "FIELD";
 
     // For a FIXED employee, recordType is always OFFICE. For a FIELD

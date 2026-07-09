@@ -75,6 +75,16 @@
   background: #eef2f7;
 }
 
+.mabar-seg-dayoff {
+  background: repeating-linear-gradient(
+    45deg,
+    #cbd5e1,
+    #cbd5e1 4px,
+    #e2e8f0 4px,
+    #e2e8f0 8px
+  );
+}
+
 .mabar-col:hover .mabar-stack {
   transform: translateY(-2px);
 }
@@ -85,6 +95,10 @@
 
 .mabar-col.empty .mabar-stack {
   opacity: 0.5;
+}
+
+.mabar-col.day-off .mabar-stack {
+  opacity: 0.75;
 }
 
 .mabar-day-label {

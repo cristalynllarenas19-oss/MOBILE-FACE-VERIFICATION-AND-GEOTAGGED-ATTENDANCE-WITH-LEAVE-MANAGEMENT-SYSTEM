@@ -6,12 +6,14 @@ export function TodaySummaryCard({
   late,
   absent,
   totalEmployees,
+  isDayOff = false,
 }: {
   working: number;
   onLeave: number;
   late: number;
   absent: number;
   totalEmployees: number;
+  isDayOff?: boolean;
 }) {
   const rate = totalEmployees > 0 ? Math.round(((working + late) / totalEmployees) * 100) : 0;
 
@@ -35,7 +37,9 @@ export function TodaySummaryCard({
       </div>
       <div className="tsc-rate-row">
         <span>Attendance Rate</span>
-        <strong>{rate}%</strong>
+        {/* Sunday is a company-wide day off, so a 0% rate would misleadingly
+            read as a bad day rather than an expected non-working day. */}
+        <strong>{isDayOff ? "Day Off" : `${rate}%`}</strong>
       </div>
     </div>
   );

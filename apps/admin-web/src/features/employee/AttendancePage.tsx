@@ -62,23 +62,32 @@ export function AttendancePage({ user }: Props) {
 
   const now = new Date();
 
+  // Sunday is a company-wide rest day for every role — no attendance is
+  // taken or required from anyone, mirrored from the same rule enforced
+  // server-side in AttendanceService.submit().
+  const isTodayDayOff = now.getDay() === 0;
+
   // ── Status logic ──────────────────────────────────────────────────────────
   const hasTimedIn   = Boolean(todayAtt?.timeInAt);
   const hasTimedOut  = Boolean(todayAtt?.timeOutAt);
   const hasOpenVisit = hasTimedIn && !hasTimedOut;
 
-  const statusLabel = isField
-    ? hasOpenVisit ? "Visit In Progress" : hasTimedIn ? "No Active Visit" : "Not Timed In"
-    : hasTimedOut  ? "Day Completed"     : hasTimedIn ? "Timed In"        : "Not Timed In";
+  const statusLabel = isTodayDayOff && !hasTimedIn
+    ? "Day Off"
+    : isField
+      ? hasOpenVisit ? "Visit In Progress" : hasTimedIn ? "No Active Visit" : "Not Timed In"
+      : hasTimedOut  ? "Day Completed"     : hasTimedIn ? "Timed In"        : "Not Timed In";
 
-  const statusColor = isField
-    ? hasOpenVisit ? "#1680D8" : hasTimedIn ? "#17A34A" : "#EF4444"
-    : hasTimedOut  ? "#17A34A" : hasTimedIn ? "#1680D8" : "#EF4444";
+  const statusColor = isTodayDayOff && !hasTimedIn
+    ? "#64748B"
+    : isField
+      ? hasOpenVisit ? "#1680D8" : hasTimedIn ? "#17A34A" : "#EF4444"
+      : hasTimedOut  ? "#17A34A" : hasTimedIn ? "#1680D8" : "#EF4444";
 
-  const timeInDisabled  = isSubmitting || isLoading || (isField ? hasOpenVisit : hasTimedIn);
+  const timeInDisabled  = isSubmitting || isLoading || isTodayDayOff || (isField ? hasOpenVisit : hasTimedIn);
   const timeOutDisabled = isField
-    ? isSubmitting || isLoading || !hasOpenVisit
-    : isSubmitting || isLoading || !hasTimedIn || hasTimedOut;
+    ? isSubmitting || isLoading || isTodayDayOff || !hasOpenVisit
+    : isSubmitting || isLoading || isTodayDayOff || !hasTimedIn || hasTimedOut;
 
   // ── Handlers ─────────────────────────────────────────────────────────────
   async function handleTimeIn() {
@@ -270,6 +279,22 @@ export function AttendancePage({ user }: Props) {
             </div>
           </div>
         </div>
+
+        {isTodayDayOff && !hasTimedIn && (
+          <div
+            className="att-day-off"
+            style={{
+              display: "flex", alignItems: "center", gap: 10,
+              background: "#F1F5F9", border: "1px solid #CBD5E1",
+              borderRadius: 14, padding: 14, marginTop: 16,
+            }}
+          >
+            <AlertCircle size={20} color="#64748B" />
+            <span style={{ color: "#475569", fontSize: 13, lineHeight: 1.4 }}>
+              Today is your day off (Sunday). Attendance is not required.
+            </span>
+          </div>
+        )}
 
         <button
           disabled={timeInDisabled}

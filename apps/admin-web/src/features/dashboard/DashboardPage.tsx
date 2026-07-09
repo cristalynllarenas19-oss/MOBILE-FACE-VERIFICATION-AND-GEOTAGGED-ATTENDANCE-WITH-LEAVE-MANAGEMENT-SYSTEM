@@ -37,6 +37,9 @@ type CalendarDay = {
   absent: number;
   onLeave: number;
   officialBusiness: number;
+  // Sunday, a company-wide day off — lets the chart/detail panel distinguish
+  // it from a day that simply has no attendance data yet.
+  isDayOff: boolean;
   departments: DeptAttendanceRow[];
 };
 
@@ -454,6 +457,7 @@ export function DashboardPage({
               late={summary.stats.lateToday}
               absent={summary.stats.absentToday}
               totalEmployees={summary.stats.totalEmployees}
+              isDayOff={new Date().getDay() === 0}
             />
           </div>
         </Card>

@@ -7,6 +7,7 @@ export type MonthlyBarDay = {
   late: number;
   absent: number;
   onLeave: number;
+  isDayOff?: boolean;
 };
 
 const SEGMENTS = [
@@ -53,21 +54,33 @@ export function MonthlyAttendanceChart({
             <button
               type="button"
               key={day.day}
-              className={`mabar-col${isSelected ? " selected" : ""}${total === 0 ? " empty" : ""}`}
+              className={`mabar-col${isSelected ? " selected" : ""}${day.isDayOff ? " day-off" : total === 0 ? " empty" : ""}`}
               onClick={() => onSelectDay(day)}
               aria-pressed={isSelected}
-              aria-label={`${formatShortDate(day.date)}: ${day.present} present, ${day.late} late, ${day.absent} absent, ${day.onLeave} on leave`}
+              aria-label={
+                day.isDayOff
+                  ? `${formatShortDate(day.date)}: Day off`
+                  : `${formatShortDate(day.date)}: ${day.present} present, ${day.late} late, ${day.absent} absent, ${day.onLeave} on leave`
+              }
             >
               <div className="mabar-tooltip">
                 <strong>{formatShortDate(day.date)}</strong>
-                <span><i style={{ background: "#1baf7a" }} />Present {day.present}</span>
-                <span><i style={{ background: "#eda100" }} />Late {day.late}</span>
-                <span><i style={{ background: "#e34948" }} />Absent {day.absent}</span>
-                <span><i style={{ background: "#4a3aa7" }} />On leave {day.onLeave}</span>
+                {day.isDayOff ? (
+                  <span>Day Off</span>
+                ) : (
+                  <>
+                    <span><i style={{ background: "#1baf7a" }} />Present {day.present}</span>
+                    <span><i style={{ background: "#eda100" }} />Late {day.late}</span>
+                    <span><i style={{ background: "#e34948" }} />Absent {day.absent}</span>
+                    <span><i style={{ background: "#4a3aa7" }} />On leave {day.onLeave}</span>
+                  </>
+                )}
               </div>
 
               <div className="mabar-stack">
-                {total === 0 ? (
+                {day.isDayOff ? (
+                  <div className="mabar-seg mabar-seg-dayoff" style={{ height: "100%" }} />
+                ) : total === 0 ? (
                   <div className="mabar-seg mabar-seg-empty" style={{ height: "100%" }} />
                 ) : (
                   SEGMENTS.map((s) => {

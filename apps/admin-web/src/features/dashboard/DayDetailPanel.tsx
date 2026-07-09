@@ -12,6 +12,7 @@ export type SelectedDay = {
   absent: number;
   onLeave: number;
   officialBusiness: number;
+  isDayOff?: boolean;
   departments: DeptAttendanceRow[];
 };
 
@@ -89,7 +90,9 @@ export function DayDetailPanel({
     <div className="ddp-body" key={`${day.date}-${departmentFilter}`}>
       <h4 className="ddp-date">{formatFullDate(day.date)}</h4>
 
-      {rows.length > 0 ? (
+      {day.isDayOff ? (
+        <p className="ddp-empty">Sunday — company-wide day off. Attendance is not required.</p>
+      ) : rows.length > 0 ? (
         <div className="ddp-dept-list">
           {rows.map((row) => (
             <DeptRateRow key={row.department} row={row} date={dateValue} onNavigate={onNavigate} />

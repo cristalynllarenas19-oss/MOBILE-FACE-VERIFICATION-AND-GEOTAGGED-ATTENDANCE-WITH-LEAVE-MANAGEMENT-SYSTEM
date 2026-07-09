@@ -1,6 +1,9 @@
-import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, Logger } from "@nestjs/common";
+import * as argon2 from "argon2";
+import { generateTemporaryPassword } from "../../common/utils/password.util";
 import { PrismaService } from "../../prisma/prisma.service";
 import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
+import { MailService } from "../mail/mail.service";
 import { CreateEmployeeDto, CreateEmployeeSex, UpdateEmployeeDto } from "./dto/create-employee.dto";
 
 const GENDER_LEAVE_TYPE_NAME: Record<string, string> = {
@@ -10,9 +13,12 @@ const GENDER_LEAVE_TYPE_NAME: Record<string, string> = {
 
 @Injectable()
 export class EmployeesService {
+  private readonly logger = new Logger(EmployeesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLogs: AuditLogsService,
+    private readonly mail: MailService,
   ) {}
 
   findAll(departmentId?: string) {
@@ -123,14 +129,16 @@ export class EmployeesService {
       (await this.prisma.position.findFirst({ where: { title: "Employee" } })) ??
       (await this.prisma.position.create({ data: { title: "Employee" } }));
 
-    // No password is set at creation time — the employee logs in once with
-    // just their email, then is forced to set their own password (see
-    // AuthService.login / UsersService.changePassword).
+    // A random temporary password is generated and emailed to the new hire —
+    // they log in with it once, then are forced to set their own password
+    // (see AuthService.login / UsersService.changePassword).
     const resolvedSupervisorId = await this.resolveSupervisorId(dto.supervisorId, department.id);
+    const temporaryPassword = generateTemporaryPassword();
 
     const user = await this.prisma.user.create({
       data: {
         email: dto.email,
+        passwordHash: await argon2.hash(temporaryPassword),
         mustChangePassword: true,
         userRoles: { create: { roleId: role.id } },
       },
@@ -155,6 +163,14 @@ export class EmployeesService {
     });
 
     await this.assignGenderLeaveType(created.id, dto.sex);
+
+    // Delivery failure shouldn't roll back an otherwise-successful hire —
+    // the account and temporary password already exist either way.
+    try {
+      await this.mail.sendNewEmployeeCredentialsEmail(dto.email, temporaryPassword);
+    } catch (error) {
+      this.logger.error(`Failed to send new-employee credentials email to ${dto.email}`, error instanceof Error ? error.stack : undefined);
+    }
 
     await this.auditLogs.record({
       ...context,

@@ -36,4 +36,21 @@ export class MailService {
       html: `<p>Your password reset code is <strong>${otp}</strong>.</p><p>It expires in 10 minutes. If you did not request this, you can ignore this email.</p>`,
     });
   }
+
+  async sendNewEmployeeCredentialsEmail(to: string, temporaryPassword: string) {
+    if (!this.transporter) {
+      this.logger.warn(
+        `GMAIL_USER/GMAIL_APP_PASSWORD not configured. Temporary password for ${to} is: ${temporaryPassword}`,
+      );
+      return;
+    }
+
+    await this.transporter.sendMail({
+      from: this.config.get<string>("GMAIL_USER"),
+      to,
+      subject: "Your account has been created",
+      text: `An account has been created for you.\n\nEmail: ${to}\nTemporary password: ${temporaryPassword}\n\nUse this password to log in for the first time. You will be required to set your own password before you can continue.`,
+      html: `<p>An account has been created for you.</p><p>Email: <strong>${to}</strong><br/>Temporary password: <strong>${temporaryPassword}</strong></p><p>Use this password to log in for the first time. You will be required to set your own password before you can continue.</p>`,
+    });
+  }
 }
