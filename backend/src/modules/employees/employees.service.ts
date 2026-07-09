@@ -25,7 +25,8 @@ export class EmployeesService {
     return this.prisma.employee.findMany({
       where: departmentId ? { departmentId } : undefined,
       include: { user: true, department: true, position: true, supervisor: true },
-      orderBy: { lastName: "asc" },
+      // Newest-added employee first (LIFO), matching leave requests.
+      orderBy: { createdAt: "desc" },
     });
   }
 

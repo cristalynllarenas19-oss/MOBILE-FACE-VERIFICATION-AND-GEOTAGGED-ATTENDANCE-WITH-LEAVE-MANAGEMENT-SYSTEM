@@ -261,6 +261,7 @@ model Employee {
   section_id           String?
   sex                  Sex?
   soloParentStatus     SoloParentStatus       @default(NOT_APPLICABLE) @map("solo_parent_status")
+  createdAt            DateTime               @default(now()) @map("created_at")
   sections             sections?              @relation(fields: [section_id], references: [id])
   user                 User                   @relation(fields: [userId], references: [id])
   department           Department             @relation(fields: [departmentId], references: [id])

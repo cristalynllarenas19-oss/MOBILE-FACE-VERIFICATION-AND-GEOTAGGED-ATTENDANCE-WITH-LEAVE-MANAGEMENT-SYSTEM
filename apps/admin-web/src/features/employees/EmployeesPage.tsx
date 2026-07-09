@@ -1033,19 +1033,14 @@ export function EmployeesPage({
   });
 
   const handleEmployeeCreated = (employee: Employee) => {
-    setEmployees((current) =>
-      [...current, employee].sort((a, b) => a.lastName.localeCompare(b.lastName)),
-    );
+    // Newest employee goes to the top (LIFO), matching the backend's createdAt-desc order.
+    setEmployees((current) => [employee, ...current]);
     setIsAddOpen(false);
     setNotification({ type: "success", message: "Employee was added successfully." });
   };
 
   const handleEmployeeUpdated = (employee: Employee) => {
-    setEmployees((current) =>
-      current
-        .map((item) => (item.id === employee.id ? employee : item))
-        .sort((a, b) => a.lastName.localeCompare(b.lastName)),
-    );
+    setEmployees((current) => current.map((item) => (item.id === employee.id ? employee : item)));
     setViewEmployee((current) => (current?.id === employee.id ? employee : current));
     setEditEmployee(null);
     setNotification({ type: "success", message: "Employee was updated successfully." });
