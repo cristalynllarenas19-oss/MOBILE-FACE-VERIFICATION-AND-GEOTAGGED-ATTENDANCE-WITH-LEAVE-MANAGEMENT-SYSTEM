@@ -26,6 +26,7 @@ import {
 
 type Props = {
   departmentName?: string;
+  currentEmployeeId?: string;
 };
 
 const EMPLOYMENT_STATUSES = ["REGULAR", "CONTRACTUAL_SEASONAL", "PIECE_RATE"] as const;
@@ -45,7 +46,7 @@ function emptyForm(departmentName?: string): CreateTeamEmployeeInput {
   };
 }
 
-export default function TeamScreen({ departmentName }: Props) {
+export default function TeamScreen({ departmentName, currentEmployeeId }: Props) {
   const [employees, setEmployees] = useState<TeamEmployee[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -62,14 +63,17 @@ export default function TeamScreen({ departmentName }: Props) {
     isRefresh ? setIsRefreshing(true) : setIsLoading(true);
     try {
       const data = await getTeamEmployees();
-      setEmployees(data);
+      // The roster endpoint returns every employee in the department,
+      // including the supervisor's own linked employee record — they
+      // manage their team, not themselves, so exclude it here.
+      setEmployees(data.filter((e) => e.id !== currentEmployeeId));
     } catch (error) {
       console.error("Failed to load team", error);
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, []);
+  }, [currentEmployeeId]);
 
   useEffect(() => {
     load();

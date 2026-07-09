@@ -8,8 +8,8 @@ type Props = {
   departmentName?: string;
 };
 
-const RING_SIZE = 96;
-const RING_STROKE = 12;
+const RING_SIZE = 78;
+const RING_STROKE = 10;
 const RING_RADIUS = (RING_SIZE - RING_STROKE) / 2;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
@@ -122,7 +122,7 @@ export default function SupervisorDashboardScreen({ departmentName }: Props) {
     <View style={styles.container}>
       <View style={styles.heroCard}>
         <View style={styles.heroIconWrap}>
-          <Ionicons name="business" size={17} color="#FFFFFF" />
+          <Ionicons name="business" size={20} color="#FFFFFF" />
         </View>
         <View style={styles.heroTextCol}>
           <Text style={styles.heroTitle} numberOfLines={1}>{departmentName ?? "Your Team"}</Text>
@@ -134,7 +134,7 @@ export default function SupervisorDashboardScreen({ departmentName }: Props) {
           disabled={isRefreshing}
           hitSlop={8}
         >
-          {isRefreshing ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Ionicons name="refresh" size={15} color="#FFFFFF" />}
+          {isRefreshing ? <ActivityIndicator size="small" color="#FFFFFF" /> : <Ionicons name="refresh" size={17} color="#FFFFFF" />}
         </Pressable>
       </View>
 
@@ -222,12 +222,12 @@ const styles = StyleSheet.create({
   heroCard: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
     backgroundColor: "#062B59",
-    borderRadius: 14,
-    paddingVertical: 9,
-    paddingHorizontal: 12,
-    marginBottom: 8,
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    marginBottom: 10,
     shadowColor: "#062B59",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.25,
@@ -235,17 +235,17 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   heroIconWrap: {
-    width: 28,
-    height: 28,
-    borderRadius: 9,
+    width: 38,
+    height: 38,
+    borderRadius: 12,
     backgroundColor: "rgba(255,255,255,0.15)",
     alignItems: "center",
     justifyContent: "center",
   },
   heroTextCol: { flex: 1, minWidth: 0 },
-  heroTitle: { color: "#FFFFFF", fontSize: 14, fontWeight: "800" },
-  heroSubtitle: { color: "#B9CBE0", fontSize: 10.5, marginTop: 1 },
-  refreshButton: { width: 26, height: 26, borderRadius: 13, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center" },
+  heroTitle: { color: "#FFFFFF", fontSize: 17, fontWeight: "800" },
+  heroSubtitle: { color: "#B9CBE0", fontSize: 12, marginTop: 2 },
+  refreshButton: { width: 32, height: 32, borderRadius: 16, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center" },
   refreshButtonPressed: { opacity: 0.7 },
 
   kpiRow: { flexDirection: "row", gap: 8, marginBottom: 8 },
@@ -254,50 +254,48 @@ const styles = StyleSheet.create({
     minWidth: 0,
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 14,
-    paddingVertical: 11,
-    paddingHorizontal: 10,
-    ...cardShadow,
-  },
-  kpiIconWrap: { width: 28, height: 28, borderRadius: 9, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  kpiTextCol: { flex: 1, minWidth: 0 },
-  kpiValue: { fontSize: 15, fontWeight: "800", color: "#062B59" },
-  kpiLabel: { fontSize: 10, color: "#64748B", fontWeight: "500" },
-
-  card: {
-    flex: 1,
-    justifyContent: "center",
+    gap: 9,
     backgroundColor: "#FFFFFF",
     borderRadius: 16,
-    padding: 13,
+    paddingVertical: 14,
+    paddingHorizontal: 11,
+    ...cardShadow,
+  },
+  kpiIconWrap: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  kpiTextCol: { flex: 1, minWidth: 0 },
+  kpiValue: { fontSize: 17, fontWeight: "800", color: "#062B59" },
+  kpiLabel: { fontSize: 11, color: "#64748B", fontWeight: "500" },
+
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 12,
     marginBottom: 8,
     ...cardShadow,
   },
-  cardHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10, gap: 8 },
+  cardHeaderRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 8 },
   cardTitle: { flex: 1, fontSize: 13, fontWeight: "700", color: "#062B59" },
   cardSubtleLabel: { fontSize: 11, fontWeight: "700", color: "#1BAF7A", flexShrink: 0 },
   emptyRingText: { fontSize: 12, color: "#94A3B8", textAlign: "center", paddingVertical: 8 },
 
-  ringRow: { flexDirection: "row", alignItems: "center", gap: 16 },
+  ringRow: { flexDirection: "row", alignItems: "center", gap: 14 },
   ringWrap: { width: RING_SIZE, height: RING_SIZE, alignItems: "center", justifyContent: "center", flexShrink: 0 },
   ringCenter: { position: "absolute", alignItems: "center" },
-  ringValue: { fontSize: 23, fontWeight: "800", color: "#062B59" },
-  ringLabel: { fontSize: 11, color: "#64748B", marginTop: 1 },
+  ringValue: { fontSize: 19, fontWeight: "800", color: "#062B59" },
+  ringLabel: { fontSize: 9.5, color: "#64748B", marginTop: 1 },
 
-  legendCol: { flex: 1, minWidth: 0, gap: 10 },
+  legendCol: { flex: 1, minWidth: 0, gap: 8 },
   legendRow: { flexDirection: "row", alignItems: "center", gap: 7 },
-  legendDot: { width: 9, height: 9, borderRadius: 5, flexShrink: 0 },
-  legendLabel: { flex: 1, minWidth: 0, fontSize: 12, color: "#475569", fontWeight: "600" },
-  legendValue: { fontSize: 13, fontWeight: "800", color: "#062B59", flexShrink: 0 },
+  legendDot: { width: 8, height: 8, borderRadius: 4, flexShrink: 0 },
+  legendLabel: { flex: 1, minWidth: 0, fontSize: 11, color: "#475569", fontWeight: "600" },
+  legendValue: { fontSize: 12, fontWeight: "800", color: "#062B59", flexShrink: 0 },
 
-  miniRow: { flexDirection: "row", gap: 8 },
-  miniCard: { flex: 1, minWidth: 0, backgroundColor: "#FFFFFF", borderRadius: 12, padding: 9, ...cardShadow },
-  miniHeaderRow: { flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 6 },
-  miniIconWrap: { width: 18, height: 18, borderRadius: 6, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  miniTitle: { flex: 1, minWidth: 0, fontSize: 10.5, fontWeight: "700", color: "#062B59" },
-  progressTrack: { height: 5, borderRadius: 999, backgroundColor: "#F1F5F9", overflow: "hidden" },
-  progressFill: { height: 5, borderRadius: 999 },
-  miniFraction: { fontSize: 9.5, color: "#94A3B8", marginTop: 5, fontWeight: "600" },
+  miniRow: { flexDirection: "row", gap: 10 },
+  miniCard: { flex: 1, minWidth: 0, backgroundColor: "#FFFFFF", borderRadius: 14, padding: 12, ...cardShadow },
+  miniHeaderRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 8 },
+  miniIconWrap: { width: 22, height: 22, borderRadius: 7, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  miniTitle: { flex: 1, minWidth: 0, fontSize: 11.5, fontWeight: "700", color: "#062B59" },
+  progressTrack: { height: 6, borderRadius: 999, backgroundColor: "#F1F5F9", overflow: "hidden" },
+  progressFill: { height: 6, borderRadius: 999 },
+  miniFraction: { fontSize: 10, color: "#94A3B8", marginTop: 6, fontWeight: "600" },
 });

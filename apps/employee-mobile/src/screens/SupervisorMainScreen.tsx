@@ -67,9 +67,9 @@ export default function SupervisorMainScreen({ user, onLogout, canSwitchToEmploy
       />
 
       <View style={{ flex: 1, padding: 16 }}>
-        {tab === "dashboard" && <SupervisorDashboardScreen departmentName={user?.department?.name} />}
+        {tab === "dashboard" && <SupervisorDashboardScreen departmentName={user?.department} />}
 
-        {tab === "team" && <TeamScreen departmentName={user?.department?.name} />}
+        {tab === "team" && <TeamScreen departmentName={user?.department} currentEmployeeId={user?.employeeId} />}
 
         {tab === "leave" && <SupervisorLeaveScreen currentEmployeeId={user?.employeeId} />}
 

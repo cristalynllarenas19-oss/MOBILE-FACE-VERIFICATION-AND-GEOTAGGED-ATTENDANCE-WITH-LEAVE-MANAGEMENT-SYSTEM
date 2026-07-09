@@ -41,7 +41,10 @@ export type MobileUser = {
   roles?: string[];
   permissions?: string[];
   departmentId?: string;
-  department?: { name: string };
+  // Sent as a plain name string by POST /auth/login (auth.service.ts), not
+  // a nested object — unlike EmployeeProfile.department below, which comes
+  // from a different endpoint (GET /employees/me) that does nest it.
+  department?: string;
   defaultView?: "ADMIN" | "EMPLOYEE";
   employeeId?: string;
   displayName: string;
