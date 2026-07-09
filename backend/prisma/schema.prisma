@@ -118,6 +118,11 @@ model User {
   mustChangePassword    Boolean            @default(false) @map("must_change_password")
   defaultView           DefaultView?       @map("default_view")
   lastLoginAt           DateTime?          @map("last_login_at")
+  // Bumped whenever this account's role is forcibly changed by someone else
+  // (e.g. losing ADMIN when a replacement admin is added) — embedded in every
+  // issued JWT and checked on each request so already-issued tokens are
+  // instantly rejected instead of staying valid until their 15m expiry.
+  tokenVersion          Int                @default(0) @map("token_version")
   createdAt             DateTime           @default(now()) @map("created_at")
   updatedAt             DateTime           @updatedAt @map("updated_at")
   employee              Employee?

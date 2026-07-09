@@ -65,6 +65,7 @@ export function UsersPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
   const [confirmUser, setConfirmUser] = useState<UserRow | null>(null);
+  const [adminsToReplace, setAdminsToReplace] = useState<UserRow[] | null>(null);
   const [error, setError] = useState("");
   const [notification, setNotification] = useState<Notification>(null);
   const [suggestionsRect, setSuggestionsRect] = useState<{ top: number; left: number; width: number } | null>(null);
@@ -151,6 +152,7 @@ export function UsersPage() {
     setEmployeeSearch("");
     setEmployeeError("");
     setIsEmployeeSearchOpen(false);
+    setAdminsToReplace(null);
     setError("");
   };
 
@@ -195,8 +197,7 @@ export function UsersPage() {
     setConfirmUser(user);
   };
 
-  const handleCreateUser = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const submitCreateUser = async () => {
     setIsSaving(true);
     setError("");
 
@@ -207,6 +208,7 @@ export function UsersPage() {
         method: "POST",
         body: JSON.stringify({ employeeId: form.employeeId, role: form.role }),
       });
+      setAdminsToReplace(null);
       closeAddUser();
       setNotification({ type: "success", message: "Role assigned successfully." });
       loadUsers();
@@ -217,6 +219,25 @@ export function UsersPage() {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const handleCreateUser = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    // Only one ADMIN may hold the role at a time — if granting it here would
+    // replace whoever currently has it, warn before doing it since they'll be
+    // logged out immediately (see UsersService.create on the backend).
+    if (form.role === "ADMIN") {
+      const existingAdmins = users.filter(
+        (user) => user.email !== form.email && user.userRoles.some((userRole) => userRole.role.code === "ADMIN"),
+      );
+      if (existingAdmins.length > 0) {
+        setAdminsToReplace(existingAdmins);
+        return;
+      }
+    }
+
+    submitCreateUser();
   };
 
   const updateUserStatus = async () => {
@@ -443,6 +464,60 @@ export function UsersPage() {
                 <button type="button" className="outline-button" onClick={closeAddUser}>Cancel</button>
               </div>
             </form>
+          </section>
+        </div>
+      )}
+
+      {adminsToReplace && (
+        <div className="user-modal-backdrop" role="presentation">
+          <section className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-admin-replace-title">
+            <div className="confirm-modal-header">
+              <div className="confirm-icon">
+                <AlertTriangle size={22} />
+              </div>
+              <h2 id="confirm-admin-replace-title">Replace Current Admin?</h2>
+              <button
+                className="icon-button"
+                onClick={() => setAdminsToReplace(null)}
+                aria-label="Close confirmation"
+                disabled={isSaving}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <p className="confirm-modal-copy">
+              This system only allows one HR Admin at a time. Granting ADMIN to{" "}
+              <strong>{form.firstName} {form.lastName}</strong> will immediately revoke admin access from{" "}
+              {adminsToReplace.map((admin, index) => (
+                <span key={admin.id}>
+                  <strong>{getUserDisplayName(admin)}</strong>
+                  {index < adminsToReplace.length - 1 ? ", " : ""}
+                </span>
+              ))}{" "}
+              and log them out right away. Continue?
+            </p>
+
+            {error && <p className="user-form-error confirm-error">{error}</p>}
+
+            <div className="confirm-modal-actions">
+              <button
+                type="button"
+                className="primary-button danger-action"
+                onClick={submitCreateUser}
+                disabled={isSaving}
+              >
+                {isSaving ? "Replacing..." : "Replace Admin"}
+              </button>
+              <button
+                type="button"
+                className="outline-button"
+                onClick={() => setAdminsToReplace(null)}
+                disabled={isSaving}
+              >
+                Cancel
+              </button>
+            </div>
           </section>
         </div>
       )}

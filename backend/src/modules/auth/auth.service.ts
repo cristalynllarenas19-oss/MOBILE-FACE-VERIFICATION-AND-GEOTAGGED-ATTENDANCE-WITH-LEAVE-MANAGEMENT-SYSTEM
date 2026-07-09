@@ -80,6 +80,7 @@ export class AuthService {
       permissions,
       employeeId: user.employee?.id,
       departmentId: user.employee?.departmentId,
+      tokenVersion: user.tokenVersion,
     };
 
     await this.prisma.user.update({
