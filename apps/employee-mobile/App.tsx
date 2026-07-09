@@ -487,6 +487,23 @@ export default function App() {
       const timestamp = new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 
       if (result.verificationStatus === "APPROVED") {
+        setTodayAttendance((current) => {
+          if (!current) return current;
+          const nowIso = new Date().toISOString();
+          if (result.logType === "LUNCH_OUT") {
+            return { ...current, lunchOutAt: current.lunchOutAt ?? nowIso };
+          }
+          if (result.logType === "LUNCH_IN") {
+            return { ...current, lunchInAt: current.lunchInAt ?? nowIso };
+          }
+          if (result.logType === "TIME_IN") {
+            return { ...current, timeInAt: current.timeInAt ?? nowIso };
+          }
+          if (result.logType === "TIME_OUT") {
+            return { ...current, timeOutAt: current.timeOutAt ?? nowIso };
+          }
+          return current;
+        });
         setResultModal({
           status: "approved",
           title: `${actionLabel} Recorded`,

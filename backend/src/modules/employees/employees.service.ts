@@ -162,6 +162,23 @@ export class EmployeesService {
       include: { user: true, department: true, position: true, supervisor: true },
     });
 
+    if (created.attendanceMode === "FIXED") {
+      const standardShift = await this.prisma.shift.findFirst({
+        where: { name: "Standard Shift", isActive: true },
+        orderBy: { createdAt: "asc" },
+      });
+
+      if (standardShift) {
+        await this.prisma.employeeSchedule.create({
+          data: {
+            employeeId: created.id,
+            shiftId: standardShift.id,
+            startsOn: new Date(),
+          },
+        });
+      }
+    }
+
     await this.assignGenderLeaveType(created.id, dto.sex);
 
     // Delivery failure shouldn't roll back an otherwise-successful hire —

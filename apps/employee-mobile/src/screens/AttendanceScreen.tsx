@@ -123,7 +123,7 @@ export default function AttendanceScreen({
   const showLunchSection = !isField && hasTimedIn;
   const lunchCompleted = hasLunchOut && hasLunchIn;
   const lunchButtonDisabled = isLoading || !isEligible || hasTimedOut || lunchCompleted;
-  const lunchButtonLabel = lunchCompleted ? "LUNCH COMPLETED" : hasLunchOut ? "LUNCH IN" : "LUNCH OUT";
+  const lunchButtonLabel = lunchCompleted ? "LUNCH COMPLETED" : hasLunchOut ? "LUNCH END" : "LUNCH START";
   const handleLunchPress = hasLunchOut && !hasLunchIn ? onLunchIn : onLunchOut;
 
   return (
@@ -223,7 +223,7 @@ export default function AttendanceScreen({
               </View>
 
               <Text style={styles.timeLabel}>
-                Lunch Out
+                Lunch Start
               </Text>
 
               <Text style={styles.timeValue}>
@@ -243,7 +243,7 @@ export default function AttendanceScreen({
               </View>
 
               <Text style={styles.timeLabel}>
-                Lunch In
+                Lunch End
               </Text>
 
               <Text style={styles.timeValue}>

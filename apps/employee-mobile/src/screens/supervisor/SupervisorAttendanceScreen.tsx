@@ -121,6 +121,14 @@ export default function SupervisorAttendanceScreen() {
                       <Ionicons name="log-out-outline" size={13} color="#B91C1C" />
                       <Text style={styles.timeText}>{formatTime(record.timeOutAt)}</Text>
                     </View>
+                    {(record.lunchOutAt || record.lunchInAt) && (
+                      <View style={styles.timeChip}>
+                        <Ionicons name="cafe-outline" size={13} color="#EA580C" />
+                        <Text style={styles.timeText}>
+                          {formatTime(record.lunchOutAt)} - {formatTime(record.lunchInAt)}
+                        </Text>
+                      </View>
+                    )}
                   </View>
                   {record.workLocation && (
                     <View style={styles.locationRow}>
