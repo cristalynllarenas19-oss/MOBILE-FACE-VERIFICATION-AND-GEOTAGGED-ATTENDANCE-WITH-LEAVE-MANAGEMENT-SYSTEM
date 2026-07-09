@@ -61,7 +61,7 @@ function formatEmploymentStatus(status: EmploymentStatus) {
 }
 
 function formatDefaultDays(type: LeaveType) {
-  if (type.isUnlimitedDays) return "Unlimited";
+  if (type.isUnlimitedDays) return "As needed";
   return type.name.trim().toLowerCase() === "sick leave" ? "As needed" : type.defaultDays;
 }
 
@@ -309,14 +309,13 @@ export function LeaveTypesTab({
               <th>NAME</th>
               <th>DEFAULT DAYS/YEAR</th>
               <th>STATUS</th>
-              <th>LAST UPDATED</th>
               <th>ACTIONS</th>
             </tr>
           </thead>
           <tbody>
             {pagedLeaveTypes.length === 0 ? (
               <tr>
-                <td colSpan={5} className="utilities-empty-state">
+                <td colSpan={4} className="utilities-empty-state">
                   {leaveTypes.length === 0 ? (
                     <div className="utilities-empty-block">
                       <ClipboardList size={28} />
@@ -336,14 +335,6 @@ export function LeaveTypesTab({
                     <Badge tone={type.isActive ? "success" : "neutral"}>
                       {type.isActive ? "Active" : "Inactive"}
                     </Badge>
-                  </td>
-                  <td data-label="Last Updated">
-                    <div className="utilities-last-updated">
-                      <span>{formatDate(type.updatedAt)}</span>
-                      {actorDisplayName(type.updatedByUser ?? type.createdByUser) && (
-                        <small>{actorDisplayName(type.updatedByUser ?? type.createdByUser)}</small>
-                      )}
-                    </div>
                   </td>
                   <td data-label="Actions">
                     <button type="button" className="utilities-view-button" onClick={() => setViewLeaveType(type)}>
@@ -444,7 +435,7 @@ export function LeaveTypesTab({
                     className={form.isUnlimitedDays ? "active" : ""}
                     onClick={() => setForm((c) => ({ ...c, isUnlimitedDays: true }))}
                   >
-                    Unlimited / Variable
+                    As Needed
                   </button>
                 </div>
                 {!form.isUnlimitedDays && (
@@ -497,15 +488,6 @@ export function LeaveTypesTab({
                   onChange={(e) => setForm((c) => ({ ...c, requiresEhsActivation: e.target.checked }))}
                 />
                 <span>Requires EHS activation</span>
-              </label>
-
-              <label className="utilities-checkbox">
-                <input
-                  type="checkbox"
-                  checked={form.allowWithoutPay}
-                  onChange={(e) => setForm((c) => ({ ...c, allowWithoutPay: e.target.checked }))}
-                />
-                <span>Allow without pay</span>
               </label>
 
               <label className="utilities-checkbox">
@@ -591,12 +573,6 @@ export function LeaveTypesTab({
                     </Badge>
                   </div>
                 )}
-                <div>
-                  <span>Allow Without Pay</span>
-                  <Badge tone={viewLeaveType.allowWithoutPay ? "warning" : "neutral"}>
-                    {viewLeaveType.allowWithoutPay ? "Allowed" : "Not allowed"}
-                  </Badge>
-                </div>
                 <div>
                   <span>Admin-Grant Only</span>
                   <Badge tone={viewLeaveType.requiresAdminGrant ? "warning" : "neutral"}>

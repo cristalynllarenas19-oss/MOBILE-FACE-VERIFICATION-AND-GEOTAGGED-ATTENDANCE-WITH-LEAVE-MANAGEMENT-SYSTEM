@@ -1,6 +1,20 @@
 import { Injectable } from "@nestjs/common";
-import { EmploymentStatus } from "@prisma/client";
+import { EmploymentStatus, Sex } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
+
+// Standard PH working-days-per-year reference (365 − 52 Sundays) — used as a
+// fixed denominator for the classification-level "days left" gauge instead of
+// summing every employee's individual balance into one ballooning total.
+const WORKING_DAYS_PER_YEAR = 313;
+
+// Maternity/Paternity Leave are sex-restricted even though both are listed as
+// applicable to REGULAR employees on the leave type itself — an employee with
+// no sex on file is eligible for neither until HR fills it in.
+function isEligibleForLeaveType(leaveTypeName: string, sex: Sex | null | undefined) {
+  if (leaveTypeName === "Maternity Leave") return sex === "FEMALE";
+  if (leaveTypeName === "Paternity Leave") return sex === "MALE";
+  return true;
+}
 
 @Injectable()
 export class LeaveBalancesService {
@@ -55,13 +69,17 @@ export class LeaveBalancesService {
     await this.ensureAutoCreditedBalances(year, [employeeId]);
 
     const [employee, leaveTypes, balances] = await Promise.all([
-      this.prisma.employee.findUniqueOrThrow({ where: { id: employeeId }, select: { employmentStatus: true } }),
+      this.prisma.employee.findUniqueOrThrow({ where: { id: employeeId }, select: { employmentStatus: true, sex: true } }),
       this.prisma.leaveType.findMany({ orderBy: { name: "asc" } }),
       this.prisma.leaveBalance.findMany({ where: { employeeId, year } }),
     ]);
 
     return leaveTypes
-      .filter((leaveType) => leaveType.applicableStatuses.includes(employee.employmentStatus))
+      .filter(
+        (leaveType) =>
+          leaveType.applicableStatuses.includes(employee.employmentStatus) &&
+          isEligibleForLeaveType(leaveType.name, employee.sex),
+      )
       .map((leaveType) => {
       const balance = balances.find((row) => row.leaveTypeId === leaveType.id);
       // Admin-grant-only types (Solo Parent, Study Leave, Added Paternity
@@ -123,6 +141,7 @@ export class LeaveBalancesService {
         select: {
           id: true,
           employmentStatus: true,
+          sex: true,
           departmentId: true,
           department: { select: { name: true } },
         },
@@ -139,14 +158,11 @@ export class LeaveBalancesService {
       });
     }
 
-    const statusMap = new Map<
-      EmploymentStatus,
-      { earnedDays: number; usedDays: number; employeeIds: Set<string> }
-    >();
+    const statusMap = new Map<EmploymentStatus, { usedDays: number; employeeIds: Set<string> }>();
     // Pre-seed every non-separated classification so each always gets its own
     // donut in the overview, even when no employee currently holds it yet.
     for (const status of ["REGULAR", "CONTRACTUAL_SEASONAL", "PIECE_RATE"] as EmploymentStatus[]) {
-      statusMap.set(status, { earnedDays: 0, usedDays: 0, employeeIds: new Set<string>() });
+      statusMap.set(status, { usedDays: 0, employeeIds: new Set<string>() });
     }
     const typeMap = new Map<
       string,
@@ -164,35 +180,38 @@ export class LeaveBalancesService {
     >();
 
 
+    // byLeaveType reflects each leave type's own configured entitlement (as
+    // set on the Leave Types page), not a sum across every employee in the
+    // classification — otherwise a type like Maternity Leave (105 days) would
+    // balloon to 105 × headcount instead of just showing 105.
+    for (const status of ["REGULAR", "CONTRACTUAL_SEASONAL", "PIECE_RATE"] as EmploymentStatus[]) {
+      for (const leaveType of leaveTypes) {
+        if (!leaveType.applicableStatuses.includes(status)) continue;
+        typeMap.set(`${status}::${leaveType.id}`, {
+          employmentStatus: status,
+          leaveTypeId: leaveType.id,
+          leaveTypeName: leaveType.name,
+          earnedDays: leaveType.requiresAdminGrant ? 0 : Number(leaveType.defaultDays),
+          usedDays: 0,
+        });
+      }
+    }
+
     for (const employee of employees) {
       const status = employee.employmentStatus;
 
       for (const leaveType of leaveTypes) {
         if (!leaveType.applicableStatuses.includes(status)) continue;
+        if (!isEligibleForLeaveType(leaveType.name, employee.sex)) continue;
 
         const existing = balanceLookup.get(`${employee.id}::${leaveType.id}`);
         const earnedDays = existing ? existing.earnedDays : leaveType.requiresAdminGrant ? 0 : Number(leaveType.defaultDays);
         const usedDays = existing ? existing.usedDays : 0;
 
-        const statusEntry =
-          statusMap.get(status) ?? { earnedDays: 0, usedDays: 0, employeeIds: new Set<string>() };
-        statusEntry.earnedDays += earnedDays;
+        const statusEntry = statusMap.get(status) ?? { usedDays: 0, employeeIds: new Set<string>() };
         statusEntry.usedDays += usedDays;
         statusEntry.employeeIds.add(employee.id);
         statusMap.set(status, statusEntry);
-
-        const typeKey = `${status}::${leaveType.id}`;
-        const typeEntry =
-          typeMap.get(typeKey) ?? {
-            employmentStatus: status,
-            leaveTypeId: leaveType.id,
-            leaveTypeName: leaveType.name,
-            earnedDays: 0,
-            usedDays: 0,
-          };
-        typeEntry.earnedDays += earnedDays;
-        typeEntry.usedDays += usedDays;
-        typeMap.set(typeKey, typeEntry);
 
         const deptEntry =
           deptMap.get(employee.departmentId) ?? {
@@ -209,11 +228,14 @@ export class LeaveBalancesService {
       }
     }
 
+    // The classification-level gauge is scaled against the fixed working-days-
+    // per-year reference, not a headcount-multiplied sum of every employee's
+    // individual entitlements — usedDays still reflects real, sex-aware usage.
     const byEmploymentStatus = Array.from(statusMap.entries()).map(([employmentStatus, v]) => ({
       employmentStatus,
-      earnedDays: v.earnedDays,
+      earnedDays: WORKING_DAYS_PER_YEAR,
       usedDays: v.usedDays,
-      remainingDays: Math.max(0, v.earnedDays - v.usedDays),
+      remainingDays: Math.max(0, WORKING_DAYS_PER_YEAR - v.usedDays),
       employeeCount: v.employeeIds.size,
     }));
 

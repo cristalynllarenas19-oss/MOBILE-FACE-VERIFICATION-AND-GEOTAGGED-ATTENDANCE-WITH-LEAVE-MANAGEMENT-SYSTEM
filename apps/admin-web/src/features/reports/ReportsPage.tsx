@@ -72,6 +72,19 @@ type ReportData = {
 
 type ReportTab = "ALL" | "attendance" | "leave" | "schedules" | "employees" | "leaveBalances";
 
+const REPORT_TYPE_LABELS: Record<ReportTab, string> = {
+  ALL: "All Reports",
+  attendance: "DTR / Attendance",
+  leave: "Leave",
+  schedules: "Schedules",
+  employees: "List of Employees",
+  leaveBalances: "Remaining Leave",
+};
+
+// "All Reports" bundles these three tabs — spelled out in the print/PDF
+// header since "All Reports" alone doesn't say what's included.
+const ALL_REPORTS_INCLUDES = [REPORT_TYPE_LABELS.attendance, REPORT_TYPE_LABELS.leave, REPORT_TYPE_LABELS.schedules].join(", ");
+
 type EmployeeOption = {
   department: { name: string };
 };
@@ -280,9 +293,7 @@ export function ReportsPage({
     : tab === "leaveBalances" ? filteredLeaveBalances.length
     : filteredAttendance.length + filteredLeaves.length + filteredSchedules.length;
 
-  const departmentLabel = isDepartmentLocked
-    ? lockedDepartmentName
-    : filters.department === "ALL" ? "All Departments" : filters.department;
+  const generatedRangeLabel = `Generated: ${filters.from ? formatDate(filters.from) : "—"} to ${filters.to ? formatDate(filters.to) : "—"}`;
 
   const exportCsv = () => {
     const aRows = [
@@ -341,9 +352,8 @@ export function ReportsPage({
     const pageWidth = doc.internal.pageSize.getWidth();
     const margin = 40;
 
-    // Header matches the on-screen print header: centered logo with the
-    // company name as a title below it, then department + result count as
-    // plain text.
+    // Header matches the on-screen print header: centered logo, the report
+    // type as a title below it, then the generated date range as plain text.
     let startY = 32;
     try {
       const { dataUrl, width, height } = await loadImageDataUrl(logo);
@@ -359,13 +369,19 @@ export function ReportsPage({
 
     doc.setFontSize(16);
     doc.setTextColor(26, 58, 92);
-    doc.text("Universal Leaf Philippines, Inc.", pageWidth / 2, startY, { align: "center" });
-    startY += 24;
+    doc.text(REPORT_TYPE_LABELS[tab], pageWidth / 2, startY, { align: "center" });
+    startY += 20;
+
+    if (tab === "ALL") {
+      doc.setFontSize(8);
+      doc.setTextColor(107, 130, 153);
+      doc.text(`Includes: ${ALL_REPORTS_INCLUDES}`, pageWidth / 2, startY, { align: "center" });
+      startY += 14;
+    }
 
     doc.setFontSize(9);
     doc.setTextColor(45, 74, 101);
-    doc.text(`Department: ${departmentLabel}`, margin, startY);
-    doc.text(`${tabCount} result${tabCount !== 1 ? "s" : ""}`, pageWidth - margin, startY, { align: "right" });
+    doc.text(generatedRangeLabel, pageWidth / 2, startY, { align: "center" });
     startY += 10;
     doc.setDrawColor(215, 226, 236);
     doc.line(margin, startY, pageWidth - margin, startY);
@@ -532,11 +548,13 @@ export function ReportsPage({
       <div className="reports-printable">
         <div className="reports-print-header">
           <img src={logo} alt="Universal Leaf Philippines, Inc." className="reports-print-logo" />
-          <h1 className="reports-print-title">Universal Leaf Philippines, Inc.</h1>
+          <div className="reports-print-heading">
+            <h1 className="reports-print-title">{REPORT_TYPE_LABELS[tab]}</h1>
+            {tab === "ALL" && <p className="reports-print-subtitle">Includes: {ALL_REPORTS_INCLUDES}</p>}
+          </div>
         </div>
         <div className="reports-print-meta">
-          <span>Department: {departmentLabel}</span>
-          <span>{tabCount} result{tabCount !== 1 ? "s" : ""}</span>
+          <span>{generatedRangeLabel}</span>
         </div>
 
         {/* ── Tables ── */}
