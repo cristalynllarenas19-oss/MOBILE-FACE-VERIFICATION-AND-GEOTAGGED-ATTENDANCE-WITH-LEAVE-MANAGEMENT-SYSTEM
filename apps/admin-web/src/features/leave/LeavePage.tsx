@@ -156,6 +156,29 @@ function reviewerName(request: LeaveRequest) {
   return request.reviewer.email;
 }
 
+function attachmentSrc(mimeType: string | null | undefined, data: string | null | undefined) {
+  if (!mimeType || !data) return null;
+  return `data:${mimeType};base64,${data}`;
+}
+
+type PreviewAttachment = {
+  src: string;
+  name: string;
+  mimeType: string;
+};
+
+function getLatestResubmissionAttachment(request: LeaveRequest) {
+  const note = [...(request.notes ?? [])].reverse().find((item) => item.type === "RESUBMITTED" && item.attachmentData);
+  if (!note?.attachmentData || !note.attachmentMimeType) return null;
+  const src = attachmentSrc(note.attachmentMimeType, note.attachmentData);
+  if (!src) return null;
+  return {
+    src,
+    name: note.attachmentName ?? "Resubmitted document",
+    mimeType: note.attachmentMimeType,
+  };
+}
+
 const EMPLOYMENT_STATUS_LABELS: Record<EmploymentStatus, string> = {
   REGULAR: "Regular Employee",
   CONTRACTUAL_SEASONAL: "Contractual Employee (Seasonal)",
@@ -681,7 +704,7 @@ export function LeavePage({
   const [searchTerm, setSearchTerm]             = useState("");
   const [reviewRequest, setReviewRequest]       = useState<LeaveRequest | null>(null);
   const [historyViewOnly, setHistoryViewOnly]   = useState(false);
-  const [imagePreview, setImagePreview]         = useState<{ src: string; name: string } | null>(null);
+  const [imagePreview, setImagePreview]         = useState<PreviewAttachment | null>(null);
   const [remarks, setRemarks]                   = useState("");
   const [requiresAdditionalRequirements, setRequiresAdditionalRequirements] = useState(false);
   const [requirementDetails, setRequirementDetails] = useState("");
@@ -742,6 +765,28 @@ export function LeavePage({
     setHistoryViewOnly(false);
     onFocusRequestHandled?.();
   }, [requests, initialFocusRequestId]);
+
+  useEffect(() => {
+    if (!reviewRequest) {
+      setImagePreview(null);
+      return;
+    }
+    const latestResubmissionAttachment = getLatestResubmissionAttachment(reviewRequest);
+    if (latestResubmissionAttachment) {
+      setImagePreview(latestResubmissionAttachment);
+      return;
+    }
+    if (reviewRequest.attachmentData && reviewRequest.attachmentMimeType) {
+      const src = attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData);
+      if (src) {
+        setImagePreview({
+          src,
+          name: reviewRequest.attachmentName ?? "Supporting document",
+          mimeType: reviewRequest.attachmentMimeType,
+        });
+      }
+    }
+  }, [reviewRequest]);
 
   const loadEmployeeBalances = () => {
     if (!balanceEmployee) {
@@ -1386,28 +1431,28 @@ export function LeavePage({
 
               <div className="leave-attachment-row">
                 <span>Supporting Document</span>
-                {reviewRequest.attachmentData ? (
+                {attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData) ? (
                   reviewRequest.attachmentMimeType?.startsWith("image/") ? (
                     <button
                       type="button"
-                      className="leave-attachment-preview"
+                      className="leave-attachment-preview leave-attachment-preview--inline"
                       onClick={() =>
                         setImagePreview({
-                          src: `data:${reviewRequest.attachmentMimeType};base64,${reviewRequest.attachmentData}`,
+                          src: attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData)!,
                           name: reviewRequest.attachmentName ?? "Supporting document",
                         })
                       }
                     >
                       <img
-                        src={`data:${reviewRequest.attachmentMimeType};base64,${reviewRequest.attachmentData}`}
+                        src={attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData)!}
                         alt={reviewRequest.attachmentName ?? "Supporting document"}
                       />
                       <span><Paperclip size={13} /> {reviewRequest.attachmentName ?? "View attachment"}</span>
                     </button>
                   ) : (
                     <a
-                      className="leave-attachment-link"
-                      href={`data:${reviewRequest.attachmentMimeType ?? "application/octet-stream"};base64,${reviewRequest.attachmentData}`}
+                      className="leave-attachment-link leave-attachment-link--inline"
+                      href={attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData)!}
                       target="_blank"
                       rel="noreferrer"
                     >
@@ -1441,24 +1486,28 @@ export function LeavePage({
                     {note.requirementDetails && (
                       <p><em>Requirement needed:</em> {note.requirementDetails}</p>
                     )}
-                    {note.attachmentData && (
+                    {attachmentSrc(note.attachmentMimeType, note.attachmentData) && (
                       note.attachmentMimeType?.startsWith("image/") ? (
                         <button
                           type="button"
-                          className="leave-attachment-preview"
+                          className="leave-attachment-preview leave-attachment-preview--inline"
                           onClick={() =>
                             setImagePreview({
-                              src: `data:${note.attachmentMimeType};base64,${note.attachmentData}`,
+                              src: attachmentSrc(note.attachmentMimeType, note.attachmentData)!,
                               name: note.attachmentName ?? "Attached requirement",
                             })
                           }
                         >
+                          <img
+                            src={attachmentSrc(note.attachmentMimeType, note.attachmentData)!}
+                            alt={note.attachmentName ?? "Attached requirement"}
+                          />
                           <span><Paperclip size={13} /> {note.attachmentName ?? "View attachment"}</span>
                         </button>
                       ) : (
                         <a
-                          className="leave-attachment-link"
-                          href={`data:${note.attachmentMimeType ?? "application/octet-stream"};base64,${note.attachmentData}`}
+                          className="leave-attachment-link leave-attachment-link--inline"
+                          href={attachmentSrc(note.attachmentMimeType, note.attachmentData)!}
                           target="_blank"
                           rel="noreferrer"
                         >
@@ -1512,20 +1561,14 @@ export function LeavePage({
 
             <div className="leave-detail-actions">
               {!historyViewOnly && canReviewRequest && (
-                requiresAdditionalRequirements ? (
-                  <button className="primary-button" onClick={() => reviewLeave("reject")} disabled={isSaving}>
-                    Send
+                <>
+                  <button className="leave-reject-button" onClick={() => reviewLeave("reject")} disabled={isSaving}>
+                    {requiresAdditionalRequirements ? "Reject & Request Resubmission" : "Reject"}
                   </button>
-                ) : (
-                  <>
-                    <button className="leave-reject-button" onClick={() => reviewLeave("reject")} disabled={isSaving}>
-                      Reject
-                    </button>
-                    <button className="primary-button" onClick={() => reviewLeave("approve")} disabled={isSaving}>
-                      Approve
-                    </button>
-                  </>
-                )
+                  <button className="primary-button" onClick={() => reviewLeave("approve")} disabled={isSaving}>
+                    Approve
+                  </button>
+                </>
               )}
               {!historyViewOnly && isAdmin && reviewRequest.extensionRequested && reviewRequest.extensionApproved == null && (
                 <>
@@ -1560,16 +1603,25 @@ export function LeavePage({
             type="button"
             className="leave-image-lightbox-close"
             onClick={() => setImagePreview(null)}
-            aria-label="Close image preview"
+            aria-label="Close document preview"
           >
             <X size={20} />
           </button>
-          <img
-            className="leave-image-lightbox-img"
-            src={imagePreview.src}
-            alt={imagePreview.name}
-            onClick={(e) => e.stopPropagation()}
-          />
+          {imagePreview.mimeType.startsWith("image/") ? (
+            <img
+              className="leave-image-lightbox-img"
+              src={imagePreview.src}
+              alt={imagePreview.name}
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <iframe
+              className="leave-image-lightbox-frame"
+              src={imagePreview.src}
+              title={imagePreview.name}
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
         </div>
       )}
     </>

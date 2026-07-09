@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
   StyleSheet,
   Animated,
+  Image,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
@@ -67,6 +68,11 @@ function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function getAttachmentPreviewUri(attachment: PickedAttachment) {
+  if (!attachment.mimeType.startsWith("image/")) return null;
+  return `data:${attachment.mimeType};base64,${attachment.base64}`;
 }
 
 function FadeInView({
@@ -413,19 +419,29 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                         )}
 
                         {attachment ? (
-                          <View style={styles.attachmentChip}>
-                            <Ionicons
-                              name={attachment.mimeType.startsWith("image/") ? "image-outline" : "document-outline"}
-                              size={18}
-                              color="#1680D8"
-                            />
-                            <View style={{ flex: 1 }}>
-                              <Text style={styles.attachmentName} numberOfLines={1}>{attachment.name}</Text>
-                              <Text style={styles.attachmentSize}>{formatBytes(attachment.sizeBytes)}</Text>
+                          <View style={styles.attachmentPreviewBlock}>
+                            {getAttachmentPreviewUri(attachment) ? (
+                              <Image source={{ uri: getAttachmentPreviewUri(attachment)! }} style={styles.attachmentPreviewImage} />
+                            ) : (
+                              <View style={styles.attachmentPreviewFallback}>
+                                <Ionicons name="document-text-outline" size={28} color="#1680D8" />
+                                <Text style={styles.attachmentPreviewFallbackText}>Document attached</Text>
+                              </View>
+                            )}
+                            <View style={styles.attachmentChip}>
+                              <Ionicons
+                                name={attachment.mimeType.startsWith("image/") ? "image-outline" : "document-outline"}
+                                size={18}
+                                color="#1680D8"
+                              />
+                              <View style={{ flex: 1 }}>
+                                <Text style={styles.attachmentName} numberOfLines={1}>{attachment.name}</Text>
+                                <Text style={styles.attachmentSize}>{formatBytes(attachment.sizeBytes)}</Text>
+                              </View>
+                              <Pressable onPress={() => setAttachment(null)} style={styles.attachmentRemove}>
+                                <Ionicons name="close" size={16} color="#64748B" />
+                              </Pressable>
                             </View>
-                            <Pressable onPress={() => setAttachment(null)} style={styles.attachmentRemove}>
-                              <Ionicons name="close" size={16} color="#64748B" />
-                            </Pressable>
                           </View>
                         ) : (
                           <Pressable
@@ -637,6 +653,33 @@ const styles = StyleSheet.create({
     color: "#1680D8",
     fontSize: 12.5,
     fontWeight: "600",
+  },
+  attachmentPreviewBlock: {
+    gap: 10,
+    marginBottom: 6,
+  },
+  attachmentPreviewImage: {
+    width: "100%",
+    height: 220,
+    borderRadius: 14,
+    backgroundColor: "#E2E8F0",
+  },
+  attachmentPreviewFallback: {
+    width: "100%",
+    minHeight: 140,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#BFDBFE",
+    backgroundColor: "#F8FAFF",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    padding: 16,
+  },
+  attachmentPreviewFallbackText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#0F172A",
   },
   attachmentChip: {
     flexDirection: "row",

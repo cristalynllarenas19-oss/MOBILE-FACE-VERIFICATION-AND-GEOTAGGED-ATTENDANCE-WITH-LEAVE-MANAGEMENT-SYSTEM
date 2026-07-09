@@ -35,7 +35,7 @@ export default function SupervisorLeaveScreen({ currentEmployeeId }: Props) {
 
   const [reviewRequest, setReviewRequest] = useState<TeamLeaveRequest | null>(null);
   const [remarks, setRemarks] = useState("");
-  const [requiresAdditionalRequirements, setRequiresAdditionalRequirements] = useState(false);
+  const [reviewMode, setReviewMode] = useState<"reject" | "resubmit">("reject");
   const [requirementDetails, setRequirementDetails] = useState("");
   const [isSaving, setIsSaving] = useState(false);
 
@@ -63,7 +63,7 @@ export default function SupervisorLeaveScreen({ currentEmployeeId }: Props) {
   function openReview(request: TeamLeaveRequest) {
     setReviewRequest(request);
     setRemarks("");
-    setRequiresAdditionalRequirements(false);
+    setReviewMode("reject");
     setRequirementDetails("");
   }
 
@@ -71,11 +71,12 @@ export default function SupervisorLeaveScreen({ currentEmployeeId }: Props) {
   // A Supervisor's "Approve" only pre-approves — mirrors LeavePage.tsx's
   // canReviewRequest, which only lets a non-admin act on PENDING requests.
   const canReview = reviewRequest?.status === "PENDING" && !isOwnRequest;
+  const isRequestResubmission = reviewMode === "resubmit";
 
   async function handleReview(action: "approve" | "reject") {
     if (!reviewRequest) return;
 
-    if (action === "reject" && requiresAdditionalRequirements && !requirementDetails.trim()) {
+    if (action === "reject" && isRequestResubmission && !requirementDetails.trim()) {
       setResultModal({ status: "info", title: "Details Required", message: "Please describe what's needed from the employee before sending." });
       return;
     }
@@ -87,7 +88,7 @@ export default function SupervisorLeaveScreen({ currentEmployeeId }: Props) {
       } else {
         await rejectLeaveRequest(reviewRequest.id, {
           remarks: remarks.trim(),
-          requiresAdditionalRequirements,
+          requiresAdditionalRequirements: isRequestResubmission,
           requirementDetails: requirementDetails.trim(),
         });
       }
@@ -95,11 +96,11 @@ export default function SupervisorLeaveScreen({ currentEmployeeId }: Props) {
       await load();
       setResultModal({
         status: "approved",
-        title: action === "approve" ? "Pre-Approved" : requiresAdditionalRequirements ? "Sent Back to Employee" : "Rejected",
+        title: action === "approve" ? "Pre-Approved" : isRequestResubmission ? "Sent Back to Employee" : "Rejected",
         message:
           action === "approve"
             ? "Request moved to Supervisor Approved — HR/Admin will give the final approval."
-            : requiresAdditionalRequirements
+            : isRequestResubmission
               ? "The employee has been asked for additional requirements."
               : "Leave request was rejected.",
       });
@@ -112,7 +113,7 @@ export default function SupervisorLeaveScreen({ currentEmployeeId }: Props) {
 
   function closeReview() {
     setReviewRequest(null);
-    setRequiresAdditionalRequirements(false);
+    setReviewMode("reject");
     setRequirementDetails("");
   }
 
@@ -210,22 +211,30 @@ export default function SupervisorLeaveScreen({ currentEmployeeId }: Props) {
                         placeholder="Optional remarks"
                         value={remarks}
                         onChangeText={setRemarks}
-                        editable={!requiresAdditionalRequirements}
+                        editable={!isRequestResubmission}
                       />
 
-                      <Pressable
-                        style={styles.checkboxRow}
-                        onPress={() => setRequiresAdditionalRequirements((v) => !v)}
-                      >
-                        <Ionicons
-                          name={requiresAdditionalRequirements ? "checkbox" : "square-outline"}
-                          size={20}
-                          color="#062B59"
-                        />
-                        <Text style={styles.checkboxLabel}>Return for additional requirements (on reject)</Text>
-                      </Pressable>
+                      <Text style={styles.label}>Reject action</Text>
+                      <View style={styles.modeRow}>
+                        <Pressable
+                          style={[styles.modeButton, reviewMode === "reject" && styles.modeButtonActive]}
+                          onPress={() => setReviewMode("reject")}
+                        >
+                          <Text style={[styles.modeButtonText, reviewMode === "reject" && styles.modeButtonTextActive]}>
+                            Reject Completely
+                          </Text>
+                        </Pressable>
+                        <Pressable
+                          style={[styles.modeButton, reviewMode === "resubmit" && styles.modeButtonActive]}
+                          onPress={() => setReviewMode("resubmit")}
+                        >
+                          <Text style={[styles.modeButtonText, reviewMode === "resubmit" && styles.modeButtonTextActive]}>
+                            Request Resubmission
+                          </Text>
+                        </Pressable>
+                      </View>
 
-                      {requiresAdditionalRequirements && (
+                      {isRequestResubmission && (
                         <TextInput
                           style={styles.textArea}
                           multiline
@@ -236,12 +245,12 @@ export default function SupervisorLeaveScreen({ currentEmployeeId }: Props) {
                         />
                       )}
 
-                      {requiresAdditionalRequirements ? (
+                      {isRequestResubmission ? (
                         <View style={styles.modalActions}>
                           <Pressable
                             style={[styles.cancelButton, isSaving && styles.buttonDisabled]}
                             onPress={() => {
-                              setRequiresAdditionalRequirements(false);
+                              setReviewMode("reject");
                               setRequirementDetails("");
                             }}
                             disabled={isSaving}
@@ -253,7 +262,7 @@ export default function SupervisorLeaveScreen({ currentEmployeeId }: Props) {
                             onPress={() => handleReview("reject")}
                             disabled={isSaving}
                           >
-                            {isSaving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.sendText}>Send</Text>}
+                            {isSaving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.sendText}>Send Back</Text>}
                           </Pressable>
                         </View>
                       ) : (
@@ -356,6 +365,31 @@ const styles = StyleSheet.create({
   textArea: { minHeight: 70, borderWidth: 1, borderColor: "#E2E8F0", borderRadius: 12, padding: 12, textAlignVertical: "top", marginBottom: 10 },
   checkboxRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4, marginBottom: 10 },
   checkboxLabel: { fontSize: 12, color: "#334155", flex: 1 },
+  modeRow: { flexDirection: "row", gap: 10, marginTop: 4, marginBottom: 10 },
+  modeButton: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+  },
+  modeButtonActive: {
+    borderColor: "#062B59",
+    backgroundColor: "#EFF6FF",
+  },
+  modeButtonText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#475569",
+    textAlign: "center",
+  },
+  modeButtonTextActive: {
+    color: "#062B59",
+  },
   modalActions: { flexDirection: "row", gap: 10, marginTop: 6 },
   rejectButton: { flex: 1, height: 48, borderRadius: 12, borderWidth: 1, borderColor: "#DC2626", alignItems: "center", justifyContent: "center" },
   rejectText: { color: "#DC2626", fontWeight: "700" },
