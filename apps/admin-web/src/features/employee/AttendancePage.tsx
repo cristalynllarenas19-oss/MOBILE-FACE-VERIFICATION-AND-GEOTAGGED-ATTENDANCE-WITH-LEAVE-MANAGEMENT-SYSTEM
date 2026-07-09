@@ -1,12 +1,12 @@
 
 import { CSSProperties, useCallback, useEffect, useState } from "react";
 import {
-  AlertCircle, CheckCircle, Clock, LogIn, LogOut, MapPin,
+  AlertCircle, CheckCircle, Clock, Coffee, LogIn, LogOut, MapPin,
 } from "lucide-react";
 import {
-  TodayAttendance, WorkLocation, AttendanceSubmitResult,
+  TodayAttendance, WorkLocation, AttendanceSubmitResult, AttendanceEligibility,
   getTodayAttendance, submitAttendance, getMyWorkLocation, getMyWorkLocations,
-  distanceInMeters, getFriendlyReason,
+  distanceInMeters, getFriendlyReason, getMyProfile,
 } from "./api";
 import CameraScanner, { GeoPoint } from "./components/CameraScanner";
 import type { AuthUser } from "../../lib/api";
@@ -15,7 +15,7 @@ import "./AttendancePage.css";
 type Props = { user: AuthUser };
 
 type ResultState = {
-  status: "approved" | "pending" | "rejected" | "error";
+  status: "approved" | "pending" | "rejected" | "error" | "info";
   title: string;
   message: string;
 };
@@ -25,11 +25,26 @@ function fmtTime(v: string | null | undefined) {
   return new Date(v).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
 
+function getEligibilityMessage(eligibility: AttendanceEligibility | null) {
+  if (!eligibility) return "Checking your attendance eligibility...";
+  if (!eligibility.faceEnrolled && !eligibility.hasWorkLocation) {
+    return "Your face is not yet registered and you haven't been assigned a work location. Contact HR to get set up before recording attendance.";
+  }
+  if (!eligibility.faceEnrolled) {
+    return "Your face is not yet registered for attendance verification. Contact HR to complete your face enrollment.";
+  }
+  if (!eligibility.hasWorkLocation) {
+    return "You haven't been assigned a work location yet. Contact HR or your supervisor.";
+  }
+  return null;
+}
+
 export function AttendancePage({ user }: Props) {
   const [todayAtt,     setTodayAtt]     = useState<TodayAttendance | null>(null);
+  const [eligibility,  setEligibility]  = useState<AttendanceEligibility | null>(null);
   const [isLoading,    setIsLoading]    = useState(true);
   // Scanner state
-  const [scanType,      setScanType]      = useState<"TIME_IN" | "TIME_OUT" | null>(null);
+  const [scanType,      setScanType]      = useState<"TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN" | null>(null);
   const [isSubmitting,  setIsSubmitting]  = useState(false);
   const [resultModal,   setResultModal]   = useState<ResultState | null>(null);
 
@@ -40,7 +55,7 @@ export function AttendancePage({ user }: Props) {
 
   // Outside-work-area warning
   const [outsideWarning, setOutsideWarning] = useState<{
-    type: "TIME_IN" | "TIME_OUT";
+    type: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN";
     proceed: () => void;
   } | null>(null);
 
@@ -54,11 +69,26 @@ export function AttendancePage({ user }: Props) {
     } catch { /* non-blocking */ }
   }, [user.employeeId]);
 
+  const loadEligibility = useCallback(async () => {
+    if (!user.employeeId) return;
+    try {
+      const [profile, hasWorkLocation] = await Promise.all([
+        getMyProfile(),
+        isField
+          ? getMyWorkLocations().then((sites) => sites.length > 0)
+          : getMyWorkLocation().then((location) => location !== null),
+      ]);
+      setEligibility({ faceEnrolled: Boolean(profile.hasActiveFaceEnrollment), hasWorkLocation });
+    } catch {
+      setEligibility({ faceEnrolled: false, hasWorkLocation: false });
+    }
+  }, [isField, user.employeeId]);
+
   useEffect(() => {
     if (!user.employeeId) return;
     setIsLoading(true);
-    loadToday().finally(() => setIsLoading(false));
-  }, [loadToday, user.employeeId]);
+    Promise.all([loadToday(), loadEligibility()]).finally(() => setIsLoading(false));
+  }, [loadEligibility, loadToday, user.employeeId]);
 
   const now = new Date();
 
@@ -84,14 +114,34 @@ export function AttendancePage({ user }: Props) {
       ? hasOpenVisit ? "#1680D8" : hasTimedIn ? "#17A34A" : "#EF4444"
       : hasTimedOut  ? "#17A34A" : hasTimedIn ? "#1680D8" : "#EF4444";
 
-  const timeInDisabled  = isSubmitting || isLoading || isTodayDayOff || (isField ? hasOpenVisit : hasTimedIn);
+  const isEligible = Boolean(eligibility?.faceEnrolled && eligibility?.hasWorkLocation);
+  const eligibilityMessage = getEligibilityMessage(eligibility);
+  const hasLunchOut = Boolean(todayAtt?.lunchOutAt);
+  const hasLunchIn = Boolean(todayAtt?.lunchInAt);
+  const showLunchSection = !isField && hasTimedIn;
+  const lunchCompleted = hasLunchOut && hasLunchIn;
+
+  const timeInDisabled  = isSubmitting || isLoading || isTodayDayOff || !isEligible || (isField ? hasOpenVisit : hasTimedIn);
   const timeOutDisabled = isField
-    ? isSubmitting || isLoading || isTodayDayOff || !hasOpenVisit
-    : isSubmitting || isLoading || isTodayDayOff || !hasTimedIn || hasTimedOut;
+    ? isSubmitting || isLoading || isTodayDayOff || !isEligible || !hasOpenVisit
+    : isSubmitting || isLoading || isTodayDayOff || !isEligible || !hasTimedIn || hasTimedOut;
+  const lunchButtonDisabled = isSubmitting || isLoading || isTodayDayOff || !isEligible || hasTimedOut || lunchCompleted;
+  const lunchButtonLabel = lunchCompleted ? "LUNCH COMPLETED" : hasLunchOut ? "LUNCH IN" : "LUNCH OUT";
 
   // ── Handlers ─────────────────────────────────────────────────────────────
+  function ensureEligible() {
+    if (isEligible) return true;
+    setResultModal({
+      status: "error",
+      title: "Attendance Not Available",
+      message: eligibilityMessage ?? "Attendance is not available yet. Contact HR or your supervisor.",
+    });
+    return false;
+  }
+
   async function handleTimeIn() {
     if (!user.employeeId) return;
+    if (!ensureEligible()) return;
     if (isField) { await startFieldTimeIn(); return; }
     const outside = await checkOutside();
     if (outside) {
@@ -102,6 +152,7 @@ export function AttendancePage({ user }: Props) {
   }
 
   async function handleTimeOut() {
+    if (!ensureEligible()) return;
     if (isField) { setScanType("TIME_OUT"); return; }
     const outside = await checkOutside();
     if (outside) {
@@ -109,6 +160,35 @@ export function AttendancePage({ user }: Props) {
       return;
     }
     setScanType("TIME_OUT");
+  }
+
+  async function handleLunch() {
+    if (!ensureEligible()) return;
+    if (!todayAtt?.timeInAt) {
+      setResultModal({ status: "info", title: "Time In Required", message: "You need to time in before logging your lunch break." });
+      return;
+    }
+    if (todayAtt.timeOutAt) {
+      setResultModal({ status: "info", title: "Already Timed Out", message: "You've already timed out today." });
+      return;
+    }
+
+    const next = hasLunchOut && !hasLunchIn ? "LUNCH_IN" : "LUNCH_OUT";
+    if (next === "LUNCH_OUT" && hasLunchOut) {
+      setResultModal({ status: "info", title: "Lunch Break Already Started", message: "You've already logged the start of your lunch break." });
+      return;
+    }
+    if (next === "LUNCH_IN" && hasLunchIn) {
+      setResultModal({ status: "info", title: "Lunch Break Already Ended", message: "You've already logged the end of your lunch break." });
+      return;
+    }
+
+    const outside = await checkOutside();
+    if (outside) {
+      setOutsideWarning({ type: next, proceed: () => { setOutsideWarning(null); setScanType(next); } });
+      return;
+    }
+    setScanType(next);
   }
 
   async function startFieldTimeIn() {
@@ -119,10 +199,24 @@ export function AttendancePage({ user }: Props) {
         return;
       }
       if (sites.length === 1) { await handleSiteSelected(sites[0]); return; }
-      setSitePickerSites(sites);
-      setSitePickerVisible(true);
+      const pos = await new Promise<GeolocationPosition>((res, rej) =>
+        navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: false, timeout: 5000 }),
+      );
+      const nearest = sites.reduce(
+        (closest, site) => {
+          const distance = distanceInMeters(
+            pos.coords.latitude,
+            pos.coords.longitude,
+            Number(site.latitude),
+            Number(site.longitude),
+          );
+          return distance < closest.distance ? { site, distance } : closest;
+        },
+        { site: sites[0], distance: Infinity },
+      );
+      await handleSiteSelected(nearest.site);
     } catch (err) {
-      setResultModal({ status: "error", title: "Failed to Load Sites", message: err instanceof Error ? err.message : "Please try again." });
+      setResultModal({ status: "error", title: "Failed to Detect Location", message: err instanceof Error ? err.message : "Please try again." });
     }
   }
 
@@ -182,9 +276,16 @@ export function AttendancePage({ user }: Props) {
         faceImageBase64: faceBase64,
         deviceId:        "web-browser",
         workLocationId:  isField && capturedScanType === "TIME_IN" ? selectedSite?.id : undefined,
+        action: capturedScanType !== "TIME_IN" ? capturedScanType : undefined,
       });
 
-      const actionLabel = result.logType === "TIME_IN" ? "Time In" : "Time Out";
+      const actionLabel =
+        isField
+          ? result.logType === "TIME_IN" ? "Visit Start" : "Visit End"
+          : result.logType === "TIME_IN" ? "Time In"
+            : result.logType === "TIME_OUT" ? "Time Out"
+              : result.logType === "LUNCH_OUT" ? "Lunch Break Start"
+                : "Lunch Break End";
       const ts  = new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
       const msg = getFriendlyReason(
         result.faceResult.reason ?? result.geoResult.reason,
@@ -278,6 +379,32 @@ export function AttendancePage({ user }: Props) {
               </p>
             </div>
           </div>
+
+          {showLunchSection && (
+            <div className="att-stats-row" style={{ display: "flex", alignItems: "center", paddingTop: 18, marginTop: 18, borderTop: "1px solid #EDF1F6" }}>
+              <div className="att-stat-col" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                <div style={{ width: 36, height: 36, borderRadius: 18, background: "#FFF7ED", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 8 }}>
+                  <Coffee size={18} color="#EA580C" />
+                </div>
+                <p style={{ color: "#64748B", fontSize: 13, marginBottom: 4 }}>Lunch Out</p>
+                <p className="att-time-val" style={{ color: "#062B59", fontWeight: 700, fontSize: 16, margin: 0 }}>
+                  {fmtTime(todayAtt?.lunchOutAt)}
+                </p>
+              </div>
+
+              <div className="att-stat-divider" style={{ width: 1, height: 52, background: "#E2E8F0", margin: "0 8px" }} />
+
+              <div className="att-stat-col" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                <div style={{ width: 36, height: 36, borderRadius: 18, background: "#FFF7ED", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 8 }}>
+                  <Coffee size={18} color="#EA580C" />
+                </div>
+                <p style={{ color: "#64748B", fontSize: 13, marginBottom: 4 }}>Lunch In</p>
+                <p className="att-time-val" style={{ color: "#062B59", fontWeight: 700, fontSize: 16, margin: 0 }}>
+                  {fmtTime(todayAtt?.lunchInAt)}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
 
         {isTodayDayOff && !hasTimedIn && (
@@ -329,7 +456,39 @@ export function AttendancePage({ user }: Props) {
           </span>
         </button>
 
-        <div className="att-info" style={{
+        {showLunchSection && (
+          <button
+            disabled={lunchButtonDisabled}
+            onClick={handleLunch}
+            className="att-btn"
+            style={{
+              ...btnBase,
+              marginTop: 10,
+              background: lunchButtonDisabled ? "#F8FAFC" : "#FFF7ED",
+              border:     `1px solid ${lunchButtonDisabled ? "#CBD5E1" : "#EA580C"}`,
+              cursor:     lunchButtonDisabled ? "not-allowed" : "pointer",
+            }}
+          >
+            <Coffee size={18} color={lunchButtonDisabled ? "#94A3B8" : "#EA580C"} />
+            <span style={{ color: lunchButtonDisabled ? "#94A3B8" : "#EA580C" }}>
+              {isSubmitting ? "Processing..." : lunchButtonLabel}
+            </span>
+          </button>
+        )}
+
+        {eligibilityMessage ? (
+          <div className="att-info" style={{
+            display: "flex", alignItems: "flex-start", gap: 10,
+            background: "#FEF2F2", border: "1px solid #FECACA",
+            borderRadius: 14, padding: "12px 14px", marginTop: 16,
+          }}>
+            <AlertCircle size={18} color="#DC2626" style={{ flexShrink: 0, marginTop: 1 }} />
+            <p style={{ color: "#991B1B", fontSize: 13, margin: 0, lineHeight: "18px" }}>
+              {eligibilityMessage}
+            </p>
+          </div>
+        ) : (
+          <div className="att-info" style={{
           display: "flex", alignItems: "flex-start", gap: 10,
           background: "#EFF6FF", border: "1px solid #BFDBFE",
           borderRadius: 14, padding: "12px 14px", marginTop: 16,
@@ -338,7 +497,8 @@ export function AttendancePage({ user }: Props) {
           <p style={{ color: "#1E3A8A", fontSize: 13, margin: 0, lineHeight: "18px" }}>
             Please ensure your camera and location permissions are enabled before recording attendance.
           </p>
-        </div>
+          </div>
+        )}
 
       {/* ── Site picker modal (FIELD employees) ───────────────────────────── */}
       {sitePickerVisible && (

@@ -22,6 +22,7 @@ import "./EmployeePortal.css";
 type Props = { user: AuthUser };
 type Tab   = "office" | "field";
 type AmPm  = "ALL" | "AM" | "PM";
+type PhotoTab = "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function isMorning(v: string | null) {
@@ -37,6 +38,12 @@ function fmtTime(v: string | null) {
 }
 function fmtLogTime(v: string) {
   return new Date(v).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" });
+}
+function photoTabLabel(tab: PhotoTab, isOffice: boolean) {
+  if (tab === "LUNCH_OUT") return "Lunch Out";
+  if (tab === "LUNCH_IN") return "Lunch In";
+  if (tab === "TIME_IN") return isOffice ? "Time In" : "Visit Start";
+  return isOffice ? "Time Out" : "Visit End";
 }
 function fmtHours(mins: number) {
   if (!mins) return null;
@@ -72,7 +79,7 @@ export function DtrPage({ user }: Props) {
   const [activeTab,   setActiveTab]   = useState<Tab>("office");
   const [amPm,        setAmPm]        = useState<AmPm>("ALL");
   const [selected,    setSelected]    = useState<AttendanceHistoryRecord | null>(null);
-  const [photoTab,    setPhotoTab]    = useState<"TIME_IN" | "TIME_OUT">("TIME_IN");
+  const [photoTab,    setPhotoTab]    = useState<PhotoTab>("TIME_IN");
 
   const load = useCallback(async () => {
     if (!user.employeeId) return;
@@ -242,6 +249,14 @@ export function DtrPage({ user }: Props) {
                     </p>
                   </div>
                 </div>
+
+                {isOffice && item.lunchOutAt && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 8 }}>
+                    <span style={{ color: "#9A3412", fontSize: 12, fontWeight: 600 }}>
+                      Lunch: {fmtTime(item.lunchOutAt)} - {fmtTime(item.lunchInAt ?? null)}
+                    </span>
+                  </div>
+                )}
               </button>
             );
           })}
@@ -270,11 +285,33 @@ export function DtrPage({ user }: Props) {
                     color:      photoTab === lt ? "#FFFFFF"  : "#64748B",
                   }}
                 >
-                  {isOffice
-                    ? (lt === "TIME_IN" ? "Time In" : "Time Out")
-                    : (lt === "TIME_IN" ? "Visit Start" : "Visit End")}
+                  {photoTabLabel(lt, isOffice)}
                 </button>
               ))}
+              {isOffice && selected.logs.some((l) => l.logType === "LUNCH_OUT") && (
+                <button
+                  onClick={() => setPhotoTab("LUNCH_OUT")}
+                  style={{
+                    ...tabBtn,
+                    background: photoTab === "LUNCH_OUT" ? "#062B59" : "transparent",
+                    color:      photoTab === "LUNCH_OUT" ? "#FFFFFF"  : "#64748B",
+                  }}
+                >
+                  Lunch Out
+                </button>
+              )}
+              {isOffice && selected.logs.some((l) => l.logType === "LUNCH_IN") && (
+                <button
+                  onClick={() => setPhotoTab("LUNCH_IN")}
+                  style={{
+                    ...tabBtn,
+                    background: photoTab === "LUNCH_IN" ? "#062B59" : "transparent",
+                    color:      photoTab === "LUNCH_IN" ? "#FFFFFF"  : "#64748B",
+                  }}
+                >
+                  Lunch In
+                </button>
+              )}
             </div>
 
             {/* Photo */}
@@ -286,9 +323,7 @@ export function DtrPage({ user }: Props) {
                   {log && (
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
                       <span style={{ color: "#1E3A8A", fontSize: 13, fontWeight: 700 }}>
-                        {isOffice
-                          ? (photoTab === "TIME_IN" ? "Time In" : "Time Out")
-                          : (photoTab === "TIME_IN" ? "Visit Start" : "Visit End")}
+                        {photoTabLabel(photoTab, isOffice)}
                       </span>
                       <span style={{ color: "#94A3B8", fontSize: 12, fontWeight: 600 }}>
                         {fmtLogTime(log.capturedAt)}

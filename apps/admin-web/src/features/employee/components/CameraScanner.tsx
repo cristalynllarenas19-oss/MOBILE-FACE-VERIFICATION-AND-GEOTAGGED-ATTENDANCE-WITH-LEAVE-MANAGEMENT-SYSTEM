@@ -33,7 +33,7 @@ const FREEZE_DELAY_MS = 900;
 export type GeoPoint = { latitude: number; longitude: number; accuracy: number };
 
 type Props = {
-  logType: "TIME_IN" | "TIME_OUT";
+  logType: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN";
   onComplete: (location: GeoPoint, faceBase64: string) => void;
   onCancel: () => void;
 };
@@ -106,6 +106,20 @@ function formatStampDate(d: Date) {
     month: "short", day: "numeric", year: "numeric",
     hour: "numeric", minute: "2-digit", second: "2-digit",
   });
+}
+
+function logTypeLabel(logType: Props["logType"]) {
+  if (logType === "TIME_IN") return "TIME IN";
+  if (logType === "TIME_OUT") return "TIME OUT";
+  if (logType === "LUNCH_OUT") return "LUNCH OUT";
+  return "LUNCH IN";
+}
+
+function logTypeTitle(logType: Props["logType"]) {
+  if (logType === "TIME_IN") return "Time In";
+  if (logType === "TIME_OUT") return "Time Out";
+  if (logType === "LUNCH_OUT") return "Lunch Out";
+  return "Lunch In";
 }
 
 /** Nominatim reverse geocoding — free, no API key */
@@ -379,7 +393,7 @@ export default function CameraScanner({ logType, onComplete, onCancel }: Props) 
         `${Math.abs(coords.latitude).toFixed(6)}°${coords.latitude >= 0 ? "N" : "S"}, ` +
         `${Math.abs(coords.longitude).toFixed(6)}°${coords.longitude >= 0 ? "E" : "W"}`;
 
-      const label    = logType === "TIME_IN" ? "TIME IN" : "TIME OUT";
+      const label    = logTypeLabel(logType);
       const stamped  = await bakeWatermark(video, coords.latitude, coords.longitude, label, address);
       setFrozenSrc(stamped);
 
@@ -516,7 +530,7 @@ export default function CameraScanner({ logType, onComplete, onCancel }: Props) 
           <X size={24} color="#0F172A" />
         </button>
         <span style={S.title}>
-          {logType === "TIME_IN" ? "Time In" : "Time Out"} Verification
+          {logTypeTitle(logType)} Verification
         </span>
         <div style={{ width: 32 }} />
       </div>
@@ -624,7 +638,7 @@ export default function CameraScanner({ logType, onComplete, onCancel }: Props) 
               </div>
               <div style={S.gpsTextCol}>
                 <div style={S.dateBadge}>
-                  {logType === "TIME_IN" ? "TIME IN" : "TIME OUT"} · {formatStampDate(now)}
+                  {logTypeLabel(logType)} · {formatStampDate(now)}
                 </div>
                 <div style={S.addressText}>{liveAddress ?? "Locating…"}</div>
               </div>
@@ -695,7 +709,7 @@ const S: Record<string, CSSProperties> = {
   },
   stage: {
     position: "relative",
-    width: "100%", maxWidth: 520,
+    width: "200%", maxWidth: 720,
     borderRadius: 20, overflow: "hidden",
     background: "#050816",
     border: "1px solid rgba(148,163,184,0.18)",
