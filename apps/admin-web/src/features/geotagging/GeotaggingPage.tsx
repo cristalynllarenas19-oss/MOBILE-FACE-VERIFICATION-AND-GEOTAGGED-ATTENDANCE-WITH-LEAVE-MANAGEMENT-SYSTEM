@@ -1,7 +1,7 @@
 import "leaflet/dist/leaflet.css";
 
 import { Component, FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Check, ChevronDown, Edit3, Eye, MapPin, Plus, Power, PowerOff, Save, Search, Trash2, Users, X } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, ChevronDown, Edit3, Eye, MapPin, Plus, Power, PowerOff, Save, Search, Trash2, Users, X } from "lucide-react";
 import L from "leaflet";
 import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
 import markerIconUrl from "leaflet/dist/images/marker-icon.png";
@@ -355,6 +355,7 @@ function GeotaggingPageContent({
   const [areaSearchQuery, setAreaSearchQuery] = useState("");
   const [areaStatusFilter, setAreaStatusFilter] = useState<"active" | "inactive" | "all">("active");
   const [assignmentError, setAssignmentError] = useState("");
+  const [notice, setNotice] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [selectedLocationId, setSelectedLocationId] = useState("");
   const [editingLocationId, setEditingLocationId] = useState<string | null>(null);
   const [viewingLocationId, setViewingLocationId] = useState<string | null>(null);
@@ -380,6 +381,12 @@ function GeotaggingPageContent({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showDepartmentMenu]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const id = window.setTimeout(() => setNotice(null), 3500);
+    return () => window.clearTimeout(id);
+  }, [notice]);
 
   useEffect(() => {
     let alive = true;
@@ -782,20 +789,16 @@ function GeotaggingPageContent({
           body: JSON.stringify(areaPayload),
         });
         setLocations((current) => current.map((location) => (location.id === updated.id ? updated : location)));
+        setNotice({ type: "success", message: `"${updated.name}" was updated.` });
       } else {
         const newLoc = await apiRequest<GeotaggedLocation>("/geolocation/locations", {
           method: "POST",
           body: JSON.stringify({ ...areaPayload, employeeIds: form.employeeIds }),
         });
         setLocations((current) => [newLoc, ...current]);
-        setSelectedLocationId(newLoc.id);
-        setEditingLocationId(newLoc.id);
-        setForm((current) => ({
-          ...current,
-          name: newLoc.name,
-          employeeIds: newLoc.employees?.map((entry) => entry.employee.id) ?? current.employeeIds,
-        }));
+        setNotice({ type: "success", message: `"${newLoc.name}" was added.` });
       }
+      startCreateMode();
     } catch (error) {
       console.error("Failed to save geotagged area", error);
       const message =
@@ -817,10 +820,8 @@ function GeotaggingPageContent({
         body: JSON.stringify({ employeeIds: form.employeeIds }),
       });
       setLocations((current) => current.map((location) => (location.id === updated.id ? updated : location)));
-      setForm((current) => ({
-        ...current,
-        employeeIds: updated.employees?.map((entry) => entry.employee.id) ?? current.employeeIds,
-      }));
+      setNotice({ type: "success", message: `Employee assignments saved for "${updated.name}".` });
+      startCreateMode();
     } catch (error) {
       console.error("Failed to save employee assignments", error);
       const message = error instanceof Error ? error.message : "Failed to save employee assignments";
@@ -954,6 +955,13 @@ function GeotaggingPageContent({
 
   return (
     <div className="geotagging-page">
+
+      {notice && (
+        <div className={`geotagging-toast ${notice.type}`} role="status">
+          {notice.type === "success" ? <CheckCircle2 size={17} /> : <AlertTriangle size={17} />}
+          <span>{notice.message}</span>
+        </div>
+      )}
 
       {loadError && (
         <div className="geotagging-banner error" role="alert">

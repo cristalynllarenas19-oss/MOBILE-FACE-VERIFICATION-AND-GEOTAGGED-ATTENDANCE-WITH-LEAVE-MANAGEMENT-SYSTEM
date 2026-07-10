@@ -297,6 +297,22 @@
   margin-bottom: 0;
 }
 
+.enrollment-list .table-card {
+  max-height: 480px;
+  overflow-y: auto;
+}
+
+.enrollment-list .table-card thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  text-align: center;
+}
+
+.enrollment-list .table-card td {
+  text-align: center;
+}
+
 .no-employee-matches {
   color: #94a3b8;
   font-size: 13px;
