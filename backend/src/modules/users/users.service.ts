@@ -92,43 +92,12 @@ export class UsersService {
 
     const employeeUserId = employee.userId;
 
-    const { created, replacedAdmins } = await this.prisma.$transaction(async (tx) => {
-      const replacedAdmins: { id: string; email: string; name: string }[] = [];
-
-      // Only one ADMIN may hold the role at a time — granting it here
-      // replaces whoever currently has it. Their token is bumped so their
-      // next request is rejected immediately (see JwtStrategy.validate)
-      // instead of staying valid until it naturally expires.
-      if (dto.role === "ADMIN") {
-        const currentAdmins = await tx.user.findMany({
-          where: {
-            id: { not: employeeUserId },
-            userRoles: { some: { role: { code: "ADMIN" } } },
-          },
-          select: { id: true, email: true, employee: true, userRoles: { include: { role: true } } },
-        });
-
-        for (const admin of currentAdmins) {
-          await tx.userRole.deleteMany({ where: { userId: admin.id, role: { code: "ADMIN" } } });
-
-          // An account must keep at least one role — fall back to EMPLOYEE
-          // if ADMIN was its only role, so it isn't left completely locked out.
-          const remainingRoles = admin.userRoles.filter((userRole) => userRole.role.code !== "ADMIN");
-          if (remainingRoles.length === 0) {
-            const employeeRole = await tx.role.findUniqueOrThrow({ where: { code: "EMPLOYEE" } });
-            await tx.userRole.create({ data: { userId: admin.id, roleId: employeeRole.id } });
-          }
-
-          await tx.user.update({ where: { id: admin.id }, data: { tokenVersion: { increment: 1 } } });
-
-          replacedAdmins.push({
-            id: admin.id,
-            email: admin.email,
-            name: admin.employee ? `${admin.employee.firstName} ${admin.employee.lastName}` : admin.email,
-          });
-        }
-      }
-
+    // Only one ADMIN is ever *active* at a time, but granting the role here
+    // does not evict whoever currently holds it — that handoff happens the
+    // moment the newly-granted admin actually logs in (see
+    // AuthService.evictOtherAdmins), not at grant time. So briefly, until
+    // that first login, both accounts may hold ADMIN.
+    const created = await this.prisma.$transaction(async (tx) => {
       // Only clears the role being (re)assigned — an existing EMPLOYEE role
       // (or any other) must survive so the account keeps attendance-portal
       // access after being granted HR/Supervisor access.
@@ -140,7 +109,7 @@ export class UsersService {
       });
       await tx.userRole.create({ data: { userId: employeeUserId, roleId: role.id } });
 
-      const created = await tx.user.findUniqueOrThrow({
+      return tx.user.findUniqueOrThrow({
         where: { id: employeeUserId },
         select: {
           id: true,
@@ -150,8 +119,6 @@ export class UsersService {
           employee: true,
         },
       });
-
-      return { created, replacedAdmins };
     });
 
     await this.auditLogs.record({
@@ -164,21 +131,7 @@ export class UsersService {
       newValues: { role: dto.role, email: created.email, employeeId: dto.employeeId },
     });
 
-    for (const admin of replacedAdmins) {
-      await this.auditLogs.record({
-        ...context,
-        action: "REVOKE_USER_ROLE",
-        module: "Users",
-        entityType: "User",
-        entityId: admin.id,
-        description: `Revoked ADMIN access from ${admin.name} — replaced by ${
-          created.employee ? `${created.employee.firstName} ${created.employee.lastName}` : created.email
-        }. Account was logged out immediately.`,
-        newValues: { revokedRole: "ADMIN", email: admin.email },
-      });
-    }
-
-    return { ...created, replacedAdmins };
+    return created;
   }
 
   async updateStatus(id: string, status: "ACTIVE" | "INACTIVE" | "LOCKED", context: AuditLogContext = {}) {

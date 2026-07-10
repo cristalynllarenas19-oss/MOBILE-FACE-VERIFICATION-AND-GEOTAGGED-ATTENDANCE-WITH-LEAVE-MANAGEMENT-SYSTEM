@@ -88,6 +88,14 @@ export class AuthService {
       data: { lastLoginAt: new Date() },
     });
 
+    // Only one ADMIN is ever *active* — granting the role doesn't evict the
+    // current admin (see UsersService.create), but the moment any admin
+    // actually logs in, they become the sole active admin and everyone else
+    // holding ADMIN is force-logged-out immediately.
+    if (roles.includes("ADMIN")) {
+      await this.evictOtherAdmins(user.id, displayName, context);
+    }
+
     await this.auditLogs.record({
       ...context,
       actorUserId: user.id,
@@ -125,6 +133,54 @@ export class AuthService {
         mustChangePassword: user.mustChangePassword,
       },
     };
+  }
+
+  // Revokes ADMIN from every other account that still holds it, falling back
+  // to EMPLOYEE for anyone left with zero roles, and bumps their tokenVersion
+  // so their existing session is rejected on its very next request (see
+  // JwtStrategy.validate) instead of staying valid until it expires.
+  private async evictOtherAdmins(newAdminId: string, newAdminName: string, context: AuditLogContext) {
+    const evicted = await this.prisma.$transaction(async (tx) => {
+      const otherAdmins = await tx.user.findMany({
+        where: {
+          id: { not: newAdminId },
+          userRoles: { some: { role: { code: "ADMIN" } } },
+        },
+        select: { id: true, email: true, employee: true, userRoles: { include: { role: true } } },
+      });
+
+      const result: { id: string; email: string; name: string }[] = [];
+      for (const admin of otherAdmins) {
+        await tx.userRole.deleteMany({ where: { userId: admin.id, role: { code: "ADMIN" } } });
+
+        const remainingRoles = admin.userRoles.filter((userRole) => userRole.role.code !== "ADMIN");
+        if (remainingRoles.length === 0) {
+          const employeeRole = await tx.role.findUniqueOrThrow({ where: { code: "EMPLOYEE" } });
+          await tx.userRole.create({ data: { userId: admin.id, roleId: employeeRole.id } });
+        }
+
+        await tx.user.update({ where: { id: admin.id }, data: { tokenVersion: { increment: 1 } } });
+
+        result.push({
+          id: admin.id,
+          email: admin.email,
+          name: admin.employee ? `${admin.employee.firstName} ${admin.employee.lastName}` : admin.email,
+        });
+      }
+      return result;
+    });
+
+    for (const admin of evicted) {
+      await this.auditLogs.record({
+        ...context,
+        action: "REVOKE_USER_ROLE",
+        module: "Users",
+        entityType: "User",
+        entityId: admin.id,
+        description: `Revoked ADMIN access from ${admin.name} — ${newAdminName} logged in as the active admin. Account was logged out immediately.`,
+        newValues: { revokedRole: "ADMIN", email: admin.email },
+      });
+    }
   }
 
   async logout(context: AuditLogContext = {}) {
