@@ -133,10 +133,17 @@ function getLeaveTone(status: string) {
   return "warning";
 }
 
-function getLeaveStatusLabel(status: string) {
-  if (status === "SUPERVISOR_APPROVED") return "Supervisor Approved";
-  if (status === "NEEDS_REVISION") return "Needs Revision";
-  return status;
+function titleCaseStatus(status: string) {
+  return status
+    .toLowerCase()
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function getLeaveStatusLabel(status: string, isAdmin: boolean) {
+  if (status === "SUPERVISOR_APPROVED") return isAdmin ? "Approved" : "Supervisor Approved";
+  return titleCaseStatus(status);
 }
 
 function formatDate(value: string) {
@@ -1238,7 +1245,7 @@ export function LeavePage({
                       </td>
                       <td data-label="Days">{r.totalDays}</td>
                       <td data-label="Status">
-                        <Badge tone={getLeaveTone(r.status)}>{getLeaveStatusLabel(r.status)}</Badge>
+                        <Badge tone={getLeaveTone(r.status)}>{getLeaveStatusLabel(r.status, isAdmin)}</Badge>
                       </td>
                       <td data-label="Action">
                         <button
@@ -1332,7 +1339,7 @@ export function LeavePage({
                       <td data-label="Date Filed">{formatDate(r.createdAt)}</td>
                       <td data-label="Days">{r.totalDays}</td>
                       <td data-label="Status">
-                        <Badge tone={getLeaveTone(r.status)}>{getLeaveStatusLabel(r.status)}</Badge>
+                        <Badge tone={getLeaveTone(r.status)}>{getLeaveStatusLabel(r.status, isAdmin)}</Badge>
                       </td>
                       <td data-label="Action">
                         <button
@@ -1387,7 +1394,7 @@ export function LeavePage({
               <div><span>Total Days</span><strong>{reviewRequest.totalDays}</strong></div>
               <div>
                 <span>Status</span>
-                <Badge tone={getLeaveTone(reviewRequest.status)}>{getLeaveStatusLabel(reviewRequest.status)}</Badge>
+                <Badge tone={getLeaveTone(reviewRequest.status)}>{getLeaveStatusLabel(reviewRequest.status, isAdmin)}</Badge>
               </div>
               {reviewRequest.status !== "PENDING" && (
                 <div><span>Reviewed By</span><strong>{reviewerName(reviewRequest)}</strong></div>
