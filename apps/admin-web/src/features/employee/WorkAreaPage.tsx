@@ -35,7 +35,6 @@ export function WorkAreaPage({ user }: Props) {
   const [isLoading,    setIsLoading]    = useState(true);
 
   const mapRef      = useRef<L.Map | null>(null);
-  const mapDivRef   = useRef<HTMLDivElement | null>(null);
   const siteMarker  = useRef<L.Marker | null>(null);
   const siteCircle  = useRef<L.Circle | null>(null);
   const youMarker   = useRef<L.CircleMarker | null>(null);
@@ -61,14 +60,22 @@ export function WorkAreaPage({ user }: Props) {
     return () => { if (watchId.current !== null) navigator.geolocation.clearWatch(watchId.current); };
   }, []);
 
-  // ── Init Leaflet map ───────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!mapDivRef.current || mapRef.current) return;
-    mapRef.current = L.map(mapDivRef.current, { zoomControl: true }).setView([16.3222, 120.3656], 15);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      attribution: "© OpenStreetMap",
-    }).addTo(mapRef.current);
-    return () => { mapRef.current?.remove(); mapRef.current = null; };
+  // ── Init Leaflet map ─────────────────────────────────────────────────────
+  // Callback ref (not a mount-only effect) because the map <div> is only
+  // rendered once loading finishes / locations exist, so the node doesn't
+  // exist yet on first mount.
+  const mapDivRef = useCallback((node: HTMLDivElement | null) => {
+    if (node) {
+      if (!mapRef.current) {
+        mapRef.current = L.map(node, { zoomControl: true }).setView([16.3222, 120.3656], 15);
+        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+          attribution: "© OpenStreetMap",
+        }).addTo(mapRef.current);
+      }
+    } else {
+      mapRef.current?.remove();
+      mapRef.current = null;
+    }
   }, []);
 
   // ── Update site marker + circle when active location changes ──────────────
