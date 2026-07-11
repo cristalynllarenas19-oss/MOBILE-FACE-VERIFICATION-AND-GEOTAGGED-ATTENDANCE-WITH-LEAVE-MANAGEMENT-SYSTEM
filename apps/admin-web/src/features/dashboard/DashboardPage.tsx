@@ -333,16 +333,16 @@ export function DashboardPage({
         <StatCard label="Absent Today"     value={summary.stats.absentToday}     icon={AlertTriangle} tone="red"    />
         <StatCard label="Geotagged Logs"   value={summary.stats.geotaggedLogs}   icon={MapPin}        tone="cyan"   />
         <StatCard
+          label="Geotagged Areas"
+          value={summary.geotagging.assigned}
+          icon={MapPinned}
+          tone="teal"
+        />
+        <StatCard
           label="Face Enrollment"
           value={`${summary.enrollment.enrolled}/${summary.enrollment.total}`}
           icon={ScanFace}
           tone="purple"
-        />
-        <StatCard
-          label="Geotagged Areas"
-          value={`${summary.geotagging.assigned}/${summary.geotagging.total}`}
-          icon={MapPinned}
-          tone="teal"
         />
       </div>
 

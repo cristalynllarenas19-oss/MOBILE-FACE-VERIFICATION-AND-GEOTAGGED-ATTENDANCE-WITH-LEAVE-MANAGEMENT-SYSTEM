@@ -185,7 +185,11 @@ export class EmployeesService {
     // Delivery failure shouldn't roll back an otherwise-successful hire —
     // the account and temporary password already exist either way.
     try {
-      await this.mail.sendNewEmployeeCredentialsEmail(dto.email, temporaryPassword);
+      await this.mail.sendNewEmployeeCredentialsEmail(
+        dto.email,
+        temporaryPassword,
+        `${created.firstName} ${created.lastName}`,
+      );
     } catch (error) {
       this.logger.error(`Failed to send new-employee credentials email to ${dto.email}`, error instanceof Error ? error.stack : undefined);
     }
@@ -253,6 +257,12 @@ export class EmployeesService {
         (await this.prisma.position.create({ data: { title: dto.position } }))
       : null;
 
+    // Changing the login email is treated like a re-issue of credentials: the
+    // old temporary/self-chosen password is only known as a hash, so a fresh
+    // one is generated and mailed to the new address, same as on hire.
+    const emailChanged = !!dto.email && dto.email !== employee.user?.email;
+    const newTemporaryPassword = emailChanged ? generateTemporaryPassword() : null;
+
     if (dto.email) {
       if (!employee.userId) {
         throw new BadRequestException("Cannot update login email because this employee has no user account.");
@@ -260,7 +270,12 @@ export class EmployeesService {
 
       await this.prisma.user.update({
         where: { id: employee.userId },
-        data: { email: dto.email },
+        data: {
+          email: dto.email,
+          ...(newTemporaryPassword
+            ? { passwordHash: await argon2.hash(newTemporaryPassword), mustChangePassword: true }
+            : {}),
+        },
       });
     }
 
@@ -293,6 +308,21 @@ export class EmployeesService {
 
     if (dto.leaveAllocationDays !== undefined && employee.sex) {
       await this.updateGenderLeaveAllocation(id, employee.sex, dto.leaveAllocationDays);
+    }
+
+    if (newTemporaryPassword) {
+      try {
+        await this.mail.sendNewEmployeeCredentialsEmail(
+          updated.user.email,
+          newTemporaryPassword,
+          `${updated.firstName} ${updated.lastName}`,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Failed to send updated credentials email to ${updated.user.email}`,
+          error instanceof Error ? error.stack : undefined,
+        );
+      }
     }
 
     await this.auditLogs.record({

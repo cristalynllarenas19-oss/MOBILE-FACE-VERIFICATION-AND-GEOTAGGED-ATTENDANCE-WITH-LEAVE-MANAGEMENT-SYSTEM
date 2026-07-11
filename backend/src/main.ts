@@ -1,4 +1,3 @@
-console.log("MAIN.TS LOADED");
 
 
 import { ValidationPipe } from "@nestjs/common";
@@ -18,7 +17,6 @@ async function bootstrap() {
   app.use(urlencoded({ extended: true, limit: "10mb" }));
   app.use(helmet());
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
-console.log("🔥 MAIN.TS LOADED");
 
   const origins = [
     "http://localhost:5173",
@@ -51,8 +49,6 @@ console.log("🔥 MAIN.TS LOADED");
 
   const port = process.env.PORT || 3001;
   await app.listen(port, "0.0.0.0");
-  console.log(`Backend running on port ${port}`);
-  console.log(`madikon ketnana. magiging tambay lang din naman`);
-  console.log(`pabasbas ng programming skills, li xun`);
+  
 }
 bootstrap();

@@ -1,6 +1,14 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import * as nodemailer from "nodemailer";
+import { join } from "path";
+
+// Referenced via cid in email headers below; lives outside src/ so it isn't
+// touched by the TS build. Resolved from process.cwd() (always the backend/
+// project root, both in `nest start` and the compiled dist/ build) rather
+// than __dirname, since tsc's outDir nesting under dist/ isn't guaranteed.
+const LOGO_PATH = join(process.cwd(), "assets/ULPI-header.png");
+const LOGO_CID = "ulpi-header";
 
 @Injectable()
 export class MailService {
@@ -37,7 +45,7 @@ export class MailService {
     });
   }
 
-  async sendNewEmployeeCredentialsEmail(to: string, temporaryPassword: string) {
+  async sendNewEmployeeCredentialsEmail(to: string, temporaryPassword: string, employeeName: string) {
     if (!this.transporter) {
       this.logger.warn(
         `GMAIL_USER/GMAIL_APP_PASSWORD not configured. Temporary password for ${to} is: ${temporaryPassword}`,
@@ -48,9 +56,19 @@ export class MailService {
     await this.transporter.sendMail({
       from: this.config.get<string>("GMAIL_USER"),
       to,
-      subject: "Your account has been created",
-      text: `An account has been created for you.\n\nEmail: ${to}\nTemporary password: ${temporaryPassword}\n\nUse this password to log in for the first time. You will be required to set your own password before you can continue.`,
-      html: `<p>An account has been created for you.</p><p>Email: <strong>${to}</strong><br/>Temporary password: <strong>${temporaryPassword}</strong></p><p>Use this password to log in for the first time. You will be required to set your own password before you can continue.</p>`,
+      subject: "Your New Account Details and First-Time Login Instructions",
+      text: `Hi ${employeeName},\n\nWelcome to Universal Leaf Philippines Inc.! Use this password to log in for the first time. You will be required to set your own password before you can continue.\n\nAccount details:\n\nUsername: ${to}\nTemporary password: ${temporaryPassword}`,
+      html: `<div style="max-width:600px;margin:0 auto;font-family:Arial,sans-serif;"><img src="cid:${LOGO_CID}" alt="Universal Leaf Philippines, Inc." width="600" height="100" style="width:600px;height:100px;display:block;"/><div style="padding:24px 16px;"><p>Hi ${employeeName},</p><p>Welcome to Universal Leaf Philippines Inc.! Use this password to log in for the first time. You will be required to set your own password before you can continue.</p><p>Account details:</p><p>Username: <strong>${to}</strong><br/>Temporary password: <strong>${temporaryPassword}</strong></p></div></div>`,
+      attachments: [
+        {
+          filename: "ULPI-header.png",
+          path: LOGO_PATH,
+          cid: LOGO_CID,
+          // Without this, Gmail renders the cid image inline AND lists it
+          // again as a separate downloadable attachment at the bottom.
+          contentDisposition: "inline",
+        },
+      ],
     });
   }
 }
