@@ -1,6 +1,6 @@
 import axios from "axios";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { AlertTriangle, Archive, Building2, CheckCircle2, Eye, Pencil, Plus, Search, Users, X } from "lucide-react";
+import { AlertTriangle, Archive, CheckCircle2, Eye, Pencil, Plus, Search, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { apiRequest } from "../../lib/api";
@@ -1064,31 +1064,6 @@ export function EmployeesPage({
         <div className={`employees-notification ${notification.type}`} role="status">
           {notification.type === "success" ? <CheckCircle2 size={17} /> : <AlertTriangle size={17} />}
           <span>{notification.message}</span>
-        </div>
-      )}
-
-      {isDepartmentLocked && (
-        <div className="department-info-card">
-          <div className="department-info-card-left">
-            <div className="department-info-card-icon">
-              <Building2 size={28} />
-            </div>
-            <div>
-              <span className="department-info-card-label">Department</span>
-              <strong className="department-info-card-name">{lockedDepartmentName}</strong>
-            </div>
-          </div>
-
-          <div className="department-info-card-divider" />
-
-          <div className="department-info-card-right">
-            <span className="department-info-card-label">Department Employees</span>
-            <div className="department-info-card-count-row">
-              <Users size={22} />
-              <strong className="department-info-card-count">{activeEmployeeCount}</strong>
-            </div>
-            <span className="department-info-card-caption">Employees</span>
-          </div>
         </div>
       )}
 

@@ -11,6 +11,13 @@ const FRIENDLY_REASONS: Record<string, string> = {
 };
 
 export function getFriendlyReason(reason: string | null | undefined, verificationStatus: string) {
+  // This exact reason is returned in two different situations: a flat
+  // mismatch inside the correct geofence (escalated to admin review) vs.
+  // one outside it too (a plain rejection) — the message needs to match
+  // which one actually happened.
+  if (reason === "Face does not match enrolled profile" && verificationStatus === "PENDING_REVIEW") {
+    return "We couldn't confirm this is you. Your attempt has been flagged and sent to your supervisor/admin for review — you'll be notified once it's resolved.";
+  }
   if (reason && FRIENDLY_REASONS[reason]) {
     return FRIENDLY_REASONS[reason];
   }

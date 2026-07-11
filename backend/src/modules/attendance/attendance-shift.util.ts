@@ -33,6 +33,27 @@ export function computeMinutesLate(shift: ShiftTimeFields, arrivalTime: Date, at
   return Math.max(0, Math.round((arrivalTime.getTime() - cutoff.getTime()) / 60000));
 }
 
+const RENDER_INTERVAL_MS = 30 * 60000;
+
+// The effective time-in used for totalMinutes math: within the shift's grace
+// window (start .. start+lateThresholdMinutes), an arrival is bumped up to
+// the next 30-minute mark past shift start, so e.g. a 7:01 arrival renders
+// as 7:30 and a 7:31 arrival renders as 8:00. Arriving exactly on a
+// half-hour mark (or at/before shift start) needs no bump. Past the grace
+// window the employee is late, and the render time is just the raw arrival
+// — no rounding benefit applies once you're late.
+export function computeRenderTimeIn(shift: ShiftTimeFields, arrivalTime: Date, attendanceDate: Date): Date {
+  const shiftStart = parseTimeOnDate(attendanceDate, shift.startTime);
+  if (arrivalTime.getTime() <= shiftStart.getTime()) return shiftStart;
+
+  const cutoff = new Date(shiftStart.getTime() + shift.lateThresholdMinutes * 60000);
+  if (arrivalTime.getTime() > cutoff.getTime()) return arrivalTime;
+
+  const elapsedMs = arrivalTime.getTime() - shiftStart.getTime();
+  const roundedMs = Math.ceil(elapsedMs / RENDER_INTERVAL_MS) * RENDER_INTERVAL_MS;
+  return new Date(shiftStart.getTime() + roundedMs);
+}
+
 export function computeMinutesUndertime(
   shift: ShiftTimeFields & { undertimeThresholdMinutes: number },
   departureTime: Date,

@@ -64,6 +64,9 @@ enum AttendanceStatus {
   ON_LEAVE
   OFFICIAL_BUSINESS
   PENDING_REVIEW
+  // Synthetic-only, like ABSENT: represents a flagged AttendanceLog with no
+  // AttendanceRecord yet. Never written to a real AttendanceRecord.status.
+  FLAGGED
 }
 
 enum AttendanceLogType {
@@ -78,6 +81,8 @@ enum VerificationStatus {
   APPROVED
   REJECTED
   PENDING_REVIEW
+  // Admin/supervisor confirmed a mismatched-face attempt was impersonation.
+  FAKE_ATTEMPT
 }
 
 enum LeaveStatus {
@@ -106,36 +111,37 @@ enum Sex {
 }
 
 model User {
-  id                    String             @id @default(uuid())
-  email                 String             @unique
+  id                     String             @id @default(uuid())
+  email                  String             @unique
   // Nullable so a new employee can be created without a password and log in
   // once with just their email; they're then forced to set one (see
   // mustChangePassword) which populates this and flips the flag back to false.
-  passwordHash          String?            @map("password_hash")
-  status                UserStatus         @default(ACTIVE)
+  passwordHash           String?            @map("password_hash")
+  status                 UserStatus         @default(ACTIVE)
   // Pre-existing live-DB column not originally tracked in this schema file (see the
   // `divisions`/`sections` note below) — mirrored as-is so `prisma db push` does not drop it.
-  mustChangePassword    Boolean            @default(false) @map("must_change_password")
-  defaultView           DefaultView?       @map("default_view")
-  lastLoginAt           DateTime?          @map("last_login_at")
+  mustChangePassword     Boolean            @default(false) @map("must_change_password")
+  defaultView            DefaultView?       @map("default_view")
+  lastLoginAt            DateTime?          @map("last_login_at")
   // Bumped whenever this account's role is forcibly changed by someone else
   // (e.g. losing ADMIN when a replacement admin is added) — embedded in every
   // issued JWT and checked on each request so already-issued tokens are
   // instantly rejected instead of staying valid until their 15m expiry.
-  tokenVersion          Int                @default(0) @map("token_version")
-  createdAt             DateTime           @default(now()) @map("created_at")
-  updatedAt             DateTime           @updatedAt @map("updated_at")
-  employee              Employee?
-  userRoles             UserRole[]
-  auditLogs             AuditLog[]
-  notifications         Notification[]
-  passwordResetOtps     PasswordResetOtp[]
-  reviewedLeaveRequests LeaveRequest[]
-  leaveRequestNotes     LeaveRequestNote[]
-  createdLeaveTypes     LeaveType[]        @relation("LeaveTypeCreatedBy")
-  updatedLeaveTypes     LeaveType[]        @relation("LeaveTypeUpdatedBy")
-  createdShifts         Shift[]            @relation("ShiftCreatedBy")
-  updatedShifts         Shift[]            @relation("ShiftUpdatedBy")
+  tokenVersion           Int                @default(0) @map("token_version")
+  createdAt              DateTime           @default(now()) @map("created_at")
+  updatedAt              DateTime           @updatedAt @map("updated_at")
+  employee               Employee?
+  userRoles              UserRole[]
+  auditLogs              AuditLog[]
+  notifications          Notification[]
+  passwordResetOtps      PasswordResetOtp[]
+  reviewedLeaveRequests  LeaveRequest[]
+  reviewedAttendanceLogs AttendanceLog[]
+  leaveRequestNotes      LeaveRequestNote[]
+  createdLeaveTypes      LeaveType[]        @relation("LeaveTypeCreatedBy")
+  updatedLeaveTypes      LeaveType[]        @relation("LeaveTypeUpdatedBy")
+  createdShifts          Shift[]            @relation("ShiftCreatedBy")
+  updatedShifts          Shift[]            @relation("ShiftUpdatedBy")
 
   @@map("users")
 }
@@ -333,6 +339,10 @@ model AttendanceRecord {
   visitNumber      Int                  @default(1) @map("visit_number")
   workLocationId   String?              @map("work_location_id")
   timeInAt         DateTime?            @map("time_in_at")
+  // Effective OFFICE time-in used for totalMinutes math, distinct from the
+  // raw timeInAt capture instant — see computeRenderTimeIn. Null for FIELD
+  // records and any OFFICE time-in with no resolvable shift.
+  renderTimeInAt   DateTime?            @map("render_time_in_at")
   timeOutAt        DateTime?            @map("time_out_at")
   // Optional, OFFICE-only lunch break window — logged for DTR/admin
   // visibility only, never deducted from totalMinutes/late/undertime math.
@@ -355,26 +365,39 @@ model AttendanceRecord {
 }
 
 model AttendanceLog {
-  id                     String             @id @default(uuid())
-  attendanceRecordId     String?            @map("attendance_record_id")
-  employeeId             String             @map("employee_id")
-  logType                AttendanceLogType  @map("log_type")
-  capturedAt             DateTime           @default(now()) @map("captured_at")
+  id                     String                @id @default(uuid())
+  attendanceRecordId     String?               @map("attendance_record_id")
+  employeeId             String                @map("employee_id")
+  logType                AttendanceLogType     @map("log_type")
+  capturedAt             DateTime              @default(now()) @map("captured_at")
   latitude               Decimal
   longitude              Decimal
-  gpsAccuracyMeters      Decimal            @map("gps_accuracy_meters")
-  distanceFromSiteMeters Decimal            @map("distance_from_site_meters")
-  workLocationId         String?            @map("work_location_id")
-  faceLivenessScore      Decimal?           @map("face_liveness_score")
-  faceSimilarityScore    Decimal?           @map("face_similarity_score")
-  verificationStatus     VerificationStatus @map("verification_status")
-  deviceId               String             @map("device_id")
-  failureReason          String?            @map("failure_reason")
-  faceImageData          String?            @map("face_image_data")
-  faceImageMimeType      String?            @map("face_image_mime_type")
-  attendanceRecord       AttendanceRecord?  @relation(fields: [attendanceRecordId], references: [id])
-  employee               Employee           @relation(fields: [employeeId], references: [id])
-  workLocation           WorkLocation?      @relation(fields: [workLocationId], references: [id])
+  gpsAccuracyMeters      Decimal               @map("gps_accuracy_meters")
+  distanceFromSiteMeters Decimal               @map("distance_from_site_meters")
+  workLocationId         String?               @map("work_location_id")
+  faceLivenessScore      Decimal?              @map("face_liveness_score")
+  faceSimilarityScore    Decimal?              @map("face_similarity_score")
+  verificationStatus     VerificationStatus    @map("verification_status")
+  deviceId               String                @map("device_id")
+  failureReason          String?               @map("failure_reason")
+  faceImageData          String?               @map("face_image_data")
+  faceImageMimeType      String?               @map("face_image_mime_type")
+  // Set for every new log going forward — lets a flagged log (no
+  // AttendanceRecord yet) be turned into one later at admin-review time
+  // without re-deriving employee state, which may have moved on by then.
+  attendanceDate         DateTime?             @map("attendance_date")
+  recordType             AttendanceRecordType? @map("record_type")
+  visitNumber            Int?                  @map("visit_number")
+  // Populated when an admin/supervisor resolves a flagged (PENDING_REVIEW,
+  // attendanceRecordId null) log — either validating it (-> APPROVED, DTR
+  // created) or confirming it as a fake attendance attempt (-> FAKE_ATTEMPT).
+  reviewedAt             DateTime?             @map("reviewed_at")
+  reviewedBy             String?               @map("reviewed_by")
+  reviewRemarks          String?               @map("review_remarks")
+  attendanceRecord       AttendanceRecord?     @relation(fields: [attendanceRecordId], references: [id])
+  employee               Employee              @relation(fields: [employeeId], references: [id])
+  workLocation           WorkLocation?         @relation(fields: [workLocationId], references: [id])
+  reviewer               User?                 @relation(fields: [reviewedBy], references: [id])
 
   @@index([employeeId, capturedAt])
   @@index([verificationStatus])
@@ -435,26 +458,26 @@ model LeaveType {
 }
 
 model LeaveRequest {
-  id                 String      @id @default(uuid())
-  employeeId         String      @map("employee_id")
-  leaveTypeId        String      @map("leave_type_id")
-  startDate          DateTime    @map("start_date")
-  endDate            DateTime    @map("end_date")
-  totalDays          Decimal     @map("total_days")
+  id                 String             @id @default(uuid())
+  employeeId         String             @map("employee_id")
+  leaveTypeId        String             @map("leave_type_id")
+  startDate          DateTime           @map("start_date")
+  endDate            DateTime           @map("end_date")
+  totalDays          Decimal            @map("total_days")
   reason             String
-  status             LeaveStatus @default(PENDING)
-  reviewedBy         String?     @map("reviewed_by")
-  reviewedAt         DateTime?   @map("reviewed_at")
-  createdAt          DateTime    @default(now()) @map("created_at")
-  attachmentPath     String?     @map("attachment_path")
-  attachmentName     String?     @map("attachment_name")
-  attachmentMimeType String?     @map("attachment_mime_type")
-  attachmentData     String?     @map("attachment_data")
-  extensionRequested Boolean     @default(false) @map("extension_requested")
-  extensionApproved  Boolean?    @map("extension_approved")
-  employee           Employee    @relation(fields: [employeeId], references: [id])
-  leaveType          LeaveType   @relation(fields: [leaveTypeId], references: [id])
-  reviewer           User?       @relation(fields: [reviewedBy], references: [id])
+  status             LeaveStatus        @default(PENDING)
+  reviewedBy         String?            @map("reviewed_by")
+  reviewedAt         DateTime?          @map("reviewed_at")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  attachmentPath     String?            @map("attachment_path")
+  attachmentName     String?            @map("attachment_name")
+  attachmentMimeType String?            @map("attachment_mime_type")
+  attachmentData     String?            @map("attachment_data")
+  extensionRequested Boolean            @default(false) @map("extension_requested")
+  extensionApproved  Boolean?           @map("extension_approved")
+  employee           Employee           @relation(fields: [employeeId], references: [id])
+  leaveType          LeaveType          @relation(fields: [leaveTypeId], references: [id])
+  reviewer           User?              @relation(fields: [reviewedBy], references: [id])
   notes              LeaveRequestNote[]
 
   @@index([employeeId, status])

@@ -5,8 +5,15 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { FaceVerificationService } from "../face-verification/face-verification.service";
 import { GeolocationService } from "../geolocation/geolocation.service";
 import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
+import { NotificationsService } from "../notifications/notifications.service";
 import { SubmitAttendanceDto } from "./dto/submit-attendance.dto";
-import { computeMinutesLate, computeMinutesUndertime, findBestMatchingShift, roundToInterval } from "./attendance-shift.util";
+import {
+  computeMinutesLate,
+  computeMinutesUndertime,
+  computeRenderTimeIn,
+  findBestMatchingShift,
+  roundToInterval,
+} from "./attendance-shift.util";
 import { getApprovedLeaveByEmployee } from "../../common/utils/on-leave.util";
 import { isDayOff } from "../../common/utils/schedule.util";
 
@@ -41,6 +48,7 @@ export class AttendanceService {
     private readonly geolocation: GeolocationService,
     private readonly faceVerification: FaceVerificationService,
     private readonly auditLogs: AuditLogsService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async findAll(filters: AttendanceFilters = {}) {
@@ -263,6 +271,126 @@ export class AttendanceService {
     return schedule?.shift ?? null;
   }
 
+  // Computes shift-based lateness/undertime and upserts the day's
+  // AttendanceRecord. Shared by submit()'s auto-approve path (effectiveTime
+  // = the moment of the scan) and validateFlaggedLog() (effectiveTime = the
+  // flagged log's original capturedAt) — a later admin validation must
+  // record the DTR as of when the employee actually scanned, not when the
+  // admin got around to reviewing it.
+  private async upsertAttendanceRecord(params: {
+    employeeId: string;
+    attendanceDate: Date;
+    recordType: "OFFICE" | "FIELD";
+    visitNumber: number;
+    workLocationId: string;
+    logType: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN";
+    isField: boolean;
+    existingRecord: AttendanceRecord | null;
+    effectiveTime: Date;
+  }) {
+    const { employeeId, attendanceDate, recordType, visitNumber, workLocationId, logType, isField, existingRecord, effectiveTime } = params;
+
+    // Shift-based lateness/undertime is only meaningful for the OFFICE/FIXED
+    // path — FIELD visits keep their existing always-PRESENT behavior, and an
+    // employee with no active EmployeeSchedule assignment also falls back to
+    // that same existing behavior (nothing to compare arrival against).
+    let attendanceStatus: "PRESENT" | "LATE" = "PRESENT";
+    let lateMinutes = 0;
+    let resolvedShiftId: string | undefined;
+    let renderTimeInValue: Date | undefined;
+    let undertimeMinutesValue: number | undefined;
+
+    if (!isField) {
+      if (logType === "TIME_IN") {
+        const shift = await this.resolveActiveShift(employeeId, effectiveTime);
+        if (shift) {
+          const arrivalForRules = shift.enableRounding
+            ? roundToInterval(effectiveTime, shift.roundingIntervalMinutes)
+            : effectiveTime;
+          let effectiveShift = shift;
+          let minutesLate = computeMinutesLate(shift, arrivalForRules, attendanceDate);
+
+          if (minutesLate > 0 && shift.autoShiftAdjustment) {
+            const otherShifts = await this.prisma.shift.findMany({
+              where: { isActive: true, id: { not: shift.id } },
+            });
+            const matched = findBestMatchingShift(otherShifts, arrivalForRules, attendanceDate);
+            if (matched) {
+              effectiveShift = matched;
+              minutesLate = computeMinutesLate(matched, arrivalForRules, attendanceDate);
+            }
+          }
+
+          resolvedShiftId = effectiveShift.id;
+          lateMinutes = minutesLate;
+          attendanceStatus = minutesLate > 0 ? "LATE" : "PRESENT";
+          renderTimeInValue = computeRenderTimeIn(effectiveShift, effectiveTime, attendanceDate);
+        }
+      } else if (logType === "TIME_OUT" && existingRecord?.shiftId) {
+        const shift = await this.prisma.shift.findUnique({ where: { id: existingRecord.shiftId } });
+        if (shift) {
+          const departureForRules = shift.enableRounding
+            ? roundToInterval(effectiveTime, shift.roundingIntervalMinutes)
+            : effectiveTime;
+          undertimeMinutesValue = computeMinutesUndertime(shift, departureForRules, attendanceDate);
+        }
+      }
+    }
+
+    return this.prisma.attendanceRecord.upsert({
+      where: {
+        employeeId_attendanceDate_recordType_visitNumber: {
+          employeeId,
+          attendanceDate,
+          recordType,
+          visitNumber,
+        },
+      },
+
+      create: {
+        employeeId,
+        attendanceDate,
+        recordType,
+        visitNumber,
+        workLocationId,
+
+        status: logType === "TIME_IN" && !isField ? attendanceStatus : "PRESENT",
+
+        timeInAt: logType === "TIME_IN" ? effectiveTime : null,
+        timeOutAt: logType === "TIME_OUT" ? effectiveTime : null,
+
+        ...(logType === "TIME_IN" && !isField
+          ? { lateMinutes, shiftId: resolvedShiftId, renderTimeInAt: renderTimeInValue }
+          : {}),
+      },
+
+      update: {
+        ...(logType === "TIME_IN"
+          ? {
+              timeInAt: effectiveTime,
+              status: !isField ? attendanceStatus : "PRESENT",
+              ...(!isField ? { lateMinutes, shiftId: resolvedShiftId, renderTimeInAt: renderTimeInValue } : {}),
+            }
+          : {}),
+
+        ...(logType === "TIME_OUT" && existingRecord?.timeInAt
+          ? {
+              timeOutAt: effectiveTime,
+              totalMinutes: Math.round(
+                (effectiveTime.getTime() - (existingRecord.renderTimeInAt ?? existingRecord.timeInAt).getTime()) / 60000,
+              ),
+              ...(!isField && undertimeMinutesValue !== undefined ? { undertimeMinutes: undertimeMinutesValue } : {}),
+            }
+          : {}),
+
+        // Lunch break is logged for visibility only — no effect on
+        // totalMinutes/late/undertime math.
+        ...(logType === "LUNCH_OUT" ? { lunchOutAt: effectiveTime } : {}),
+        ...(logType === "LUNCH_IN" ? { lunchInAt: effectiveTime } : {}),
+      },
+    });
+  }
+
   async createSession(employeeId?: string) {
     const location =
       employeeId ? await this.geolocation.getLocationForEmployee(employeeId) : null;
@@ -459,131 +587,53 @@ export class AttendanceService {
         "APPROVED" &&
       geoResult.approved;
 
-    const verificationStatus =
-      approved
-        ? "APPROVED"
-        : faceResult.status ===
-          "PENDING_REVIEW"
-        ? "PENDING_REVIEW"
-        : "REJECTED";
+    // A face that didn't cleanly match (flat mismatch or borderline) but was
+    // captured inside the correct geofence is escalated to the supervisor/
+    // admin for a human decision, rather than silently discarded — this is
+    // exactly the "someone else is using my account" case. A geofence
+    // failure is never escalated this way (wrong location isn't evidence of
+    // impersonation), and neither is a capture with no detectable face at
+    // all (`distance === null`, e.g. bad lighting) — that's a technical
+    // retake, not a mismatch worth a fraud review.
+    const shouldFlag = !approved && geoResult.approved && distance !== null;
 
-    // Shift-based lateness/undertime is only meaningful for the OFFICE/FIXED
-    // path — FIELD visits keep their existing always-PRESENT behavior, and an
-    // employee with no active EmployeeSchedule assignment also falls back to
-    // that same existing behavior (nothing to compare arrival against).
-    let attendanceStatus: "PRESENT" | "LATE" = "PRESENT";
-    let lateMinutes = 0;
-    let resolvedShiftId: string | undefined;
-    let undertimeMinutesValue: number | undefined;
+    const verificationStatus = approved ? "APPROVED" : shouldFlag ? "PENDING_REVIEW" : "REJECTED";
 
-    if (approved && !isField) {
-      if (logType === "TIME_IN") {
-        const shift = await this.resolveActiveShift(dto.employeeId, now);
-        if (shift) {
-          const arrivalForRules = shift.enableRounding ? roundToInterval(now, shift.roundingIntervalMinutes) : now;
-          let effectiveShift = shift;
-          let minutesLate = computeMinutesLate(shift, arrivalForRules, attendanceDate);
+    const logTypeLabel: Record<typeof logType & string, string> = {
+      TIME_IN: "time in",
+      TIME_OUT: "time out",
+      LUNCH_OUT: "lunch break start",
+      LUNCH_IN: "lunch break end",
+    };
 
-          if (minutesLate > 0 && shift.autoShiftAdjustment) {
-            const otherShifts = await this.prisma.shift.findMany({
-              where: { isActive: true, id: { not: shift.id } },
-            });
-            const matched = findBestMatchingShift(otherShifts, arrivalForRules, attendanceDate);
-            if (matched) {
-              effectiveShift = matched;
-              minutesLate = computeMinutesLate(matched, arrivalForRules, attendanceDate);
-            }
-          }
-
-          resolvedShiftId = effectiveShift.id;
-          lateMinutes = minutesLate;
-          attendanceStatus = minutesLate > 0 ? "LATE" : "PRESENT";
-        }
-      } else if (logType === "TIME_OUT" && existingRecord?.shiftId) {
-        const shift = await this.prisma.shift.findUnique({ where: { id: existingRecord.shiftId } });
-        if (shift) {
-          const departureForRules = shift.enableRounding ? roundToInterval(now, shift.roundingIntervalMinutes) : now;
-          undertimeMinutesValue = computeMinutesUndertime(shift, departureForRules, attendanceDate);
-        }
-      }
-    }
-
-    // Neither a flat rejection nor a borderline/inconclusive match creates
-    // or touches the day's attendance record — only a fully approved scan
-    // does. Otherwise a failed or unsure attempt (bad lighting, a stranger
-    // trying the camera, a borderline face match) would falsely flag the
-    // whole day as "needs review" even though nothing legitimate happened.
+    // Neither a flat rejection nor a flagged/borderline attempt creates or
+    // touches the day's attendance record — only a fully approved scan does.
+    // A flagged attempt gets its own AttendanceLog (attendanceRecordId null)
+    // below, and only becomes a real AttendanceRecord once an admin/
+    // supervisor validates it (see validateFlaggedLog()).
     const record = approved
-      ? await this.prisma.attendanceRecord.upsert({
-        where: {
-          employeeId_attendanceDate_recordType_visitNumber: {
-            employeeId:
-              dto.employeeId,
-            attendanceDate,
-            recordType,
-            visitNumber,
-          },
-        },
-
-        create: {
-          employeeId:
-            dto.employeeId,
-
+      ? await this.upsertAttendanceRecord({
+          employeeId: dto.employeeId,
           attendanceDate,
           recordType,
           visitNumber,
           workLocationId: location.id,
-
-          status: logType === "TIME_IN" && !isField ? attendanceStatus : "PRESENT",
-
-          timeInAt:
-            logType === "TIME_IN"
-              ? now
-              : null,
-
-          timeOutAt:
-            logType === "TIME_OUT"
-              ? now
-              : null,
-
-          ...(logType === "TIME_IN" && !isField ? { lateMinutes, shiftId: resolvedShiftId } : {}),
-        },
-
-        update: {
-          ...(logType === "TIME_IN"
-            ? {
-                timeInAt: now,
-                status: !isField ? attendanceStatus : "PRESENT",
-                ...(!isField ? { lateMinutes, shiftId: resolvedShiftId } : {}),
-              }
-            : {}),
-
-          ...(logType ===
-            "TIME_OUT" &&
-          existingRecord?.timeInAt
-            ? {
-                timeOutAt: now,
-                totalMinutes: Math.round((now.getTime() - existingRecord.timeInAt.getTime()) / 60000),
-                ...(!isField && undertimeMinutesValue !== undefined ? { undertimeMinutes: undertimeMinutesValue } : {}),
-              }
-            : {}),
-
-          // Lunch break is logged for visibility only — no effect on
-          // totalMinutes/late/undertime math.
-          ...(logType === "LUNCH_OUT" ? { lunchOutAt: now } : {}),
-          ...(logType === "LUNCH_IN" ? { lunchInAt: now } : {}),
-        },
-      })
+          logType: logType!,
+          isField,
+          existingRecord,
+          effectiveTime: now,
+        })
       : existingRecord;
 
-    // Rejected and pending-review attempts leave no trace at all now — only
-    // an approved Time In/Out is persisted, with its photo.
     if (approved) {
       await this.prisma.attendanceLog.create({
         data: {
           attendanceRecordId: record?.id ?? null,
           employeeId: dto.employeeId,
           logType,
+          attendanceDate,
+          recordType,
+          visitNumber,
           latitude: dto.latitude,
           longitude: dto.longitude,
           gpsAccuracyMeters: dto.accuracyMeters,
@@ -598,13 +648,6 @@ export class AttendanceService {
           faceImageMimeType: capturedImage.mimeType,
         },
       });
-
-      const logTypeLabel: Record<typeof logType & string, string> = {
-        TIME_IN: "time in",
-        TIME_OUT: "time out",
-        LUNCH_OUT: "lunch break start",
-        LUNCH_IN: "lunch break end",
-      };
 
       await this.auditLogs.record({
         ...context,
@@ -635,6 +678,49 @@ export class AttendanceService {
         description: `Face verification ${verificationStatus.toLowerCase()} for ${employee.firstName} ${employee.lastName}.`,
         newValues: { employeeId: dto.employeeId, verificationStatus, similarityScore, deviceId: dto.deviceId },
       });
+    } else if (shouldFlag) {
+      const flaggedLog = await this.prisma.attendanceLog.create({
+        data: {
+          attendanceRecordId: null,
+          employeeId: dto.employeeId,
+          logType,
+          attendanceDate,
+          recordType,
+          visitNumber,
+          latitude: dto.latitude,
+          longitude: dto.longitude,
+          gpsAccuracyMeters: dto.accuracyMeters,
+          distanceFromSiteMeters: geoResult.distanceMeters,
+          workLocationId: location.id,
+          faceLivenessScore: livenessScore,
+          faceSimilarityScore: similarityScore,
+          verificationStatus: "PENDING_REVIEW",
+          deviceId: dto.deviceId,
+          failureReason: faceResult.reason ?? geoResult.reason,
+          faceImageData: capturedImage.data,
+          faceImageMimeType: capturedImage.mimeType,
+        },
+      });
+
+      await this.notifyFlaggedAttempt(employee, flaggedLog.id, logType!, logTypeLabel);
+
+      await this.auditLogs.record({
+        ...context,
+        actorUserId: context.actorUserId,
+        action: "FLAG_ATTENDANCE_MISMATCH",
+        module: "Attendance",
+        entityType: "AttendanceLog",
+        entityId: flaggedLog.id,
+        description: `${employee.firstName} ${employee.lastName}'s account was used for a ${logTypeLabel[logType]} attempt whose face did not match the enrolled profile. Flagged for admin review.`,
+        newValues: {
+          employeeId: dto.employeeId,
+          logType,
+          verificationStatus: "PENDING_REVIEW",
+          similarityScore,
+          workLocationId: location.id,
+          deviceId: dto.deviceId,
+        },
+      });
     }
 
     return {
@@ -648,6 +734,194 @@ export class AttendanceService {
       similarityScore,
       faceImage: `data:${capturedImage.mimeType};base64,${capturedImage.data}`,
     };
+  }
+
+  // Mirrors leave.service.ts's notifySubmission(): a regular employee's
+  // flagged attempt routes to their direct supervisor; a supervisor (or an
+  // employee with no assigned supervisor) has no one above them to escalate
+  // to, so it routes to HR/Admin instead.
+  private async notifyFlaggedAttempt(
+    employee: { userId: string; supervisorId: string | null; firstName: string; lastName: string },
+    logId: string,
+    logType: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN",
+    logTypeLabel: Record<string, string>,
+  ) {
+    const isSupervisor = await this.notifications.userHasRole(employee.userId, "SUPERVISOR");
+
+    let recipientIds: string[];
+    if (!isSupervisor && employee.supervisorId) {
+      const supervisor = await this.prisma.employee.findUnique({
+        where: { id: employee.supervisorId },
+        select: { userId: true },
+      });
+      recipientIds = supervisor?.userId ? [supervisor.userId] : await this.notifications.adminUserIds();
+    } else {
+      recipientIds = await this.notifications.adminUserIds();
+    }
+
+    await this.notifications.notifyUsers(recipientIds, {
+      title: "Attendance Verification Flagged",
+      message: `${employee.firstName} ${employee.lastName}'s account was used for a ${logTypeLabel[logType]} attempt, but the captured face did not match the enrolled profile. Review required.`,
+      type: "ATTENDANCE_FLAGGED",
+      entityId: logId,
+    });
+  }
+
+  // Flagged attempts awaiting a human decision: geofence passed but the
+  // face didn't cleanly match the account being used. No AttendanceRecord
+  // exists for these yet (attendanceRecordId is null) — see submit()'s
+  // shouldFlag branch.
+  async findFlaggedLogs(filters: { departmentId?: string } = {}) {
+    return this.prisma.attendanceLog.findMany({
+      where: {
+        verificationStatus: "PENDING_REVIEW",
+        attendanceRecordId: null,
+        ...(filters.departmentId ? { employee: { departmentId: filters.departmentId } } : {}),
+      },
+      include: {
+        employee: {
+          include: {
+            department: true,
+            position: { select: { title: true } },
+            faceProfiles: { orderBy: { enrolledAt: "desc" }, take: 1 },
+          },
+        },
+        workLocation: { select: { name: true } },
+      },
+      orderBy: { capturedAt: "desc" },
+    });
+  }
+
+  // Admin/supervisor confirms a flagged attempt was actually the account
+  // owner (e.g. a borderline match under bad lighting): creates the DTR
+  // dated to the *original* scan time, not the moment of this review.
+  async validateFlaggedLog(logId: string, remarks: string | undefined, context: AuditLogContext = {}, scopeDepartmentId?: string) {
+    const log = await this.prisma.attendanceLog.findUniqueOrThrow({
+      where: { id: logId },
+      include: {
+        employee: { select: { departmentId: true, firstName: true, lastName: true, userId: true, attendanceMode: true } },
+      },
+    });
+
+    if (log.verificationStatus !== "PENDING_REVIEW" || log.attendanceRecordId) {
+      throw new BadRequestException("This attendance attempt has already been reviewed.");
+    }
+
+    if (scopeDepartmentId && log.employee.departmentId !== scopeDepartmentId) {
+      throw new ForbiddenException("You can only manage attendance records from your own department.");
+    }
+
+    const { attendanceDate, recordType, visitNumber, workLocationId } = log;
+    if (!attendanceDate || !recordType || visitNumber === null || !workLocationId) {
+      throw new BadRequestException("This flagged attempt is missing data required to record it.");
+    }
+
+    const isField = log.employee.attendanceMode === "FIELD";
+
+    const existingRecord = await this.prisma.attendanceRecord.findUnique({
+      where: {
+        employeeId_attendanceDate_recordType_visitNumber: {
+          employeeId: log.employeeId,
+          attendanceDate,
+          recordType,
+          visitNumber,
+        },
+      },
+    });
+
+    const record = await this.upsertAttendanceRecord({
+      employeeId: log.employeeId,
+      attendanceDate,
+      recordType,
+      visitNumber,
+      workLocationId,
+      logType: log.logType as "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN",
+      isField,
+      existingRecord,
+      effectiveTime: log.capturedAt,
+    });
+
+    const updatedLog = await this.prisma.attendanceLog.update({
+      where: { id: logId },
+      data: {
+        attendanceRecordId: record.id,
+        verificationStatus: "APPROVED",
+        reviewedAt: new Date(),
+        reviewedBy: context.actorUserId,
+        reviewRemarks: remarks?.trim() || null,
+      },
+    });
+
+    await this.auditLogs.record({
+      ...context,
+      action: "VALIDATE_FLAGGED_ATTENDANCE",
+      module: "Attendance",
+      entityType: "AttendanceLog",
+      entityId: logId,
+      description: `Validated ${log.employee.firstName} ${log.employee.lastName}'s flagged attendance attempt as legitimate.`,
+      oldValues: { verificationStatus: log.verificationStatus },
+      newValues: { remarks: remarks?.trim(), verificationStatus: "APPROVED" },
+    });
+
+    if (log.employee.userId) {
+      await this.notifications.notifyUsers([log.employee.userId], {
+        title: "Attendance Validated",
+        message: `Your ${log.capturedAt.toLocaleDateString()} attendance attempt was reviewed and validated. It has been recorded.`,
+        type: "ATTENDANCE_VALIDATED",
+        entityId: logId,
+      });
+    }
+
+    return updatedLog;
+  }
+
+  // Admin/supervisor confirms a flagged attempt was impersonation: tagged as
+  // a fake attendance attempt, no DTR is ever created for it.
+  async rejectFlaggedLog(logId: string, remarks: string | undefined, context: AuditLogContext = {}, scopeDepartmentId?: string) {
+    const log = await this.prisma.attendanceLog.findUniqueOrThrow({
+      where: { id: logId },
+      include: { employee: { select: { departmentId: true, firstName: true, lastName: true, userId: true } } },
+    });
+
+    if (log.verificationStatus !== "PENDING_REVIEW" || log.attendanceRecordId) {
+      throw new BadRequestException("This attendance attempt has already been reviewed.");
+    }
+
+    if (scopeDepartmentId && log.employee.departmentId !== scopeDepartmentId) {
+      throw new ForbiddenException("You can only manage attendance records from your own department.");
+    }
+
+    const updatedLog = await this.prisma.attendanceLog.update({
+      where: { id: logId },
+      data: {
+        verificationStatus: "FAKE_ATTEMPT",
+        reviewedAt: new Date(),
+        reviewedBy: context.actorUserId,
+        reviewRemarks: remarks?.trim() || null,
+      },
+    });
+
+    await this.auditLogs.record({
+      ...context,
+      action: "REJECT_FLAGGED_ATTENDANCE",
+      module: "Attendance",
+      entityType: "AttendanceLog",
+      entityId: logId,
+      description: `Confirmed a fake attendance attempt on ${log.employee.firstName} ${log.employee.lastName}'s account.`,
+      oldValues: { verificationStatus: log.verificationStatus },
+      newValues: { remarks: remarks?.trim(), verificationStatus: "FAKE_ATTEMPT" },
+    });
+
+    if (log.employee.userId) {
+      await this.notifications.notifyUsers([log.employee.userId], {
+        title: "Unauthorized Attendance Attempt",
+        message: `A ${log.capturedAt.toLocaleDateString()} attendance attempt on your account did not pass verification and was flagged as unauthorized. Contact HR if this wasn't you.`,
+        type: "ATTENDANCE_FAKE_ATTEMPT",
+        entityId: logId,
+      });
+    }
+
+    return updatedLog;
   }
 
   // Resolves which assigned site a FIELD employee is starting a new visit

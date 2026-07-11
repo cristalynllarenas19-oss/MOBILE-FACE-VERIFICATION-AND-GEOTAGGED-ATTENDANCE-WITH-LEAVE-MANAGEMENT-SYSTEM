@@ -320,6 +320,20 @@
   font-size: 12px;
 }
 
+.attendance-flagged-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 20px 12px;
+  padding: 10px 14px;
+  border: 1.5px solid #fecaca;
+  background: #fee2e2;
+  color: #991b1b;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .attendance-face-thumb {
   width: 60px;
   height: 60px;
@@ -461,7 +475,8 @@
 }
 
 .attendance-admin-actions .outline-button,
-.attendance-admin-actions .primary-button {
+.attendance-admin-actions .primary-button,
+.attendance-admin-actions .attendance-reject-button {
   height: 36px;
   min-width: 88px;
   border-radius: 8px;
@@ -493,8 +508,19 @@
   border-color: #2979d0;
 }
 
+.attendance-admin-actions .attendance-reject-button {
+  border: 1.5px solid #fecaca;
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.attendance-admin-actions .attendance-reject-button:hover:not(:disabled) {
+  background: #fecaca;
+}
+
 .attendance-admin-actions .outline-button:disabled,
-.attendance-admin-actions .primary-button:disabled {
+.attendance-admin-actions .primary-button:disabled,
+.attendance-admin-actions .attendance-reject-button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }

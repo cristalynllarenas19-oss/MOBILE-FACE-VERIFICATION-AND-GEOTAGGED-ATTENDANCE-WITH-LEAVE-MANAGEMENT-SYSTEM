@@ -52,6 +52,16 @@ export class AttendanceController {
     return this.attendanceService.getHistory(employeeId, limit ? Number(limit) : undefined);
   }
 
+  // Face-mismatch attempts awaiting an admin/supervisor decision. Gated the
+  // same as approve/official-business below since it surfaces a captured
+  // "this might not be you" photo per attempt.
+  @Get("flagged")
+  @RequirePermissions("attendance:write")
+  findFlagged(@Req() request: Request) {
+    const departmentId = getSupervisorDepartmentScope((request as any).user);
+    return this.attendanceService.findFlaggedLogs({ departmentId });
+  }
+
   @Post("session")
   createSession() {
     return this.attendanceService.createSession();
@@ -78,5 +88,19 @@ export class AttendanceController {
   officialBusiness(@Param("id") id: string, @Body() body: { remarks?: string }, @Req() request: Request) {
     const departmentId = getSupervisorDepartmentScope((request as any).user);
     return this.attendanceService.updateStatus(id, "OFFICIAL_BUSINESS", body.remarks, getAuditContext(request), departmentId);
+  }
+
+  @Patch("flagged/:logId/validate")
+  @RequirePermissions("attendance:write")
+  validateFlagged(@Param("logId") logId: string, @Body() body: { remarks?: string }, @Req() request: Request) {
+    const departmentId = getSupervisorDepartmentScope((request as any).user);
+    return this.attendanceService.validateFlaggedLog(logId, body.remarks, getAuditContext(request), departmentId);
+  }
+
+  @Patch("flagged/:logId/reject")
+  @RequirePermissions("attendance:write")
+  rejectFlagged(@Param("logId") logId: string, @Body() body: { remarks?: string }, @Req() request: Request) {
+    const departmentId = getSupervisorDepartmentScope((request as any).user);
+    return this.attendanceService.rejectFlaggedLog(logId, body.remarks, getAuditContext(request), departmentId);
   }
 }

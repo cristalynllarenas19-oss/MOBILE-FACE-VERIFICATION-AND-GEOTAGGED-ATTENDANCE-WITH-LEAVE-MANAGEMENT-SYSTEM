@@ -1382,6 +1382,41 @@ export function LeavePage({
             </div>
 
             <div className="leave-detail-grid">
+              <div className="leave-attachment-row">
+                <span>Supporting Document</span>
+                {attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData) ? (
+                  reviewRequest.attachmentMimeType?.startsWith("image/") ? (
+                    <button
+                      type="button"
+                      className="leave-attachment-preview leave-attachment-preview--inline"
+                      onClick={() =>
+                        setImagePreview({
+                          src: attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData)!,
+                          name: reviewRequest.attachmentName ?? "Supporting document",
+                        })
+                      }
+                    >
+                      <img
+                        src={attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData)!}
+                        alt={reviewRequest.attachmentName ?? "Supporting document"}
+                      />
+                      <span><Paperclip size={13} /> {reviewRequest.attachmentName ?? "View attachment"}</span>
+                    </button>
+                  ) : (
+                    <a
+                      className="leave-attachment-link leave-attachment-link--inline"
+                      href={attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData)!}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <FileText size={14} /> {reviewRequest.attachmentName ?? "View document"}
+                    </a>
+                  )
+                ) : (
+                  <strong className="leave-no-attachment">None attached</strong>
+                )}
+              </div>
+
               <div><span>Employee</span><strong>{getEmployeeName(reviewRequest)}</strong></div>
               <div><span>Department</span><strong>{reviewRequest.employee.department?.name ?? "Unassigned"}</strong></div>
               <div><span>Classification</span><strong>{formatEmploymentStatus(reviewRequest.employee.employmentStatus)}</strong></div>
@@ -1435,41 +1470,6 @@ export function LeavePage({
                   </Badge>
                 </div>
               )}
-
-              <div className="leave-attachment-row">
-                <span>Supporting Document</span>
-                {attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData) ? (
-                  reviewRequest.attachmentMimeType?.startsWith("image/") ? (
-                    <button
-                      type="button"
-                      className="leave-attachment-preview leave-attachment-preview--inline"
-                      onClick={() =>
-                        setImagePreview({
-                          src: attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData)!,
-                          name: reviewRequest.attachmentName ?? "Supporting document",
-                        })
-                      }
-                    >
-                      <img
-                        src={attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData)!}
-                        alt={reviewRequest.attachmentName ?? "Supporting document"}
-                      />
-                      <span><Paperclip size={13} /> {reviewRequest.attachmentName ?? "View attachment"}</span>
-                    </button>
-                  ) : (
-                    <a
-                      className="leave-attachment-link leave-attachment-link--inline"
-                      href={attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData)!}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      <FileText size={14} /> {reviewRequest.attachmentName ?? "View document"}
-                    </a>
-                  )
-                ) : (
-                  <strong className="leave-no-attachment">None attached</strong>
-                )}
-              </div>
 
               <div><span>Reason</span><strong>{reviewRequest.reason}</strong></div>
             </div>

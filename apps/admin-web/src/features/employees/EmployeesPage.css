@@ -313,10 +313,6 @@
 }
 
 .employee-status-cell .badge {
-  width: 112px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   white-space: nowrap;
 }
 

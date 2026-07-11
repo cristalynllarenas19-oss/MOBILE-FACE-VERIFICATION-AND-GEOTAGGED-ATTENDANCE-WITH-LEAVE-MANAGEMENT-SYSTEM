@@ -6,7 +6,7 @@ import { apiRequest } from "../../lib/api";
 import { PermissionCode, permissions } from "../../types/rbac";
 import "./AttendancePage.css";
 
-type AttendanceStatus = "PRESENT" | "LATE" | "ABSENT" | "ON_LEAVE" | "OFFICIAL_BUSINESS" | "PENDING_REVIEW";
+type AttendanceStatus = "PRESENT" | "LATE" | "ABSENT" | "ON_LEAVE" | "OFFICIAL_BUSINESS" | "PENDING_REVIEW" | "FLAGGED";
 
 type PhotoLogType = "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN";
 
@@ -46,6 +46,32 @@ type AttendanceRecord = {
   adminRemarks?: { remarks?: string } | null;
   isSynthetic?: boolean;
   leaveTypeName?: string;
+  // A synthetic row built from a flagged AttendanceLog (face mismatch,
+  // geofence passed) that has no AttendanceRecord yet — see
+  // flaggedLogToRecord() below. flaggedLogId is the real AttendanceLog id
+  // the review actions (validate/reject) act on.
+  isFlagged?: boolean;
+  flaggedLogId?: string;
+};
+
+// Shape of GET /attendance/flagged — raw AttendanceLog rows awaiting an
+// admin/supervisor decision, with no AttendanceRecord attached yet.
+type FlaggedLog = {
+  id: string;
+  logType: PhotoLogType;
+  capturedAt: string;
+  attendanceDate?: string | null;
+  recordType?: "OFFICE" | "FIELD" | null;
+  latitude: string;
+  longitude: string;
+  distanceFromSiteMeters: string;
+  faceSimilarityScore?: string | null;
+  verificationStatus: string;
+  failureReason?: string | null;
+  faceImageData?: string | null;
+  faceImageMimeType?: string | null;
+  workLocation?: { name: string } | null;
+  employee: AttendanceRecord["employee"];
 };
 
 type EmployeeOption = {
@@ -54,11 +80,42 @@ type EmployeeOption = {
 
 type Notification = { type: "success" | "error"; message: string } | null;
 
-const statusOptions = ["PRESENT", "LATE", "ABSENT", "ON_LEAVE", "OFFICIAL_BUSINESS", "PENDING_REVIEW"];
+const statusOptions = ["PRESENT", "LATE", "ABSENT", "ON_LEAVE", "OFFICIAL_BUSINESS", "PENDING_REVIEW", "FLAGGED"];
 const recordTypeOptions = ["OFFICE", "FIELD"];
 
 function getRecordTypeLabel(recordType: string) {
   return recordType === "FIELD" ? "Field" : "Office";
+}
+
+function flaggedLogToRecord(log: FlaggedLog): AttendanceRecord {
+  return {
+    id: `flagged-${log.id}`,
+    attendanceDate: log.attendanceDate ?? log.capturedAt,
+    timeInAt: null,
+    timeOutAt: null,
+    lunchOutAt: null,
+    lunchInAt: null,
+    status: "FLAGGED",
+    recordType: log.recordType ?? undefined,
+    workLocation: log.workLocation ?? null,
+    employee: log.employee,
+    logs: [
+      {
+        logType: log.logType,
+        latitude: log.latitude,
+        longitude: log.longitude,
+        distanceFromSiteMeters: log.distanceFromSiteMeters,
+        faceSimilarityScore: log.faceSimilarityScore,
+        verificationStatus: log.verificationStatus,
+        capturedAt: log.capturedAt,
+        failureReason: log.failureReason,
+        faceImageData: log.faceImageData,
+        faceImageMimeType: log.faceImageMimeType,
+      },
+    ],
+    isFlagged: true,
+    flaggedLogId: log.id,
+  };
 }
 
 function formatDate(value: string) {
@@ -75,11 +132,12 @@ function getName(record: AttendanceRecord) {
 
 function getStatusTone(status: AttendanceStatus) {
   if (status === "PRESENT") return "success";
-  if (status === "ABSENT") return "danger";
+  if (status === "ABSENT" || status === "FLAGGED") return "danger";
   return "warning";
 }
 
 function getStatusLabel(status: string) {
+  if (status === "FLAGGED") return "Flagged – Pending Review";
   return status.replace(/_/g, " ");
 }
 
@@ -114,11 +172,13 @@ function AttendanceDetailsModal({
   record,
   onClose,
   onUpdated,
+  onFlaggedResolved,
   canWrite,
 }: {
   record: AttendanceRecord;
   onClose: () => void;
   onUpdated: (record: AttendanceRecord, message: string) => void;
+  onFlaggedResolved: (message: string) => void;
   canWrite: boolean;
 }) {
   const [remarks, setRemarks] = useState("");
@@ -149,6 +209,28 @@ function AttendanceDetailsModal({
     }
   };
 
+  const reviewFlagged = async (decision: "validate" | "reject") => {
+    if (!record.flaggedLogId) return;
+    setIsSaving(true);
+    setError("");
+    try {
+      await apiRequest(`/attendance/flagged/${record.flaggedLogId}/${decision}`, {
+        method: "PATCH",
+        body: JSON.stringify({ remarks: remarks.trim() }),
+      });
+      const suffix = remarks.trim() ? ` Remarks noted: ${remarks.trim()}` : "";
+      onFlaggedResolved(
+        decision === "validate"
+          ? `Attendance attempt was validated and recorded.${suffix}`
+          : `Attendance attempt was tagged as a fake attendance attempt.${suffix}`,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to review this attendance attempt.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   return (
     <div className="attendance-modal-backdrop" role="presentation">
       <section className="attendance-modal" role="dialog" aria-modal="true" aria-labelledby="attendance-modal-title">
@@ -161,6 +243,14 @@ function AttendanceDetailsModal({
             <X size={18} />
           </button>
         </div>
+
+        {record.isFlagged && (
+          <p className="attendance-flagged-banner">
+            <AlertTriangle size={16} />
+            Face did not match the enrolled profile for this account. Compare the registered photo against the
+            captured photo below before deciding.
+          </p>
+        )}
 
         {record.isSynthetic ? (
           <p className="attendance-synthetic-note">
@@ -255,7 +345,17 @@ function AttendanceDetailsModal({
         <div className="attendance-admin-actions">
           {error && <p className="attendance-form-error">{error}</p>}
           <div>
-            {canWrite && !record.isSynthetic && record.status !== "PRESENT" && (
+            {canWrite && record.isFlagged && (
+              <>
+                <button className="attendance-reject-button" onClick={() => reviewFlagged("reject")} disabled={isSaving}>
+                  Reject as Fake Attempt
+                </button>
+                <button className="primary-button" onClick={() => reviewFlagged("validate")} disabled={isSaving}>
+                  Validate as Legitimate
+                </button>
+              </>
+            )}
+            {canWrite && !record.isFlagged && !record.isSynthetic && record.status !== "PRESENT" && (
               <button className="primary-button" onClick={() => updateStatus("approve")} disabled={isSaving}>Approve</button>
             )}
             <button className="outline-button" onClick={onClose} disabled={isSaving}>Close</button>
@@ -308,13 +408,31 @@ export function AttendancePage({
   const loadRecords = () => {
     const params = new URLSearchParams();
     if (departmentFilter !== "ALL") params.set("department", departmentFilter);
-    if (statusFilter !== "ALL") params.set("status", statusFilter);
+    if (statusFilter !== "ALL" && statusFilter !== "FLAGGED") params.set("status", statusFilter);
     if (recordTypeFilter !== "ALL") params.set("recordType", recordTypeFilter);
     if (dateFrom) params.set("from", dateFrom);
     if (dateTo) params.set("to", dateTo);
 
     const query = params.toString();
-    apiRequest<AttendanceRecord[]>(`/attendance${query ? `?${query}` : ""}`).then(setRecords).catch(() => undefined);
+    // Flagged attempts (face mismatch, geofence passed) live on
+    // AttendanceLog with no AttendanceRecord yet, so they're fetched
+    // separately and merged in as synthetic rows — see flaggedLogToRecord().
+    const wantsRecords = statusFilter !== "FLAGGED";
+    const wantsFlagged = statusFilter === "ALL" || statusFilter === "FLAGGED";
+
+    Promise.all([
+      wantsRecords
+        ? apiRequest<AttendanceRecord[]>(`/attendance${query ? `?${query}` : ""}`).catch(() => [] as AttendanceRecord[])
+        : Promise.resolve<AttendanceRecord[]>([]),
+      wantsFlagged
+        ? apiRequest<FlaggedLog[]>("/attendance/flagged").catch(() => [] as FlaggedLog[])
+        : Promise.resolve<FlaggedLog[]>([]),
+    ]).then(([fetchedRecords, flaggedLogs]) => {
+      const flaggedRecords = flaggedLogs
+        .filter((log) => departmentFilter === "ALL" || log.employee.department.name === departmentFilter)
+        .map(flaggedLogToRecord);
+      setRecords([...flaggedRecords, ...fetchedRecords]);
+    });
   };
 
   useEffect(loadRecords, [departmentFilter, statusFilter, recordTypeFilter, dateFrom, dateTo]);
@@ -338,6 +456,12 @@ export function AttendancePage({
     setRecords((current) => current.map((item) => (item.id === record.id ? record : item)));
     setViewRecord(null);
     setNotification({ type: "success", message });
+  };
+
+  const handleFlaggedResolved = (message: string) => {
+    setViewRecord(null);
+    setNotification({ type: "success", message });
+    loadRecords();
   };
 
   return (
@@ -460,6 +584,7 @@ export function AttendancePage({
           record={viewRecord}
           onClose={() => setViewRecord(null)}
           onUpdated={handleUpdated}
+          onFlaggedResolved={handleFlaggedResolved}
           canWrite={canWrite}
         />
       )}

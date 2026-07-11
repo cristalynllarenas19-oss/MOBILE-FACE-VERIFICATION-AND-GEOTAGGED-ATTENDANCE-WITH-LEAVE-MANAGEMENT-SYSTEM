@@ -104,10 +104,6 @@
 }
 
 .role-cell .badge.role {
-  width: 92px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   white-space: nowrap;
 }
 
@@ -166,10 +162,6 @@
 }
 
 .status-cell .badge {
-  width: 88px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   white-space: nowrap;
 }
 
