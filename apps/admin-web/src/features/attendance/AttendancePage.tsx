@@ -39,7 +39,7 @@ type AttendanceRecord = {
     lastName: string;
     department: { name: string };
     position?: { title: string } | null;
-    faceProfiles?: { referenceImagePath?: string | null }[];
+    faceProfiles?: { referenceImageData?: string | null }[];
   };
   logs: AttendanceLog[];
   adminRemarks?: { remarks?: string } | null;
@@ -118,7 +118,8 @@ function AttendanceDetailsModal({
   const [remarks, setRemarks] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
-  const registeredFace = record.employee.faceProfiles?.[0]?.referenceImagePath;
+  const [isFacePreviewOpen, setIsFacePreviewOpen] = useState(false);
+  const registeredFace = record.employee.faceProfiles?.[0]?.referenceImageData;
 
   const availablePhotoTabs = photoTabOrder.filter((tab) => record.logs.some((log) => log.logType === tab));
   const [activePhotoTab, setActivePhotoTab] = useState<PhotoLogType>(availablePhotoTabs[0] ?? "TIME_IN");
@@ -162,7 +163,16 @@ function AttendanceDetailsModal({
         ) : (
           <>
             <div className="attendance-detail-grid">
-              <div><span>Registered Face</span>{registeredFace ? <img className="attendance-face-thumb" src={registeredFace} alt="" /> : <strong>Not stored</strong>}</div>
+              <div>
+                <span>Registered Face</span>
+                {registeredFace ? (
+                  <button type="button" className="attendance-face-thumb-button" onClick={() => setIsFacePreviewOpen(true)}>
+                    <img className="attendance-face-thumb" src={registeredFace} alt="Registered face" />
+                  </button>
+                ) : (
+                  <strong>Not stored</strong>
+                )}
+              </div>
             </div>
 
             {availablePhotoTabs.length > 0 && (
@@ -246,6 +256,19 @@ function AttendanceDetailsModal({
           </div>
         </div>
       </section>
+
+      {isFacePreviewOpen && registeredFace && (
+        <div className="attendance-face-preview-backdrop" role="presentation" onClick={() => setIsFacePreviewOpen(false)}>
+          <button
+            className="icon-button attendance-face-preview-close"
+            onClick={() => setIsFacePreviewOpen(false)}
+            aria-label="Close registered face preview"
+          >
+            <X size={18} />
+          </button>
+          <img className="attendance-face-preview-image" src={registeredFace} alt="Registered face" onClick={(event) => event.stopPropagation()} />
+        </div>
+      )}
     </div>
   );
 }
