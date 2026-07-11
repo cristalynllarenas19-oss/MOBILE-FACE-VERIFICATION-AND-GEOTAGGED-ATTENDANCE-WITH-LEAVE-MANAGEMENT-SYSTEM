@@ -20,7 +20,7 @@ import { SettingsPage } from "../features/employee/SettingsPage";
 import { AppLayout, getVisibleNavItems, isNavItemVisible, navItems } from "../components/layout/AppLayout";
 import { PermissionCode } from "../types/rbac";
 import { AuthUser, getStoredUser, logout, setOnSessionExpired } from "../lib/api";
-import { useInactivityLogout } from "../hooks/useInactivityLogout";
+// import { useInactivityLogout } from "../hooks/useInactivityLogout"; // session timeout disabled for now
 
 // Single check point for where a user lands: single-role accounts always go
 // to their one view; multi-role accounts honor the saved `defaultView`
@@ -74,10 +74,11 @@ export default function App() {
     });
   }, []);
 
-  useInactivityLogout(() => {
-    logout();
-    setAuthUser(null);
-  }, authUser !== null);
+  // Session timeout (auto-logout on inactivity) disabled for now.
+  // useInactivityLogout(() => {
+  //   logout();
+  //   setAuthUser(null);
+  // }, authUser !== null);
 
   const user = useMemo(
     () => ({

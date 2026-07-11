@@ -141,6 +141,10 @@ function getStatusLabel(status: string) {
   return status.replace(/_/g, " ");
 }
 
+function getRecordTypeTone(recordType?: string | null) {
+  return recordType === "FIELD" ? "warning" : "neutral";
+}
+
 function useNow() {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -543,6 +547,7 @@ export function AttendancePage({
               <th>EMPLOYEE</th>
               <th>DEPARTMENT</th>
               <th>SITE</th>
+              <th>MODE</th>
               <th>DATE</th>
               <th>TIME IN</th>
               <th>TIME OUT</th>
@@ -553,13 +558,16 @@ export function AttendancePage({
           </thead>
           <tbody>
             {records.length === 0 ? (
-              <tr><td colSpan={9} className="attendance-empty-state">No attendance records found.</td></tr>
+              <tr><td colSpan={10} className="attendance-empty-state">No attendance records found.</td></tr>
             ) : (
               records.map((record) => (
                 <tr key={record.id}>
                   <td data-label="Employee">{getName(record)}</td>
                   <td data-label="Department">{record.employee.department.name}</td>
                   <td data-label="Site">{record.workLocation?.name ?? "—"}</td>
+                  <td data-label="Mode">
+                    <Badge tone={getRecordTypeTone(record.recordType)}>{getRecordTypeLabel(record.recordType ?? "OFFICE")}</Badge>
+                  </td>
                   <td data-label="Date">{formatDate(record.attendanceDate)}</td>
                   <td data-label="Time In">{formatTime(record.timeInAt)}</td>
                   <td data-label="Time Out">{formatTime(record.timeOutAt)}</td>

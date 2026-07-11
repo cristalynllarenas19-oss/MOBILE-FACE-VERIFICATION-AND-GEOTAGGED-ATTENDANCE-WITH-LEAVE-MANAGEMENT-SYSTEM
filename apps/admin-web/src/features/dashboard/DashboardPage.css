@@ -83,11 +83,20 @@
   padding: 8px 12px;
 }
 
+.dashboard-page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
 .dashboard-interactive-grid {
   display: grid;
-  grid-template-columns: 1.1fr 1.2fr 0.9fr;
+  grid-template-columns: 1.35fr 0.95fr 0.9fr;
+  grid-template-rows: 1fr;
   gap: 10px;
   align-items: stretch;
+  flex: 1;
+  min-height: 0;
   margin-bottom: 24px;
   transition: opacity 0.2s ease;
 }
@@ -97,13 +106,16 @@
   pointer-events: none;
 }
 
-/* Fixed height on purpose: switching departments/dates must never resize
-   these cards or push neighboring sections — overflowing content scrolls
-   inside its own region instead (see .ddp-dept-list, .mabar-track). */
+/* Height fills the grid row (which stretches to the page's available
+   space) so switching departments/dates never resizes these cards or
+   pushes neighboring sections — overflowing content scrolls inside its
+   own region instead (see .ddp-dept-list, .mabar-track). min-height keeps
+   them usable when the row collapses (e.g. stacked on narrow screens). */
 .monthly-chart-card,
 .day-detail-card,
 .donut-card {
-  height: 380px;
+  height: 100%;
+  min-height: 430px;
   min-width: 0;
   display: flex;
   flex-direction: column;

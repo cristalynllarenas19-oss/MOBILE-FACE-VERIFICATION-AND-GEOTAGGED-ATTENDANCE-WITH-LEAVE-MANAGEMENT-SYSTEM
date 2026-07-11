@@ -83,7 +83,7 @@ const REPORT_TYPE_LABELS: Record<ReportTab, string> = {
 
 // "All Reports" bundles these three tabs — spelled out in the print/PDF
 // header since "All Reports" alone doesn't say what's included.
-const ALL_REPORTS_INCLUDES = [REPORT_TYPE_LABELS.attendance, REPORT_TYPE_LABELS.leave, REPORT_TYPE_LABELS.schedules].join(", ");
+const ALL_REPORTS_INCLUDES = ["DTR", "Attendance", REPORT_TYPE_LABELS.leave, REPORT_TYPE_LABELS.schedules].join(" | ");
 
 type EmployeeOption = {
   department: { name: string };
