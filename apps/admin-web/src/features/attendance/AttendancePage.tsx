@@ -8,7 +8,10 @@ import "./AttendancePage.css";
 
 type AttendanceStatus = "PRESENT" | "LATE" | "ABSENT" | "ON_LEAVE" | "OFFICIAL_BUSINESS" | "PENDING_REVIEW";
 
+type PhotoLogType = "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN";
+
 type AttendanceLog = {
+  logType: PhotoLogType;
   latitude: string;
   longitude: string;
   distanceFromSiteMeters: string;
@@ -16,6 +19,8 @@ type AttendanceLog = {
   verificationStatus: string;
   capturedAt: string;
   failureReason?: string | null;
+  faceImageData?: string | null;
+  faceImageMimeType?: string | null;
 };
 
 type AttendanceRecord = {
@@ -85,6 +90,20 @@ function formatTodayLabel(date: Date) {
   return date.toLocaleDateString(undefined, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
 }
 
+const photoTabOrder: PhotoLogType[] = ["TIME_IN", "TIME_OUT", "LUNCH_OUT", "LUNCH_IN"];
+
+function photoTabLabel(tab: PhotoLogType) {
+  if (tab === "TIME_IN") return "Time In";
+  if (tab === "TIME_OUT") return "Time Out";
+  if (tab === "LUNCH_OUT") return "Lunch Out";
+  return "Lunch In";
+}
+
+function photoUri(log?: AttendanceLog | null) {
+  if (!log?.faceImageData) return null;
+  return `data:${log.faceImageMimeType ?? "image/jpeg"};base64,${log.faceImageData}`;
+}
+
 function AttendanceDetailsModal({
   record,
   onClose,
@@ -99,9 +118,12 @@ function AttendanceDetailsModal({
   const [remarks, setRemarks] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
-  const latestLog = record.logs[0];
   const registeredFace = record.employee.faceProfiles?.[0]?.referenceImagePath;
-  const mapQuery = latestLog ? `${latestLog.latitude},${latestLog.longitude}` : "";
+
+  const availablePhotoTabs = photoTabOrder.filter((tab) => record.logs.some((log) => log.logType === tab));
+  const [activePhotoTab, setActivePhotoTab] = useState<PhotoLogType>(availablePhotoTabs[0] ?? "TIME_IN");
+  const selectedLog = record.logs.find((log) => log.logType === activePhotoTab) ?? record.logs[0];
+  const mapQuery = selectedLog ? `${selectedLog.latitude},${selectedLog.longitude}` : "";
 
   const updateStatus = async (action: "approve" | "official-business") => {
     setIsSaving(true);
@@ -133,6 +155,49 @@ function AttendanceDetailsModal({
           </button>
         </div>
 
+        {record.isSynthetic ? (
+          <p className="attendance-synthetic-note">
+            No attendance record — this employee is marked {getStatusLabel(record.status).toLowerCase()} for this date.
+          </p>
+        ) : (
+          <>
+            <div className="attendance-detail-grid">
+              <div><span>Registered Face</span>{registeredFace ? <img className="attendance-face-thumb" src={registeredFace} alt="" /> : <strong>Not stored</strong>}</div>
+            </div>
+
+            {availablePhotoTabs.length > 0 && (
+              <div className="attendance-photo-tabs">
+                {availablePhotoTabs.map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    className={`attendance-photo-tab${activePhotoTab === tab ? " active" : ""}`}
+                    onClick={() => setActivePhotoTab(tab)}
+                  >
+                    {photoTabLabel(tab)}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="attendance-photo-frame">
+              {photoUri(selectedLog) ? (
+                <img className="attendance-photo-capture" src={photoUri(selectedLog) ?? undefined} alt={`${photoTabLabel(activePhotoTab)} capture`} />
+              ) : (
+                <div className="attendance-photo-empty">No photo captured</div>
+              )}
+            </div>
+
+            <div className="attendance-detail-grid">
+              <div><span>Captured At</span><strong>{selectedLog ? new Date(selectedLog.capturedAt).toLocaleString() : "No log"}</strong></div>
+              <div><span>Face Match Score</span><strong>{selectedLog?.faceSimilarityScore ? `${selectedLog.faceSimilarityScore}%` : "N/A"}</strong></div>
+              <div><span>Verification Status</span><strong>{selectedLog?.verificationStatus ? getStatusLabel(selectedLog.verificationStatus) : "No log"}</strong></div>
+              <div><span>Failure Reason</span><strong>{selectedLog?.failureReason ?? "None"}</strong></div>
+            </div>
+          </>
+        )}
+
+        <div className="attendance-section-title">Employee &amp; Attendance</div>
         <div className="attendance-detail-grid attendance-modal-main-grid">
           <div><span>Employee Name</span><strong>{getName(record)}</strong></div>
           <div><span>Employee No.</span><strong>{record.employee.employeeNo ?? "—"}</strong></div>
@@ -150,28 +215,15 @@ function AttendanceDetailsModal({
           )}
         </div>
 
-        {record.isSynthetic ? (
-          <p className="attendance-synthetic-note">
-            No attendance record — this employee is marked {getStatusLabel(record.status).toLowerCase()} for this date.
-          </p>
-        ) : (
+        {!record.isSynthetic && (
           <>
-            <div className="attendance-section-title">Face Verification</div>
-            <div className="attendance-detail-grid">
-              <div><span>Registered Face</span>{registeredFace ? <img className="attendance-face-thumb" src={registeredFace} alt="" /> : <strong>Not stored</strong>}</div>
-              <div><span>Captured Selfie</span><strong>Not stored</strong></div>
-              <div><span>Face Match Score</span><strong>{latestLog?.faceSimilarityScore ? `${latestLog.faceSimilarityScore}%` : "N/A"}</strong></div>
-              <div><span>Verification Status</span><strong>{latestLog?.verificationStatus ? getStatusLabel(latestLog.verificationStatus) : "No log"}</strong></div>
-              <div><span>Failure Reason</span><strong>{latestLog?.failureReason ?? "None"}</strong></div>
-            </div>
-
             <div className="attendance-section-title">Geotagging</div>
             <div className="attendance-detail-grid">
-              <div><span>Latitude & Longitude</span><strong>{latestLog ? `${latestLog.latitude}, ${latestLog.longitude}` : "No log"}</strong></div>
-              <div><span>Distance from Site</span><strong>{latestLog ? `${Math.round(Number(latestLog.distanceFromSiteMeters))}m` : "No log"}</strong></div>
+              <div><span>Latitude & Longitude</span><strong>{selectedLog ? `${selectedLog.latitude}, ${selectedLog.longitude}` : "No log"}</strong></div>
+              <div><span>Distance from Site</span><strong>{selectedLog ? `${Math.round(Number(selectedLog.distanceFromSiteMeters))}m` : "No log"}</strong></div>
               <div>
                 <span>Map Preview</span>
-                {latestLog ? (
+                {selectedLog ? (
                   <a className="attendance-map-link" href={`https://www.google.com/maps?q=${mapQuery}`} target="_blank" rel="noreferrer">
                     <MapPin size={14} /> Open Map
                   </a>

@@ -126,7 +126,7 @@ export function AttendancePage({ user }: Props) {
     ? isSubmitting || isLoading || isTodayDayOff || !isEligible || !hasOpenVisit
     : isSubmitting || isLoading || isTodayDayOff || !isEligible || !hasTimedIn || hasTimedOut;
   const lunchButtonDisabled = isSubmitting || isLoading || isTodayDayOff || !isEligible || hasTimedOut || lunchCompleted;
-  const lunchButtonLabel = lunchCompleted ? "LUNCH COMPLETED" : hasLunchOut ? "LUNCH IN" : "LUNCH OUT";
+  const lunchButtonLabel = lunchCompleted ? "LUNCH COMPLETED" : hasLunchOut ? "START LUNCH" : "END LUNCH";
 
   // ── Handlers ─────────────────────────────────────────────────────────────
   function ensureEligible() {

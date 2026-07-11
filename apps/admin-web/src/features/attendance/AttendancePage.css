@@ -327,6 +327,55 @@
   object-fit: cover;
 }
 
+.attendance-photo-tabs {
+  display: flex;
+  gap: 6px;
+  padding: 4px 20px 0;
+  flex-wrap: wrap;
+}
+
+.attendance-photo-tab {
+  border: 1px solid #dbe5ef;
+  background: #f8fafc;
+  color: #52627a;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+
+.attendance-photo-tab.active {
+  background: #193d69;
+  border-color: #193d69;
+  color: #fff;
+}
+
+.attendance-photo-frame {
+  margin: 10px 20px 0;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #f1f5f9;
+}
+
+.attendance-photo-capture {
+  display: block;
+  width: 100%;
+  max-height: 320px;
+  object-fit: contain;
+  background: #f1f5f9;
+}
+
+.attendance-photo-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 140px;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .attendance-map-link {
   color: #1a3a5c;
   display: inline-flex;
