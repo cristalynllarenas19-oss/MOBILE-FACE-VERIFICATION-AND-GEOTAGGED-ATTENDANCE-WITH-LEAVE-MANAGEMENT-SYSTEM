@@ -149,7 +149,7 @@ export function WorkAreaPage({ user }: Props) {
         {/* ── Left: location switcher + info ── */}
         <div className="work-area-info">
           {isField && locations.length > 1 && (
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", width: "100%" }}>
               {locations.map((loc, i) => (
                 <button
                   key={loc.id}
@@ -231,11 +231,13 @@ export function WorkAreaPage({ user }: Props) {
 
 const infoCard: CSSProperties = {
   display: "flex", alignItems: "flex-start", gap: 10,
-  background: "#EFF6FF", borderRadius: 12, padding: "10px 14px", marginBottom: 12,
+  background: "#EFF6FF", borderRadius: 12, padding: "10px 14px",
+  flex: "1 1 240px",
 };
 const bannerBase: CSSProperties = {
   display: "flex", alignItems: "center", gap: 8,
   borderRadius: 10, border: "1px solid",
-  padding: "9px 14px", marginBottom: 12,
+  padding: "9px 14px",
   fontSize: 12, fontWeight: 600,
+  flex: "1 1 240px",
 };
