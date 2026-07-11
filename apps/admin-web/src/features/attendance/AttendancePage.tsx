@@ -141,10 +141,6 @@ function getStatusLabel(status: string) {
   return status.replace(/_/g, " ");
 }
 
-function getRecordTypeTone(recordType?: string | null) {
-  return recordType === "FIELD" ? "warning" : "neutral";
-}
-
 function useNow() {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
@@ -566,7 +562,7 @@ export function AttendancePage({
                   <td data-label="Department">{record.employee.department.name}</td>
                   <td data-label="Site">{record.workLocation?.name ?? "—"}</td>
                   <td data-label="Mode">
-                    <Badge tone={getRecordTypeTone(record.recordType)}>{getRecordTypeLabel(record.recordType ?? "OFFICE")}</Badge>
+                    <Badge tone="neutral">{getRecordTypeLabel(record.recordType ?? "OFFICE")}</Badge>
                   </td>
                   <td data-label="Date">{formatDate(record.attendanceDate)}</td>
                   <td data-label="Time In">{formatTime(record.timeInAt)}</td>

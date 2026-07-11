@@ -1176,7 +1176,7 @@ export function EmployeesPage({
                     </Badge>
                   </td>
                   <td data-label="Mode" className="employee-status-cell">
-                    <Badge tone={getAttendanceModeTone(employee.attendanceMode)}>
+                    <Badge tone="neutral">
                       {getAttendanceModeLabel(employee.attendanceMode, true)}
                     </Badge>
                   </td>
