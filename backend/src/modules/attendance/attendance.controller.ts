@@ -26,12 +26,13 @@ export class AttendanceController {
     @Req() request: Request,
     @Query("department") department?: string,
     @Query("status") status?: string,
+    @Query("recordType") recordType?: string,
     @Query("date") date?: string,
     @Query("from") from?: string,
     @Query("to") to?: string,
   ) {
     const departmentId = getSupervisorDepartmentScope((request as any).user);
-    return this.attendanceService.findAll({ department, departmentId, status, date, from, to });
+    return this.attendanceService.findAll({ department, departmentId, status, recordType, date, from, to });
   }
 
   @Get("today/:employeeId")

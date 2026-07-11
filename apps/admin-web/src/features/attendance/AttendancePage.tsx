@@ -31,6 +31,7 @@ type AttendanceRecord = {
   lunchOutAt?: string | null;
   lunchInAt?: string | null;
   status: AttendanceStatus;
+  recordType?: "OFFICE" | "FIELD";
   visitNumber?: number;
   workLocation?: { name: string } | null;
   employee: {
@@ -54,6 +55,11 @@ type EmployeeOption = {
 type Notification = { type: "success" | "error"; message: string } | null;
 
 const statusOptions = ["PRESENT", "LATE", "ABSENT", "ON_LEAVE", "OFFICIAL_BUSINESS", "PENDING_REVIEW"];
+const recordTypeOptions = ["OFFICE", "FIELD"];
+
+function getRecordTypeLabel(recordType: string) {
+  return recordType === "FIELD" ? "Field" : "Office";
+}
 
 function formatDate(value: string) {
   return new Date(value).toLocaleDateString();
@@ -95,8 +101,8 @@ const photoTabOrder: PhotoLogType[] = ["TIME_IN", "TIME_OUT", "LUNCH_OUT", "LUNC
 function photoTabLabel(tab: PhotoLogType) {
   if (tab === "TIME_IN") return "Time In";
   if (tab === "TIME_OUT") return "Time Out";
-  if (tab === "LUNCH_OUT") return "Lunch Out";
-  return "Lunch In";
+  if (tab === "LUNCH_OUT") return "Start Lunch";
+  return "End Lunch";
 }
 
 function photoUri(log?: AttendanceLog | null) {
@@ -292,6 +298,7 @@ export function AttendancePage({
   const [employeeOptions, setEmployeeOptions] = useState<EmployeeOption[]>([]);
   const [departmentFilter, setDepartmentFilter] = useState(initialFilter?.department ?? "ALL");
   const [statusFilter, setStatusFilter] = useState(initialFilter?.status ?? "ALL");
+  const [recordTypeFilter, setRecordTypeFilter] = useState("ALL");
   const [dateFrom, setDateFrom] = useState(initialFilter?.date ?? "");
   const [dateTo, setDateTo] = useState(initialFilter?.date ?? "");
   const [viewRecord, setViewRecord] = useState<AttendanceRecord | null>(null);
@@ -302,6 +309,7 @@ export function AttendancePage({
     const params = new URLSearchParams();
     if (departmentFilter !== "ALL") params.set("department", departmentFilter);
     if (statusFilter !== "ALL") params.set("status", statusFilter);
+    if (recordTypeFilter !== "ALL") params.set("recordType", recordTypeFilter);
     if (dateFrom) params.set("from", dateFrom);
     if (dateTo) params.set("to", dateTo);
 
@@ -309,7 +317,7 @@ export function AttendancePage({
     apiRequest<AttendanceRecord[]>(`/attendance${query ? `?${query}` : ""}`).then(setRecords).catch(() => undefined);
   };
 
-  useEffect(loadRecords, [departmentFilter, statusFilter, dateFrom, dateTo]);
+  useEffect(loadRecords, [departmentFilter, statusFilter, recordTypeFilter, dateFrom, dateTo]);
 
   useEffect(() => {
     apiRequest<EmployeeOption[]>("/employees").then(setEmployeeOptions).catch(() => undefined);
@@ -371,6 +379,19 @@ export function AttendancePage({
         </div>
 
         <div className="attendance-filter-group">
+          <label className="attendance-filter-label">Type</label>
+          <DropdownFilter
+            className="attendance-filter"
+            value={recordTypeFilter}
+            onChange={setRecordTypeFilter}
+            options={recordTypeOptions.map((recordType) => ({ value: recordType, label: getRecordTypeLabel(recordType) }))}
+            allLabel="Office & Field"
+            menuLabel="Filter by office/field"
+            ariaLabel="Office or Field"
+          />
+        </div>
+
+        <div className="attendance-filter-group">
           <label className="attendance-filter-label">From</label>
           <input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} aria-label="History from date" />
         </div>
@@ -383,7 +404,7 @@ export function AttendancePage({
         <div className="attendance-filter-actions">
           <button
             className="attendance-clear-button"
-            onClick={() => { setDepartmentFilter("ALL"); setStatusFilter("ALL"); setDateFrom(""); setDateTo(""); }}
+            onClick={() => { setDepartmentFilter("ALL"); setStatusFilter("ALL"); setRecordTypeFilter("ALL"); setDateFrom(""); setDateTo(""); }}
           >
             <X size={13} /> Clear
           </button>

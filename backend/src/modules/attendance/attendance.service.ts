@@ -14,6 +14,7 @@ type AttendanceFilters = {
   department?: string;
   departmentId?: string;
   status?: string;
+  recordType?: string;
   date?: string;
   from?: string;
   to?: string;
@@ -50,6 +51,7 @@ export class AttendanceService {
     const records = await this.prisma.attendanceRecord.findMany({
       where: {
         ...(filters.status && filters.status !== "ALL" ? { status: filters.status as any } : {}),
+        ...(filters.recordType && filters.recordType !== "ALL" ? { recordType: filters.recordType as any } : {}),
         ...(attendanceDate
           ? { attendanceDate }
           : fromDate || toDate
@@ -122,9 +124,12 @@ export class AttendanceService {
     );
 
     const wantsStatus = (status: "ABSENT" | "ON_LEAVE") => !filters.status || filters.status === "ALL" || filters.status === status;
+    // Synthetic Absent/On-Leave rows always carry recordType OFFICE (no real
+    // visit happened), so a FIELD-only filter should exclude them entirely.
+    const wantsSyntheticRecordType = !filters.recordType || filters.recordType === "ALL" || filters.recordType === "OFFICE";
 
     const syntheticRows = [];
-    for (const employee of employees) {
+    for (const employee of wantsSyntheticRecordType ? employees : []) {
       if (recordedEmployeeIds.has(employee.id)) continue;
       const onLeave = onLeaveByEmployee.get(employee.id);
       const base = {
