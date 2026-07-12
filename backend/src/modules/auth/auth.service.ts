@@ -88,6 +88,17 @@ export class AuthService {
       data: { lastLoginAt: new Date() },
     });
 
+    // Only one ADMIN is ever *active* — granting the role doesn't log out the
+    // outgoing admin (see UsersService.create); that handoff happens the
+    // moment the NEWLY-APPOINTED admin first logs in. Eviction is by grant
+    // recency: only admins granted *earlier* than the logging-in admin are
+    // evicted, so the outgoing admin logging back in first evicts nobody and
+    // can never take the role away from the new appointee.
+    const adminRole = user.userRoles.find((userRole) => userRole.role.code === "ADMIN");
+    if (adminRole) {
+      await this.evictOutrankedAdmins(user.id, adminRole.assignedAt, displayName, context);
+    }
+
     await this.auditLogs.record({
       ...context,
       actorUserId: user.id,
@@ -125,6 +136,63 @@ export class AuthService {
         mustChangePassword: user.mustChangePassword,
       },
     };
+  }
+
+  // Revokes ADMIN from every account whose grant is OLDER than the
+  // logging-in admin's, falling back to EMPLOYEE for anyone left with zero
+  // roles, and bumps their tokenVersion so their existing session is
+  // rejected on its very next request (see JwtStrategy.validate) instead of
+  // staying valid until it expires.
+  private async evictOutrankedAdmins(
+    newAdminId: string,
+    newAdminAssignedAt: Date,
+    newAdminName: string,
+    context: AuditLogContext,
+  ) {
+    // Neon can take several seconds to respond on a cold connection —
+    // Prisma's default 5s interactive-transaction timeout is too tight,
+    // hence the explicit timeout below.
+    const evicted = await this.prisma.$transaction(async (tx) => {
+      const outrankedAdmins = await tx.user.findMany({
+        where: {
+          id: { not: newAdminId },
+          userRoles: { some: { role: { code: "ADMIN" }, assignedAt: { lt: newAdminAssignedAt } } },
+        },
+        select: { id: true, email: true, employee: true, userRoles: { include: { role: true } } },
+      });
+
+      const result: { id: string; email: string; name: string }[] = [];
+      for (const admin of outrankedAdmins) {
+        await tx.userRole.deleteMany({ where: { userId: admin.id, role: { code: "ADMIN" } } });
+
+        const remainingRoles = admin.userRoles.filter((userRole) => userRole.role.code !== "ADMIN");
+        if (remainingRoles.length === 0) {
+          const employeeRole = await tx.role.findUniqueOrThrow({ where: { code: "EMPLOYEE" } });
+          await tx.userRole.create({ data: { userId: admin.id, roleId: employeeRole.id } });
+        }
+
+        await tx.user.update({ where: { id: admin.id }, data: { tokenVersion: { increment: 1 } } });
+
+        result.push({
+          id: admin.id,
+          email: admin.email,
+          name: admin.employee ? `${admin.employee.firstName} ${admin.employee.lastName}` : admin.email,
+        });
+      }
+      return result;
+    }, { timeout: 15000 });
+
+    for (const admin of evicted) {
+      await this.auditLogs.record({
+        ...context,
+        action: "REVOKE_USER_ROLE",
+        module: "Users",
+        entityType: "User",
+        entityId: admin.id,
+        description: `Revoked ADMIN access from ${admin.name} — ${newAdminName} logged in as the newly appointed admin. Account was logged out immediately.`,
+        newValues: { revokedRole: "ADMIN", email: admin.email },
+      });
+    }
   }
 
   async logout(context: AuditLogContext = {}) {

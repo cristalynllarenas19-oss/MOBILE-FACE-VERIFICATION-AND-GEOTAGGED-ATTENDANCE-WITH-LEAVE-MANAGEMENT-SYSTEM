@@ -185,6 +185,10 @@ model Permission {
 model UserRole {
   userId String @map("user_id")
   roleId String @map("role_id")
+  // When the role was granted — lets login-time admin eviction tell the
+  // newly-appointed admin apart from the outgoing one (see
+  // AuthService.evictOutrankedAdmins).
+  assignedAt DateTime @default(now()) @map("assigned_at")
   user   User   @relation(fields: [userId], references: [id])
   role   Role   @relation(fields: [roleId], references: [id])
 

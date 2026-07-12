@@ -224,9 +224,10 @@ export function UsersPage() {
   const handleCreateUser = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    // Only one ADMIN may hold the role at a time — if granting it here would
-    // replace whoever currently has it, warn before doing it since they'll be
-    // logged out immediately (see UsersService.create on the backend).
+    // Only one ADMIN is ever *active* — if granting it here would replace
+    // whoever currently has it, warn first: the current admin keeps working
+    // until the new admin's first login, at which point they're logged out
+    // and lose the role (see AuthService.evictOutrankedAdmins).
     if (form.role === "ADMIN") {
       const existingAdmins = users.filter(
         (user) => user.email !== form.email && user.userRoles.some((userRole) => userRole.role.code === "ADMIN"),
@@ -487,15 +488,15 @@ export function UsersPage() {
             </div>
 
             <p className="confirm-modal-copy">
-              This system only allows one HR Admin at a time. Granting ADMIN to{" "}
-              <strong>{form.firstName} {form.lastName}</strong> will immediately remove admin access from{" "}
+              This system only allows one <em>active</em> HR Admin at a time. Granting ADMIN to{" "}
+              <strong>{form.firstName} {form.lastName}</strong> won't log out{" "}
               {adminsToReplace.map((admin, index) => (
                 <span key={admin.id}>
                   <strong>{getUserDisplayName(admin)}</strong>
                   {index < adminsToReplace.length - 1 ? ", " : ""}
                 </span>
               ))}{" "}
-              and log {adminsToReplace.length > 1 ? "them" : "that admin"} out. Continue?
+              right away — but the moment {form.firstName} logs in, {adminsToReplace.length > 1 ? "they" : "that admin"} will be automatically logged out and lose admin access. Continue?
             </p>
 
             {error && <p className="user-form-error confirm-error">{error}</p>}

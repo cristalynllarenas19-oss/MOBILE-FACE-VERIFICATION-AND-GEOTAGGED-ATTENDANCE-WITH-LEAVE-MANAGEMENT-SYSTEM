@@ -92,12 +92,14 @@ export class UsersService {
 
     const employeeUserId = employee.userId;
 
-    // Only one account may hold ADMIN at a time — granting it here transfers
-    // the role immediately: every other holder loses ADMIN in the same
-    // transaction (falling back to EMPLOYEE if left with no roles) and has
-    // their tokenVersion bumped so their existing session is rejected on its
-    // very next request (see JwtStrategy.validate).
-    const evictedAdmins = await this.prisma.$transaction(
+    // Only one ADMIN is ever *active* at a time, but granting the role here
+    // does not log out whoever currently holds it — the outgoing admin keeps
+    // working until the newly-appointed admin actually logs in, at which
+    // point they are evicted (see AuthService.evictOutrankedAdmins). The
+    // fresh `assignedAt` written here is what marks this account as the
+    // newest grantee, so the outgoing admin logging in first can never take
+    // the role back.
+    await this.prisma.$transaction(
       async (tx) => {
         // Only clears the role being (re)assigned — an existing EMPLOYEE role
         // (or any other) must survive so the account keeps attendance-portal
@@ -109,36 +111,6 @@ export class UsersService {
           },
         });
         await tx.userRole.create({ data: { userId: employeeUserId, roleId: role.id } });
-
-        if (dto.role !== "ADMIN") return [];
-
-        const otherAdmins = await tx.user.findMany({
-          where: {
-            id: { not: employeeUserId },
-            userRoles: { some: { role: { code: "ADMIN" } } },
-          },
-          select: { id: true, email: true, employee: true, userRoles: { include: { role: true } } },
-        });
-
-        const evicted: { id: string; email: string; name: string }[] = [];
-        for (const admin of otherAdmins) {
-          await tx.userRole.deleteMany({ where: { userId: admin.id, role: { code: "ADMIN" } } });
-
-          const remainingRoles = admin.userRoles.filter((userRole) => userRole.role.code !== "ADMIN");
-          if (remainingRoles.length === 0) {
-            const employeeRole = await tx.role.findUniqueOrThrow({ where: { code: "EMPLOYEE" } });
-            await tx.userRole.create({ data: { userId: admin.id, roleId: employeeRole.id } });
-          }
-
-          await tx.user.update({ where: { id: admin.id }, data: { tokenVersion: { increment: 1 } } });
-
-          evicted.push({
-            id: admin.id,
-            email: admin.email,
-            name: admin.employee ? `${admin.employee.firstName} ${admin.employee.lastName}` : admin.email,
-          });
-        }
-        return evicted;
       },
       // Neon can take several seconds to respond on a cold connection —
       // Prisma's default 5s interactive-transaction timeout is too tight.
@@ -155,21 +127,6 @@ export class UsersService {
         employee: true,
       },
     });
-
-    const newAdminName = created.employee
-      ? `${created.employee.firstName} ${created.employee.lastName}`
-      : created.email;
-    for (const admin of evictedAdmins) {
-      await this.auditLogs.record({
-        ...context,
-        action: "REVOKE_USER_ROLE",
-        module: "Users",
-        entityType: "User",
-        entityId: admin.id,
-        description: `Revoked ADMIN access from ${admin.name} — admin access was transferred to ${newAdminName}. Account was logged out immediately.`,
-        newValues: { revokedRole: "ADMIN", email: admin.email },
-      });
-    }
 
     await this.auditLogs.record({
       ...context,
