@@ -490,6 +490,12 @@
   font-weight: 600;
 }
 
+.employee-form-hint {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 500;
+}
+
 .employee-leave-grants {
   display: flex;
   flex-direction: column;

@@ -1683,3 +1683,10 @@
 .leave-image-lightbox-close:hover {
   background: rgba(255, 255, 255, 0.22);
 }
+
+.leave-status-badges {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}

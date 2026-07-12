@@ -475,6 +475,7 @@ model LeaveRequest {
   attachmentData     String?            @map("attachment_data")
   extensionRequested Boolean            @default(false) @map("extension_requested")
   extensionApproved  Boolean?           @map("extension_approved")
+  escalatedAt        DateTime?          @map("escalated_at")
   employee           Employee           @relation(fields: [employeeId], references: [id])
   leaveType          LeaveType          @relation(fields: [leaveTypeId], references: [id])
   reviewer           User?              @relation(fields: [reviewedBy], references: [id])

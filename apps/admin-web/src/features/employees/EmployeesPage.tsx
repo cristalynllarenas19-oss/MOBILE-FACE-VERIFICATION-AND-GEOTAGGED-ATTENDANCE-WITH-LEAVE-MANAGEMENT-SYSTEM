@@ -213,7 +213,9 @@ function AddEmployeeModal({
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const availableSupervisors = supervisors.filter(
+  // Supervisor is auto-assigned from the chosen department (first supervisor
+  // registered for it); the Add form no longer exposes a supervisor picker.
+  const autoSupervisor = supervisors.find(
     (supervisor) => supervisor.department.name === form.department.trim(),
   );
 
@@ -257,7 +259,7 @@ function AddEmployeeModal({
           sex: form.sex,
           soloParentStatus: form.soloParentStatus,
           ...(form.hireDate ? { hireDate: form.hireDate } : {}),
-          ...(form.supervisorId ? { supervisorId: form.supervisorId } : {}),
+          ...(autoSupervisor ? { supervisorId: autoSupervisor.id } : {}),
         },
         {
           headers: {
@@ -313,9 +315,7 @@ function AddEmployeeModal({
                 <input
                   type="text"
                   value={form.department}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, department: event.target.value, supervisorId: "" }))
-                  }
+                  onChange={updateField("department")}
                   list="employee-departments"
                   placeholder="Production"
                   required
@@ -326,6 +326,13 @@ function AddEmployeeModal({
                   ))}
                 </datalist>
               </>
+            )}
+            {form.department.trim() && (
+              <span className="employee-form-hint">
+                {autoSupervisor
+                  ? `Supervisor: ${autoSupervisor.firstName} ${autoSupervisor.lastName}`
+                  : "No supervisor registered for this department yet."}
+              </span>
             )}
           </label>
         </div>
@@ -340,20 +347,6 @@ function AddEmployeeModal({
             </select>
           </label>
           <label>
-            Supervisor
-            <select value={form.supervisorId} onChange={updateField("supervisorId")}>
-              <option value="">No supervisor assigned</option>
-              {availableSupervisors.map((supervisor) => (
-                <option key={supervisor.id} value={supervisor.id}>
-                  {supervisor.firstName} {supervisor.lastName}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        <div className="employee-form-grid">
-          <label>
             Sex/Gender
             <select value={form.sex} onChange={updateField("sex")}>
               <option value="MALE">Male</option>
@@ -364,20 +357,9 @@ function AddEmployeeModal({
 
         <div className="employee-form-grid">
           <label>
-            Solo Parent Eligibility
-            <select value={form.soloParentStatus} onChange={updateField("soloParentStatus")}>
-              <option value="NOT_APPLICABLE">Not Applicable</option>
-              <option value="ELIGIBLE">Eligible</option>
-              <option value="INELIGIBLE">Ineligible</option>
-            </select>
-          </label>
-          <label>
             Hire Date
             <input type="date" value={form.hireDate} onChange={updateField("hireDate")} />
           </label>
-        </div>
-
-        <div className="employee-form-grid">
           <label>
             Attendance Mode
             <select value={form.attendanceMode} onChange={updateField("attendanceMode")}>

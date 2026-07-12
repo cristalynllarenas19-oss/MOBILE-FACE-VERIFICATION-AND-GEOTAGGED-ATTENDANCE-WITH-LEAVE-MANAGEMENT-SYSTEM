@@ -133,6 +133,17 @@ function getLeaveTone(status: string) {
   return "warning";
 }
 
+// The request's leave dates have already started while it still awaits a
+// decision — the supervisor never acted (PENDING) or HR hasn't finalized
+// (SUPERVISOR_APPROVED). Mirrors the backend escalation sweep in
+// leave.service.ts, which notifies HR/Admin about these same requests.
+function isOverdueForReview(request: LeaveRequest) {
+  return (
+    (request.status === "PENDING" || request.status === "SUPERVISOR_APPROVED") &&
+    new Date(request.startDate).getTime() <= Date.now()
+  );
+}
+
 function titleCaseStatus(status: string) {
   return status
     .toLowerCase()
@@ -1245,7 +1256,10 @@ export function LeavePage({
                       </td>
                       <td data-label="Days">{r.totalDays}</td>
                       <td data-label="Status">
-                        <Badge tone={getLeaveTone(r.status)}>{getLeaveStatusLabel(r.status, isAdmin)}</Badge>
+                        <span className="leave-status-badges">
+                          <Badge tone={getLeaveTone(r.status)}>{getLeaveStatusLabel(r.status, isAdmin)}</Badge>
+                          {isOverdueForReview(r) && <Badge tone="danger">Overdue</Badge>}
+                        </span>
                       </td>
                       <td data-label="Action">
                         <button
@@ -1339,7 +1353,10 @@ export function LeavePage({
                       <td data-label="Date Filed">{formatDate(r.createdAt)}</td>
                       <td data-label="Days">{r.totalDays}</td>
                       <td data-label="Status">
-                        <Badge tone={getLeaveTone(r.status)}>{getLeaveStatusLabel(r.status, isAdmin)}</Badge>
+                        <span className="leave-status-badges">
+                          <Badge tone={getLeaveTone(r.status)}>{getLeaveStatusLabel(r.status, isAdmin)}</Badge>
+                          {isOverdueForReview(r) && <Badge tone="danger">Overdue</Badge>}
+                        </span>
                       </td>
                       <td data-label="Action">
                         <button
@@ -1435,7 +1452,10 @@ export function LeavePage({
               <div><span>Total Days</span><strong>{reviewRequest.totalDays}</strong></div>
               <div>
                 <span>Status</span>
-                <Badge tone={getLeaveTone(reviewRequest.status)}>{getLeaveStatusLabel(reviewRequest.status, isAdmin)}</Badge>
+                <span className="leave-status-badges">
+                  <Badge tone={getLeaveTone(reviewRequest.status)}>{getLeaveStatusLabel(reviewRequest.status, isAdmin)}</Badge>
+                  {isOverdueForReview(reviewRequest) && <Badge tone="danger">Overdue</Badge>}
+                </span>
               </div>
               {reviewRequest.status !== "PENDING" && (
                 <div><span>Reviewed By</span><strong>{reviewerName(reviewRequest)}</strong></div>
