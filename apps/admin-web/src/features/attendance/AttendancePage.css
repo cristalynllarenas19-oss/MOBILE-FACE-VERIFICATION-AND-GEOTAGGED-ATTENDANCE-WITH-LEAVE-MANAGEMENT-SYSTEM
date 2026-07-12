@@ -149,6 +149,7 @@
 
 .attendance-table-card th {
   color: #1a3a5c;
+  white-space: nowrap;
 }
 
 .attendance-view-button {
@@ -615,6 +616,7 @@
     font-weight: 700;
     text-align: left;
     text-transform: uppercase;
+    white-space: nowrap;
   }
 
   .attendance-table-card td:last-child {

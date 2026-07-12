@@ -524,22 +524,25 @@
 
 .face-row-view {
   align-items: center;
-  background: #eef4fb;
-  border: 1px solid #dbe5ef;
-  border-radius: 6px;
+  justify-content: center;
+  background: #ffffff;
+  border: 1.5px solid #b8c7d8;
+  border-radius: 8px;
   color: #1a3a5c;
   cursor: pointer;
   display: inline-flex;
+  min-width: 94px;
+  height: 38px;
   font-size: 12px;
   font-weight: 700;
-  gap: 6px;
-  padding: 6px 10px;
-  transition: background 0.18s ease, color 0.18s ease;
+  gap: 7px;
+  padding: 0 14px;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
 }
 
 .face-row-view:hover {
-  background: #dbeafe;
-  color: #1d4ed8;
+  border-color: #1a3a5c;
+  background: #f4f7fb;
 }
 
 .view-modal-overlay {
@@ -771,6 +774,7 @@
 
   .capture-card,
   .enrollment-form {
+    flex: none;
     height: auto;
   }
 
@@ -793,20 +797,193 @@
   .capture-summary {
     grid-template-columns: 1fr 1fr;
     grid-template-rows: auto auto;
+    gap: 12px;
   }
 
   .capture-summary > div:first-child {
     grid-column: 1 / -1;
   }
+
+  .capture-summary strong {
+    font-size: 15px;
+  }
+
+  .employee-picks {
+    gap: 12px;
+  }
+
+  .employee-pick {
+    padding: 14px 16px;
+  }
+
+  .employee-pick strong {
+    font-size: 15px;
+  }
+
+  .employee-pick span,
+  .employee-pick small {
+    font-size: 13px;
+  }
+
+  .search-shell {
+    height: 50px;
+  }
+
+  .capture-actions button,
+  .form-actions button {
+    min-height: 48px;
+    font-size: 14px;
+  }
+
+  .list-heading-right {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .registered-search {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .registered-search input {
+    height: 44px;
+    font-size: 14px;
+  }
+
+  .list-heading-right .dropdown-filter-shell {
+    width: 100%;
+  }
+
+  .list-heading-right > span {
+    text-align: center;
+    padding: 8px 12px;
+  }
+
+  .enrollment-list .table-card {
+    background: transparent;
+    box-shadow: none;
+    overflow: visible;
+    max-height: none;
+  }
+
+  .enrollment-list .table-card table,
+  .enrollment-list .table-card thead,
+  .enrollment-list .table-card tbody,
+  .enrollment-list .table-card tr,
+  .enrollment-list .table-card th,
+  .enrollment-list .table-card td {
+    display: block;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .enrollment-list .table-card thead {
+    display: none;
+  }
+
+  .enrollment-list .table-card tbody {
+    display: grid;
+    gap: 14px;
+  }
+
+  .enrollment-list .table-card tr {
+    background: #ffffff;
+    border: 1px solid #dbe5ef;
+    border-radius: 12px;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+    overflow: hidden;
+  }
+
+  .enrollment-list .table-card td {
+    min-height: 52px;
+    display: grid;
+    grid-template-columns: 106px 1fr;
+    align-items: center;
+    gap: 12px;
+    text-align: right;
+    border-bottom: 1px solid #edf2f7;
+    padding: 13px 16px;
+    word-break: break-word;
+    font-size: 14px;
+  }
+
+  .enrollment-list .table-card td::before {
+    content: attr(data-label);
+    color: #7b8794;
+    font-size: 11px;
+    font-weight: 700;
+    text-align: left;
+    text-transform: uppercase;
+  }
+
+  .enrollment-list .table-card td:last-child {
+    border-bottom: none;
+    padding: 14px 16px 16px;
+  }
+
+  .enrollment-list .table-card td[data-label="Status"],
+  .enrollment-list .table-card td[data-label="Action"] {
+    justify-content: end;
+  }
+
+  .face-row-view {
+    min-height: 42px;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .form-title-row {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .form-title-row .dropdown-filter-shell {
+    flex-shrink: 0;
+  }
+}
+
+@media (max-width: 460px) {
+  .capture-summary {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .capture-summary > div:first-child,
+  .capture-summary > div:nth-child(2),
+  .stat-inline-card {
+    grid-column: 1 / -1;
+  }
+
+  .stat-inline-card {
+    flex-direction: row;
+    justify-content: space-between;
+    padding: 12px 16px;
+  }
+
+  .capture-summary p,
+  .selected-employee-card p,
+  .form-kicker {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+  }
 }
 
 @media (max-width: 520px) {
   .face-page {
-    gap: 24px;
+    gap: 20px;
   }
 
-  .capture-actions {
+  .capture-actions,
+  .form-actions {
     flex-direction: column;
+  }
+
+  .capture-actions .primary-button,
+  .form-actions button {
+    flex: none;
+    width: 100%;
   }
 
   .capture-stage {
@@ -823,22 +1000,43 @@
   }
 
   .face-card {
-    padding: 20px;
+    padding: 18px 16px;
+  }
+
+  .enrollment-form,
+  .capture-card {
+    padding: 18px 16px;
   }
 
   .list-heading {
     flex-wrap: wrap;
+    gap: 14px;
   }
 
   .registered-search {
     width: 100%;
   }
 
-  .success-modal {
+  .success-modal,
+  .delete-modal {
     padding: 24px 20px 20px;
   }
 
-  .delete-modal {
-    padding: 24px 20px 20px;
+  .view-modal {
+    padding: 24px 18px;
+  }
+
+  .view-modal-photo {
+    width: 160px;
+    height: 160px;
+  }
+
+  .view-modal-details {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .view-modal-actions {
+    flex-direction: column;
   }
 }
