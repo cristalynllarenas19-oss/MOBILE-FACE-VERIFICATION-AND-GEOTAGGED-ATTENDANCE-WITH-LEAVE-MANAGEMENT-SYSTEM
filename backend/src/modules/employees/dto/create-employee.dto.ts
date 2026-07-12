@@ -1,3 +1,4 @@
+import { Transform } from "class-transformer";
 import { IsDateString, IsEmail, IsEnum, IsInt, IsOptional, IsString, Min } from "class-validator";
 
 export enum CreateEmployeeEmploymentStatus {
@@ -29,6 +30,7 @@ export class CreateEmployeeDto {
   @IsString()
   lastName!: string;
 
+  @Transform(({ value }) => (typeof value === "string" ? value.trim().toLowerCase() : value))
   @IsEmail()
   email!: string;
 
@@ -72,6 +74,7 @@ export class UpdateEmployeeDto {
   lastName?: string;
 
   @IsOptional()
+  @Transform(({ value }) => (typeof value === "string" ? value.trim().toLowerCase() : value))
   @IsEmail()
   email?: string;
 

@@ -111,6 +111,29 @@ export class EmployeesService {
     });
   }
 
+  // ULPI-{YY}{NNN}, e.g. ULPI-26001 — NNN resets every calendar year (keyed
+  // off the employee's hire year) and is handed out from id_sequences, a
+  // one-row-per-year counter. The upsert-then-UPDATE...RETURNING runs in its
+  // own short transaction so the row lock (which serializes concurrent hires
+  // in the same year) is held only as long as it takes to claim a number, not
+  // for the rest of employee creation.
+  private async generateEmployeeNo(hireDate: Date): Promise<string> {
+    const year = hireDate.getFullYear();
+
+    const [{ last_number }] = await this.prisma.$transaction(async (tx) => {
+      await tx.id_sequences.upsert({
+        where: { year },
+        update: {},
+        create: { year, last_number: 0 },
+      });
+      return tx.$queryRaw<{ last_number: number }[]>`
+        UPDATE id_sequences SET last_number = last_number + 1 WHERE year = ${year} RETURNING last_number
+      `;
+    });
+
+    return `ULPI-${String(year).slice(-2)}${String(last_number).padStart(3, "0")}`;
+  }
+
   async create(dto: CreateEmployeeDto, context: AuditLogContext = {}, scopeDepartmentId?: string) {
     const role = await this.prisma.role.findUniqueOrThrow({ where: { code: "EMPLOYEE" } });
     // A scoped Supervisor's new hire is always auto-associated with their own
@@ -135,6 +158,7 @@ export class EmployeesService {
     // (see AuthService.login / UsersService.changePassword).
     const resolvedSupervisorId = await this.resolveSupervisorId(dto.supervisorId, department.id);
     const temporaryPassword = generateTemporaryPassword();
+    const hireDate = dto.hireDate ? new Date(dto.hireDate) : new Date();
 
     const user = await this.prisma.user.create({
       data: {
@@ -148,12 +172,12 @@ export class EmployeesService {
     const created = await this.prisma.employee.create({
       data: {
         userId: user.id,
-        employeeNo: `UL-${Date.now().toString().slice(-6)}`,
+        employeeNo: await this.generateEmployeeNo(hireDate),
         firstName: dto.firstName,
         lastName: dto.lastName,
         departmentId: department.id,
         positionId: position.id,
-        hireDate: dto.hireDate ? new Date(dto.hireDate) : new Date(),
+        hireDate,
         employmentStatus: dto.employmentStatus,
         attendanceMode: dto.attendanceMode ?? "FIXED",
         sex: dto.sex,
