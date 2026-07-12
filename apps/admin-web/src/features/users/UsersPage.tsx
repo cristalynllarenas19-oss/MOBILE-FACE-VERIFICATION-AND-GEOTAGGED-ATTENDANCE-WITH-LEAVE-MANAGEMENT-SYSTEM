@@ -487,15 +487,15 @@ export function UsersPage() {
             </div>
 
             <p className="confirm-modal-copy">
-              This system only allows one <em>active</em> HR Admin at a time. Granting ADMIN to{" "}
-              <strong>{form.firstName} {form.lastName}</strong> won't remove access from{" "}
+              This system only allows one HR Admin at a time. Granting ADMIN to{" "}
+              <strong>{form.firstName} {form.lastName}</strong> will immediately remove admin access from{" "}
               {adminsToReplace.map((admin, index) => (
                 <span key={admin.id}>
                   <strong>{getUserDisplayName(admin)}</strong>
                   {index < adminsToReplace.length - 1 ? ", " : ""}
                 </span>
               ))}{" "}
-              right away — but the moment {form.firstName} logs in, {adminsToReplace.length > 1 ? "they" : "that admin"} will be automatically logged out and lose admin access. Continue?
+              and log {adminsToReplace.length > 1 ? "them" : "that admin"} out. Continue?
             </p>
 
             {error && <p className="user-form-error confirm-error">{error}</p>}
