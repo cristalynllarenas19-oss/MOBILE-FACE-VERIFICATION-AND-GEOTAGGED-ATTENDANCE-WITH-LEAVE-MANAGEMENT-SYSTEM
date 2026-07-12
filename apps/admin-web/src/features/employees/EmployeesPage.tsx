@@ -327,14 +327,19 @@ function AddEmployeeModal({
                 </datalist>
               </>
             )}
-            {form.department.trim() && (
-              <span className="employee-form-hint">
-                {autoSupervisor
-                  ? `Supervisor: ${autoSupervisor.firstName} ${autoSupervisor.lastName}`
-                  : "No supervisor registered for this department yet."}
-              </span>
-            )}
           </label>
+          {form.department.trim() && (
+            <label>
+              Supervisor
+              <input
+                type="text"
+                value={autoSupervisor ? `${autoSupervisor.firstName} ${autoSupervisor.lastName}` : ""}
+                placeholder="No supervisor registered for this department yet."
+                disabled
+                readOnly
+              />
+            </label>
+          )}
         </div>
 
         <div className="employee-form-grid">
