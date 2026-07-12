@@ -69,21 +69,23 @@ export default function SupervisorAttendanceScreen() {
         )}
       </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.filterRow}
-        contentContainerStyle={styles.filterRowContent}
-      >
+      <View style={styles.filterRow}>
         {STATUS_FILTERS.map((status) => {
           const active = statusFilter === status;
           return (
             <Pressable key={status} style={[styles.filterChip, active && styles.filterChipActive]} onPress={() => setStatusFilter(status)}>
-              <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>{status.replace("_", " ")}</Text>
+              <Text
+                style={[styles.filterChipText, active && styles.filterChipTextActive]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+              >
+                {status.replace("_", " ")}
+              </Text>
             </Pressable>
           );
         })}
-      </ScrollView>
+      </View>
 
       {isLoading ? (
         <View style={styles.centered}>
@@ -171,11 +173,11 @@ const styles = StyleSheet.create({
   summaryRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 14, marginBottom: 10 },
   dateLabel: { fontSize: 12, color: "#64748B", fontWeight: "600" },
   countBadge: { fontSize: 12, color: "#15803D", fontWeight: "700", backgroundColor: "#DCFCE7", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
-  filterRow: { flexGrow: 0, height: 48, marginBottom: 10 },
-  filterRowContent: { alignItems: "center", gap: 8 },
+  filterRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 10 },
   filterChip: {
-    height: 40,
-    paddingHorizontal: 14,
+    flex: 1,
+    height: 32,
+    paddingHorizontal: 4,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 999,
@@ -185,8 +187,8 @@ const styles = StyleSheet.create({
   },
   filterChipActive: { backgroundColor: "#062B59", borderColor: "#062B59" },
   filterChipText: {
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: 11,
+    lineHeight: 16,
     fontWeight: "700",
     color: "#475569",
     includeFontPadding: false,
