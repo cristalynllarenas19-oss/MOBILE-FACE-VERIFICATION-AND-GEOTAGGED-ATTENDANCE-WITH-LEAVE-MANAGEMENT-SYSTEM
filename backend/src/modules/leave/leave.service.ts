@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
@@ -7,76 +7,15 @@ import { RejectLeaveRequestDto } from "./dto/reject-leave-request.dto";
 import { ResubmitLeaveRequestDto } from "./dto/resubmit-leave-request.dto";
 
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
-const OVERDUE_SWEEP_INTERVAL_MS = 60 * 60 * 1000;
 type LeaveRequestStatus = "PENDING" | "SUPERVISOR_APPROVED" | "APPROVED" | "REJECTED" | "NEEDS_REVISION" | "CANCELLED";
 
 @Injectable()
-export class LeaveService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(LeaveService.name);
-  private overdueSweepTimer?: NodeJS.Timeout;
-
+export class LeaveService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
     private readonly auditLogs: AuditLogsService,
   ) {}
-
-  // Escalation safety net for an unavailable/unresponsive supervisor: once a
-  // request's leave dates have actually started while it still sits
-  // PENDING/SUPERVISOR_APPROVED, HR/Admin is notified directly — they can
-  // finalize a PENDING request themselves (see LeaveController.approve), the
-  // supervisor tier is a pre-screen, never a hard gate. Runs on boot and
-  // hourly after; there is no job-scheduler dependency in this backend.
-  onModuleInit() {
-    void this.escalateOverdueRequests();
-    this.overdueSweepTimer = setInterval(() => void this.escalateOverdueRequests(), OVERDUE_SWEEP_INTERVAL_MS);
-    this.overdueSweepTimer.unref();
-  }
-
-  onModuleDestroy() {
-    if (this.overdueSweepTimer) clearInterval(this.overdueSweepTimer);
-  }
-
-  async escalateOverdueRequests() {
-    try {
-      const now = new Date();
-      const overdue = await this.prisma.leaveRequest.findMany({
-        where: {
-          status: { in: ["PENDING", "SUPERVISOR_APPROVED"] },
-          startDate: { lte: now },
-          // Escalate each request exactly once — the badge in Leave Management
-          // stays visible regardless, this only gates the notification.
-          escalatedAt: null,
-        },
-        include: {
-          employee: { select: { firstName: true, lastName: true } },
-          leaveType: { select: { name: true } },
-        },
-      });
-      if (overdue.length === 0) return;
-
-      const adminIds = await this.notifications.adminUserIds();
-      for (const request of overdue) {
-        const stage =
-          request.status === "PENDING"
-            ? "has not been reviewed by a supervisor"
-            : "is still awaiting final HR approval";
-        await this.notifications.notifyUsers(adminIds, {
-          title: "Leave Request Overdue for Review",
-          message: `${request.employee.firstName} ${request.employee.lastName}'s ${request.leaveType.name} request (${request.startDate.toLocaleDateString()} - ${request.endDate.toLocaleDateString()}) has already started but ${stage}. Please review it directly.`,
-          type: "LEAVE_OVERDUE",
-          entityId: request.id,
-        });
-        await this.prisma.leaveRequest.update({
-          where: { id: request.id },
-          data: { escalatedAt: now },
-        });
-      }
-    } catch (error) {
-      // A failed sweep must never take the app down — it re-runs in an hour.
-      this.logger.warn(`Overdue leave escalation sweep failed: ${(error as Error).message}`);
-    }
-  }
 
   async findAll(employeeId?: string, departmentId?: string) {
     const requests = await this.prisma.leaveRequest.findMany({
