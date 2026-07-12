@@ -319,7 +319,7 @@
 }
 
 .page-content {
-  padding: 22px 26px 54px;
+  padding: 22px 26px;
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;

@@ -97,7 +97,6 @@
   align-items: stretch;
   flex: 1;
   min-height: 0;
-  margin-bottom: 24px;
   transition: opacity 0.2s ease;
 }
 
@@ -106,11 +105,9 @@
   pointer-events: none;
 }
 
-/* Height fills the grid row (which stretches to the page's available
-   space) so switching departments/dates never resizes these cards or
-   pushes neighboring sections — overflowing content scrolls inside its
-   own region instead (see .ddp-dept-list, .mabar-track). min-height keeps
-   them usable when the row collapses (e.g. stacked on narrow screens). */
+/* All three cards stretch to the same full row height (which fills the
+   page down toward the sidebar's Logout line) — overflowing content
+   scrolls inside its own region instead (see .ddp-dept-list, .mabar-track). */
 .monthly-chart-card,
 .day-detail-card,
 .donut-card {
@@ -130,9 +127,20 @@
   margin-bottom: 6px;
 }
 
+/* Absence Trends / Today's Summary don't have enough content to fill the
+   stretched card height on their own, so center them in the leftover
+   space (even gap above/below) instead of leaving one gap at the bottom. */
 .day-detail-card .dashboard-inline-section {
-  margin-top: 2px;
+  margin: auto 0;
   padding-top: 2px;
+}
+
+.day-detail-card .side-card-header {
+  margin-bottom: 4px;
+}
+
+.donut-card .dashboard-inline-section {
+  margin: auto 0;
 }
 
 .day-detail-card .side-card-header {
@@ -154,7 +162,7 @@
 
 .card-heading h3 {
   margin: 0;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text);
 }

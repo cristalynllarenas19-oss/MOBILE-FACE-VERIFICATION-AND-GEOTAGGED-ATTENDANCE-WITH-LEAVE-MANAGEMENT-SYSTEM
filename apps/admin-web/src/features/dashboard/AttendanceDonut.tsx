@@ -7,8 +7,8 @@ const SEGMENTS = [
   { key: "onLeave", label: "On Leave", color: "#4a3aa7" },
 ] as const;
 
-const SIZE = 100;
-const STROKE = 12;
+const SIZE = 112;
+const STROKE = 13;
 const RADIUS = (SIZE - STROKE) / 2;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
