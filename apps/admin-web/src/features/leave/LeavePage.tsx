@@ -1381,42 +1381,48 @@ export function LeavePage({
               </button>
             </div>
 
-            <div className="leave-detail-grid">
-              <div className="leave-attachment-row">
-                <span>Supporting Document</span>
-                {attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData) ? (
-                  reviewRequest.attachmentMimeType?.startsWith("image/") ? (
-                    <button
-                      type="button"
-                      className="leave-attachment-preview leave-attachment-preview--inline"
-                      onClick={() =>
-                        setImagePreview({
-                          src: attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData)!,
-                          name: reviewRequest.attachmentName ?? "Supporting document",
-                        })
-                      }
-                    >
-                      <img
-                        src={attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData)!}
-                        alt={reviewRequest.attachmentName ?? "Supporting document"}
-                      />
-                      <span><Paperclip size={13} /> {reviewRequest.attachmentName ?? "View attachment"}</span>
-                    </button>
-                  ) : (
-                    <a
-                      className="leave-attachment-link leave-attachment-link--inline"
-                      href={attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData)!}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      <FileText size={14} /> {reviewRequest.attachmentName ?? "View document"}
-                    </a>
-                  )
+            <div
+              className={`leave-photo-frame${
+                attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData) &&
+                !reviewRequest.attachmentMimeType?.startsWith("image/")
+                  ? " leave-photo-frame--file"
+                  : ""
+              }`}
+            >
+              {attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData) ? (
+                reviewRequest.attachmentMimeType?.startsWith("image/") ? (
+                  <button
+                    type="button"
+                    className="leave-photo-capture-button"
+                    onClick={() =>
+                      setImagePreview({
+                        src: attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData)!,
+                        name: reviewRequest.attachmentName ?? "Supporting document",
+                      })
+                    }
+                  >
+                    <img
+                      className="leave-photo-capture"
+                      src={attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData)!}
+                      alt={reviewRequest.attachmentName ?? "Supporting document"}
+                    />
+                  </button>
                 ) : (
-                  <strong className="leave-no-attachment">None attached</strong>
-                )}
-              </div>
+                  <a
+                    className="leave-attachment-link leave-attachment-link--inline"
+                    href={attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData)!}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <FileText size={14} /> {reviewRequest.attachmentName ?? "View document"}
+                  </a>
+                )
+              ) : (
+                <div className="leave-photo-empty">No document submitted</div>
+              )}
+            </div>
 
+            <div className="leave-detail-grid">
               <div><span>Employee</span><strong>{getEmployeeName(reviewRequest)}</strong></div>
               <div><span>Department</span><strong>{reviewRequest.employee.department?.name ?? "Unassigned"}</strong></div>
               <div><span>Classification</span><strong>{formatEmploymentStatus(reviewRequest.employee.employmentStatus)}</strong></div>
