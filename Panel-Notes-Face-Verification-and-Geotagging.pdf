@@ -1,0 +1,1457 @@
+%PDF-1.3
+%ºß¬à
+3 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 4 0 R
+>>
+endobj
+4 0 obj
+<<
+/Length 10475
+>>
+stream
+0.200025 w
+0 G
+BT
+/F2 17 Tf
+19.5499999999999972 TL
+0.114 0.306 0.847 rg
+48. 787.8899999999999864 Td
+(Mobile Face Verification & Geotagged Attendance) Tj
+ET
+BT
+/F1 10 Tf
+11.5 TL
+0.392 0.455 0.545 rg
+48. 769.8899999999999864 Td
+(Panel Notes - How the System Works  |  Capstone Project) Tj
+ET
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+0.114 0.306 0.847 rg
+48. 745.8899999999999864 Td
+(1. Face Verification - "Is this really the employee?") Tj
+ET
+0.11 0.31 0.85 RG
+1.2 w
+48. 739.8899999999999864 m
+547.2799999999999727 739.8899999999999864 l
+S
+0.11 0.31 0.85 RG
+1.2 w
+0.11 0.31 0.85 RG
+1.2 w
+0.94 0.96 1. rg
+0.8 0.84 0.88 RG
+0.6 w
+0.94 0.96 1. rg
+48. 725.8899999999999864 150. -19.7749999999999986 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.118 0.227 0.373 rg
+53. 713.6649999999999636 Td
+(Question) Tj
+ET
+0.94 0.96 1. rg
+0.8 0.84 0.88 RG
+0.6 w
+0.94 0.96 1. rg
+198. 725.8899999999999864 349.2799999999999727 -19.7749999999999986 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.118 0.227 0.373 rg
+203. 713.6649999999999636 Td
+(Simple Answer) Tj
+ET
+0.11 0.31 0.85 RG
+1.2 w
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+48. 706.1150000000000091 150. -29.5499999999999972 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+53. 693.8899999999999864 Td
+(Where does recognition happen?) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+198. 706.1150000000000091 349.2799999999999727 -29.5499999999999972 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+203. 693.8899999999999864 Td
+(On the SERVER, not the phone. The phone only takes pictures and sends them; the) Tj
+T* (server does all the AI work using a library called face-api.js.) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+48. 676.5650000000000546 150. -29.5499999999999972 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+53. 664.3400000000000318 Td
+(How is an employee enrolled?) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+198. 676.5650000000000546 349.2799999999999727 -29.5499999999999972 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+203. 664.3400000000000318 Td
+(HR takes one reference photo of the employee in the admin website. The system converts) Tj
+T* (that face into a list of 128 numbers \(a "face fingerprint"\) and saves it.) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+48. 647.0149999999999864 150. -29.5499999999999972 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+53. 634.7899999999999636 Td
+(What happens at clock-in?) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+198. 647.0149999999999864 349.2799999999999727 -29.5499999999999972 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+203. 634.7899999999999636 Td
+(The phone takes a selfie -> the server brightens it if it's too dark -> converts it into the) Tj
+T* (same 128 numbers -> measures how far apart the two fingerprints are.) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+48. 617.4649999999999181 150. -39.3249999999999957 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+53. 605.2400000000000091 Td
+(How is the decision made?) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+198. 617.4649999999999181 349.2799999999999727 -39.3249999999999957 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+203. 605.2400000000000091 Td
+(Distance <= 0.45 -> APPROVED. Between 0.45-0.6 -> SENT TO HR FOR REVIEW.) Tj
+T* (Above 0.6 -> REJECTED. These are the standard thresholds recommended by the library) Tj
+T* (itself.) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+48. 578.1399999999999864 150. -39.3249999999999957 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+53. 565.9149999999999636 Td
+(What if someone else uses my) Tj
+T* (account?) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+198. 578.1399999999999864 349.2799999999999727 -39.3249999999999957 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+203. 565.9149999999999636 Td
+(If the face doesn't match but the person is standing in the right location, it is not silently) Tj
+T* (rejected - it is FLAGGED for the supervisor/admin to decide. That is exactly the) Tj
+T* (impersonation case the system is designed to catch.) Tj
+ET
+0.11 0.31 0.85 RG
+1.2 w
+0.78 G
+0. w
+0.11 0.31 0.85 RG
+1.2 w
+0.11 0.31 0.85 RG
+1.2 w
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+0.114 0.306 0.847 rg
+48. 512.8150000000000546 Td
+(2. Blink Check - "Is this a live person, not a photo?") Tj
+ET
+0.11 0.31 0.85 RG
+1.2 w
+48. 506.8149999999999977 m
+547.2799999999999727 506.8149999999999977 l
+S
+BT
+/F2 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+48. 492.8149999999999977 Td
+(The idea in one sentence: a printed photo or a picture on another phone can't blink - so we require one real) Tj
+T* (blink before the camera is even allowed to capture.) Tj
+ET
+BT
+/F2 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+48. 461.8149999999999977 Td
+(How it works, step by step:) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+50. 445.3149999999999977 Td
+(1.) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+66. 445.3149999999999977 Td
+(While the employee looks at the camera, the phone sends small frames to the server a few times per second.) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+50. 429.8149999999999977 Td
+(2.) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+66. 429.8149999999999977 Td
+(For each frame, the server measures how OPEN the eyes are - a standard measurement called the Eye Aspect) Tj
+T* (Ratio \(EAR\): eye height divided by eye width.) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+50. 401.8149999999999977 Td
+(3.) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+66. 401.8149999999999977 Td
+(The app builds a running average of how open THIS person's eyes normally are \(their personal baseline\).) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+50. 386.3149999999999977 Td
+(4.) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+66. 386.3149999999999977 Td
+(The moment one frame reads noticeably BELOW that baseline, that's a blink - liveness passed.) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+50. 370.8149999999999977 Td
+(5.) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+66. 370.8149999999999977 Td
+(Only after the blink does the "hold still" capture step begin. A static photo can never get past step 4.) Tj
+ET
+1. 0.98 0.92 rg
+48. 361.3149999999999977 499.2799999999999727 -53.5 re
+f
+0.96 0.62 0.04 rg
+48. 361.3149999999999977 4. -53.5 re
+f
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+62. 349.3149999999999977 Td
+(Why our threshold looks small \(5%\): textbooks say a blink drops the EAR by about 30%, but that assumes) Tj
+T* (perfect eye tracking. On real phones, the landmark model can't precisely trace a closed eyelid, so real blinks) Tj
+T* (only measured a 5-8% dip in our testing. We calibrated to real device data, not the textbook.) Tj
+ET
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+0.114 0.306 0.847 rg
+48. 279.8149999999999409 Td
+(3. Geotagging - "Is the employee actually at work?") Tj
+ET
+0.11 0.31 0.85 RG
+1.2 w
+48. 273.8149999999999409 m
+547.2799999999999727 273.8149999999999409 l
+S
+0.11 0.31 0.85 RG
+1.2 w
+0.11 0.31 0.85 RG
+1.2 w
+0.94 0.96 1. rg
+0.8 0.84 0.88 RG
+0.6 w
+0.94 0.96 1. rg
+48. 259.8149999999999409 150. -19.7749999999999986 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.118 0.227 0.373 rg
+53. 247.5899999999999181 Td
+(Question) Tj
+ET
+0.94 0.96 1. rg
+0.8 0.84 0.88 RG
+0.6 w
+0.94 0.96 1. rg
+198. 259.8149999999999409 349.2799999999999727 -19.7749999999999986 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.118 0.227 0.373 rg
+203. 247.5899999999999181 Td
+(Simple Answer) Tj
+ET
+0.11 0.31 0.85 RG
+1.2 w
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+48. 240.0399999999999636 150. -29.5499999999999972 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+53. 227.8149999999999409 Td
+(How is a work area defined?) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+198. 240.0399999999999636 349.2799999999999727 -29.5499999999999972 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+203. 227.8149999999999409 Td
+(The admin drops a pin on a map and sets a CIRCLE RADIUS around it. That circle is the) Tj
+T* (geofence.) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+48. 210.4900000000000091 150. -39.3249999999999957 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+53. 198.2649999999999864 Td
+(How do we know they're inside?) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+198. 210.4900000000000091 349.2799999999999727 -39.3249999999999957 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+203. 198.2649999999999864 Td
+(The phone sends its GPS coordinates. The server computes the real-world distance) Tj
+T* (between the employee and the pin using the HAVERSINE FORMULA \(the standard) Tj
+T* (formula for distance between two points on Earth\).) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+48. 171.1649999999999636 150. -39.3249999999999957 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+53. 158.9399999999999409 Td
+(Two conditions must pass) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+198. 171.1649999999999636 349.2799999999999727 -39.3249999999999957 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+203. 158.9399999999999409 Td
+(\(1\) Distance from the pin <= the radius, and \(2\) the phone's GPS accuracy must be good) Tj
+T* (enough \(within 50 meters by default\). If GPS is unreliable, the system rejects rather than) Tj
+T* (guesses.) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+48. 131.8399999999999181 150. -29.5499999999999972 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+53. 119.6149999999998954 Td
+(Checked on the phone or the) Tj
+T* (server?) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+198. 131.8399999999999181 349.2799999999999727 -29.5499999999999972 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+203. 119.6149999999998954 Td
+(BOTH - the phone checks first for instant feedback, but the server re-checks every) Tj
+T* (submission, so a tampered app cannot bypass it.) Tj
+ET
+0.11 0.31 0.85 RG
+1.2 w
+0.78 G
+0. w
+0.11 0.31 0.85 RG
+1.2 w
+0.11 0.31 0.85 RG
+1.2 w
+BT
+/F2 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+48. 90.2899999999999636 Td
+(About the radius:) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+50. 73.7899999999999636 Td
+(•) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+66. 73.7899999999999636 Td
+(Allowed range in the form: 25 m to 1,000 m \(default 120 m\).) Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+277.3199999999999932 24. Td
+(Page 1 of 3) Tj
+ET
+endstream
+endobj
+5 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 6 0 R
+>>
+endobj
+6 0 obj
+<<
+/Length 11123
+>>
+stream
+1.2 w
+0.11 0.31 0.85 RG
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+50. 793.8899999999999864 Td
+(•) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+66. 793.8899999999999864 Td
+(Recommended: 50-150 m for an office building.) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+50. 778.3899999999999864 Td
+(•) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+66. 778.3899999999999864 Td
+(Why not smaller than 25 m? Consumer phone GPS is only accurate to about 5-50 m. A tighter circle than the GPS) Tj
+T* (error means legitimate employees get rejected while standing at the front door.) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+50. 750.3899999999999864 Td
+(•) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+66. 750.3899999999999864 Td
+(Why not 1,000 m for an office? At that size, anyone in the whole neighborhood would pass - it is only sensible for) Tj
+T* (large field sites.) Tj
+ET
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+0.114 0.306 0.847 rg
+48. 704.3899999999999864 Td
+(4. The Full Clock-In Flow \(what the demo shows\)) Tj
+ET
+0.11 0.31 0.85 RG
+1.2 w
+48. 698.3899999999999864 m
+547.2799999999999727 698.3899999999999864 l
+S
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+50. 684.3899999999999864 Td
+(1.) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+66. 684.3899999999999864 Td
+(Employee opens the app and starts clock-in.) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+50. 668.8899999999999864 Td
+(2.) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+66. 668.8899999999999864 Td
+(BLINK CHECK - proves a live person is present.) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+50. 653.3899999999999864 Td
+(3.) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+66. 653.3899999999999864 Td
+(PHOTO CAPTURED, stamped with time, date, GPS, and a mini-map.) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+50. 637.8899999999999864 Td
+(4.) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+66. 637.8899999999999864 Td
+(Server verifies the FACE MATCHES the enrolled profile.) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+50. 622.3899999999999864 Td
+(5.) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+66. 622.3899999999999864 Td
+(Server verifies the LOCATION IS INSIDE the assigned geofence.) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+50. 606.8899999999999864 Td
+(6.) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+66. 606.8899999999999864 Td
+(Both pass -> attendance recorded. Face mismatch inside the fence -> flagged for human review. Wrong location ->) Tj
+T* (rejected outright.) Tj
+ET
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+0.114 0.306 0.847 rg
+48. 560.8899999999999864 Td
+(5. Honest Limitations \(state these before the panel asks\)) Tj
+ET
+0.11 0.31 0.85 RG
+1.2 w
+48. 554.8899999999999864 m
+547.2799999999999727 554.8899999999999864 l
+S
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+50. 540.8899999999999864 Td
+(•) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+66. 540.8899999999999864 Td
+(Photo spoofing is blocked; video spoofing is not. A video of the person blinking, played to the camera, could pass.) Tj
+T* (Full video-based liveness needs on-device machine learning or a paid cloud service \(AWS Rekognition - the hook) Tj
+T* (for it exists in the code but was intentionally scoped out\).) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+50. 500.3899999999999864 Td
+(•) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+66. 500.3899999999999864 Td
+(Needs internet. Face analysis happens on the server, so no connection = no clock-in.) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+50. 484.8899999999999864 Td
+(•) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+66. 484.8899999999999864 Td
+(GPS spoofing apps aren't detected. The system validates the coordinates the phone reports; detecting fake-GPS) Tj
+T* (tools is a separate hardening step.) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+50. 456.8899999999999864 Td
+(•) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+66. 456.8899999999999864 Td
+(Lighting matters. Very dark selfies can fail to produce a face fingerprint. Images are auto-brightened to reduce this,) Tj
+T* (and the user is simply asked to retake.) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+50. 428.8899999999999864 Td
+(•) Tj
+ET
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+66. 428.8899999999999864 Td
+(One reference photo per employee. Major appearance changes \(glasses, beard\) may push a match into the "HR) Tj
+T* (review" zone - which is by design, since a human then confirms.) Tj
+ET
+BT
+/F2 13 Tf
+14.9499999999999993 TL
+0.114 0.306 0.847 rg
+48. 382.8899999999999864 Td
+(6. APIs and Technologies Used) Tj
+ET
+0.11 0.31 0.85 RG
+1.2 w
+48. 376.8899999999999864 m
+547.2799999999999727 376.8899999999999864 l
+S
+1. 0.98 0.92 rg
+48. 372.8899999999999864 499.2799999999999727 -41. re
+f
+0.96 0.62 0.04 rg
+48. 372.8899999999999864 4. -41. re
+f
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+62. 360.8899999999999864 Td
+(Important point for the panel: the system uses NO PAID APIs and NO API KEYS. All face recognition runs on our) Tj
+T* (own server - employee photos are never sent to a third-party cloud service.) Tj
+ET
+0.11 0.31 0.85 RG
+1.2 w
+0.11 0.31 0.85 RG
+1.2 w
+0.94 0.96 1. rg
+0.8 0.84 0.88 RG
+0.6 w
+0.94 0.96 1. rg
+48. 317.8899999999999864 120. -19.7749999999999986 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.118 0.227 0.373 rg
+53. 305.6649999999999636 Td
+(API / Technology) Tj
+ET
+0.94 0.96 1. rg
+0.8 0.84 0.88 RG
+0.6 w
+0.94 0.96 1. rg
+168. 317.8899999999999864 190. -19.7749999999999986 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.118 0.227 0.373 rg
+173. 305.6649999999999636 Td
+(What it's for) Tj
+ET
+0.94 0.96 1. rg
+0.8 0.84 0.88 RG
+0.6 w
+0.94 0.96 1. rg
+358. 317.8899999999999864 189.2799999999999727 -19.7749999999999986 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.118 0.227 0.373 rg
+363. 305.6649999999999636 Td
+(Notes for the panel) Tj
+ET
+0.11 0.31 0.85 RG
+1.2 w
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+48. 298.1150000000000091 120. -39.3249999999999957 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+53. 285.8899999999999864 Td
+(Our own REST API \(NestJS) Tj
+T* (backend\)) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+168. 298.1150000000000091 190. -39.3249999999999957 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+173. 285.8899999999999864 Td
+(All the logic: live face + blink frame detection,) Tj
+T* (attendance submission, geofence validation,) Tj
+T* (leave management) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+358. 298.1150000000000091 189.2799999999999727 -39.3249999999999957 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+363. 285.8899999999999864 Td
+(This is the system we built - the phone and) Tj
+T* (admin website are just clients of it) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+48. 258.7899999999999636 120. -49.0999999999999943 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+53. 246.5649999999999409 Td
+(face-api.js \(open-source) Tj
+T* (library\)) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+168. 258.7899999999999636 190. -49.0999999999999943 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+173. 246.5649999999999409 Td
+(Face detection, eye landmarks, and the) Tj
+T* (128-number face fingerprint) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+358. 258.7899999999999636 189.2799999999999727 -49.0999999999999943 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+363. 246.5649999999999409 Td
+(Runs on OUR SERVER with pre-trained models) Tj
+T* (\(TinyFaceDetector, 68-point landmarks,) Tj
+T* (FaceRecognitionNet\). A library we host, not an) Tj
+T* (external service - photos stay in our database) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+48. 209.6899999999999409 120. -29.5499999999999972 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+53. 197.4649999999999181 Td
+(Expo Camera) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+168. 209.6899999999999409 190. -29.5499999999999972 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+173. 197.4649999999999181 Td
+(Accesses the phone's front camera for the selfie) Tj
+T* (and blink frames) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+358. 209.6899999999999409 189.2799999999999727 -29.5499999999999972 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+363. 197.4649999999999181 Td
+(Built-in device API, free) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+48. 180.1399999999999864 120. -39.3249999999999957 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+53. 167.9149999999999636 Td
+(Expo Location) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+168. 180.1399999999999864 190. -39.3249999999999957 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+173. 167.9149999999999636 Td
+(Gets GPS coordinates + accuracy, and converts) Tj
+T* (coordinates into a readable address \(reverse) Tj
+T* (geocoding\) for the photo stamp) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+358. 180.1399999999999864 189.2799999999999727 -39.3249999999999957 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+363. 167.9149999999999636 Td
+(Uses the phone's own GPS - no Google Maps) Tj
+T* (API needed) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+48. 140.8149999999999409 120. -39.3249999999999957 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+53. 128.5899999999999181 Td
+(OpenStreetMap + Leaflet) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+168. 140.8149999999999409 190. -39.3249999999999957 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+173. 128.5899999999999181 Td
+(The interactive maps where admins draw) Tj
+T* (geofence circles \(admin website and supervisor) Tj
+T* (screens\)) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+358. 140.8149999999999409 189.2799999999999727 -39.3249999999999957 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+363. 128.5899999999999181 Td
+(Free, community-run map data - no API key) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+48. 101.4899999999998954 120. -39.3249999999999957 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+53. 89.2649999999998727 Td
+(Carto basemap tiles \(free) Tj
+T* (tier\)) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+168. 101.4899999999998954 190. -39.3249999999999957 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+173. 89.2649999999998727 Td
+(The mini-map baked into the captured) Tj
+T* (attendance photo) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+358. 101.4899999999998954 189.2799999999999727 -39.3249999999999957 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+363. 89.2649999999998727 Td
+(Free, no-key map images; used because) Tj
+T* (OpenStreetMap's own tile server blocks direct) Tj
+T* (mobile-app traffic) Tj
+ET
+0.11 0.31 0.85 RG
+1.2 w
+0.11 0.31 0.85 RG
+1.2 w
+0.78 G
+0. w
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+277.3199999999999932 24. Td
+(Page 2 of 3) Tj
+ET
+endstream
+endobj
+7 0 obj
+<</Type /Page
+/Parent 1 0 R
+/Resources 2 0 R
+/MediaBox [0 0 595.2799999999999727 841.8899999999999864]
+/Contents 8 0 R
+>>
+endobj
+8 0 obj
+<<
+/Length 2181
+>>
+stream
+0. w
+0.78 G
+0.94 0.96 1. rg
+0.8 0.84 0.88 RG
+0.6 w
+0.94 0.96 1. rg
+48. 793.8899999999999864 120. -19.7749999999999986 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.118 0.227 0.373 rg
+53. 781.6649999999999636 Td
+(API / Technology) Tj
+ET
+0.94 0.96 1. rg
+0.8 0.84 0.88 RG
+0.6 w
+0.94 0.96 1. rg
+168. 793.8899999999999864 190. -19.7749999999999986 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.118 0.227 0.373 rg
+173. 781.6649999999999636 Td
+(What it's for) Tj
+ET
+0.94 0.96 1. rg
+0.8 0.84 0.88 RG
+0.6 w
+0.94 0.96 1. rg
+358. 793.8899999999999864 189.2799999999999727 -19.7749999999999986 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.118 0.227 0.373 rg
+363. 781.6649999999999636 Td
+(Notes for the panel) Tj
+ET
+0.11 0.31 0.85 RG
+1.2 w
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+48. 774.1150000000000091 120. -39.3249999999999957 re
+B
+BT
+/F2 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+53. 761.8899999999999864 Td
+(AWS Rekognition) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+168. 774.1150000000000091 190. -39.3249999999999957 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+173. 761.8899999999999864 Td
+(NOT USED - only a placeholder hook exists in) Tj
+T* (the code) Tj
+ET
+1. g
+0.8 0.84 0.88 RG
+0.6 w
+1. g
+358. 774.1150000000000091 189.2799999999999727 -39.3249999999999957 re
+B
+BT
+/F1 8.5 Tf
+9.7749999999999986 TL
+0.102 0.125 0.173 rg
+363. 761.8899999999999864 Td
+(Honest answer if asked: cloud-grade video) Tj
+T* (liveness was scoped out; the connection point) Tj
+T* (is ready as future work) Tj
+ET
+0.11 0.31 0.85 RG
+1.2 w
+0.78 G
+0. w
+0.11 0.31 0.85 RG
+1.2 w
+0.11 0.31 0.85 RG
+1.2 w
+0.94 0.98 1. rg
+48. 732.7899999999999636 499.2799999999999727 -53.5 re
+f
+0.11 0.31 0.85 rg
+48. 732.7899999999999636 4. -53.5 re
+f
+BT
+/F1 9.5 Tf
+10.9249999999999989 TL
+0.102 0.125 0.173 rg
+62. 720.7899999999999636 Td
+("Face recognition is done by face-api.js running on our own server, GPS comes from the phone via Expo) Tj
+T* (Location, and maps come from free OpenStreetMap/Carto tiles - so the entire system runs with zero API costs) Tj
+T* (and employee biometric data never leaves our server.") Tj
+ET
+BT
+/F1 8 Tf
+9.1999999999999993 TL
+0.392 0.455 0.545 rg
+277.3199999999999932 24. Td
+(Page 3 of 3) Tj
+ET
+endstream
+endobj
+1 0 obj
+<</Type /Pages
+/Kids [3 0 R 5 0 R 7 0 R ]
+/Count 3
+>>
+endobj
+9 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+10 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+11 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-Oblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+12 0 obj
+<<
+/Type /Font
+/BaseFont /Helvetica-BoldOblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+13 0 obj
+<<
+/Type /Font
+/BaseFont /Courier
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+14 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+15 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-Oblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+16 0 obj
+<<
+/Type /Font
+/BaseFont /Courier-BoldOblique
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+17 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Roman
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+18 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Bold
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+19 0 obj
+<<
+/Type /Font
+/BaseFont /Times-Italic
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+20 0 obj
+<<
+/Type /Font
+/BaseFont /Times-BoldItalic
+/Subtype /Type1
+/Encoding /WinAnsiEncoding
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+21 0 obj
+<<
+/Type /Font
+/BaseFont /ZapfDingbats
+/Subtype /Type1
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+22 0 obj
+<<
+/Type /Font
+/BaseFont /Symbol
+/Subtype /Type1
+/FirstChar 32
+/LastChar 255
+>>
+endobj
+2 0 obj
+<<
+/ProcSet [/PDF /Text /ImageB /ImageC /ImageI]
+/Font <<
+/F1 9 0 R
+/F2 10 0 R
+/F3 11 0 R
+/F4 12 0 R
+/F5 13 0 R
+/F6 14 0 R
+/F7 15 0 R
+/F8 16 0 R
+/F9 17 0 R
+/F10 18 0 R
+/F11 19 0 R
+/F12 20 0 R
+/F13 21 0 R
+/F14 22 0 R
+>>
+/XObject <<
+>>
+>>
+endobj
+23 0 obj
+<<
+/Producer (jsPDF 4.2.1)
+/CreationDate (D:20260713085630+08'00')
+>>
+endobj
+24 0 obj
+<<
+/Type /Catalog
+/Pages 1 0 R
+/OpenAction [3 0 R /FitH null]
+/PageLayout /OneColumn
+>>
+endobj
+xref
+0 25
+0000000000 65535 f 
+0000024363 00000 n 
+0000026196 00000 n 
+0000000015 00000 n 
+0000000152 00000 n 
+0000010680 00000 n 
+0000010817 00000 n 
+0000021993 00000 n 
+0000022130 00000 n 
+0000024432 00000 n 
+0000024557 00000 n 
+0000024688 00000 n 
+0000024822 00000 n 
+0000024960 00000 n 
+0000025084 00000 n 
+0000025213 00000 n 
+0000025345 00000 n 
+0000025481 00000 n 
+0000025609 00000 n 
+0000025736 00000 n 
+0000025865 00000 n 
+0000025998 00000 n 
+0000026100 00000 n 
+0000026448 00000 n 
+0000026534 00000 n 
+trailer
+<<
+/Size 25
+/Root 24 0 R
+/Info 23 0 R
+/ID [ <64CDBB439BB5726A8558C1F3396C356D> <64CDBB439BB5726A8558C1F3396C356D> ]
+>>
+startxref
+26638
+%%EOF

@@ -81,6 +81,7 @@ export function FaceRegistrationPage() {
   const [countdown, setCountdown] = useState<number | null>(null);
   const [faceFrame, setFaceFrame] = useState<FaceFrame | null>(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [showCapturePreview, setShowCapturePreview] = useState(false);
   const [lastRegisteredEmployee, setLastRegisteredEmployee] = useState<Employee | null>(null);
   const [lastActionWasEdit, setLastActionWasEdit] = useState(false);
   const [departmentFilter, setDepartmentFilter] = useState<string>("ALL");
@@ -308,7 +309,9 @@ export function FaceRegistrationPage() {
 
       sequenceRef.current = false;
       setCaptureStepIndex(CAPTURE_STEPS.length - 1);
-      setMessage("Guided face capture complete. Review the details and register the employee.");
+      stopCamera();
+      setMessage("");
+      setShowCapturePreview(true);
     } catch (error) {
       sequenceRef.current = false;
       setCountdown(null);
@@ -318,9 +321,15 @@ export function FaceRegistrationPage() {
     }
   }
 
+  function closeCapturePreview() {
+    setShowCapturePreview(false);
+    setMessage("Guided face capture complete. Review the details and register the employee.");
+  }
+
   function resetCapture() {
     sequenceRef.current = false;
     clearCountdownTimer();
+    setShowCapturePreview(false);
     setDescriptors([]);
     setPreview("");
     setCaptureStepIndex(0);
@@ -708,6 +717,35 @@ export function FaceRegistrationPage() {
           </>
         )}
       </section>
+
+      {showCapturePreview && preview && (
+        <div className="view-modal-overlay" onClick={closeCapturePreview}>
+          <div className="view-modal" onClick={(event) => event.stopPropagation()}>
+            <button className="view-modal-close" onClick={closeCapturePreview} aria-label="Close">
+              <X size={18} />
+            </button>
+            <div className="view-modal-photo capture-preview-photo">
+              <img src={preview} alt="Captured face preview" />
+            </div>
+            <h3>Captured Photo</h3>
+            <p className="view-modal-sub">Review the captured image. Close this preview to continue.</p>
+            <div className="view-modal-actions">
+              <button
+                className="primary-button"
+                onClick={() => { setShowCapturePreview(false); saveEnrollment(); }}
+              >
+                <CheckCircle2 size={16} /> Looks Good
+              </button>
+              <button
+                className="outline-button"
+                onClick={() => { setShowCapturePreview(false); resetCapture(); startCamera(); }}
+              >
+                <RotateCcw size={16} /> Retake
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {viewProfile && (
         <div className="view-modal-overlay" onClick={closeViewModal}>

@@ -5,8 +5,9 @@ import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.serv
 
 // Present only for a Supervisor (never for ADMIN — see getSupervisorDepartmentScope).
 // When set, every write below is confined to this department: the location
-// being touched must already belong to it, it can never be changed away from
-// it, and every employeeId being assigned must belong to it.
+// being touched must belong to it or be shared (departmentId null), it can
+// never be moved to another department, every employeeId being assigned must
+// belong to it, and only this department's slice of a roster is ever replaced.
 export type DepartmentScope = { departmentId?: string };
 
 export type GeofenceInput = {
@@ -168,10 +169,13 @@ export class GeolocationService {
     const before = await this.prisma.workLocation.findUnique({ where: { id }, include: { employees: true } });
 
     if (scope.departmentId) {
-      if (!before || before.departmentId !== scope.departmentId) {
+      // A shared area (departmentId null) is visible to every department, so a
+      // Supervisor may manage their own department's assignments on it — but an
+      // area owned by another department stays fully off-limits.
+      if (!before || (before.departmentId !== null && before.departmentId !== scope.departmentId)) {
         throw new ForbiddenException("You can only manage geotagged areas in your own department.");
       }
-      if (data.departmentId !== undefined && data.departmentId !== scope.departmentId) {
+      if (data.departmentId !== undefined && data.departmentId !== before.departmentId) {
         throw new ForbiddenException("You cannot move a geotagged area to another department.");
       }
     }
@@ -222,7 +226,7 @@ export class GeolocationService {
       newValues: { ...data },
     });
 
-    return updated;
+    return this.scopeLocationEmployees(updated, scope.departmentId);
   }
 
   async removeLocation(id: string, context: AuditLogContext = {}, scope: DepartmentScope = {}) {
@@ -297,7 +301,7 @@ export class GeolocationService {
       newValues: { locationId, employeeId },
     });
 
-    return updated;
+    return this.scopeLocationEmployees(updated, scope.departmentId);
   }
 
   async removeEmployee(
@@ -337,7 +341,7 @@ export class GeolocationService {
       oldValues: { locationId, employeeId },
     });
 
-    return updated;
+    return this.scopeLocationEmployees(updated, scope.departmentId);
   }
 
   async getLocationForEmployee(employeeId: string) {
@@ -408,6 +412,22 @@ export class GeolocationService {
     return this.prisma.workLocation.findUnique({ where: { id } });
   }
 
+  // Mirrors findAllLocations' trimming on a single location: a scoped
+  // Supervisor's responses only ever list their own department's employees,
+  // so the client's roster stays consistent between load and save.
+  private scopeLocationEmployees<T extends { employees?: Array<{ employee?: { departmentId?: string | null } | null }> }>(
+    location: T,
+    departmentId?: string,
+  ): T {
+    if (!departmentId || !Array.isArray(location?.employees)) {
+      return location;
+    }
+    return {
+      ...location,
+      employees: location.employees.filter((entry) => entry.employee?.departmentId === departmentId),
+    };
+  }
+
   // Rejects any attempt by a scoped Supervisor to touch a location or
   // employee outside their own department — used by the single add/remove
   // endpoints (createLocation/updateLocation enforce the same rule inline,
@@ -424,7 +444,9 @@ export class GeolocationService {
       this.prisma.employee.findUnique({ where: { id: employeeId }, select: { departmentId: true } }),
     ]);
 
-    if (!location || location.departmentId !== scope.departmentId) {
+    // Shared areas (departmentId null) are manageable by any department's
+    // Supervisor — but only for employees of their own department (below).
+    if (!location || (location.departmentId !== null && location.departmentId !== scope.departmentId)) {
       throw new ForbiddenException("You can only manage geotagged areas in your own department.");
     }
     if (!employee || employee.departmentId !== scope.departmentId) {
@@ -466,7 +488,15 @@ export class GeolocationService {
       return;
     }
 
-    await tx.workLocationEmployee.deleteMany({ where: { workLocationId: locationId } });
+    // A scoped Supervisor only ever sees (and submits) their own department's
+    // slice of an area's roster — so only that slice is replaced, leaving
+    // other departments' assignments on a shared area untouched.
+    await tx.workLocationEmployee.deleteMany({
+      where: {
+        workLocationId: locationId,
+        ...(restrictToDepartmentId ? { employee: { departmentId: restrictToDepartmentId } } : {}),
+      },
+    });
 
     for (const employeeId of uniqueEmployeeIds) {
       await this.assertEmployeeAvailable(tx, employeeId, locationId, restrictToDepartmentId);

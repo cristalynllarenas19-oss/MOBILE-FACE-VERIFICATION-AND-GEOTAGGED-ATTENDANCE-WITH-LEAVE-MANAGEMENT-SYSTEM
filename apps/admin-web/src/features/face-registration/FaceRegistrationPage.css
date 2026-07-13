@@ -607,6 +607,11 @@
   object-fit: cover;
 }
 
+.capture-preview-photo {
+  width: 280px;
+  height: 280px;
+}
+
 .view-modal h3 {
   color: #0f172a;
   font-size: 21px;
