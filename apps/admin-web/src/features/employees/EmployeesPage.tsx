@@ -967,8 +967,13 @@ function ArchiveEmployeeModal({
 
 export function EmployeesPage({
   user,
+  onEmployeeCreated,
 }: {
   user?: { permissions: PermissionCode[]; roles?: string[]; departmentId?: string; department?: string };
+  // When provided, a successful Add Employee hands the new employee to the
+  // parent (which redirects straight into Face Registration) instead of
+  // showing the local success toast.
+  onEmployeeCreated?: (employee: Employee) => void;
 }) {
   const canWrite = user?.permissions.includes(permissions.employeesWrite) ?? true;
   // Mirrors the backend's getSupervisorDepartmentScope: a Supervisor who is
@@ -1021,6 +1026,10 @@ export function EmployeesPage({
     // Newest employee goes to the top (LIFO), matching the backend's createdAt-desc order.
     employeesCache.setData([employee, ...employees]);
     setIsAddOpen(false);
+    if (onEmployeeCreated) {
+      onEmployeeCreated(employee);
+      return;
+    }
     setNotification({ type: "success", message: "Employee was added successfully." });
   };
 

@@ -28,12 +28,30 @@ type FaceFrame = {
   boxHeight: number;
 };
 
-type Employee = {
+export type FaceRegistrationEmployee = {
   id: string;
   employeeNo: string;
   firstName: string;
   lastName: string;
   department?: { name: string } | null;
+  // Details captured on the Add Employee form; present when the employee is
+  // handed over from Employee Management so the panel can recap them.
+  user?: { email: string } | null;
+  supervisor?: { firstName: string; lastName: string } | null;
+  hireDate?: string;
+  employmentStatus?: "REGULAR" | "CONTRACTUAL_SEASONAL" | "PIECE_RATE" | "SEPARATED";
+  attendanceMode?: "FIXED" | "FIELD";
+  sex?: "MALE" | "FEMALE" | null;
+  soloParentStatus?: "NOT_APPLICABLE" | "ELIGIBLE" | "INELIGIBLE";
+};
+
+type Employee = FaceRegistrationEmployee;
+
+const EMPLOYMENT_STATUS_LABELS: Record<NonNullable<FaceRegistrationEmployee["employmentStatus"]>, string> = {
+  REGULAR: "Regular Employee",
+  CONTRACTUAL_SEASONAL: "Contractual Employee (Seasonal)",
+  PIECE_RATE: "Piece-rate (Pakyawan) Worker",
+  SEPARATED: "Separated",
 };
 
 type FaceProfile = {
@@ -61,7 +79,7 @@ function employeeLabel(employee: Employee) {
   return `${employee.firstName} ${employee.lastName}`;
 }
 
-export function FaceRegistrationPage() {
+export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: FaceRegistrationEmployee } = {}) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const sequenceRef = useRef(false);
@@ -71,7 +89,11 @@ export function FaceRegistrationPage() {
   const [cameraActive, setCameraActive] = useState(false);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [employeeSearch, setEmployeeSearch] = useState("");
-  const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
+  // A just-created employee handed over from Employee Management arrives
+  // pre-selected so the admin can go straight to the camera capture. Until
+  // their face is registered the page stays locked to them — no search UI.
+  const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(initialEmployee ?? null);
+  const [handoffCompleted, setHandoffCompleted] = useState(false);
   const [descriptors, setDescriptors] = useState<number[][]>([]);
   const [preview, setPreview] = useState("");
   const [enrollments, setEnrollments] = useState<FaceProfile[]>([]);
@@ -105,7 +127,11 @@ export function FaceRegistrationPage() {
         setEmployees(employeeData);
         setEnrollments(faceProfiles);
         setModelsReady(true);
-        setMessage("");
+        setMessage(
+          initialEmployee
+            ? `Employee added successfully. Start the camera to register ${employeeLabel(initialEmployee)}'s face.`
+            : "",
+        );
       })
       .catch(() => setMessage("Employee or face models could not be loaded. Refresh the page and try again."));
 
@@ -376,9 +402,13 @@ export function FaceRegistrationPage() {
           setShowSuccessModal(true);
         });
       }
+      // Registering the handed-over employee ends the locked handoff; an edit
+      // done while the handoff is still pending re-selects them instead.
+      const handoffPending = Boolean(initialEmployee && !handoffCompleted);
+      if (!enrollmentIdBeingEdited && handoffPending) setHandoffCompleted(true);
+      setSelectedEmployee(enrollmentIdBeingEdited && handoffPending ? initialEmployee! : null);
       setEditingEnrollmentId(null);
       setEmployeeSearch("");
-      setSelectedEmployee(null);
       setDescriptors([]);
       setPreview("");
       setCaptureStepIndex(0);
@@ -457,6 +487,11 @@ export function FaceRegistrationPage() {
       );
     });
 
+  // While the handed-over new employee hasn't been registered yet, the picker
+  // is hidden entirely — the panel shows only their details, and Cancel just
+  // resets the capture without unlocking the search.
+  const isPreselectedNewEmployee = Boolean(initialEmployee && !editingEnrollmentId && !handoffCompleted);
+
   function enrollmentStatusTone(status: FaceProfile["enrollmentStatus"]) {
     if (status === "ACTIVE") return "success" as const;
     if (status === "REJECTED") return "danger" as const;
@@ -467,20 +502,24 @@ export function FaceRegistrationPage() {
     <div className="face-page">
       <div className="face-workspace">
         <section className="face-card capture-card" ref={captureCardRef}>
-          <div className="capture-summary">
-            <div>
-              <p>{editingEnrollmentId ? "Editing photo for" : "Selected employee"}</p>
-              <strong>{selectedEmployee ? `${employeeLabel(selectedEmployee)} · ${selectedEmployee.employeeNo}` : "None selected"}</strong>
+          {/* The handoff view already recaps the new employee next to the
+              camera, so the summary tiles would only repeat it. */}
+          {!isPreselectedNewEmployee && (
+            <div className="capture-summary">
+              <div>
+                <p>{editingEnrollmentId ? "Editing photo for" : "Selected employee"}</p>
+                <strong>{selectedEmployee ? `${employeeLabel(selectedEmployee)} · ${selectedEmployee.employeeNo}` : "None selected"}</strong>
+              </div>
+              <div>
+                <p>Status</p>
+                <strong>{selectedEmployee ? "Ready for capture" : "Choose an employee first"}</strong>
+              </div>
+              <div className="stat-inline-card">
+                <span className="stat-value">{enrollments.length}</span>
+                <span className="stat-label">Registered Employees</span>
+              </div>
             </div>
-            <div>
-              <p>Status</p>
-              <strong>{selectedEmployee ? "Ready for capture" : "Choose an employee first"}</strong>
-            </div>
-            <div className="stat-inline-card">
-              <span className="stat-value">{enrollments.length}</span>
-              <span className="stat-label">Registered Employees</span>
-            </div>
-          </div>
+          )}
 
           <div className="capture-stage">
             {cameraActive ? (
@@ -545,10 +584,10 @@ export function FaceRegistrationPage() {
         <section className="face-card enrollment-form">
           <div className="form-title-row">
             <div>
-              <p className="form-kicker">{editingEnrollmentId ? "Editing" : "Step 1"}</p>
-              <h3>{editingEnrollmentId ? "Update Face Photo" : "Select Employee"}</h3>
+              {!isPreselectedNewEmployee && <p className="form-kicker">{editingEnrollmentId ? "Editing" : "Step 1"}</p>}
+              <h3>{editingEnrollmentId ? "Update Face Photo" : isPreselectedNewEmployee ? "New Employee" : "Select Employee"}</h3>
             </div>
-            {!editingEnrollmentId && (
+            {!editingEnrollmentId && !isPreselectedNewEmployee && (
               <DropdownFilter
                 value={departmentFilter}
                 onChange={setDepartmentFilter}
@@ -562,6 +601,50 @@ export function FaceRegistrationPage() {
 
           {editingEnrollmentId ? (
             <p className="capture-message">Capture a new photo below for this employee, then save to replace their existing photo.</p>
+          ) : isPreselectedNewEmployee && initialEmployee ? (
+            <div className="selected-employee-card new-employee-details">
+              <div className="new-employee-details-name">
+                <p>New employee</p>
+                <strong>{employeeLabel(initialEmployee)}</strong>
+                <span>{initialEmployee.employeeNo}</span>
+              </div>
+              <div>
+                <p>Email</p>
+                <strong>{initialEmployee.user?.email ?? "—"}</strong>
+              </div>
+              <div>
+                <p>Department</p>
+                <strong>{initialEmployee.department?.name ?? "—"}</strong>
+              </div>
+              <div>
+                <p>Supervisor</p>
+                <strong>
+                  {initialEmployee.supervisor
+                    ? `${initialEmployee.supervisor.firstName} ${initialEmployee.supervisor.lastName}`
+                    : "None"}
+                </strong>
+              </div>
+              <div>
+                <p>Hire Date</p>
+                <strong>
+                  {initialEmployee.hireDate ? new Date(initialEmployee.hireDate).toLocaleDateString() : "—"}
+                </strong>
+              </div>
+              <div>
+                <p>Employment Status</p>
+                <strong>
+                  {initialEmployee.employmentStatus ? EMPLOYMENT_STATUS_LABELS[initialEmployee.employmentStatus] : "—"}
+                </strong>
+              </div>
+              <div>
+                <p>Attendance Mode</p>
+                <strong>{initialEmployee.attendanceMode === "FIELD" ? "Field Technician" : "Fixed"}</strong>
+              </div>
+              <div>
+                <p>Sex</p>
+                <strong>{initialEmployee.sex === "FEMALE" ? "Female" : initialEmployee.sex === "MALE" ? "Male" : "—"}</strong>
+              </div>
+            </div>
           ) : (
             <>
               <label htmlFor="employee-search">Search by name or employee ID</label>
@@ -605,7 +688,7 @@ export function FaceRegistrationPage() {
             </>
           )}
 
-          {selectedEmployee && (
+          {selectedEmployee && !isPreselectedNewEmployee && (
             <div className="selected-employee-card">
               <div>
                 <p>{editingEnrollmentId ? "Editing photo for" : "Selected employee"}</p>
@@ -620,16 +703,28 @@ export function FaceRegistrationPage() {
           )}
 
           <div className="form-actions">
-            <button
-              className="primary-button save-face-button"
-              onClick={saveEnrollment}
-              disabled={busy || descriptors.length < CAMERA_SAMPLE_TARGET || !selectedEmployee}
-            >
-              {editingEnrollmentId ? "Save New Photo" : "Register Employee Face"}
-            </button>
+            {/* In the handoff view the face is saved from the capture
+                preview's "Looks Good" button, so no register button here. */}
+            {!isPreselectedNewEmployee && (
+              <button
+                className="primary-button save-face-button"
+                onClick={saveEnrollment}
+                disabled={busy || descriptors.length < CAMERA_SAMPLE_TARGET || !selectedEmployee}
+              >
+                {editingEnrollmentId ? "Save New Photo" : "Register Employee Face"}
+              </button>
+            )}
             <button
               className="outline-button cancel-button"
-              onClick={() => { setEditingEnrollmentId(null); setSelectedEmployee(null); setEmployeeSearch(""); resetCapture(); stopCamera(); }}
+              onClick={() => {
+                setEditingEnrollmentId(null);
+                // A pending handoff stays locked to the new employee; Cancel
+                // only resets the capture instead of reopening the picker.
+                setSelectedEmployee(initialEmployee && !handoffCompleted ? initialEmployee : null);
+                setEmployeeSearch("");
+                resetCapture();
+                stopCamera();
+              }}
               disabled={busy}
             >
               Cancel
@@ -719,11 +814,15 @@ export function FaceRegistrationPage() {
       </section>
 
       {showCapturePreview && preview && (
-        <div className="view-modal-overlay" onClick={closeCapturePreview}>
+        // The handoff view has no separate register button, so the preview
+        // must be resolved with "Looks Good" or "Retake" — not dismissed.
+        <div className="view-modal-overlay" onClick={isPreselectedNewEmployee ? undefined : closeCapturePreview}>
           <div className="view-modal" onClick={(event) => event.stopPropagation()}>
-            <button className="view-modal-close" onClick={closeCapturePreview} aria-label="Close">
-              <X size={18} />
-            </button>
+            {!isPreselectedNewEmployee && (
+              <button className="view-modal-close" onClick={closeCapturePreview} aria-label="Close">
+                <X size={18} />
+              </button>
+            )}
             <div className="view-modal-photo capture-preview-photo">
               <img src={preview} alt="Captured face preview" />
             </div>

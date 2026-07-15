@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger } from "@nestjs/common";
 import * as argon2 from "argon2";
 import { generateTemporaryPassword } from "../../common/utils/password.util";
 import { PrismaService } from "../../prisma/prisma.service";
@@ -135,6 +135,9 @@ export class EmployeesService {
   }
 
   async create(dto: CreateEmployeeDto, context: AuditLogContext = {}, scopeDepartmentId?: string) {
+    const existingUser = await this.prisma.user.findUnique({ where: { email: dto.email } });
+    if (existingUser) throw new ConflictException(`An account with the email "${dto.email}" already exists.`);
+
     const role = await this.prisma.role.findUniqueOrThrow({ where: { code: "EMPLOYEE" } });
     // A scoped Supervisor's new hire is always auto-associated with their own
     // department, regardless of what was submitted — same rule as Geotagged

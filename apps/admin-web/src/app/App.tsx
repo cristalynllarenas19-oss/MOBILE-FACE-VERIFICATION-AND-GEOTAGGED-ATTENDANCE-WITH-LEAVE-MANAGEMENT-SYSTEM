@@ -9,7 +9,7 @@ import { ReportsPage } from "../features/reports/ReportsPage";
 import { SchedulesPage } from "../features/schedules/SchedulesPage";
 import { UsersPage } from "../features/users/UsersPage";
 import { UtilitiesPage } from "../features/utilities/UtilitiesPage";
-import { FaceRegistrationPage } from "../features/face-registration/FaceRegistrationPage";
+import { FaceRegistrationPage, FaceRegistrationEmployee } from "../features/face-registration/FaceRegistrationPage";
 import { GeotaggingPage } from "../features/geotagging/GeotaggingPage";
 // Employee self-service pages (mirrors employee-mobile)
 import { AttendancePage as EmployeeAttendancePage } from "../features/employee/AttendancePage";
@@ -47,6 +47,10 @@ export default function App() {
   // review modal instead of just landing on the Leave Management list.
   const [leaveFocusRequestId, setLeaveFocusRequestId] = useState<string | undefined>(undefined);
   const [employeeLeaveFocusRequestId, setEmployeeLeaveFocusRequestId] = useState<string | undefined>(undefined);
+  // Set when a new employee is created so Face Registration opens with them
+  // already selected; cleared on any normal navigation so a later visit to
+  // Face Registration starts from a blank picker.
+  const [faceRegistrationEmployee, setFaceRegistrationEmployee] = useState<FaceRegistrationEmployee | undefined>(undefined);
 
   const navigateToAttendance = (filter: AttendanceNavigateFilter) => {
     setAttendanceFilter(filter);
@@ -57,6 +61,7 @@ export default function App() {
     if (id === "attendance") setAttendanceFilter(undefined);
     setLeaveFocusRequestId(id === "leave" ? entityId : undefined);
     setEmployeeLeaveFocusRequestId(id === "employee-leave" ? entityId : undefined);
+    setFaceRegistrationEmployee(undefined);
     setPage(id);
   };
 
@@ -64,6 +69,7 @@ export default function App() {
     setAttendanceFilter(undefined);
     setLeaveFocusRequestId(undefined);
     setEmployeeLeaveFocusRequestId(undefined);
+    setFaceRegistrationEmployee(undefined);
     setPage(view === "employee" ? "employee-attendance" : "dashboard");
   };
 
@@ -117,6 +123,13 @@ export default function App() {
     : !activeNavItem || isNavItemVisible(activeNavItem, adminScopedPermissions, user.roles);
   const renderPage = hasAccess ? page : (visibleItems[0]?.id ?? "employee-attendance");
 
+  // The post-create redirect into Face Registration only happens when the
+  // account can actually see that page; otherwise adding an employee behaves
+  // as before (stay on Employee Management with the success toast).
+  const faceRegistrationNavItem = navItems.find((item) => item.id === "face-registration");
+  const canOpenFaceRegistration =
+    !!faceRegistrationNavItem && isNavItemVisible(faceRegistrationNavItem, adminScopedPermissions, user.roles);
+
   return (
     <AppLayout
       activePage={renderPage}
@@ -131,8 +144,20 @@ export default function App() {
     >
       {renderPage === "dashboard" && <DashboardPage user={user} onNavigateToAttendance={navigateToAttendance} />}
       {renderPage === "users" && <UsersPage />}
-      {renderPage === "face-registration" && <FaceRegistrationPage />}
-      {renderPage === "employees" && <EmployeesPage user={user} />}
+      {renderPage === "face-registration" && <FaceRegistrationPage initialEmployee={faceRegistrationEmployee} />}
+      {renderPage === "employees" && (
+        <EmployeesPage
+          user={user}
+          onEmployeeCreated={
+            canOpenFaceRegistration
+              ? (employee) => {
+                  setFaceRegistrationEmployee(employee);
+                  setPage("face-registration");
+                }
+              : undefined
+          }
+        />
+      )}
       {renderPage === "attendance" && <AttendancePage user={user} initialFilter={attendanceFilter} />}
       {renderPage === "geotagging" && <GeotaggingPage user={user} />}
       {renderPage === "leave" && (

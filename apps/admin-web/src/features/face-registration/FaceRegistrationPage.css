@@ -281,6 +281,7 @@
   height: 620px;
 }
 
+
 .form-title-row {
   display: flex;
   align-items: center;
@@ -414,6 +415,48 @@
   gap: 12px;
   margin-top: 4px;
   padding: 16px;
+}
+
+/* Recap of the Add Employee form shown when a new employee is handed over
+   from Employee Management. Extends .selected-employee-card; fills the card
+   so the form matches the capture card's height with actions at the bottom. */
+.new-employee-details {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px 20px;
+  align-content: space-between;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 22px 20px;
+}
+
+.new-employee-details-name {
+  grid-column: 1 / -1;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #dbe5ef;
+}
+
+.new-employee-details p {
+  font-size: 12px;
+}
+
+.new-employee-details strong {
+  overflow-wrap: anywhere;
+  font-size: 17px;
+}
+
+.new-employee-details-name strong {
+  font-size: 22px;
+}
+
+.new-employee-details-name span {
+  font-size: 14px;
+}
+
+@media (max-width: 640px) {
+  .new-employee-details {
+    grid-template-columns: 1fr;
+  }
 }
 
 .form-actions {
