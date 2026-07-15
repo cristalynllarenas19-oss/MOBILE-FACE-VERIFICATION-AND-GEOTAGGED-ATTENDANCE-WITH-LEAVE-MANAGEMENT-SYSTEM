@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -23,6 +23,7 @@ import {
   updateTeamEmployee,
   archiveTeamEmployee,
 } from "../../api";
+import { useCachedData } from "../../utils/dataCache";
 
 type Props = {
   departmentName?: string;
@@ -47,8 +48,6 @@ function emptyForm(departmentName?: string): CreateTeamEmployeeInput {
 }
 
 export default function TeamScreen({ departmentName, currentEmployeeId }: Props) {
-  const [employees, setEmployees] = useState<TeamEmployee[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [search, setSearch] = useState("");
 
@@ -59,25 +58,32 @@ export default function TeamScreen({ departmentName, currentEmployeeId }: Props)
 
   const [resultModal, setResultModal] = useState<{ status: ResultModalStatus; title: string; message: string } | null>(null);
 
-  const load = useCallback(async (isRefresh = false) => {
-    isRefresh ? setIsRefreshing(true) : setIsLoading(true);
-    try {
-      const data = await getTeamEmployees();
-      // The roster endpoint returns every employee in the department,
-      // including the supervisor's own linked employee record — they
-      // manage their team, not themselves, so exclude it here.
-      setEmployees(data.filter((e) => e.id !== currentEmployeeId));
-    } catch (error) {
-      console.error("Failed to load team", error);
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
-  }, [currentEmployeeId]);
+  const { data: roster, isLoading, refresh } = useCachedData<TeamEmployee[]>(
+    "team-employees",
+    getTeamEmployees,
+  );
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  // The roster endpoint returns every employee in the department,
+  // including the supervisor's own linked employee record — they
+  // manage their team, not themselves, so exclude it here.
+  const employees = useMemo(
+    () => (roster ?? []).filter((e) => e.id !== currentEmployeeId),
+    [roster, currentEmployeeId],
+  );
+
+  const load = useCallback(
+    async (isRefresh = false) => {
+      if (isRefresh) setIsRefreshing(true);
+      try {
+        await refresh();
+      } catch (error) {
+        console.error("Failed to load team", error);
+      } finally {
+        setIsRefreshing(false);
+      }
+    },
+    [refresh],
+  );
 
   const filtered = useMemo(
     () => employees.filter((e) => getName(e).toLowerCase().includes(search.toLowerCase())),

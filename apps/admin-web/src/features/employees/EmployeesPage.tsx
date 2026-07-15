@@ -4,6 +4,7 @@ import { AlertTriangle, Archive, CheckCircle2, Eye, Pencil, Plus, Search, X } fr
 import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { apiRequest } from "../../lib/api";
+import { useCachedData } from "../../lib/dataCache";
 import { PermissionCode, permissions } from "../../types/rbac";
 import "./EmployeesPage.css";
 
@@ -976,8 +977,6 @@ export function EmployeesPage({
   const isDepartmentLocked = roles.includes("SUPERVISOR") && !roles.includes("ADMIN");
   const lockedDepartmentName = isDepartmentLocked ? user?.department : undefined;
 
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [supervisors, setSupervisors] = useState<SupervisorOption[]>([]);
   const [departmentFilter, setDepartmentFilter] = useState("ALL");
   const [showArchivedOnly, setShowArchivedOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -987,16 +986,15 @@ export function EmployeesPage({
   const [archiveEmployee, setArchiveEmployee] = useState<Employee | null>(null);
   const [notification, setNotification] = useState<Notification>(null);
 
-  const loadEmployees = () => {
-    apiRequest<Employee[]>("/employees").then(setEmployees).catch(() => undefined);
-  };
+  // Same "employees" cache key as AttendancePage — both read GET /employees,
+  // so one fetched copy serves both pages.
+  const employeesCache = useCachedData<Employee[]>("employees", () => apiRequest<Employee[]>("/employees"));
+  const employees = employeesCache.data ?? [];
 
-  const loadSupervisors = () => {
-    apiRequest<SupervisorOption[]>("/employees/supervisors").then(setSupervisors).catch(() => undefined);
-  };
-
-  useEffect(loadEmployees, []);
-  useEffect(loadSupervisors, []);
+  const supervisorsCache = useCachedData<SupervisorOption[]>("supervisors", () =>
+    apiRequest<SupervisorOption[]>("/employees/supervisors"),
+  );
+  const supervisors = supervisorsCache.data ?? [];
 
   useEffect(() => {
     if (!notification) return;
@@ -1021,20 +1019,20 @@ export function EmployeesPage({
 
   const handleEmployeeCreated = (employee: Employee) => {
     // Newest employee goes to the top (LIFO), matching the backend's createdAt-desc order.
-    setEmployees((current) => [employee, ...current]);
+    employeesCache.setData([employee, ...employees]);
     setIsAddOpen(false);
     setNotification({ type: "success", message: "Employee was added successfully." });
   };
 
   const handleEmployeeUpdated = (employee: Employee) => {
-    setEmployees((current) => current.map((item) => (item.id === employee.id ? employee : item)));
+    employeesCache.setData(employees.map((item) => (item.id === employee.id ? employee : item)));
     setViewEmployee((current) => (current?.id === employee.id ? employee : current));
     setEditEmployee(null);
     setNotification({ type: "success", message: "Employee was updated successfully." });
   };
 
   const handleEmployeeArchived = (employee: Employee) => {
-    setEmployees((current) => current.map((item) => (item.id === employee.id ? employee : item)));
+    employeesCache.setData(employees.map((item) => (item.id === employee.id ? employee : item)));
     setViewEmployee((current) => (current?.id === employee.id ? employee : current));
     setArchiveEmployee(null);
     setNotification({ type: "success", message: "Employee was archived and their login was deactivated." });
@@ -1208,7 +1206,7 @@ export function EmployeesPage({
           onClose={() => setEditEmployee(null)}
           onUpdated={(updatedEmployee) => {
             handleEmployeeUpdated(updatedEmployee);
-            loadSupervisors();
+            supervisorsCache.refresh().catch(() => undefined);
           }}
         />
       )}

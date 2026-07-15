@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
 import { View, Text, Pressable, StyleSheet, SafeAreaView, ScrollView, ActivityIndicator, RefreshControl } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { ScheduleAssignment, getSchedules } from "../../api";
+import { useCachedData } from "../../utils/dataCache";
 import EmptyState from "../../components/EmptyState";
 import Avatar from "../../components/Avatar";
 
@@ -14,26 +15,24 @@ function formatDate(value?: string | null) {
 }
 
 export default function SupervisorSchedulesScreen({ onClose }: Props) {
-  const [schedules, setSchedules] = useState<ScheduleAssignment[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const load = useCallback(async (isRefresh = false) => {
-    isRefresh ? setIsRefreshing(true) : setIsLoading(true);
-    try {
-      const data = await getSchedules();
-      setSchedules(data);
-    } catch (error) {
-      console.error("Failed to load schedules", error);
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
-  }, []);
+  const { data, isLoading, refresh } = useCachedData<ScheduleAssignment[]>("team-schedules", getSchedules);
+  const schedules = data ?? [];
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  const load = useCallback(
+    async (isRefresh = false) => {
+      if (isRefresh) setIsRefreshing(true);
+      try {
+        await refresh();
+      } catch (error) {
+        console.error("Failed to load schedules", error);
+      } finally {
+        setIsRefreshing(false);
+      }
+    },
+    [refresh],
+  );
 
   return (
     <SafeAreaView style={styles.safeArea}>

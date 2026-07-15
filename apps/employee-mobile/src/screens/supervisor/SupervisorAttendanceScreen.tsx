@@ -1,7 +1,12 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { View, Text, TextInput, Pressable, StyleSheet, SafeAreaView, ScrollView, ActivityIndicator, RefreshControl } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { TeamAttendanceRecord, getTeamAttendance } from "../../api";
+import { useCachedData } from "../../utils/dataCache";
+
+// Stable fallback so useMemo filters don't recompute on every render while
+// the cache/network is still empty.
+const EMPTY_RECORDS: TeamAttendanceRecord[] = [];
 import EmptyState from "../../components/EmptyState";
 import Avatar from "../../components/Avatar";
 import StatusPill from "../../components/StatusPill";
@@ -14,29 +19,31 @@ const STATUS_FILTERS = ["ALL", "PRESENT", "LATE", "ABSENT", "ON_LEAVE"] as const
 type StatusFilter = (typeof STATUS_FILTERS)[number];
 
 export default function SupervisorAttendanceScreen() {
-  const [records, setRecords] = useState<TeamAttendanceRecord[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
 
-  const load = useCallback(async (isRefresh = false) => {
-    isRefresh ? setIsRefreshing(true) : setIsLoading(true);
-    try {
-      const today = new Date().toISOString().slice(0, 10);
-      const data = await getTeamAttendance({ date: today });
-      setRecords(data);
-    } catch (error) {
-      console.error("Failed to load team attendance", error);
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
-  }, []);
+  // Keyed by date so yesterday's cached list is never shown as today's.
+  const today = new Date().toISOString().slice(0, 10);
+  const { data, isLoading, refresh } = useCachedData<TeamAttendanceRecord[]>(
+    `team-attendance:${today}`,
+    () => getTeamAttendance({ date: today }),
+  );
+  const records = data ?? EMPTY_RECORDS;
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  const load = useCallback(
+    async (isRefresh = false) => {
+      if (isRefresh) setIsRefreshing(true);
+      try {
+        await refresh();
+      } catch (error) {
+        console.error("Failed to load team attendance", error);
+      } finally {
+        setIsRefreshing(false);
+      }
+    },
+    [refresh],
+  );
 
   const searched = useMemo(
     () =>

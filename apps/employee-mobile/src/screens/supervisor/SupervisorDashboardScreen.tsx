@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
 import { View, Text, StyleSheet, Pressable, ActivityIndicator } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import Svg, { Circle } from "react-native-svg";
 import { DashboardSummary, getDashboardSummary } from "../../api";
+import { useCachedData } from "../../utils/dataCache";
 
 type Props = {
   departmentName?: string;
@@ -58,26 +59,26 @@ function MiniProgress({
 }
 
 export default function SupervisorDashboardScreen({ departmentName }: Props) {
-  const [summary, setSummary] = useState<DashboardSummary | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const load = useCallback(async (isRefresh = false) => {
-    isRefresh ? setIsRefreshing(true) : setIsLoading(true);
-    try {
-      const data = await getDashboardSummary();
-      setSummary(data);
-    } catch (error) {
-      console.error("Failed to load dashboard summary", error);
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
-  }, []);
+  const { data: summary, isLoading, refresh } = useCachedData<DashboardSummary>(
+    "supervisor-dashboard",
+    () => getDashboardSummary(),
+  );
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  const load = useCallback(
+    async (isRefresh = false) => {
+      if (isRefresh) setIsRefreshing(true);
+      try {
+        await refresh();
+      } catch (error) {
+        console.error("Failed to load dashboard summary", error);
+      } finally {
+        setIsRefreshing(false);
+      }
+    },
+    [refresh],
+  );
 
   if (isLoading) {
     return (

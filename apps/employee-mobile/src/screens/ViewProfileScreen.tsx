@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { View, Text, Image, Pressable, StyleSheet, ActivityIndicator, Alert } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import { File } from "expo-file-system";
 import { EmployeeProfile, getMyProfile, updateMyPhoto } from "../api";
+import { useCachedData } from "../utils/dataCache";
 
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 
@@ -12,15 +13,11 @@ type Props = {
 };
 
 export default function ViewProfileScreen({ onClose }: Props) {
-  const [profile, setProfile] = useState<EmployeeProfile | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const { data: profile, isLoading, setData: setProfile } = useCachedData<EmployeeProfile>(
+    "my-profile",
+    getMyProfile,
+  );
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
-
-  useEffect(() => {
-    getMyProfile()
-      .then(setProfile)
-      .finally(() => setIsLoading(false));
-  }, []);
 
   async function handleChangePhoto() {
     try {

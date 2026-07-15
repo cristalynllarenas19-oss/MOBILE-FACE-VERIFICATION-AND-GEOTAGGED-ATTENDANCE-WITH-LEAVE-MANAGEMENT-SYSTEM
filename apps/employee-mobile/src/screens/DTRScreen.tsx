@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -11,12 +11,17 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { AttendanceHistoryRecord, AttendanceLogPhoto, getAttendanceHistory } from "../api";
+import { useCachedData } from "../utils/dataCache";
 
 type Props = {
   employeeId?: string;
 };
 
 type Tab = "office" | "field";
+
+// Stable fallback so useMemo filters don't recompute on every render while
+// the cache/network is still empty.
+const EMPTY_RECORDS: AttendanceHistoryRecord[] = [];
 
 function isMorning(value: string | null) {
   if (!value) return true;
@@ -80,32 +85,21 @@ function latestOf(records: AttendanceHistoryRecord[]) {
 // Field employee's Office tab) is simply empty, rather than being a
 // different screen per mode.
 export default function DTRScreen({ employeeId }: Props) {
-  const [records, setRecords] = useState<AttendanceHistoryRecord[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("office");
   const [selectedRecord, setSelectedRecord] = useState<AttendanceHistoryRecord | null>(null);
   const [photoTab, setPhotoTab] = useState<"TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN">("TIME_IN");
   const [amPmFilter, setAmPmFilter] = useState<"ALL" | "AM" | "PM">("ALL");
 
-  const load = useCallback(async () => {
-    if (!employeeId) return;
-    try {
-      const data = await getAttendanceHistory(employeeId);
-      setRecords(data);
-    } catch (error) {
-      console.error("Failed to load attendance history", error);
-    }
-  }, [employeeId]);
-
-  useEffect(() => {
-    setIsLoading(true);
-    load().finally(() => setIsLoading(false));
-  }, [load]);
+  const { data, isLoading, refresh } = useCachedData<AttendanceHistoryRecord[]>(
+    employeeId ? `attendance-history:${employeeId}` : null,
+    () => getAttendanceHistory(employeeId!),
+  );
+  const records = data ?? EMPTY_RECORDS;
 
   async function handleRefresh() {
     setIsRefreshing(true);
-    await load();
+    await refresh().catch((error) => console.error("Failed to load attendance history", error));
     setIsRefreshing(false);
   }
 

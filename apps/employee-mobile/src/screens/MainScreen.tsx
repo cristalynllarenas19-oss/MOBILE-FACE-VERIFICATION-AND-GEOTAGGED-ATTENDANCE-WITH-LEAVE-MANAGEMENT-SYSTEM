@@ -16,6 +16,7 @@ import BottomTab from "../components/BottomTab";
 
 import { Tab } from "../types";
 import { AttendanceEligibility, EmployeeProfile, TodayAttendance, getMyProfile, getUnreadNotificationCount } from "../api";
+import { useCachedData } from "../utils/dataCache";
 
 const NOTIFICATION_POLL_MS = 30000;
 
@@ -51,15 +52,17 @@ export default function MainScreen({
 
   const [unreadCount, setUnreadCount] = useState(0);
   const [notificationsVisible, setNotificationsVisible] = useState(false);
-  const [profile, setProfile] = useState<EmployeeProfile | null>(null);
+
+  // Same cache key as ViewProfileScreen, so a photo change there is
+  // reflected here instantly on the next mount without a refetch.
+  const { data: profile, refresh: refreshProfile } = useCachedData<EmployeeProfile>(
+    "my-profile",
+    getMyProfile,
+  );
 
   const loadProfile = useCallback(() => {
-    getMyProfile().then(setProfile).catch(() => undefined);
-  }, []);
-
-  useEffect(() => {
-    loadProfile();
-  }, [loadProfile]);
+    refreshProfile().catch(() => undefined);
+  }, [refreshProfile]);
 
   useEffect(() => {
     const refreshUnreadCount = () => {

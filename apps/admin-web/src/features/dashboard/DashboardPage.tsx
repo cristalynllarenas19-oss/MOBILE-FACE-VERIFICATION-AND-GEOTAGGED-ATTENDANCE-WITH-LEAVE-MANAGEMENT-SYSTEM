@@ -15,7 +15,8 @@ import { AttendanceNavigateFilter, DeptAttendanceRow } from "../../components/ui
 import { Card } from "../../components/ui/Card";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { StatCard } from "../../components/ui/StatCard";
-import { apiRequest, SessionExpiredError } from "../../lib/api";
+import { apiRequest } from "../../lib/api";
+import { useCachedData } from "../../lib/dataCache";
 import { AttendanceDonut } from "./AttendanceDonut";
 import { computeAttendanceRate, getRateTone, RATE_TONE_COLOR } from "./attendanceRate";
 import { formatShortDate } from "./dateUtils";
@@ -200,10 +201,29 @@ export function DashboardPage({
   const now = new Date();
   const [calendarMonth, setCalendarMonth] = useState(now.getMonth());
   const [calendarYear, setCalendarYear] = useState(now.getFullYear());
-  const [summary, setSummary] = useState(initialSummary);
-  const [calendarLoading, setCalendarLoading] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedDay, setSelectedDay] = useState<CalendarDay | null>(null);
+
+  const {
+    data: summaryData,
+    isLoading: calendarLoading,
+    error: summaryError,
+  } = useCachedData<DashboardSummary>(
+    `dashboard-summary:${calendarMonth + 1}-${calendarYear}`,
+    () => apiRequest<DashboardSummary>(`/dashboard/summary?month=${calendarMonth + 1}&year=${calendarYear}`),
+  );
+  const loadError = summaryError ? "Could not load dashboard data. Please try refreshing." : null;
+
+  const summary = useMemo<DashboardSummary>(() => {
+    if (!summaryData) return initialSummary;
+    return {
+      stats: { ...initialSummary.stats, ...summaryData.stats },
+      enrollment: { ...initialSummary.enrollment, ...summaryData.enrollment },
+      geotagging: { ...initialSummary.geotagging, ...summaryData.geotagging },
+      calendar: { ...initialSummary.calendar, ...summaryData.calendar },
+      absenceTrends: summaryData.absenceTrends ?? [],
+      departmentAttendance: { ...initialSummary.departmentAttendance, ...summaryData.departmentAttendance },
+    };
+  }, [summaryData]);
   const [departmentFilter, setDepartmentFilter] = useState("ALL");
   const [trendIndex, setTrendIndex] = useState(0);
 
@@ -217,36 +237,16 @@ export function DashboardPage({
   }, [summary.absenceTrends.length]);
 
   useEffect(() => {
-    setCalendarLoading(true);
-    apiRequest<DashboardSummary>(
-      `/dashboard/summary?month=${calendarMonth + 1}&year=${calendarYear}`
-    )
-      .then((data) => {
-        const days = data?.calendar?.days ?? [];
-        setSummary({
-          stats: { ...initialSummary.stats, ...data?.stats },
-          enrollment: { ...initialSummary.enrollment, ...data?.enrollment },
-          geotagging: { ...initialSummary.geotagging, ...data?.geotagging },
-          calendar: { ...initialSummary.calendar, ...data?.calendar },
-          absenceTrends: data?.absenceTrends ?? [],
-          departmentAttendance: { ...initialSummary.departmentAttendance, ...data?.departmentAttendance },
-        });
-        // Default to today's date when browsing the current month (so the
-        // detail panel and donut are never blank on first load); otherwise
-        // fall back to the 1st of whichever month is being viewed.
-        const isCurrentMonth = calendarYear === now.getFullYear() && calendarMonth === now.getMonth();
-        const preferredDayNum = isCurrentMonth ? now.getDate() : 1;
-        const autoDay = days.find((d) => d.day === preferredDayNum) ?? days[0] ?? null;
-        setSelectedDay(autoDay);
-        setLoadError(null);
-      })
-      .catch((err) => {
-        if (err instanceof SessionExpiredError) return;
-        console.error("Failed to load dashboard summary:", err);
-        setLoadError("Could not load dashboard data. Please try refreshing.");
-      })
-      .finally(() => setCalendarLoading(false));
-  }, [calendarMonth, calendarYear]);
+    if (!summaryData) return;
+    const days = summaryData.calendar?.days ?? [];
+    // Default to today's date when browsing the current month (so the
+    // detail panel and donut are never blank on first load); otherwise
+    // fall back to the 1st of whichever month is being viewed.
+    const isCurrentMonth = calendarYear === now.getFullYear() && calendarMonth === now.getMonth();
+    const preferredDayNum = isCurrentMonth ? now.getDate() : 1;
+    const autoDay = days.find((d) => d.day === preferredDayNum) ?? days[0] ?? null;
+    setSelectedDay(autoDay);
+  }, [summaryData]);
 
   function prevMonth() {
     if (calendarMonth === 0) { setCalendarYear((y) => y - 1); setCalendarMonth(11); }

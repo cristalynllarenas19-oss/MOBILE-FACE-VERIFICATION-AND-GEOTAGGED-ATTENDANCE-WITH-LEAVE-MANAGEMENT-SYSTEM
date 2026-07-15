@@ -17,6 +17,7 @@ import {
 import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { apiRequest } from "../../lib/api";
+import { useCachedData } from "../../lib/dataCache";
 import "./LeavePage.css";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -701,8 +702,6 @@ export function LeavePage({
   // also an Admin (or not a Supervisor at all) gets full, unscoped access.
   const isDepartmentLocked = roles.includes("SUPERVISOR") && !isAdmin;
 
-  const [requests, setRequests]                 = useState<LeaveRequest[]>([]);
-  const [leaveTypes, setLeaveTypes]             = useState<LeaveType[]>([]);
   const [topTab, setTopTab]                     = useState<"requests" | "history">("requests");
   const [statusFilter, setStatusFilter]         = useState("ALL");
   const [typeFilter, setTypeFilter]             = useState("ALL");
@@ -719,43 +718,38 @@ export function LeavePage({
   const [notification, setNotification]         = useState<Notification>(null);
   const [reviewBalances, setReviewBalances]     = useState<LeaveBalance[] | null>(null);
 
-  const [summary, setSummary]           = useState<LeaveBalanceSummary | null>(null);
   const [summaryYear, setSummaryYear]   = useState(new Date().getFullYear());
 
-  const [directory, setDirectory]                       = useState<DirectoryEmployee[]>([]);
   const [balanceEmployee, setBalanceEmployee]           = useState<DirectoryEmployee | null>(null);
   const [employeeBalances, setEmployeeBalances]         = useState<LeaveBalance[] | null>(null);
   const [monitorClassification, setMonitorClassification] = useState("ALL");
   const [searchClearKey, setSearchClearKey]             = useState(0);
 
+  const requestsCache = useCachedData<LeaveRequest[]>("admin-leave-requests", () =>
+    apiRequest<LeaveRequest[]>("/leave-requests"),
+  );
+  const requests = requestsCache.data ?? [];
   const loadRequests = () => {
-    apiRequest<LeaveRequest[]>("/leave-requests")
-      .then(setRequests)
-      .catch(() => undefined);
+    requestsCache.refresh().catch(() => undefined);
   };
 
-  const loadLeaveTypes = () => {
-    apiRequest<LeaveType[]>("/leave-types")
-      .then(setLeaveTypes)
-      .catch(() => undefined);
-  };
+  const leaveTypesCache = useCachedData<LeaveType[]>("leave-types", () => apiRequest<LeaveType[]>("/leave-types"));
+  const leaveTypes = leaveTypesCache.data ?? [];
 
+  const summaryCache = useCachedData<LeaveBalanceSummary>(`leave-balance-summary:${summaryYear}`, () =>
+    apiRequest<LeaveBalanceSummary>(`/leave-balances/summary?year=${summaryYear}`),
+  );
+  const summary = summaryCache.data;
   const loadSummary = () => {
-    apiRequest<LeaveBalanceSummary>(`/leave-balances/summary?year=${summaryYear}`)
-      .then(setSummary)
-      .catch(() => setSummary(null));
+    summaryCache.refresh().catch(() => undefined);
   };
 
-  const loadDirectory = () => {
-    apiRequest<DirectoryEmployee[]>("/employees")
-      .then(setDirectory)
-      .catch(() => undefined);
-  };
-
-  useEffect(loadRequests, []);
-  useEffect(loadLeaveTypes, []);
-  useEffect(loadSummary, [summaryYear]);
-  useEffect(loadDirectory, []);
+  // Same "employees" cache key as the Employees/Attendance pages — one
+  // fetched copy of GET /employees serves all three.
+  const directoryCache = useCachedData<DirectoryEmployee[]>("employees", () =>
+    apiRequest<DirectoryEmployee[]>("/employees"),
+  );
+  const directory = directoryCache.data ?? [];
 
   // Arrived here from a clicked Leave notification — open that request's
   // review modal directly once it shows up in the loaded list, same as
@@ -1398,6 +1392,7 @@ export function LeavePage({
                       setImagePreview({
                         src: attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData)!,
                         name: reviewRequest.attachmentName ?? "Supporting document",
+                        mimeType: reviewRequest.attachmentMimeType ?? "image/*",
                       })
                     }
                   >
@@ -1508,6 +1503,7 @@ export function LeavePage({
                             setImagePreview({
                               src: attachmentSrc(note.attachmentMimeType, note.attachmentData)!,
                               name: note.attachmentName ?? "Attached requirement",
+                              mimeType: note.attachmentMimeType ?? "image/*",
                             })
                           }
                         >

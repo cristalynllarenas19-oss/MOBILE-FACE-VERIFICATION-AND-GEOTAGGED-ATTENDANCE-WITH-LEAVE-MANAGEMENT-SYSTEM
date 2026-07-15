@@ -27,6 +27,12 @@ import {
   markNotificationRead,
   resubmitLeaveRequest,
 } from "../api";
+import { useCachedData } from "../utils/dataCache";
+
+// Stable fallbacks so downstream filters don't recompute on every render
+// while the cache/network is still empty.
+const EMPTY_NOTIFICATIONS: AppNotification[] = [];
+const EMPTY_LEAVE_REQUESTS: LeaveRequest[] = [];
 
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 
@@ -144,10 +150,22 @@ function PulsingDot() {
 }
 
 export default function NotificationsScreen({ visible, onClose, onUnreadCountChange, employeeId }: Props) {
-  const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [leaveRequests, setLeaveRequests] = useState<LeaveRequest[]>([]);
+
+  // Keyed on `visible` so nothing is fetched until the panel opens; while
+  // closed the last cached copy is kept for an instant reopen.
+  const notificationsCache = useCachedData<AppNotification[]>(
+    visible ? "notifications" : null,
+    getNotifications,
+  );
+  const leaveRequestsCache = useCachedData<LeaveRequest[]>(
+    visible && employeeId ? `leave-requests:${employeeId}` : null,
+    () => getLeaveRequests(employeeId!),
+  );
+  const notifications = notificationsCache.data ?? EMPTY_NOTIFICATIONS;
+  const setNotifications = notificationsCache.setData;
+  const leaveRequests = leaveRequestsCache.data ?? EMPTY_LEAVE_REQUESTS;
+  const isLoading = notificationsCache.isLoading;
 
   // Which notification's full details are currently popped up.
   const [detailNotification, setDetailNotification] = useState<AppNotification | null>(null);
@@ -161,27 +179,12 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
   const [isResubmitting, setIsResubmitting] = useState(false);
   const [justResubmittedId, setJustResubmittedId] = useState<string | null>(null);
 
+  // Re-fetches after a mutation (e.g. resubmitting a leave request);
+  // initial loads happen inside each useCachedData hook.
   const load = useCallback(async () => {
-    try {
-      const data = await getNotifications();
-      setNotifications(data);
-    } catch (error) {
-      console.error("Failed to load notifications", error);
-    }
-    if (employeeId) {
-      try {
-        setLeaveRequests(await getLeaveRequests(employeeId));
-      } catch (error) {
-        console.error("Failed to load leave requests", error);
-      }
-    }
-  }, [employeeId]);
-
-  useEffect(() => {
-    if (!visible) return;
-    setIsLoading(true);
-    load().finally(() => setIsLoading(false));
-  }, [visible, load]);
+    await notificationsCache.refresh().catch((error) => console.error("Failed to load notifications", error));
+    await leaveRequestsCache.refresh().catch((error) => console.error("Failed to load leave requests", error));
+  }, [notificationsCache.refresh, leaveRequestsCache.refresh]);
 
   async function handleRefresh() {
     setIsRefreshing(true);

@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
 import { View, Text, Image, Pressable, StyleSheet, ScrollView } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { EmployeeProfile, getMyProfile } from "../../api";
+import { useCachedData } from "../../utils/dataCache";
 import ViewProfileScreen from "../ViewProfileScreen";
 import ChangePasswordScreen from "../ChangePasswordScreen";
 import GeotaggedAreasScreen from "./GeotaggedAreasScreen";
@@ -19,15 +20,17 @@ type MoreView = "root" | "profile" | "password" | "geotagging" | "schedules" | "
 
 export default function MoreScreen({ onLogout, canSwitchToEmployeePortal, onSwitchToEmployeePortal }: Props) {
   const [view, setView] = useState<MoreView>("root");
-  const [profile, setProfile] = useState<EmployeeProfile | null>(null);
+
+  // Same cache key as ViewProfileScreen/MainScreen so all three share one
+  // fetched copy of the profile.
+  const { data: profile, refresh: refreshProfile } = useCachedData<EmployeeProfile>(
+    "my-profile",
+    getMyProfile,
+  );
 
   const loadProfile = useCallback(() => {
-    getMyProfile().then(setProfile).catch(() => undefined);
-  }, []);
-
-  useEffect(() => {
-    loadProfile();
-  }, [loadProfile]);
+    refreshProfile().catch(() => undefined);
+  }, [refreshProfile]);
 
   if (view === "profile") {
     return (

@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, Eye, MapPin, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { apiRequest } from "../../lib/api";
+import { useCachedData } from "../../lib/dataCache";
 import { PermissionCode, permissions } from "../../types/rbac";
 import "./AttendancePage.css";
 
@@ -394,8 +395,6 @@ export function AttendancePage({
   const roles = user?.roles ?? [];
   const isDepartmentLocked = roles.includes("SUPERVISOR") && !roles.includes("ADMIN");
 
-  const [records, setRecords] = useState<AttendanceRecord[]>([]);
-  const [employeeOptions, setEmployeeOptions] = useState<EmployeeOption[]>([]);
   const [departmentFilter, setDepartmentFilter] = useState(initialFilter?.department ?? "ALL");
   const [statusFilter, setStatusFilter] = useState(initialFilter?.status ?? "ALL");
   const [recordTypeFilter, setRecordTypeFilter] = useState("ALL");
@@ -405,7 +404,7 @@ export function AttendancePage({
   const [notification, setNotification] = useState<Notification>(null);
   const now = useNow();
 
-  const loadRecords = () => {
+  const fetchRecords = async () => {
     const params = new URLSearchParams();
     if (departmentFilter !== "ALL") params.set("department", departmentFilter);
     if (statusFilter !== "ALL" && statusFilter !== "FLAGGED") params.set("status", statusFilter);
@@ -420,26 +419,35 @@ export function AttendancePage({
     const wantsRecords = statusFilter !== "FLAGGED";
     const wantsFlagged = statusFilter === "ALL" || statusFilter === "FLAGGED";
 
-    Promise.all([
+    const [fetchedRecords, flaggedLogs] = await Promise.all([
       wantsRecords
         ? apiRequest<AttendanceRecord[]>(`/attendance${query ? `?${query}` : ""}`).catch(() => [] as AttendanceRecord[])
         : Promise.resolve<AttendanceRecord[]>([]),
       wantsFlagged
         ? apiRequest<FlaggedLog[]>("/attendance/flagged").catch(() => [] as FlaggedLog[])
         : Promise.resolve<FlaggedLog[]>([]),
-    ]).then(([fetchedRecords, flaggedLogs]) => {
-      const flaggedRecords = flaggedLogs
-        .filter((log) => departmentFilter === "ALL" || log.employee.department.name === departmentFilter)
-        .map(flaggedLogToRecord);
-      setRecords([...flaggedRecords, ...fetchedRecords]);
-    });
+    ]);
+    const flaggedRecords = flaggedLogs
+      .filter((log) => departmentFilter === "ALL" || log.employee.department.name === departmentFilter)
+      .map(flaggedLogToRecord);
+    return [...flaggedRecords, ...fetchedRecords];
   };
 
-  useEffect(loadRecords, [departmentFilter, statusFilter, recordTypeFilter, dateFrom, dateTo]);
+  // Cached per filter combination — revisiting a filter shows its last
+  // result instantly while the fresh list loads in the background.
+  const recordsCache = useCachedData<AttendanceRecord[]>(
+    `attendance-records:${departmentFilter}:${statusFilter}:${recordTypeFilter}:${dateFrom}:${dateTo}`,
+    fetchRecords,
+  );
+  const records = recordsCache.data ?? [];
+  const loadRecords = () => {
+    recordsCache.refresh().catch(() => undefined);
+  };
 
-  useEffect(() => {
-    apiRequest<EmployeeOption[]>("/employees").then(setEmployeeOptions).catch(() => undefined);
-  }, []);
+  const employeeOptionsCache = useCachedData<EmployeeOption[]>("employees", () =>
+    apiRequest<EmployeeOption[]>("/employees"),
+  );
+  const employeeOptions = employeeOptionsCache.data ?? [];
 
   useEffect(() => {
     if (!notification) return;
@@ -453,7 +461,7 @@ export function AttendancePage({
   );
 
   const handleUpdated = (record: AttendanceRecord, message: string) => {
-    setRecords((current) => current.map((item) => (item.id === record.id ? record : item)));
+    recordsCache.setData(records.map((item) => (item.id === record.id ? record : item)));
     setViewRecord(null);
     setNotification({ type: "success", message });
   };

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { View, Text, Pressable, StyleSheet, SafeAreaView, ScrollView, ActivityIndicator, RefreshControl, Modal } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { WebView } from "react-native-webview";
@@ -13,6 +13,7 @@ import {
   assignEmployeeToLocation,
   unassignEmployeeFromLocation,
 } from "../../api";
+import { useCachedData } from "../../utils/dataCache";
 
 type Props = {
   onClose: () => void;
@@ -91,32 +92,32 @@ function buildAreasMapHtml(locations: GeotaggedLocation[]) {
 // HR/Admin-only, mirroring GeotaggingPage.tsx's canManageAreas gating and
 // the identical guards enforced server-side in GeolocationController.
 export default function GeotaggedAreasScreen({ onClose }: Props) {
-  const [locations, setLocations] = useState<GeotaggedLocation[]>([]);
-  const [employees, setEmployees] = useState<TeamEmployee[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [managingLocation, setManagingLocation] = useState<GeotaggedLocation | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [resultModal, setResultModal] = useState<{ status: ResultModalStatus; title: string; message: string } | null>(null);
   const webViewRef = useRef<WebView | null>(null);
 
-  const load = useCallback(async (isRefresh = false) => {
-    isRefresh ? setIsRefreshing(true) : setIsLoading(true);
-    try {
-      const [locs, emps] = await Promise.all([getGeotaggedLocations(), getTeamEmployees()]);
-      setLocations(locs);
-      setEmployees(emps);
-    } catch (error) {
-      console.error("Failed to load geotagged areas", error);
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
-  }, []);
+  const locationsCache = useCachedData<GeotaggedLocation[]>("geotagged-locations", getGeotaggedLocations);
+  // Same cache key as TeamScreen — the roster is fetched once and shared.
+  const employeesCache = useCachedData<TeamEmployee[]>("team-employees", getTeamEmployees);
+  const locations = locationsCache.data ?? [];
+  const employees = employeesCache.data ?? [];
+  const isLoading = locationsCache.isLoading || employeesCache.isLoading;
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  const load = useCallback(
+    async (isRefresh = false) => {
+      if (isRefresh) setIsRefreshing(true);
+      try {
+        await Promise.all([locationsCache.refresh(), employeesCache.refresh()]);
+      } catch (error) {
+        console.error("Failed to load geotagged areas", error);
+      } finally {
+        setIsRefreshing(false);
+      }
+    },
+    [locationsCache.refresh, employeesCache.refresh],
+  );
 
   function isAssigned(location: GeotaggedLocation, employeeId: string) {
     return Boolean(location.employees?.some((e) => e.employee.id === employeeId));
@@ -134,7 +135,7 @@ export default function GeotaggedAreasScreen({ onClose }: Props) {
         ? await unassignEmployeeFromLocation(location.id, employeeId)
         : await assignEmployeeToLocation(location.id, employeeId);
       setManagingLocation(updated);
-      setLocations((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
+      locationsCache.setData(locations.map((l) => (l.id === updated.id ? updated : l)));
     } catch (error) {
       setResultModal({ status: "error", title: "Update Failed", message: error instanceof Error ? error.message : "Failed to update assignment." });
     } finally {

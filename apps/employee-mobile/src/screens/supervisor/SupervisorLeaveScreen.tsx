@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
 import {
   View,
   Text,
@@ -22,14 +22,13 @@ import {
   approveLeaveRequest,
   rejectLeaveRequest,
 } from "../../api";
+import { useCachedData } from "../../utils/dataCache";
 
 type Props = {
   currentEmployeeId?: string;
 };
 
 export default function SupervisorLeaveScreen({ currentEmployeeId }: Props) {
-  const [requests, setRequests] = useState<TeamLeaveRequest[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [filter, setFilter] = useState<"PENDING" | "ALL">("PENDING");
 
@@ -41,22 +40,25 @@ export default function SupervisorLeaveScreen({ currentEmployeeId }: Props) {
 
   const [resultModal, setResultModal] = useState<{ status: ResultModalStatus; title: string; message: string } | null>(null);
 
-  const load = useCallback(async (isRefresh = false) => {
-    isRefresh ? setIsRefreshing(true) : setIsLoading(true);
-    try {
-      const data = await getTeamLeaveRequests();
-      setRequests(data);
-    } catch (error) {
-      console.error("Failed to load leave requests", error);
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
-  }, []);
+  const { data, isLoading, refresh } = useCachedData<TeamLeaveRequest[]>(
+    "team-leave-requests",
+    getTeamLeaveRequests,
+  );
+  const requests = data ?? [];
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  const load = useCallback(
+    async (isRefresh = false) => {
+      if (isRefresh) setIsRefreshing(true);
+      try {
+        await refresh();
+      } catch (error) {
+        console.error("Failed to load leave requests", error);
+      } finally {
+        setIsRefreshing(false);
+      }
+    },
+    [refresh],
+  );
 
   const visibleRequests = requests.filter((r) => (filter === "PENDING" ? r.status === "PENDING" : true));
 

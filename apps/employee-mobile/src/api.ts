@@ -1,5 +1,6 @@
 import * as SecureStore from "expo-secure-store";
 import Constants from "expo-constants";
+import { clearDataCache } from "./utils/dataCache";
 
 const DEFAULT_API_BASE_URL = "https://mobile-face-verification-and-geotagged.onrender.com/api/v1";
 
@@ -281,14 +282,35 @@ export async function login(email: string, password?: string) {
     method: "POST",
     body: JSON.stringify(password ? { email, password } : { email }),
   });
+  // A different account may have logged in on this device — never let it
+  // see the previous account's cached data.
+  clearDataCache();
   await SecureStore.setItemAsync("accessToken", data.accessToken);
   await SecureStore.setItemAsync("refreshToken", data.refreshToken);
+  await SecureStore.setItemAsync("sessionUser", JSON.stringify(data.user));
   return data.user;
 }
 
+// Restores the last logged-in user so the app opens straight to their
+// portal without a network round-trip. Returns null when nobody is
+// logged in (no token) or the saved user predates this feature.
+export async function restoreSession(): Promise<MobileUser | null> {
+  const token = await SecureStore.getItemAsync("accessToken");
+  if (!token) return null;
+  const savedUser = await SecureStore.getItemAsync("sessionUser");
+  if (!savedUser) return null;
+  try {
+    return JSON.parse(savedUser) as MobileUser;
+  } catch {
+    return null;
+  }
+}
+
 export async function logout() {
+  clearDataCache();
   await SecureStore.deleteItemAsync("accessToken");
   await SecureStore.deleteItemAsync("refreshToken");
+  await SecureStore.deleteItemAsync("sessionUser");
 }
 
 export async function forgotPassword(email: string) {

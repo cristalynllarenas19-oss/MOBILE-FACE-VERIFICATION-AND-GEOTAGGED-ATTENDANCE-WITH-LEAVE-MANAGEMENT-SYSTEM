@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React from "react";
 import { View, Text, Pressable, StyleSheet, SafeAreaView, ScrollView, ActivityIndicator, Share } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { ReportsSummary, getReportsSummary } from "../../api";
+import { useCachedData } from "../../utils/dataCache";
 import StatusPill from "../../components/StatusPill";
 
 type Props = {
@@ -34,24 +35,10 @@ function BreakdownBars({ data }: { data: Record<string, number> }) {
 }
 
 export default function SupervisorReportsScreen({ onClose }: Props) {
-  const [summary, setSummary] = useState<ReportsSummary | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const data = await getReportsSummary();
-      setSummary(data);
-    } catch (error) {
-      console.error("Failed to load reports summary", error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
+  const { data: summary, isLoading } = useCachedData<ReportsSummary>(
+    "team-reports-summary",
+    () => getReportsSummary(),
+  );
 
   async function handleShare() {
     if (!summary) return;

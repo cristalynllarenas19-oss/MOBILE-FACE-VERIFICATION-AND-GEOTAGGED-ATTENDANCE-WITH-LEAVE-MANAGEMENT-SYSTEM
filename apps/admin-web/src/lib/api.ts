@@ -1,3 +1,5 @@
+import { clearDataCache } from "./dataCache";
+
 const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:3001/api/v1";
 
 export type AuthUser = {
@@ -53,6 +55,9 @@ export async function login(email: string, password: string) {
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
+  // A different account may have logged in in this browser — never let it
+  // see the previous account's cached data.
+  clearDataCache();
   localStorage.setItem("accessToken", data.accessToken);
   localStorage.setItem("authUser", JSON.stringify(data.user));
   return data.user;
@@ -76,6 +81,7 @@ export function logout() {
   }
   localStorage.removeItem("accessToken");
   localStorage.removeItem("authUser");
+  clearDataCache();
 }
 
 export const updateDefaultView = (userId: string, defaultView: "ADMIN" | "EMPLOYEE") =>

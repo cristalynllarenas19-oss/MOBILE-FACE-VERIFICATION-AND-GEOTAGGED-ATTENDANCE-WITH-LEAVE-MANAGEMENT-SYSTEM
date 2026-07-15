@@ -26,9 +26,16 @@ import {
   getLeaveRequests,
   createLeaveRequest,
 } from "../api";
+import { useCachedData } from "../utils/dataCache";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+
+// Stable fallbacks so useMemo filters don't recompute on every render while
+// the cache/network is still empty.
+const EMPTY_LEAVE_TYPES: LeaveType[] = [];
+const EMPTY_BALANCES: LeaveBalance[] = [];
+const EMPTY_REQUESTS: LeaveRequest[] = [];
 
 type PickedAttachment = {
   name: string;
@@ -54,10 +61,19 @@ function statusTone(status: string) {
 }
 
 export default function LeaveScreen({ employeeId }: Props) {
-  const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
-  const [balances, setBalances] = useState<LeaveBalance[]>([]);
-  const [requests, setRequests] = useState<LeaveRequest[]>([]);
-  const [isLoadingData, setIsLoadingData] = useState(true);
+  const leaveTypesCache = useCachedData<LeaveType[]>("leave-types", getLeaveTypes);
+  const balancesCache = useCachedData<LeaveBalance[]>(
+    employeeId ? `leave-balances:${employeeId}` : null,
+    () => getLeaveBalances(employeeId!),
+  );
+  const requestsCache = useCachedData<LeaveRequest[]>(
+    employeeId ? `leave-requests:${employeeId}` : null,
+    () => getLeaveRequests(employeeId!),
+  );
+  const leaveTypes = leaveTypesCache.data ?? EMPTY_LEAVE_TYPES;
+  const balances = balancesCache.data ?? EMPTY_BALANCES;
+  const requests = requestsCache.data ?? EMPTY_REQUESTS;
+  const isLoadingData = leaveTypesCache.isLoading || balancesCache.isLoading || requestsCache.isLoading;
 
   const [leaveTypeId, setLeaveTypeId] = useState("");
   const [searchLeave, setSearchLeave] = useState("");
@@ -129,28 +145,13 @@ export default function LeaveScreen({ employeeId }: Props) {
     [requests],
   );
 
-  useEffect(() => {
-    loadData();
-  }, [employeeId]);
-
+  // Re-fetches everything after a mutation (e.g. submitting a request);
+  // initial loads happen inside each useCachedData hook.
   async function loadData() {
-    setIsLoadingData(true);
     try {
-      const types = await getLeaveTypes();
-      setLeaveTypes(types);
-
-      if (employeeId) {
-        const [balanceData, requestData] = await Promise.all([
-          getLeaveBalances(employeeId),
-          getLeaveRequests(employeeId),
-        ]);
-        setBalances(balanceData);
-        setRequests(requestData);
-      }
+      await Promise.all([leaveTypesCache.refresh(), balancesCache.refresh(), requestsCache.refresh()]);
     } catch (error) {
       console.error("Failed to load leave data", error);
-    } finally {
-      setIsLoadingData(false);
     }
   }
 
