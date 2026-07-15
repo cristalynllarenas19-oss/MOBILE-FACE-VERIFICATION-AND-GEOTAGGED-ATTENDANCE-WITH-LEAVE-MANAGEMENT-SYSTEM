@@ -46,6 +46,15 @@ enum AttendanceMode {
   FIELD
 }
 
+// A department's allowed attendance mode(s) — restricts which mode new hires
+// into that department can be given (see DepartmentsService/EmployeesPage).
+// BOTH means no restriction.
+enum DepartmentAttendanceMode {
+  FIXED
+  FIELD
+  BOTH
+}
+
 // Tags an attendance record as the regular office routine vs a field visit.
 // For a FIXED employee this is always OFFICE. For a FIELD employee it's
 // auto-detected per visit from the WorkLocation.type of the area they
@@ -207,8 +216,10 @@ model RolePermission {
 }
 
 model Department {
-  id            String         @id @default(uuid())
-  name          String         @unique
+  id            String                    @id @default(uuid())
+  name          String                    @unique
+  isActive      Boolean                   @default(true) @map("is_active")
+  attendanceMode DepartmentAttendanceMode @default(BOTH) @map("attendance_mode")
   division_id   String?
   divisions     divisions?     @relation(fields: [division_id], references: [id])
   employees     Employee[]

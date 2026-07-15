@@ -6,6 +6,7 @@ import { PermissionsGuard } from "./common/guards/permissions.guard";
 import { AttendanceModule } from "./modules/attendance/attendance.module";
 import { AuditLogsModule } from "./modules/audit-logs/audit-logs.module";
 import { AuthModule } from "./modules/auth/auth.module";
+import { DepartmentsModule } from "./modules/departments/departments.module";
 import { EmployeesModule } from "./modules/employees/employees.module";
 import { FaceVerificationModule } from "./modules/face-verification/face-verification.module";
 import { FaceProfilesModule } from "./modules/face-profiles/face-profiles.module";
@@ -31,6 +32,7 @@ import { HealthController } from "./health.controller";
     AuthModule,
     DashboardModule,
     UsersModule,
+    DepartmentsModule,
     EmployeesModule,
     AttendanceModule,
     FaceVerificationModule,

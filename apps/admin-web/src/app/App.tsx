@@ -3,6 +3,7 @@ import { AttendanceInitialFilter, AttendancePage } from "../features/attendance/
 import { DashboardPage } from "../features/dashboard/DashboardPage";
 import { AttendanceNavigateFilter } from "../components/ui/BarChart";
 import { EmployeesPage } from "../features/employees/EmployeesPage";
+import { DepartmentsPage } from "../features/departments/DepartmentsPage";
 import { LeavePage } from "../features/leave/LeavePage";
 import { LoginPage } from "../features/login/LoginPage";
 import { ReportsPage } from "../features/reports/ReportsPage";
@@ -158,6 +159,7 @@ export default function App() {
           }
         />
       )}
+      {renderPage === "departments" && <DepartmentsPage user={user} />}
       {renderPage === "attendance" && <AttendancePage user={user} initialFilter={attendanceFilter} />}
       {renderPage === "geotagging" && <GeotaggingPage user={user} />}
       {renderPage === "leave" && (

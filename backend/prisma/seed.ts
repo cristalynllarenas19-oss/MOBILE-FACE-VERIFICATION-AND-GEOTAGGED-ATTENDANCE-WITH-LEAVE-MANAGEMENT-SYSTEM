@@ -9,6 +9,8 @@ const permissionRows = [
   ["users:write", "Users"],
   ["employees:read", "Employees"],
   ["employees:write", "Employees"],
+  ["departments:read", "Departments"],
+  ["departments:write", "Departments"],
   ["attendance:read", "Attendance"],
   ["attendance:write", "Attendance"],
   ["leave:read", "Leave"],

@@ -10,6 +10,8 @@ export const permissions = {
   usersWrite: "users:write",
   employeesRead: "employees:read",
   employeesWrite: "employees:write",
+  departmentsRead: "departments:read",
+  departmentsWrite: "departments:write",
   attendanceRead: "attendance:read",
   attendanceWrite: "attendance:write",
   leaveRead: "leave:read",

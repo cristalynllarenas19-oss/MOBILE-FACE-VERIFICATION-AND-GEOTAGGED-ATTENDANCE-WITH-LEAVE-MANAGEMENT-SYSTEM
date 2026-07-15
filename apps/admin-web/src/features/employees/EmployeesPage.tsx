@@ -29,6 +29,8 @@ type Employee = {
   supervisor?: { id: string; firstName: string; lastName: string } | null;
 };
 
+type DepartmentOption = { name: string; attendanceMode: "FIXED" | "FIELD" | "BOTH" };
+
 type SupervisorOption = {
   id: string;
   firstName: string;
@@ -201,7 +203,7 @@ function AddEmployeeModal({
   onClose,
   onCreated,
 }: {
-  departments: string[];
+  departments: DepartmentOption[];
   supervisors: SupervisorOption[];
   lockedDepartmentName?: string;
   onClose: () => void;
@@ -219,6 +221,17 @@ function AddEmployeeModal({
   const autoSupervisor = supervisors.find(
     (supervisor) => supervisor.department.name === form.department.trim(),
   );
+
+  // A department restricted to Fixed or Field forces every new hire into
+  // that same mode; "Both" leaves the picker open.
+  const departmentMode = departments.find((department) => department.name === form.department.trim())?.attendanceMode;
+  const isModeLocked = !!departmentMode && departmentMode !== "BOTH";
+
+  useEffect(() => {
+    if (isModeLocked && departmentMode && form.attendanceMode !== departmentMode) {
+      setForm((current) => ({ ...current, attendanceMode: departmentMode }));
+    }
+  }, [isModeLocked, departmentMode]);
 
   const updateField =
     (field: keyof EmployeeForm) =>
@@ -312,21 +325,12 @@ function AddEmployeeModal({
             {lockedDepartmentName ? (
               <input type="text" value={lockedDepartmentName} disabled readOnly />
             ) : (
-              <>
-                <input
-                  type="text"
-                  value={form.department}
-                  onChange={updateField("department")}
-                  list="employee-departments"
-                  placeholder="Production"
-                  required
-                />
-                <datalist id="employee-departments">
-                  {departments.map((department) => (
-                    <option key={department} value={department} />
-                  ))}
-                </datalist>
-              </>
+              <select value={form.department} onChange={updateField("department")} required>
+                <option value="" disabled>Select a department…</option>
+                {departments.map((department) => (
+                  <option key={department.name} value={department.name}>{department.name}</option>
+                ))}
+              </select>
             )}
           </label>
           {form.department.trim() && (
@@ -368,10 +372,11 @@ function AddEmployeeModal({
           </label>
           <label>
             Attendance Mode
-            <select value={form.attendanceMode} onChange={updateField("attendanceMode")}>
+            <select value={form.attendanceMode} onChange={updateField("attendanceMode")} disabled={isModeLocked}>
               <option value="FIXED">Fixed (office/site)</option>
               <option value="FIELD">Field Technician (multi-site)</option>
             </select>
+            {isModeLocked && <span className="employee-form-hint">Determined by department</span>}
           </label>
         </div>
 
@@ -400,7 +405,7 @@ function EditEmployeeModal({
   onUpdated,
 }: {
   employee: Employee;
-  departments: string[];
+  departments: DepartmentOption[];
   positions: string[];
   supervisors: SupervisorOption[];
   lockedDepartmentName?: string;
@@ -422,6 +427,18 @@ function EditEmployeeModal({
   });
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
+
+  // A department restricted to Fixed or Field forces this employee into that
+  // same mode when reassigned; "Both" (or an archived department not in the
+  // active list) leaves the picker open.
+  const departmentMode = departments.find((department) => department.name === form.department.trim())?.attendanceMode;
+  const isModeLocked = !!departmentMode && departmentMode !== "BOTH";
+
+  useEffect(() => {
+    if (isModeLocked && departmentMode && form.attendanceMode !== departmentMode) {
+      setForm((current) => ({ ...current, attendanceMode: departmentMode }));
+    }
+  }, [isModeLocked, departmentMode]);
   const [leaveAllocation, setLeaveAllocation] = useState("");
   const [isAllocationLoading, setIsAllocationLoading] = useState(false);
 
@@ -626,22 +643,21 @@ function EditEmployeeModal({
             {lockedDepartmentName ? (
               <input type="text" value={lockedDepartmentName} disabled readOnly />
             ) : (
-              <>
-                <input
-                  type="text"
-                  value={form.department}
-                  onChange={(event) =>
-                    setForm((current) => ({ ...current, department: event.target.value, supervisorId: "" }))
-                  }
-                  list="edit-employee-departments"
-                  required
-                />
-                <datalist id="edit-employee-departments">
-                  {departments.map((department) => (
-                    <option key={department} value={department} />
-                  ))}
-                </datalist>
-              </>
+              <select
+                value={form.department}
+                onChange={(event) =>
+                  setForm((current) => ({ ...current, department: event.target.value, supervisorId: "" }))
+                }
+                required
+              >
+                {/* Kept even if since archived so the currently-assigned department still displays correctly. */}
+                {!departments.some((department) => department.name === employee.department.name) && (
+                  <option value={employee.department.name}>{employee.department.name} (archived)</option>
+                )}
+                {departments.map((department) => (
+                  <option key={department.name} value={department.name}>{department.name}</option>
+                ))}
+              </select>
             )}
           </label>
           <label>
@@ -662,10 +678,11 @@ function EditEmployeeModal({
           </label>
           <label>
             Attendance Mode
-            <select value={form.attendanceMode} onChange={updateField("attendanceMode")}>
+            <select value={form.attendanceMode} onChange={updateField("attendanceMode")} disabled={isModeLocked}>
               <option value="FIXED">Fixed (office/site)</option>
               <option value="FIELD">Field Technician (multi-site)</option>
             </select>
+            {isModeLocked && <span className="employee-form-hint">Determined by department</span>}
           </label>
         </div>
 
@@ -1001,6 +1018,15 @@ export function EmployeesPage({
   );
   const supervisors = supervisorsCache.data ?? [];
 
+  const departmentsCache = useCachedData<{ name: string; isActive: boolean; attendanceMode: "FIXED" | "FIELD" | "BOTH" }[]>(
+    "departments",
+    () => apiRequest("/departments"),
+  );
+  const activeDepartments: DepartmentOption[] = (departmentsCache.data ?? [])
+    .filter((department) => department.isActive)
+    .map((department) => ({ name: department.name, attendanceMode: department.attendanceMode }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
   useEffect(() => {
     if (!notification) return;
     const timeoutId = window.setTimeout(() => setNotification(null), 3500);
@@ -1208,7 +1234,7 @@ export function EmployeesPage({
       {editEmployee && (
         <EditEmployeeModal
           employee={editEmployee}
-          departments={departments}
+          departments={activeDepartments}
           positions={positions}
           supervisors={supervisors}
           lockedDepartmentName={lockedDepartmentName}
@@ -1222,7 +1248,7 @@ export function EmployeesPage({
 
       {isAddOpen && (
         <AddEmployeeModal
-          departments={departments}
+          departments={activeDepartments}
           supervisors={supervisors}
           lockedDepartmentName={lockedDepartmentName}
           onClose={() => setIsAddOpen(false)}
