@@ -300,7 +300,6 @@ export function UsersPage() {
         <table>
           <thead>
             <tr>
-              <th>ID</th>
               <th>NAME</th>
               <th>EMAIL</th>
               <th>ROLE</th>
@@ -311,7 +310,6 @@ export function UsersPage() {
           <tbody>
             {visibleUsers.map((user) => (
               <tr key={user.id}>
-                <td data-label="ID">{user.id.slice(0, 8)}</td>
                 <td data-label="Name">{getUserDisplayName(user)}</td>
                 <td data-label="Email">{user.email}</td>
                 <td data-label="Role" className="role-cell"><Badge tone="role">{getRoleLabel(user.userRoles)}</Badge></td>

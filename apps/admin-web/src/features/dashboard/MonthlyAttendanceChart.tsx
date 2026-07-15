@@ -12,7 +12,6 @@ export type MonthlyBarDay = {
 
 const SEGMENTS = [
   { key: "present", label: "Present", color: "#1baf7a" },
-  { key: "late", label: "Late", color: "#eda100" },
   { key: "absent", label: "Absent", color: "#e34948" },
   { key: "onLeave", label: "On leave", color: "#4a3aa7" },
 ] as const;
@@ -32,8 +31,6 @@ export function MonthlyAttendanceChart({
   selectedDay: number | null;
   onSelectDay: (day: MonthlyBarDay) => void;
 }) {
-  const maxTotal = Math.max(1, ...days.map((d) => d.present + d.late + d.absent + d.onLeave));
-
   return (
     <div className="mabar">
       <div className="mabar-legend">
@@ -47,7 +44,7 @@ export function MonthlyAttendanceChart({
 
       <div className="mabar-track">
         {days.map((day) => {
-          const total = day.present + day.late + day.absent + day.onLeave;
+          const total = day.present + day.absent + day.onLeave;
           const isSelected = selectedDay === day.day;
 
           return (
@@ -60,7 +57,7 @@ export function MonthlyAttendanceChart({
               aria-label={
                 day.isDayOff
                   ? `${formatShortDate(day.date)}: Day off`
-                  : `${formatShortDate(day.date)}: ${day.present} present, ${day.late} late, ${day.absent} absent, ${day.onLeave} on leave`
+                  : `${formatShortDate(day.date)}: ${day.present} present, ${day.absent} absent, ${day.onLeave} on leave`
               }
             >
               <div className="mabar-tooltip">
@@ -70,7 +67,6 @@ export function MonthlyAttendanceChart({
                 ) : (
                   <>
                     <span><i style={{ background: "#1baf7a" }} />Present {day.present}</span>
-                    <span><i style={{ background: "#eda100" }} />Late {day.late}</span>
                     <span><i style={{ background: "#e34948" }} />Absent {day.absent}</span>
                     <span><i style={{ background: "#4a3aa7" }} />On leave {day.onLeave}</span>
                   </>
@@ -90,7 +86,7 @@ export function MonthlyAttendanceChart({
                       <div
                         key={s.key}
                         className="mabar-seg"
-                        style={{ height: `${(value / maxTotal) * 100}%`, background: s.color }}
+                        style={{ height: `${(value / total) * 100}%`, background: s.color }}
                       />
                     );
                   })

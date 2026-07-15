@@ -1,9 +1,9 @@
 import {
   AlertTriangle,
+  CalendarOff,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
-  Clock,
   MapPin,
   MapPinned,
   ScanFace,
@@ -329,8 +329,8 @@ export function DashboardPage({
       <div className="stats-grid">
         <StatCard label="Total Employees"  value={summary.stats.totalEmployees}  icon={Users}         tone="blue"   />
         <StatCard label="Present Today"    value={summary.stats.presentToday}    icon={CheckCircle2}  tone="green"  />
-        <StatCard label="Late Today"       value={summary.stats.lateToday}       icon={Clock}         tone="yellow" />
         <StatCard label="Absent Today"     value={summary.stats.absentToday}     icon={AlertTriangle} tone="red"    />
+        <StatCard label="On Leave Today"   value={onLeaveToday}                  icon={CalendarOff}   tone="pink"   />
         <StatCard label="Geotagged Logs"   value={summary.stats.geotaggedLogs}   icon={MapPin}        tone="cyan"   />
         <StatCard
           label="Geotagged Areas"
@@ -442,7 +442,6 @@ export function DashboardPage({
           </div>
           <AttendanceDonut
             present={donutSource.present}
-            late={donutSource.late}
             absent={donutSource.absent}
             onLeave={donutSource.onLeave}
           />

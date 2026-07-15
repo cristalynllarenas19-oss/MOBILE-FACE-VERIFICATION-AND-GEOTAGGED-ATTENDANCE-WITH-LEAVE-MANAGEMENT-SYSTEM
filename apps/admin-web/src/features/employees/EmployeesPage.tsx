@@ -1165,7 +1165,6 @@ export function EmployeesPage({
         <table>
           <thead>
             <tr>
-              <th>EMPLOYEE NO.</th>
               <th>NAME</th>
               <th>EMAIL</th>
               <th>DEPARTMENT</th>
@@ -1178,14 +1177,13 @@ export function EmployeesPage({
           <tbody>
             {visibleEmployees.length === 0 ? (
               <tr>
-                <td colSpan={8} className="employees-empty-state">
+                <td colSpan={7} className="employees-empty-state">
                   No employees found.
                 </td>
               </tr>
             ) : (
               visibleEmployees.map((employee) => (
                 <tr key={employee.id}>
-                  <td data-label="Employee No.">{employee.employeeNo}</td>
                   <td data-label="Name">{getEmployeeName(employee)}</td>
                   <td data-label="Email">{employee.user?.email ?? "Unassigned"}</td>
                   <td data-label="Department">{employee.department.name}</td>

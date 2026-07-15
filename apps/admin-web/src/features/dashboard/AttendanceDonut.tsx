@@ -2,7 +2,6 @@ import "./AttendanceDonut.css";
 
 const SEGMENTS = [
   { key: "present", label: "Present", color: "#1baf7a" },
-  { key: "late", label: "Late", color: "#eda100" },
   { key: "absent", label: "Absent", color: "#e34948" },
   { key: "onLeave", label: "On Leave", color: "#4a3aa7" },
 ] as const;
@@ -14,17 +13,15 @@ const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
 export function AttendanceDonut({
   present,
-  late,
   absent,
   onLeave,
 }: {
   present: number;
-  late: number;
   absent: number;
   onLeave: number;
 }) {
-  const values: Record<(typeof SEGMENTS)[number]["key"], number> = { present, late, absent, onLeave };
-  const total = present + late + absent + onLeave;
+  const values: Record<(typeof SEGMENTS)[number]["key"], number> = { present, absent, onLeave };
+  const total = present + absent + onLeave;
 
   let cumulative = 0;
 

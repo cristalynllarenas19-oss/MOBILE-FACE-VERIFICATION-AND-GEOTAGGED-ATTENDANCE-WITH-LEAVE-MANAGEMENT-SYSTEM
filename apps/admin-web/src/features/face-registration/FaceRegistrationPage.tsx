@@ -779,7 +779,6 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
                   <thead>
                     <tr>
                       <th>NAME</th>
-                      <th>EMPLOYEE NO.</th>
                       <th>DEPARTMENT</th>
                       <th>STATUS</th>
                       <th>DATE REGISTERED</th>
@@ -790,7 +789,6 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
                     {visibleEnrollments.map((item) => (
                       <tr key={item.id}>
                         <td data-label="Name">{employeeLabel(item.employee)}</td>
-                        <td data-label="Employee No.">{item.employee.employeeNo}</td>
                         <td data-label="Department">{item.employee.department?.name ?? "Unknown"}</td>
                         <td data-label="Status">
                           <Badge tone={enrollmentStatusTone(item.enrollmentStatus)}>{item.enrollmentStatus}</Badge>
