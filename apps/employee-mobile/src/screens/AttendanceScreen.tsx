@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -32,6 +32,35 @@ function getEligibilityMessage(eligibility: AttendanceEligibility | null) {
     return "You haven't been assigned a work location yet. Contact HR or your supervisor.";
   }
   return null;
+}
+
+// Worked time is Time In → Time Out (or now, while still in), excluding the
+// lunch break — an open lunch (started but not ended) pauses the counter.
+function getWorkedMs(attendance: TodayAttendance, now: number) {
+  if (!attendance.timeInAt) return 0;
+  const start = new Date(attendance.timeInAt).getTime();
+  const end = attendance.timeOutAt
+    ? new Date(attendance.timeOutAt).getTime()
+    : now;
+  let worked = end - start;
+  if (attendance.lunchOutAt) {
+    const lunchStart = new Date(attendance.lunchOutAt).getTime();
+    const lunchEnd = attendance.lunchInAt
+      ? new Date(attendance.lunchInAt).getTime()
+      : end;
+    worked -= Math.max(0, lunchEnd - lunchStart);
+  }
+  return Math.max(0, worked);
+}
+
+function formatElapsed(ms: number) {
+  const totalSeconds = Math.floor(ms / 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return [
+    pad(Math.floor(totalSeconds / 3600)),
+    pad(Math.floor((totalSeconds % 3600) / 60)),
+    pad(totalSeconds % 60),
+  ].join(":");
 }
 
 function formatTime(value: string | null | undefined) {
@@ -74,6 +103,23 @@ export default function AttendanceScreen({
   // For FIELD employees, todayAttendance is the latest visit of the day —
   // an "open" visit is one that's started but hasn't been ended yet.
   const hasOpenVisit = hasTimedIn && !hasTimedOut;
+
+  // Live worked-time counter (OFFICE-only): ticks every second while the
+  // session is open, then holds the final Time In → Time Out total once
+  // timed out.
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (isField || !hasOpenVisit) return;
+    setNow(Date.now());
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [isField, hasOpenVisit]);
+
+  const workedMs = todayAttendance ? getWorkedMs(todayAttendance, now) : 0;
+  const isOnLunch = Boolean(
+    hasOpenVisit && todayAttendance?.lunchOutAt && !todayAttendance?.lunchInAt,
+  );
 
   const statusLabel = isTodayDayOff && !hasTimedIn
     ? "Day Off"
@@ -170,6 +216,54 @@ export default function AttendanceScreen({
           {" "}
           {user?.displayName}
         </Text>
+
+        {!isField && hasTimedIn && (
+          <View style={styles.workedTimeCard}>
+            <View style={styles.workedTimeHeader}>
+              <Ionicons
+                name={hasTimedOut ? "checkmark-circle" : "time-outline"}
+                size={16}
+                color={hasTimedOut ? "#17A34A" : isOnLunch ? "#EA580C" : "#1680D8"}
+              />
+
+              <Text style={styles.workedTimeLabel}>
+                {hasTimedOut
+                  ? "Total Time Worked"
+                  : isOnLunch
+                    ? "Time Worked (On Lunch)"
+                    : "Time Worked"}
+              </Text>
+            </View>
+
+            <Text
+              style={[
+                styles.workedTimeValue,
+                hasTimedOut && { color: "#17A34A" },
+              ]}
+            >
+              {formatElapsed(workedMs)}
+            </Text>
+
+            {hasOpenVisit && (
+              <View style={styles.liveBadge}>
+                <Ionicons
+                  name="ellipse"
+                  size={6}
+                  color={isOnLunch ? "#EA580C" : "#17A34A"}
+                />
+
+                <Text
+                  style={[
+                    styles.liveBadgeText,
+                    { color: isOnLunch ? "#EA580C" : "#17A34A" },
+                  ]}
+                >
+                  {isOnLunch ? "PAUSED" : "LIVE"}
+                </Text>
+              </View>
+            )}
+          </View>
+        )}
 
         <View style={styles.timeStatsRow}>
           <View style={styles.timeStatCard}>
@@ -454,6 +548,56 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 16,
     marginBottom: 20,
+  },
+
+  workedTimeCard: {
+    alignItems: "center",
+
+    backgroundColor: "#F8FAFC",
+
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 14,
+
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+
+    marginBottom: 18,
+  },
+
+  workedTimeHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+
+    marginBottom: 6,
+  },
+
+  workedTimeLabel: {
+    color: "#64748B",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+
+  workedTimeValue: {
+    color: "#062B59",
+    fontSize: 32,
+    fontWeight: "700",
+    fontVariant: ["tabular-nums"],
+  },
+
+  liveBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+
+    marginTop: 6,
+  },
+
+  liveBadgeText: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 1,
   },
 
   timeStatsRow: {
