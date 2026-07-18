@@ -42,6 +42,43 @@ export class FaceProfilesService {
       throw new NotFoundException("Employee not found.");
     }
 
+    // An employee keeps at most one active profile: re-registering replaces
+    // the existing photo/descriptors in place. Archived profiles stay behind
+    // as history, so a fresh row is created after an archive.
+    const existing = await this.prisma.faceProfile.findFirst({
+      where: { employeeId: employee.id, isArchived: false },
+    });
+
+    if (existing) {
+      const updated = await this.prisma.faceProfile.update({
+        where: { id: existing.id },
+        data: {
+          referenceImageData: dto.referenceImageData as any,
+          descriptors: dto.descriptors as any,
+          enrollmentStatus: "ACTIVE",
+          enrolledAt: new Date(),
+        } as any,
+        include: {
+          employee: {
+            include: { department: true, position: true, user: true },
+          },
+        },
+      });
+
+      await this.auditLogs.record({
+        ...context,
+        action: "RE_REGISTER_FACE",
+        module: "Face Verification",
+        entityType: "FaceProfile",
+        entityId: updated.id,
+        description: `Re-registered face profile for ${updated.employee.firstName} ${updated.employee.lastName}.`,
+        oldValues: { enrolledAt: existing.enrolledAt },
+        newValues: { employeeId: updated.employeeId, enrollmentStatus: updated.enrollmentStatus },
+      });
+
+      return updated;
+    }
+
     const created = await this.prisma.faceProfile.create({
       data: {
         employeeId: employee.id,

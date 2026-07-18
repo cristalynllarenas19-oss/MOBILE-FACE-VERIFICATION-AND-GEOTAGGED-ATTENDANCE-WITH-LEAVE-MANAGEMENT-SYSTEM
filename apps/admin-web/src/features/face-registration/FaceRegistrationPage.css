@@ -28,10 +28,29 @@
 
 .capture-summary {
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  /* Fixed middle column: the Status text swaps between labels of different
+     widths, so sizing it by content would make the tiles jitter. Wide enough
+     for the longest label, "Choose an employee first". */
+  grid-template-columns: 1fr 235px 1fr;
   gap: 10px;
   margin-bottom: 18px;
   align-items: stretch;
+}
+
+/* Single ellipsized line keeps every tile the same height no matter which
+   label is showing or how long the employee's name is. */
+.capture-summary > div:not(.stat-inline-card) {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+}
+
+.capture-summary > div:not(.stat-inline-card) strong {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .capture-summary > div,
@@ -63,6 +82,15 @@
   display: block;
   font-size: 14px;
   line-height: 1.4;
+}
+
+/* Live face-detection readout on the Status tile while the camera is on. */
+.capture-summary strong.status-face-detected {
+  color: #15803d;
+}
+
+.capture-summary strong.status-face-missing {
+  color: #b91c1c;
 }
 
 .stat-inline-card {
@@ -451,6 +479,24 @@
 
 .new-employee-details-name span {
   font-size: 14px;
+}
+
+/* Same recap grid, reused when an existing employee is picked for
+   re-registration; it sits under the search box instead of filling the card. */
+.reregister-details {
+  flex: none;
+  align-content: start;
+  overflow: visible;
+  gap: 16px 20px;
+  padding: 18px 20px;
+}
+
+.reregister-details strong {
+  font-size: 14px;
+}
+
+.reregister-details .new-employee-details-name strong {
+  font-size: 18px;
 }
 
 @media (max-width: 640px) {

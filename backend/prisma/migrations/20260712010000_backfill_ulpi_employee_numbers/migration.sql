@@ -17,6 +17,13 @@ END $$;
 -- order (id as a final tiebreak for same-day hires, since created_at was
 -- bulk-backfilled to a single instant in an earlier migration and carries no
 -- real ordering information).
+-- Phase 1: park every row on a unique throwaway value first. The unique index
+-- on employee_no is checked per-row (not deferred), so renumbering directly
+-- collides whenever a target number is still held by a not-yet-updated row
+-- (several rows already carry ULPI-26xxx numbers handed out by the app).
+UPDATE employees SET employee_no = 'TMP-' || id;
+
+-- Phase 2: assign the final numbers.
 WITH ranked AS (
   SELECT
     id,
