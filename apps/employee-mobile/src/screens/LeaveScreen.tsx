@@ -54,10 +54,17 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// SUPERVISOR_APPROVED only exists on legacy rows from the old two-step flow;
+// it stays amber because it still needs one more Approve click to finalize.
 function statusTone(status: string) {
-  if (status === "APPROVED" || status === "SUPERVISOR_APPROVED") return { color: "#15803D", bg: "#DCFCE7" };
+  if (status === "APPROVED") return { color: "#15803D", bg: "#DCFCE7" };
   if (status === "REJECTED" || status === "CANCELLED") return { color: "#B91C1C", bg: "#FEE2E2" };
   return { color: "#B45309", bg: "#FEF3C7" };
+}
+
+function statusLabel(status: string) {
+  if (status === "SUPERVISOR_APPROVED") return "APPROVED — FINALIZING";
+  return status.replace("_", " ");
 }
 
 export default function LeaveScreen({ employeeId }: Props) {
@@ -130,6 +137,26 @@ export default function LeaveScreen({ employeeId }: Props) {
   function isLeaveTypeExhausted(item: LeaveType) {
     if (item.allowWithoutPay || item.isUnlimitedDays) return false;
     return remainingDaysFor(item) <= 0;
+  }
+
+  // "Request" button on a balance row: jump to the request tab with that
+  // leave type already selected, unless it can't be requested (same rules as
+  // the disabled dropdown entries).
+  function handleRequestFromBalance(id: string) {
+    const type = leaveTypes.find((t) => t.id === id);
+    if (!type || !type.isActive) return;
+    if (isLeaveTypeExhausted(type)) {
+      setResultModal({
+        status: "info",
+        title: type.requiresAdminGrant ? "Not Yet Granted" : "No Balance Left",
+        message: type.requiresAdminGrant
+          ? `${type.name} must be granted by HR/Admin before you can request it. Please apply to HR/Admin first.`
+          : `You have no remaining ${type.name} days to request.`,
+      });
+      return;
+    }
+    setLeaveTypeId(id);
+    setActiveTab("request");
   }
 
   function openLeaveTypeDropdown() {
@@ -364,6 +391,7 @@ export default function LeaveScreen({ employeeId }: Props) {
             loading={isLoadingData}
             pendingCount={pendingRequests.length}
             onPressPending={() => setShowPending(true)}
+            onRequestLeave={handleRequestFromBalance}
           />
         </View>
       ) : pendingRequests.length > 0 ? (
@@ -396,7 +424,7 @@ export default function LeaveScreen({ employeeId }: Props) {
                     </View>
                   )}
                   <Text style={[styles.pendingText, { color: tone.color, backgroundColor: tone.bg }]}>
-                    {request.status.replace("_", " ")}
+                    {statusLabel(request.status)}
                   </Text>
                 </View>
               );
@@ -623,7 +651,7 @@ export default function LeaveScreen({ employeeId }: Props) {
                         </View>
                       )}
                       <Text style={[styles.pendingText, { color: tone.color, backgroundColor: tone.bg }]}>
-                        {request.status.replace("_", " ")}
+                        {statusLabel(request.status)}
                       </Text>
                     </View>
                   );

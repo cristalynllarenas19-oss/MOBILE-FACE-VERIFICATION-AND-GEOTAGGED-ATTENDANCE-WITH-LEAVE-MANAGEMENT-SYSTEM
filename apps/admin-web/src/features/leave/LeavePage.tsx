@@ -142,8 +142,10 @@ function titleCaseStatus(status: string) {
     .join(" ");
 }
 
-function getLeaveStatusLabel(status: string, isAdmin: boolean) {
-  if (status === "SUPERVISOR_APPROVED") return isAdmin ? "Approved" : "Supervisor Approved";
+function getLeaveStatusLabel(status: string, _isAdmin: boolean) {
+  // SUPERVISOR_APPROVED only exists on legacy rows from the old two-step
+  // flow — approval is single-step now, so it reads as plain "Approved".
+  if (status === "SUPERVISOR_APPROVED") return "Approved";
   return titleCaseStatus(status);
 }
 
@@ -896,13 +898,12 @@ export function LeavePage({
   // leave.service.ts). An Admin reviewing their own request is unaffected.
   const isOwnRequest = Boolean(reviewRequest && user?.employeeId && reviewRequest.employee.id === user.employeeId);
 
-  // A Supervisor's Approve action only pre-approves (server sets
-  // SUPERVISOR_APPROVED); only an Admin can act on a request already at that
-  // tier to give it the final HR approval.
+  // Approval is single-step now; SUPERVISOR_APPROVED only lingers on legacy
+  // rows from the old two-step flow, and either role can finalize those.
   const canReviewRequest = Boolean(
     reviewRequest &&
       !(isOwnRequest && !isAdmin) &&
-      (reviewRequest.status === "PENDING" || (reviewRequest.status === "SUPERVISOR_APPROVED" && isAdmin)),
+      (reviewRequest.status === "PENDING" || reviewRequest.status === "SUPERVISOR_APPROVED"),
   );
 
   const matchingBalance =

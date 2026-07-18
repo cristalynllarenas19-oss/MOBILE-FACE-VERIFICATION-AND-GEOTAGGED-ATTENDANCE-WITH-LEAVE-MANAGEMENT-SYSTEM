@@ -126,7 +126,7 @@ export function LeaveBalanceChart({ balances, loading, pendingCount, onPressPend
       <div className="lbc-bars-grid">
         {balances.map((balance, index) => {
           const color = LEAVE_TYPE_COLORS[index % LEAVE_TYPE_COLORS.length];
-          const ratio = balance.earnedDays > 0 ? Math.min(1, balance.remainingDays / balance.earnedDays) : 0;
+          const ratio = balance.earnedDays > 0 ? Math.min(1, balance.usedDays / balance.earnedDays) : 0;
           return (
             <div key={balance.leaveTypeId} className="lbc-bar-cell">
               <div className="lbc-bar-label-row">
@@ -136,7 +136,7 @@ export function LeaveBalanceChart({ balances, loading, pendingCount, onPressPend
               <div className="lbc-bar-track">
                 <div className="lbc-bar-fill" style={{ width: `${ratio * 100}%`, background: color }} />
               </div>
-              <span className="lbc-bar-value">{balance.remainingDays}/{balance.earnedDays} days</span>
+              <span className="lbc-bar-value">{balance.usedDays}/{balance.earnedDays} days used</span>
             </div>
           );
         })}

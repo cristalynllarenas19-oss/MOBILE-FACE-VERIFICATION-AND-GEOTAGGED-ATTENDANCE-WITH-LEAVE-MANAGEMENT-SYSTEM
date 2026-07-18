@@ -40,16 +40,13 @@ export class LeaveController {
     const user = (request as any).user;
     const roles: string[] = user.roles ?? [user.role];
     const isAdmin = roles.includes("ADMIN");
-    // ADMIN always finalizes (from PENDING or SUPERVISOR_APPROVED); a
-    // SUPERVISOR-only actor can only move PENDING -> SUPERVISOR_APPROVED, HR
-    // still has to finalize afterward.
-    const targetStatus = isAdmin ? "APPROVED" : "SUPERVISOR_APPROVED";
+    // Single-step approval: a Supervisor's approval of their own department's
+    // requests is final, same as an Admin's — no second HR sign-off tier.
     const departmentId = getSupervisorDepartmentScope(user);
-    // A Supervisor can never approve their own leave request — it must sit
-    // PENDING until HR/Admin acts on it directly, same as the
-    // Employee -> Supervisor -> HR chain requires for everyone else.
+    // A Supervisor still can never approve their own leave request — it must
+    // sit PENDING until HR/Admin acts on it directly.
     const selfReviewEmployeeId = isAdmin ? undefined : user.employeeId;
-    return this.leaveService.updateStatus(id, targetStatus, body.remarks, getAuditContext(request), departmentId, selfReviewEmployeeId);
+    return this.leaveService.updateStatus(id, "APPROVED", body.remarks, getAuditContext(request), departmentId, selfReviewEmployeeId);
   }
 
   @Patch(":id/reject")

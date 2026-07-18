@@ -16,9 +16,10 @@ type Props = {
   loading?: boolean;
   pendingCount?: number;
   onPressPending?: () => void;
+  onRequestLeave?: (leaveTypeId: string) => void;
 };
 
-export default function LeaveBalanceChart({ balances, loading, pendingCount, onPressPending }: Props) {
+export default function LeaveBalanceChart({ balances, loading, pendingCount, onPressPending, onRequestLeave }: Props) {
   const totalEarned = balances.reduce((sum, b) => sum + b.earnedDays, 0);
   const totalUsed = balances.reduce((sum, b) => sum + b.usedDays, 0);
   const totalRemaining = balances.reduce((sum, b) => sum + b.remainingDays, 0);
@@ -131,7 +132,7 @@ export default function LeaveBalanceChart({ balances, loading, pendingCount, onP
       <View style={styles.barsGrid}>
         {balances.map((balance, index) => {
           const color = LEAVE_TYPE_COLORS[index % LEAVE_TYPE_COLORS.length];
-          const ratio = balance.earnedDays > 0 ? Math.min(1, balance.remainingDays / balance.earnedDays) : 0;
+          const ratio = balance.earnedDays > 0 ? Math.min(1, balance.usedDays / balance.earnedDays) : 0;
           return (
             <View key={balance.leaveTypeId} style={styles.barCell}>
               <View style={styles.barLabelRow}>
@@ -141,7 +142,16 @@ export default function LeaveBalanceChart({ balances, loading, pendingCount, onP
               <View style={styles.barTrack}>
                 <View style={[styles.barFill, { width: `${ratio * 100}%`, backgroundColor: color }]} />
               </View>
-              <Text style={styles.barValue}>{balance.remainingDays}/{balance.earnedDays} days</Text>
+              <Text style={styles.barValue}>{balance.usedDays}/{balance.earnedDays} days used</Text>
+              {onRequestLeave && (
+                <Pressable
+                  style={styles.requestButton}
+                  onPress={() => onRequestLeave(balance.leaveTypeId)}
+                >
+                  <Ionicons name="add-circle-outline" size={11} color="#1680D8" />
+                  <Text style={styles.requestButtonText}>Request</Text>
+                </Pressable>
+              )}
             </View>
           );
         })}
@@ -289,5 +299,23 @@ const styles = StyleSheet.create({
   barFill: {
     height: "100%",
     borderRadius: 3,
+  },
+  requestButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: 3,
+    marginTop: 2,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#BFDBFE",
+    backgroundColor: "#F8FAFF",
+  },
+  requestButtonText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: "#1680D8",
   },
 });
