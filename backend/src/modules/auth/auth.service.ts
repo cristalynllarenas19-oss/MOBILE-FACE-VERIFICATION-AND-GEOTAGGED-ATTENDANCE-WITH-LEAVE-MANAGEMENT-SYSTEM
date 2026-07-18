@@ -114,7 +114,12 @@ export class AuthService {
     return {
       accessToken: await this.jwtService.signAsync(payload, {
         secret: this.config.get<string>("JWT_ACCESS_SECRET") ?? "dev-access-secret-change-me",
-        expiresIn: "15m",
+        // 12h so a mobile session survives a full work day. The client never
+        // uses its stored refreshToken (apiRequest has no refresh-and-retry,
+        // and /auth/refresh is a stub), so once this expires every request
+        // 401s until the user logs in again — shorten only after real
+        // refresh-token rotation exists.
+        expiresIn: "12h",
       }),
       refreshToken: await this.jwtService.signAsync(payload, {
         secret: this.config.get<string>("JWT_REFRESH_SECRET") ?? "dev-refresh-secret-change-me",

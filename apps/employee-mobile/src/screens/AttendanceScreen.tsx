@@ -211,20 +211,27 @@ export default function AttendanceScreen({
           </View>
         </View>
 
-        <Text style={styles.welcomeText}>
+        <Text
+          style={[
+            styles.welcomeText,
+            !isField && hasTimedIn && { marginBottom: 12 },
+          ]}
+        >
           Welcome back,
           {" "}
           {user?.displayName}
         </Text>
 
         {!isField && hasTimedIn && (
-          <View style={styles.workedTimeCard}>
+          <View style={styles.workedTimeRow}>
             <View style={styles.workedTimeHeader}>
-              <Ionicons
-                name={hasTimedOut ? "checkmark-circle" : "time-outline"}
-                size={16}
-                color={hasTimedOut ? "#17A34A" : isOnLunch ? "#EA580C" : "#1680D8"}
-              />
+              {hasOpenVisit && (
+                <Ionicons
+                  name="ellipse"
+                  size={7}
+                  color={isOnLunch ? "#EA580C" : "#17A34A"}
+                />
+              )}
 
               <Text style={styles.workedTimeLabel}>
                 {hasTimedOut
@@ -243,25 +250,6 @@ export default function AttendanceScreen({
             >
               {formatElapsed(workedMs)}
             </Text>
-
-            {hasOpenVisit && (
-              <View style={styles.liveBadge}>
-                <Ionicons
-                  name="ellipse"
-                  size={6}
-                  color={isOnLunch ? "#EA580C" : "#17A34A"}
-                />
-
-                <Text
-                  style={[
-                    styles.liveBadgeText,
-                    { color: isOnLunch ? "#EA580C" : "#17A34A" },
-                  ]}
-                >
-                  {isOnLunch ? "PAUSED" : "LIVE"}
-                </Text>
-              </View>
-            )}
           </View>
         )}
 
@@ -550,27 +538,27 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
 
-  workedTimeCard: {
+  workedTimeRow: {
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
 
     backgroundColor: "#F8FAFC",
 
     borderWidth: 1,
     borderColor: "#E2E8F0",
-    borderRadius: 14,
+    borderRadius: 10,
 
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
 
-    marginBottom: 18,
+    marginBottom: 14,
   },
 
   workedTimeHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-
-    marginBottom: 6,
   },
 
   workedTimeLabel: {
@@ -581,23 +569,9 @@ const styles = StyleSheet.create({
 
   workedTimeValue: {
     color: "#062B59",
-    fontSize: 32,
+    fontSize: 16,
     fontWeight: "700",
     fontVariant: ["tabular-nums"],
-  },
-
-  liveBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-
-    marginTop: 6,
-  },
-
-  liveBadgeText: {
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 1,
   },
 
   timeStatsRow: {

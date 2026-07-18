@@ -251,6 +251,17 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
   const [scanError, setScanError] = useState<string | null>(null);
   const [pendingCapture, setPendingCapture] = useState<PendingCapture | null>(null);
   const [cameraReady, setCameraReady] = useState(false);
+  // One fixed picture size for the whole scan session (see
+  // handleCameraReady): the smallest the camera offers that's still big
+  // enough for the final watermarked photo. Capturing at ~2MP instead of
+  // the sensor's full ~12MP makes every capture far faster — which is what
+  // raises the odds of photographing the closed-eye moment of a blink —
+  // while never switching sizes mid-session: switching (small for sampling,
+  // full for capture) reconfigures the camera each time, and captures fail
+  // during every reconfiguration window on slower devices. Null until (or
+  // unless) the size list has been queried successfully.
+  const [scanPictureSize, setScanPictureSize] = useState<string | null>(null);
+  const scanPictureSizeRef = useRef<string | null>(null);
   const [liveCoords, setLiveCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [liveAddress, setLiveAddress] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
@@ -270,6 +281,10 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
   // meaningfully below this counts as a blink (see EAR_DIP_RATIO above).
   const openBaselineRef = useRef<number | null>(null);
   const openSampleCountRef = useRef(0);
+  // Dev-only: when the previous eye sample arrived, so the [liveness] log
+  // shows the real gap between samples — the number that says whether missed
+  // blinks are a sampling-cadence problem or a threshold problem.
+  const lastEyeSampleAtRef = useRef<number | null>(null);
 
   const permissionsReady = permission?.granted && locationPermission?.granted;
   // The blink check must pass before the hold-to-lock step is even allowed
@@ -350,6 +365,38 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
     }
   }, [locationPermission]);
 
+  // Picks the smallest picture size the camera offers whose short side is
+  // still at least WATERMARK_WIDTH — so the final stamped photo (rendered
+  // at WATERMARK_WIDTH wide, in portrait the photo's short side) never has
+  // to upscale, while detection frames (resized down to
+  // DETECTION_FRAME_WIDTH anyway) start from a several-times-smaller
+  // capture. Sizes come back as "WIDTHxHEIGHT" strings; anything else (some
+  // iOS preset names) is skipped, and any failure just leaves the camera's
+  // default full-resolution capture in place.
+  async function handleCameraReady() {
+    setCameraReady(true);
+    try {
+      const sizes = (await cameraRef.current?.getAvailablePictureSizesAsync()) ?? [];
+      const candidates = sizes
+        .map((label) => {
+          const match = /^(\d+)x(\d+)$/.exec(label);
+          if (!match) return null;
+          const width = Number(match[1]);
+          const height = Number(match[2]);
+          return { label, shortSide: Math.min(width, height), area: width * height };
+        })
+        .filter((size): size is NonNullable<typeof size> => size !== null && size.shortSide >= WATERMARK_WIDTH)
+        .sort((a, b) => a.area - b.area);
+      if (candidates.length > 0) {
+        scanPictureSizeRef.current = candidates[0].label;
+        setScanPictureSize(candidates[0].label);
+        if (__DEV__) console.log(`[liveness] scan pictureSize=${candidates[0].label}`);
+      }
+    } catch (error) {
+      if (__DEV__) console.log("[liveness] getAvailablePictureSizesAsync failed, keeping default size", error);
+    }
+  }
+
   // Poll the backend's real face detector on a low-res snapshot. This is the
   // actual "is a face here?" signal — the camera never fakes detection — and
   // it now also returns the face's bounding box so the guide can track it.
@@ -373,6 +420,10 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
     let latestBlinkFrame: { base64: string; seq: number } | null = null;
     let blinkFrameSeq = 0;
     let sendInFlight = false;
+    // Consecutive takePictureAsync failures while the custom scan
+    // pictureSize is active — used to detect devices that can't capture at
+    // that size and revert them to the default size (see the catch below).
+    let captureFailStreak = 0;
 
     function applyDetectionResult(result: {
       detected: boolean;
@@ -425,15 +476,16 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
         // even held in portrait) while the preview is shown in portrait —
         // that mismatch alone was enough to make the tracked box's geometry
         // come out wrong. base64 is intentionally NOT requested here either
-        // — at full sensor resolution that encode alone can take longer
-        // than a whole blink, which was very likely why blinks kept landing
-        // between samples no matter how good the detection model was. The
-        // resize below produces a far smaller base64 string instead.
+        // — that encode is wasted time at capture resolution, the resize
+        // below produces a far smaller base64 string instead. The capture
+        // itself is already fast because the whole session runs at the
+        // small fixed pictureSize (see the CameraView props).
         const photo = await cameraRef.current?.takePictureAsync({
           quality: samplingBlink ? 0.5 : 0.3,
           shutterSound: false,
         });
         if (cancelled) return;
+        captureFailStreak = 0;
         if (photo?.width && photo.height) {
           setPhotoSize({ width: photo.width, height: photo.height });
         }
@@ -449,16 +501,17 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
             format: SaveFormat.JPEG,
           });
           if (cancelled) return;
-          if (resized.base64) {
+          const frameBase64 = resized.base64 ?? null;
+          if (frameBase64) {
             if (samplingBlink) {
               // Hand off to the decoupled send loop instead of awaiting the
               // network here — that's the whole point: keep capturing while
               // a previous frame is still in flight on the backend.
               blinkFrameSeq += 1;
-              latestBlinkFrame = { base64: resized.base64, seq: blinkFrameSeq };
+              latestBlinkFrame = { base64: frameBase64, seq: blinkFrameSeq };
               sendLatestBlinkFrame();
             } else {
-              const result = await detectFace(`data:image/jpeg;base64,${resized.base64}`, false);
+              const result = await detectFace(`data:image/jpeg;base64,${frameBase64}`, false);
               if (cancelled) return;
               applyDetectionResult(result);
             }
@@ -472,6 +525,20 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
         setFaceDetected(false);
         setConfidence(0);
         setFaceBox(null);
+        // Some devices reject captures at a non-default pictureSize (or
+        // fail while the session is reconfiguring to it, which happens once
+        // when the size is first applied after camera-ready). One or two
+        // failures are tolerable churn; a streak means this device can't
+        // capture at the chosen size at all, so permanently fall back to
+        // the camera's default size rather than erroring forever.
+        if (scanPictureSizeRef.current !== null) {
+          captureFailStreak += 1;
+          if (captureFailStreak >= 3) {
+            if (__DEV__) console.log("[liveness] custom pictureSize keeps failing, reverting to default size");
+            scanPictureSizeRef.current = null;
+            setScanPictureSize(null);
+          }
+        }
       } finally {
         if (!cancelled) {
           // Back off after a failure (e.g. a stale camera view reference
@@ -531,8 +598,19 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
   // The dip sample itself is never folded into the baseline (that would
   // drag the baseline down and make the next blink harder to trigger).
   function registerEyeSample(ear: number | null) {
+    // Gap since the previous sample, dev-log only. This is the number that
+    // matters most when a blink is missed: gaps much above ~250ms mean the
+    // closed-eye moment is falling between samples (a cadence problem),
+    // while small gaps with no dip in the ear values mean the threshold or
+    // landmarks are the problem.
+    let gapLabel = "";
+    if (__DEV__) {
+      const nowMs = Date.now();
+      gapLabel = lastEyeSampleAtRef.current === null ? " +first" : ` +${nowMs - lastEyeSampleAtRef.current}ms`;
+      lastEyeSampleAtRef.current = nowMs;
+    }
     if (ear === null) {
-      if (__DEV__) console.log("[liveness] ear=null (no landmarks this frame)");
+      if (__DEV__) console.log(`[liveness]${gapLabel} ear=null (no landmarks this frame)`);
       return;
     }
 
@@ -542,7 +620,7 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
 
     if (__DEV__) {
       console.log(
-        `[liveness] ear=${ear.toFixed(3)} baseline=${(baseline ?? 0).toFixed(3)} cutoff=${ready ? ((baseline as number) * EAR_DIP_RATIO).toFixed(3) : "n/a"}${isBlink ? " -> BLINK" : ""}`,
+        `[liveness]${gapLabel} ear=${ear.toFixed(3)} baseline=${(baseline ?? 0).toFixed(3)} cutoff=${ready ? ((baseline as number) * EAR_DIP_RATIO).toFixed(3) : "n/a"}${isBlink ? " -> BLINK" : ""}`,
       );
     }
 
@@ -622,11 +700,17 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
       // Capture the final photo first, before anything else — this is the
       // moment face verification actually succeeds, so the freeze has to
       // happen right here, not after the (often slow) GPS fix below.
-      const photo = await cameraRef.current?.takePictureAsync({
-        base64: true,
-        quality: 0.7,
-        shutterSound: false,
-      });
+      const captureFinalPhoto = async () =>
+        (await cameraRef.current?.takePictureAsync({
+          base64: true,
+          quality: 0.7,
+          shutterSound: false,
+        })) ?? null;
+      // Captures can transiently fail (e.g. right after the custom scan
+      // pictureSize is applied, or under camera-session pressure); this is
+      // the one capture that must not give up on the first hiccup.
+      let photo = await captureFinalPhoto().catch(() => null);
+      if (!photo?.uri) photo = await captureFinalPhoto();
       if (!photo?.uri) throw new Error("Failed to capture photo.");
 
       setIsFrozenStamped(false);
@@ -789,7 +873,13 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
             style={styles.camera}
             facing="front"
             animateShutter={false}
-            onCameraReady={() => setCameraReady(true)}
+            // One fixed size for the whole session — fast captures for
+            // blink sampling, still big enough for the final watermarked
+            // photo, and never switched mid-session (each switch would
+            // reconfigure the camera, and captures fail during that window
+            // on slower devices).
+            pictureSize={scanPictureSize ?? undefined}
+            onCameraReady={handleCameraReady}
           >
             <View style={styles.stageOverlay}>
               <View style={styles.overlayHeader}>
