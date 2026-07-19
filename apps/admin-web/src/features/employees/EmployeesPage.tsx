@@ -707,21 +707,7 @@ function EditEmployeeModal({
               ))}
             </select>
           </label>
-        </div>
-
-        <div className="employee-form-grid">
-          <label>
-            Solo Parent Status
-            <select value={form.soloParentStatus} onChange={updateField("soloParentStatus")}>
-              <option value="NOT_APPLICABLE">Not Applicable</option>
-              <option value="ELIGIBLE">Eligible</option>
-              <option value="INELIGIBLE">Ineligible</option>
-            </select>
-          </label>
-        </div>
-
-        {genderLeaveLabel && (isAllocationLoading || genderLeaveTypeId) && (
-          <div className="employee-form-grid">
+          {genderLeaveLabel && (isAllocationLoading || genderLeaveTypeId) && (
             <label>
               {genderLeaveLabel}
               <input
@@ -734,8 +720,19 @@ function EditEmployeeModal({
                 disabled={isAllocationLoading}
               />
             </label>
-          </div>
-        )}
+          )}
+        </div>
+
+        <div className="employee-form-grid">
+          <label>
+            Solo Parent Status
+            <select value={form.soloParentStatus} onChange={updateField("soloParentStatus")}>
+              <option value="NOT_APPLICABLE">Not Applicable</option>
+              <option value="ELIGIBLE">Eligible</option>
+              <option value="INELIGIBLE">Ineligible</option>
+            </select>
+          </label>
+        </div>
 
         {adminGrantTypes.length > 0 && (
           <div className="employee-leave-grants">
