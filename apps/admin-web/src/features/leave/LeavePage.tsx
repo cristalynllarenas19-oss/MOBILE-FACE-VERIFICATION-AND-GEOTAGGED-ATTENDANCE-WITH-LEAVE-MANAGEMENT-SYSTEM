@@ -1,5 +1,6 @@
 // pages/leave/LeavePage.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -118,6 +119,15 @@ type DirectoryEmployee = {
   lastName: string;
   employmentStatus: EmploymentStatus;
   department?: { name: string } | null;
+  position?: { title: string } | null;
+};
+
+type ClassificationBalanceRow = {
+  employeeId: string;
+  totalEarnedDays: number;
+  totalUsedDays: number;
+  totalRemainingDays: number;
+  balances: { leaveTypeId: string; leaveTypeName: string; earnedDays: number; usedDays: number; remainingDays: number }[];
 };
 
 type Notification = { type: "success" | "error"; message: string } | null;
@@ -208,11 +218,13 @@ const EMPLOYMENT_STATUS_COLORS: Record<EmploymentStatus, string> = {
   SEPARATED: "#94a3b8",
 };
 
+// Same 3 classifications the Overview donut cards represent — SEPARATED is
+// deliberately excluded, matching getSummary/getByClassification's default
+// scope (separated employees aren't tracked here).
 const EMPLOYMENT_STATUS_OPTIONS = [
   { value: "REGULAR", label: "Regular Employee" },
   { value: "CONTRACTUAL_SEASONAL", label: "Contractual Employee (Seasonal)" },
   { value: "PIECE_RATE", label: "Piece-rate (Pakyawan) Worker" },
-  { value: "SEPARATED", label: "Separated" },
 ];
 
 // ─── Donut chart (plain SVG, no chart library) ───────────────────────────────
@@ -224,6 +236,8 @@ function LeaveStatusDonut({
   remainingDays,
   employeeCount,
   leaveTypeRows,
+  isActive,
+  onSelect,
 }: {
   employmentStatus: EmploymentStatus;
   earnedDays: number;
@@ -231,6 +245,8 @@ function LeaveStatusDonut({
   remainingDays: number;
   employeeCount: number;
   leaveTypeRows: { leaveTypeId: string; leaveTypeName: string; remainingDays: number }[];
+  isActive?: boolean;
+  onSelect?: (employmentStatus: EmploymentStatus) => void;
 }) {
   const size = 132;
   const stroke = 16;
@@ -253,7 +269,18 @@ function LeaveStatusDonut({
   }, [showTypes]);
 
   return (
-    <div className="leave-donut-card">
+    <div
+      className={`leave-donut-card${onSelect ? " clickable" : ""}${isActive ? " active" : ""}`}
+      role={onSelect ? "button" : undefined}
+      tabIndex={onSelect ? 0 : undefined}
+      onClick={() => onSelect?.(employmentStatus)}
+      onKeyDown={(e) => {
+        if (onSelect && (e.key === "Enter" || e.key === " ")) {
+          e.preventDefault();
+          onSelect(employmentStatus);
+        }
+      }}
+    >
       <div className="leave-donut-svg-wrap">
         <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
           <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#eef2f7" strokeWidth={stroke} />
@@ -278,13 +305,16 @@ function LeaveStatusDonut({
           <button
             type="button"
             className="leave-donut-types-trigger"
-            onClick={() => setShowTypes((prev) => !prev)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowTypes((prev) => !prev);
+            }}
           >
             All Leave Types
             <ChevronDown size={11} className={`leave-donut-types-chevron${showTypes ? " open" : ""}`} />
           </button>
           {showTypes && (
-            <div className="leave-donut-types-menu">
+            <div className="leave-donut-types-menu" onClick={(e) => e.stopPropagation()}>
               {leaveTypeRows.map((row) => (
                 <div key={row.leaveTypeId} className="leave-donut-type-row">
                   <span className="leave-donut-type-name">{row.leaveTypeName}</span>
@@ -386,108 +416,106 @@ function EmployeeLeaveTypeRow({
   );
 }
 
+// ─── "View" button on the classification drill-down list ────────────────────
+// Opens a modal (portal to document.body, same leave-modal-backdrop pattern
+// as the Leave Request review modal below) reproducing the same summary —
+// donut, total balance, per-type progress-bar rows — as the full-page
+// single-employee detail view, so it reads as an extension of that same
+// design instead of a different UI, while staying on the list underneath.
 
-function EmployeeBalanceSearch({
-  employees,
-  selected,
-  onSelect,
-  openTrigger,
+function EmployeeListViewButton({
+  employee,
+  totalEarnedDays,
+  totalUsedDays,
+  totalRemainingDays,
+  balances,
+  year,
 }: {
-  employees: DirectoryEmployee[];
-  selected: DirectoryEmployee | null;
-  onSelect: (employee: DirectoryEmployee | null) => void;
-  openTrigger?: string;
+  employee: DirectoryEmployee;
+  totalEarnedDays: number;
+  totalUsedDays: number;
+  totalRemainingDays: number;
+  balances: { leaveTypeId: string; leaveTypeName: string; earnedDays: number; usedDays: number; remainingDays: number }[];
+  year: number;
 }) {
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const shellRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    function handleClickOutside(event: MouseEvent) {
-      if (shellRef.current && !shellRef.current.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [open]);
-
-  
-  const previousOpenTrigger = useRef(openTrigger);
-  useEffect(() => {
-    if (openTrigger === undefined || openTrigger === previousOpenTrigger.current) return;
-    previousOpenTrigger.current = openTrigger;
-    setOpen(true);
-  }, [openTrigger]);
-
-  const matches = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return employees;
-    return employees.filter(
-      (e) =>
-        `${e.firstName} ${e.lastName}`.toLowerCase().includes(q) ||
-        e.employeeNo.toLowerCase().includes(q)
-    );
-  }, [employees, query]);
-
-  const displayValue = open ? query : selected ? `${selected.firstName} ${selected.lastName} · ${selected.employeeNo}` : query;
-  const showClear = Boolean(selected || query);
 
   return (
-    <div className="employee-balance-search-shell" ref={shellRef}>
-      <div className="leave-search employee-balance-search">
-        <Search size={14} />
-        <input
-          type="text"
-          value={displayValue}
-          onFocus={() => setOpen(true)}
-          onChange={(event) => {
-            setQuery(event.target.value);
-            setOpen(true);
-          }}
-          placeholder="Search employee"
-          aria-label="Search employee for leave balance lookup"
-        />
-        {showClear && (
-          <button
-            type="button"
-            className="employee-balance-clear"
-            onClick={() => {
-              onSelect(null);
-              setQuery("");
-              setOpen(false);
-            }}
-            aria-label="Clear employee search"
-          >
-            <X size={14} />
-          </button>
+    <>
+      <button type="button" className="leave-view-button" onClick={() => setOpen(true)}>
+        View
+      </button>
+      {open &&
+        createPortal(
+          <div className="leave-modal-backdrop" role="presentation">
+            <section
+              className="leave-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="employee-balance-modal-title"
+            >
+              <div className="leave-modal-header">
+                <div>
+                  <h2 id="employee-balance-modal-title">
+                    {employee.firstName} {employee.lastName}
+                  </h2>
+                  <p>
+                    {employee.employeeNo} · {formatEmploymentStatus(employee.employmentStatus)} · {year}
+                  </p>
+                </div>
+                <button className="icon-button" onClick={() => setOpen(false)} aria-label="Close">
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="employee-balance-modal-body">
+                {balances.length === 0 ? (
+                  <p className="leave-summary-empty">No leave balance records for this employee.</p>
+                ) : (
+                  <>
+                    <div className="employee-summary-row">
+                      <EmployeeSummaryDonut
+                        earnedDays={totalEarnedDays}
+                        usedDays={totalUsedDays}
+                        remainingDays={totalRemainingDays}
+                      />
+
+                      <div className="employee-summary-info">
+                        <strong>{employee.firstName} {employee.lastName}</strong>
+                        <span>{employee.employeeNo} · {formatEmploymentStatus(employee.employmentStatus)}</span>
+                      </div>
+
+                      <div className="employee-summary-total">
+                        <span>Total Balance</span>
+                        <strong>{totalRemainingDays.toFixed(0)}/{totalEarnedDays.toFixed(0)}</strong>
+                        <span className="employee-summary-badge">
+                          <span className="employee-summary-badge-dot" />
+                          {formatEmploymentStatus(employee.employmentStatus)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <p className="employee-summary-caption">{employee.firstName.toUpperCase()}'S BALANCE</p>
+
+                    <div className="employee-leave-row-list">
+                      {balances.map((b) => (
+                        <EmployeeLeaveTypeRow
+                          key={b.leaveTypeId}
+                          label={b.leaveTypeName}
+                          earnedDays={b.earnedDays}
+                          usedDays={b.usedDays}
+                          remainingDays={b.remainingDays}
+                        />
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            </section>
+          </div>,
+          document.body,
         )}
-      </div>
-      {open && (
-        <div className="employee-balance-menu">
-          {matches.length === 0 ? (
-            <p className="employee-balance-no-matches">No employees match this search.</p>
-          ) : (
-            matches.map((employee) => (
-              <button
-                type="button"
-                key={employee.id}
-                className={`employee-balance-option ${selected?.id === employee.id ? "active" : ""}`}
-                onClick={() => {
-                  onSelect(employee);
-                  setQuery("");
-                  setOpen(false);
-                }}
-              >
-                <strong>{employee.firstName} {employee.lastName}</strong>
-                <small>{formatEmploymentStatus(employee.employmentStatus)}</small>
-              </button>
-            ))
-          )}
-        </div>
-      )}
-    </div>
+    </>
   );
 }
 
@@ -722,10 +750,17 @@ export function LeavePage({
 
   const [summaryYear, setSummaryYear]   = useState(new Date().getFullYear());
 
-  const [balanceEmployee, setBalanceEmployee]           = useState<DirectoryEmployee | null>(null);
-  const [employeeBalances, setEmployeeBalances]         = useState<LeaveBalance[] | null>(null);
   const [monitorClassification, setMonitorClassification] = useState("ALL");
-  const [searchClearKey, setSearchClearKey]             = useState(0);
+
+  // Drill-down list (classification card -> table of every employee in it).
+  // "View" on a row opens EmployeeListViewButton's own modal for that
+  // employee's full balance breakdown — see that component.
+  const [showEmployeeList, setShowEmployeeList] = useState(false);
+  const [listSearch, setListSearch] = useState("");
+  const [listSort, setListSort] = useState<{ key: "name" | "remaining"; dir: "asc" | "desc" }>({
+    key: "name",
+    dir: "asc",
+  });
 
   const requestsCache = useCachedData<LeaveRequest[]>("admin-leave-requests", () =>
     apiRequest<LeaveRequest[]>("/leave-requests"),
@@ -752,6 +787,21 @@ export function LeavePage({
     apiRequest<DirectoryEmployee[]>("/employees"),
   );
   const directory = directoryCache.data ?? [];
+
+  // Per-employee balance rows for the classification drill-down list — keyed
+  // by year + classification so switching either automatically refetches
+  // (new hires/classification changes/balance updates all show up with no
+  // code change). Only fetched while the list is actually open.
+  const classificationBalancesCache = useCachedData<ClassificationBalanceRow[]>(
+    showEmployeeList ? `leave-balances-by-classification:${summaryYear}:${monitorClassification}` : null,
+    () =>
+      apiRequest<ClassificationBalanceRow[]>(
+        `/leave-balances/by-classification?year=${summaryYear}${
+          monitorClassification === "ALL" ? "" : `&employmentStatus=${monitorClassification}`
+        }`,
+      ),
+  );
+  const classificationBalances = classificationBalancesCache.data ?? [];
 
   // Arrived here from a clicked Leave notification — open that request's
   // review modal directly once it shows up in the loaded list, same as
@@ -790,18 +840,6 @@ export function LeavePage({
       }
     }
   }, [reviewRequest]);
-
-  const loadEmployeeBalances = () => {
-    if (!balanceEmployee) {
-      setEmployeeBalances(null);
-      return;
-    }
-    apiRequest<LeaveBalance[]>(`/leave-balances/${balanceEmployee.id}?year=${summaryYear}`)
-      .then(setEmployeeBalances)
-      .catch(() => setEmployeeBalances(null));
-  };
-
-  useEffect(loadEmployeeBalances, [balanceEmployee, summaryYear]);
 
   useEffect(() => {
     if (!notification) return;
@@ -932,43 +970,49 @@ export function LeavePage({
     return map;
   }, [summary]);
 
-  const directoryForSearch = useMemo(
-    () =>
-      monitorClassification === "ALL"
-        ? directory
-        : directory.filter((employee) => employee.employmentStatus === monitorClassification),
-    [directory, monitorClassification]
-  );
-
-  // Admin-grant-only types (Solo Parent, Study Leave, Added Paternity Leave)
-  // the selected employee hasn't been granted yet shouldn't clutter their
-  // balance list with a 0/0 row — the "Grant Leave Type" checkboxes on Edit
-  // Employee are where those get turned on.
-  const visibleEmployeeBalances = useMemo(() => {
-    return (employeeBalances ?? []).filter((b) => {
-      const type = leaveTypes.find((t) => t.id === b.leaveTypeId);
-      if (type?.requiresAdminGrant && b.earnedDays <= 0) return false;
-      return true;
-    });
-  }, [employeeBalances, leaveTypes]);
-
-  const employeeTotals = useMemo(() => {
-    const rows = employeeBalances ?? [];
-    return rows.reduce(
-      (acc, row) => ({
-        earnedDays: acc.earnedDays + row.earnedDays,
-        usedDays: acc.usedDays + row.usedDays,
-        remainingDays: acc.remainingDays + row.remainingDays,
-      }),
-      { earnedDays: 0, usedDays: 0, remainingDays: 0 }
-    );
-  }, [employeeBalances]);
-
-  const closeEmployeeDetail = () => {
-    setBalanceEmployee(null);
-    setMonitorClassification("ALL");
-    setSearchClearKey((k) => k + 1);
+  const openClassificationList = (employmentStatus: EmploymentStatus) => {
+    setMonitorClassification(employmentStatus);
+    setShowEmployeeList(true);
   };
+
+  const closeClassificationList = () => {
+    setShowEmployeeList(false);
+    setMonitorClassification("ALL");
+    setListSearch("");
+  };
+
+  function toggleListSort(key: "name" | "remaining") {
+    setListSort((current) =>
+      current.key === key ? { key, dir: current.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" },
+    );
+  }
+
+  const classificationListRows = useMemo(() => {
+    const directoryById = new Map(directory.map((e) => [e.id, e]));
+    const query = listSearch.trim().toLowerCase();
+
+    const rows = classificationBalances
+      .map((row) => {
+        const employee = directoryById.get(row.employeeId);
+        return employee ? { ...row, employee } : null;
+      })
+      .filter((row): row is ClassificationBalanceRow & { employee: DirectoryEmployee } => row !== null)
+      .filter((row) => {
+        if (!query) return true;
+        const name = `${row.employee.firstName} ${row.employee.lastName}`.toLowerCase();
+        return name.includes(query) || row.employee.employeeNo.toLowerCase().includes(query);
+      });
+
+    const dir = listSort.dir === "asc" ? 1 : -1;
+    rows.sort((a, b) => {
+      if (listSort.key === "remaining") return (a.totalRemainingDays - b.totalRemainingDays) * dir;
+      const nameA = `${a.employee.firstName} ${a.employee.lastName}`;
+      const nameB = `${b.employee.firstName} ${b.employee.lastName}`;
+      return nameA.localeCompare(nameB) * dir;
+    });
+
+    return rows;
+  }, [classificationBalances, directory, listSearch, listSort]);
 
   const reviewLeave = async (action: "approve" | "reject") => {
     if (!reviewRequest) return;
@@ -1050,90 +1094,94 @@ export function LeavePage({
             <p>Earned vs. used leave credits grouped by employment classification.</p>
           </div>
           <div className="leave-summary-controls">
-            <EmployeeBalanceSearch
-              key={searchClearKey}
-              employees={directoryForSearch}
-              selected={balanceEmployee}
-              onSelect={setBalanceEmployee}
-              openTrigger={monitorClassification}
-            />
             <DropdownFilter
               className="leave-select"
               value={monitorClassification}
-              onChange={setMonitorClassification}
+              onChange={(value) => {
+                setMonitorClassification(value);
+                setShowEmployeeList(true);
+              }}
               options={EMPLOYMENT_STATUS_OPTIONS}
               allLabel="All Classifications"
               menuLabel="Filter by employment classification"
-              ariaLabel="Filter employee search by classification"
+              ariaLabel="Filter employee list by classification"
             />
             <YearCalendarPicker value={summaryYear} onChange={setSummaryYear} />
           </div>
         </div>
 
-        {balanceEmployee ? (
-          <div className="employee-detail-section">
-            <button type="button" className="employee-detail-back" onClick={closeEmployeeDetail}>
-              <ArrowLeft size={16} />
-              Back to Leave Balances
-            </button>
-
+        {showEmployeeList ? (
+          <div className="employee-list-section">
             <div className="employee-detail-context-row">
-              <p className="employee-detail-context">
-                {balanceEmployee.firstName} {balanceEmployee.lastName} · {balanceEmployee.employeeNo} ·{" "}
-                {formatEmploymentStatus(balanceEmployee.employmentStatus)} · {summaryYear}
-              </p>
-              <button
-                type="button"
-                className="employee-detail-close"
-                onClick={closeEmployeeDetail}
-                aria-label="Close employee leave detail"
-              >
-                <X size={16} />
+              <button type="button" className="employee-detail-back" onClick={closeClassificationList}>
+                <ArrowLeft size={16} />
+                Back to Leave Balances Overview
               </button>
+              <p className="employee-detail-context">
+                {monitorClassification === "ALL" ? "All Classifications" : formatEmploymentStatus(monitorClassification as EmploymentStatus)}
+                {" "}· {classificationListRows.length} {classificationListRows.length === 1 ? "employee" : "employees"} · {summaryYear}
+              </p>
             </div>
 
-            {!employeeBalances ? (
-              <p className="leave-summary-empty">Loading leave balance…</p>
-            ) : visibleEmployeeBalances.length === 0 ? (
-              <p className="leave-summary-empty">No leave balance records for this employee.</p>
+            <div className="employee-list-toolbar">
+              <div className="leave-search employee-list-search">
+                <Search size={14} />
+                <input
+                  type="text"
+                  value={listSearch}
+                  onChange={(e) => setListSearch(e.target.value)}
+                  placeholder="Search within this classification…"
+                  aria-label="Search employees in the selected classification"
+                />
+              </div>
+            </div>
+
+            {!classificationBalancesCache.data ? (
+              <p className="leave-summary-empty">Loading employee balances…</p>
+            ) : classificationListRows.length === 0 ? (
+              <p className="leave-summary-empty">No employees match this filter.</p>
             ) : (
-              <>
-                <div className="employee-summary-row">
-                  <EmployeeSummaryDonut
-                    earnedDays={employeeTotals.earnedDays}
-                    usedDays={employeeTotals.usedDays}
-                    remainingDays={employeeTotals.remainingDays}
-                  />
-
-                  <div className="employee-summary-info">
-                    <strong>{balanceEmployee.firstName} {balanceEmployee.lastName}</strong>
-                    <span>{balanceEmployee.employeeNo} · {formatEmploymentStatus(balanceEmployee.employmentStatus)}</span>
-                  </div>
-
-                  <div className="employee-summary-total">
-                    <span>Total Balance</span>
-                    <strong>{employeeTotals.remainingDays.toFixed(0)}/{employeeTotals.earnedDays.toFixed(0)}</strong>
-                    <span className="employee-summary-badge">
-                      <span className="employee-summary-badge-dot" />
-                      {formatEmploymentStatus(balanceEmployee.employmentStatus)}
-                    </span>
-                  </div>
-                </div>
-
-                <p className="employee-summary-caption">{balanceEmployee.firstName.toUpperCase()}'S BALANCE</p>
-
-                <div className="employee-leave-row-list">
-                  {visibleEmployeeBalances.map((b) => (
-                    <EmployeeLeaveTypeRow
-                      key={b.leaveTypeId}
-                      label={b.leaveTypeName}
-                      earnedDays={b.earnedDays}
-                      usedDays={b.usedDays}
-                      remainingDays={b.remainingDays}
-                    />
-                  ))}
-                </div>
-              </>
+              <div className="leave-table-card">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>
+                        <button type="button" className="employee-list-sort-th" onClick={() => toggleListSort("name")}>
+                          Name {listSort.key === "name" ? (listSort.dir === "asc" ? "▲" : "▼") : ""}
+                        </button>
+                      </th>
+                      <th>Employee No.</th>
+                      <th>Position</th>
+                      <th>
+                        <button type="button" className="employee-list-sort-th" onClick={() => toggleListSort("remaining")}>
+                          Total Remaining {listSort.key === "remaining" ? (listSort.dir === "asc" ? "▲" : "▼") : ""}
+                        </button>
+                      </th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {classificationListRows.map((row) => (
+                      <tr key={row.employeeId}>
+                        <td data-label="Name">{row.employee.firstName} {row.employee.lastName}</td>
+                        <td data-label="Employee No.">{row.employee.employeeNo}</td>
+                        <td data-label="Position">{row.employee.position?.title ?? "—"}</td>
+                        <td data-label="Total Remaining">{row.totalRemainingDays.toFixed(0)}</td>
+                        <td data-label="Action">
+                          <EmployeeListViewButton
+                            employee={row.employee}
+                            totalEarnedDays={row.totalEarnedDays}
+                            totalUsedDays={row.totalUsedDays}
+                            totalRemainingDays={row.totalRemainingDays}
+                            balances={row.balances}
+                            year={summaryYear}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
         ) : !summary || summary.byEmploymentStatus.length === 0 ? (
@@ -1149,6 +1197,8 @@ export function LeavePage({
                   remainingDays={row.remainingDays}
                   employeeCount={row.employeeCount}
                   leaveTypeRows={leaveTypeRowsByStatus.get(row.employmentStatus) ?? []}
+                  isActive={monitorClassification === row.employmentStatus}
+                  onSelect={openClassificationList}
                 />
               </div>
             ))}

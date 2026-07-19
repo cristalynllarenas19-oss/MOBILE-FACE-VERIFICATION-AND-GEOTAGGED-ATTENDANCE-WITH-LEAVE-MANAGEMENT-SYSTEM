@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Post, Query, Req } from "@nestjs/common";
+import { EmploymentStatus } from "@prisma/client";
 import { IsNumber, IsOptional, IsString, Min } from "class-validator";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
 import { LeaveBalancesService } from "./leave-balances.service";
@@ -26,6 +27,15 @@ export class LeaveBalancesController {
   getSummary(@Query("year") year?: string) {
     const resolvedYear = year ? Number(year) : new Date().getFullYear();
     return this.leaveBalancesService.getSummary(resolvedYear);
+  }
+
+  // Per-employee balance rows for the Leave Balances Overview's
+  // classification drill-down list — same route-ordering reason as
+  // "summary" above, must come before ":employeeId".
+  @Get("by-classification")
+  getByClassification(@Query("year") year?: string, @Query("employmentStatus") employmentStatus?: EmploymentStatus) {
+    const resolvedYear = year ? Number(year) : new Date().getFullYear();
+    return this.leaveBalancesService.getByClassification(resolvedYear, employmentStatus);
   }
 
   @Get(":employeeId")

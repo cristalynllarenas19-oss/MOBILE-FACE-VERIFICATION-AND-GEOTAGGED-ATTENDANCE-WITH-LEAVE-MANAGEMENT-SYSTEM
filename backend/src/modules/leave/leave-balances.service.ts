@@ -258,4 +258,73 @@ export class LeaveBalancesService {
 
     return { year, byEmploymentStatus, byLeaveType, byDepartment };
   }
+
+  // One row per employee (not aggregated) for the Leave Balances Overview's
+  // classification drill-down list — same 3-query, no-N+1 shape getSummary
+  // uses, and the same per-type resolution findForEmployee uses, so a row
+  // here always matches what that employee's own detail view (View button)
+  // shows. Omitting employmentStatus returns every non-separated employee.
+  async getByClassification(year: number, employmentStatus?: EmploymentStatus) {
+    await this.ensureAutoCreditedBalances(year);
+
+    const [employees, leaveTypes, balances] = await Promise.all([
+      this.prisma.employee.findMany({
+        where: { employmentStatus: employmentStatus ?? { not: "SEPARATED" } },
+        select: { id: true, employmentStatus: true, sex: true },
+      }),
+      this.prisma.leaveType.findMany({ orderBy: { name: "asc" } }),
+      this.prisma.leaveBalance.findMany({ where: { year } }),
+    ]);
+
+    const balanceLookup = new Map<string, { earnedDays: number; usedDays: number }>();
+    for (const b of balances) {
+      balanceLookup.set(`${b.employeeId}::${b.leaveTypeId}`, {
+        earnedDays: Number(b.earnedDays),
+        usedDays: Number(b.usedDays),
+      });
+    }
+
+    return employees.map((employee) => {
+      const applicableTypes = leaveTypes.filter(
+        (leaveType) =>
+          leaveType.applicableStatuses.includes(employee.employmentStatus) &&
+          isEligibleForLeaveType(leaveType.kind, employee.sex),
+      );
+
+      let totalEarnedDays = 0;
+      let totalUsedDays = 0;
+      // Only surfaced here when earnedDays > 0 — mirrors the same rule the
+      // Overview donut's "All Leave Types" popover already uses
+      // (leaveTypeRowsByStatus in LeavePage.tsx), so an ungranted
+      // admin-grant-only type doesn't clutter every row with a "0" entry.
+      // Totals below still sum every applicable type, granted or not.
+      const balancesForEmployee: { leaveTypeId: string; leaveTypeName: string; earnedDays: number; usedDays: number; remainingDays: number }[] = [];
+
+      for (const leaveType of applicableTypes) {
+        const existing = balanceLookup.get(`${employee.id}::${leaveType.id}`);
+        const earnedDays = existing ? existing.earnedDays : leaveType.requiresAdminGrant ? 0 : Number(leaveType.defaultDays);
+        const usedDays = existing ? existing.usedDays : 0;
+        totalEarnedDays += earnedDays;
+        totalUsedDays += usedDays;
+
+        if (earnedDays > 0) {
+          balancesForEmployee.push({
+            leaveTypeId: leaveType.id,
+            leaveTypeName: leaveType.name,
+            earnedDays,
+            usedDays,
+            remainingDays: Math.max(0, earnedDays - usedDays),
+          });
+        }
+      }
+
+      return {
+        employeeId: employee.id,
+        totalEarnedDays,
+        totalUsedDays,
+        totalRemainingDays: Math.max(0, totalEarnedDays - totalUsedDays),
+        balances: balancesForEmployee,
+      };
+    });
+  }
 }

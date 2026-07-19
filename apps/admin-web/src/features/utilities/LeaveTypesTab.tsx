@@ -7,7 +7,6 @@ import {
   Plus,
   RotateCcw,
   Search,
-  Trash2,
   X,
   Zap,
 } from "lucide-react";
@@ -286,31 +285,6 @@ export function LeaveTypesTab({
       confirmLabel: "Restore",
       tone: "primary",
       onConfirm: () => setStatus(type, true),
-    });
-  };
-
-  const deleteType = async (type: LeaveType) => {
-    try {
-      await apiRequest(`/leave-types/${type.id}`, { method: "DELETE" });
-      notify({ type: "success", message: `"${type.name}" leave type deleted.` });
-      setViewLeaveType(null);
-      loadLeaveTypes();
-    } catch (err) {
-      notify({
-        type: "error",
-        message: err instanceof Error ? err.message : "Unable to delete leave type.",
-      });
-    }
-  };
-
-  const requestDelete = (type: LeaveType) => {
-    setConfirmConfig({
-      title: `Delete "${type.name}"?`,
-      description:
-        "This permanently removes the leave type. Only possible when it has no leave requests or balances on record — otherwise, archive it instead.",
-      confirmLabel: "Delete",
-      tone: "danger",
-      onConfirm: () => deleteType(type),
     });
   };
 
@@ -728,9 +702,6 @@ export function LeaveTypesTab({
                   <RotateCcw size={13} /> Restore
                 </button>
               )}
-              <button className="utilities-archive-button" onClick={() => requestDelete(viewLeaveType)}>
-                <Trash2 size={13} /> Delete
-              </button>
               <button className="outline-button" onClick={() => setViewLeaveType(null)}>
                 Close
               </button>
