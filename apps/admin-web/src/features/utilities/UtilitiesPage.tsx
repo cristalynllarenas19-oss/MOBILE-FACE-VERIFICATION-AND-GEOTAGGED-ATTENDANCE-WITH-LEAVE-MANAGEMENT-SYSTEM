@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, CalendarClock, CheckCircle2, ClipboardList, History } from "lucide-react";
+import { AlertTriangle, Building2, CalendarClock, CheckCircle2, ClipboardList, History } from "lucide-react";
 import { PermissionCode, permissions } from "../../types/rbac";
 import { LeaveTypesTab } from "./LeaveTypesTab";
 import { ShiftsTab } from "./ShiftsTab";
 import { AuditLogsTab } from "./AuditLogsTab";
+import { DepartmentsTab } from "./DepartmentsTab";
 import "./UtilitiesPage.css";
 
 export type Notification = { type: "success" | "error"; message: string } | null;
-type UtilTab = "leave-types" | "shifts" | "audit-logs";
+type UtilTab = "leave-types" | "shifts" | "departments" | "audit-logs";
 
 export function UtilitiesPage({ user }: { user?: { permissions: PermissionCode[] } }) {
   const canManageShifts = user?.permissions.includes(permissions.schedulesWrite) ?? true;
@@ -36,6 +37,9 @@ export function UtilitiesPage({ user }: { user?: { permissions: PermissionCode[]
         <button className={tab === "shifts" ? "active" : ""} onClick={() => setTab("shifts")}>
           <CalendarClock size={14} /> Shifts
         </button>
+        <button className={tab === "departments" ? "active" : ""} onClick={() => setTab("departments")}>
+          <Building2 size={14} /> Departments
+        </button>
         <button className={tab === "audit-logs" ? "active" : ""} onClick={() => setTab("audit-logs")}>
           <History size={14} /> Audit Logs
         </button>
@@ -43,6 +47,7 @@ export function UtilitiesPage({ user }: { user?: { permissions: PermissionCode[]
 
       {tab === "leave-types" && <LeaveTypesTab notify={setNotification} />}
       {tab === "shifts" && <ShiftsTab canManageShifts={canManageShifts} notify={setNotification} />}
+      {tab === "departments" && <DepartmentsTab user={user} notify={setNotification} />}
       {tab === "audit-logs" && <AuditLogsTab notify={setNotification} />}
     </>
   );

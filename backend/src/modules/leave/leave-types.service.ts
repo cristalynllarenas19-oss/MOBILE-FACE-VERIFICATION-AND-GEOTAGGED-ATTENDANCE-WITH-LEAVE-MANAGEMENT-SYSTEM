@@ -1,5 +1,5 @@
 import { Injectable, ConflictException } from "@nestjs/common";
-import { EmploymentStatus } from "@prisma/client";
+import { EmploymentStatus, LeaveTypeKind } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 
 const ACTOR_SELECT = {
@@ -38,6 +38,7 @@ export class LeaveTypesService {
       isUnlimitedDays?: boolean;
       requiresAdminGrant?: boolean;
       isSingleDayOnly?: boolean;
+      kind?: LeaveTypeKind;
     },
     actorUserId?: string,
   ) {
@@ -65,6 +66,7 @@ export class LeaveTypesService {
         isUnlimitedDays: dto.isUnlimitedDays ?? false,
         requiresAdminGrant: dto.requiresAdminGrant ?? false,
         isSingleDayOnly: dto.isSingleDayOnly ?? false,
+        kind: dto.kind ?? "GENERAL",
         createdBy: actorUserId,
       },
     });
@@ -89,6 +91,7 @@ export class LeaveTypesService {
           isUnlimitedDays: created.isUnlimitedDays,
           requiresAdminGrant: created.requiresAdminGrant,
           isSingleDayOnly: created.isSingleDayOnly,
+          kind: created.kind,
         },
       },
     });
@@ -112,6 +115,7 @@ export class LeaveTypesService {
       isUnlimitedDays?: boolean;
       requiresAdminGrant?: boolean;
       isSingleDayOnly?: boolean;
+      kind?: LeaveTypeKind;
     },
     actorUserId?: string,
   ) {
@@ -142,6 +146,7 @@ export class LeaveTypesService {
         isUnlimitedDays: dto.isUnlimitedDays,
         requiresAdminGrant: dto.requiresAdminGrant,
         isSingleDayOnly: dto.isSingleDayOnly,
+        kind: dto.kind,
         updatedBy: actorUserId,
       },
       include: {
@@ -170,6 +175,7 @@ export class LeaveTypesService {
           isUnlimitedDays: existing.isUnlimitedDays,
           requiresAdminGrant: existing.requiresAdminGrant,
           isSingleDayOnly: existing.isSingleDayOnly,
+          kind: existing.kind,
         },
         newValues: {
           name: updated.name,
@@ -185,6 +191,7 @@ export class LeaveTypesService {
           isUnlimitedDays: updated.isUnlimitedDays,
           requiresAdminGrant: updated.requiresAdminGrant,
           isSingleDayOnly: updated.isSingleDayOnly,
+          kind: updated.kind,
         },
       },
     });
@@ -236,5 +243,33 @@ export class LeaveTypesService {
     });
 
     return updated;
+  }
+
+  async remove(id: string, actorUserId?: string) {
+    const existing = await this.prisma.leaveType.findUniqueOrThrow({ where: { id } });
+
+    const [requestCount, balanceCount] = await Promise.all([
+      this.prisma.leaveRequest.count({ where: { leaveTypeId: id } }),
+      this.prisma.leaveBalance.count({ where: { leaveTypeId: id } }),
+    ]);
+    if (requestCount > 0 || balanceCount > 0) {
+      throw new ConflictException(
+        `"${existing.name}" is in use and can't be deleted. Archive it instead.`,
+      );
+    }
+
+    await this.prisma.leaveType.delete({ where: { id } });
+
+    await this.prisma.auditLog.create({
+      data: {
+        actorUserId,
+        action: "DELETE_LEAVE_TYPE",
+        entityType: "LeaveType",
+        entityId: id,
+        oldValues: { name: existing.name },
+      },
+    });
+
+    return existing;
   }
 }

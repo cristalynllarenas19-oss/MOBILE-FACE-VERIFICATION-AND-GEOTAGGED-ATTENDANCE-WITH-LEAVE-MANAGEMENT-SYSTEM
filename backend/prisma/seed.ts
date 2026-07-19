@@ -16,6 +16,7 @@ const permissionRows = [
   ["leave:read", "Leave"],
   ["leave:write", "Leave"],
   ["leave:approve", "Leave"],
+  ["leave-types:write", "Leave Types"],
   ["schedules:read", "Schedules"],
   ["schedules:write", "Schedules"],
   ["reports:read", "Reports"],
@@ -69,11 +70,21 @@ async function upsertUser(email: string, password: string, roleCode: RoleCode, e
     create: { userId: user.id, roleId: role.id },
   });
 
-  return prisma.employee.upsert({
-    where: { employeeNo: employee.employeeNo },
-    update: { ...employee, userId: user.id },
-    create: { ...employee, userId: user.id },
-  });
+  // Keyed off userId (the true 1:1 anchor), not employeeNo — employeeNo gets
+  // renumbered to the real ULPI-XXXXX scheme once HR edits an employee
+  // through the app, so it no longer matches this seed's placeholder value.
+  // An already-provisioned employee is left untouched rather than
+  // re-synced: this is real, HR-edited data past first bootstrap, and
+  // overwriting department/position/hireDate/employeeNo with the seed's
+  // placeholders on every reseed would silently discard those edits.
+  // `isNew` lets main() gate the demo supervisor link / schedule / leave
+  // request / attendance record on "this account was just bootstrapped",
+  // so a reseed never fabricates records against an already-real employee.
+  const existingEmployee = await prisma.employee.findUnique({ where: { userId: user.id } });
+  if (existingEmployee) return { employee: existingEmployee, isNew: false };
+
+  const created = await prisma.employee.create({ data: { ...employee, userId: user.id } });
+  return { employee: created, isNew: true };
 }
 
 async function main() {
@@ -128,24 +139,24 @@ async function main() {
 
   await upsertUser("hradmin@universal-leaf.com", "password123", "ADMIN", {
     employeeNo: "UL-001",
-    firstName: "Maria",
-    lastName: "Santos",
+    firstName: "Cristalyn",
+    lastName: "Llarenas",
     departmentId: hr.id,
     positionId: hrPosition.id,
     hireDate: new Date("2021-01-15"),
   });
-  const supervisor = await upsertUser("supervisor@universal-leaf.com", "password123", "SUPERVISOR", {
+  const { employee: supervisor } = await upsertUser("supervisor@universal-leaf.com", "password123", "SUPERVISOR", {
     employeeNo: "UL-002",
-    firstName: "Juan",
-    lastName: "Dela Cruz",
+    firstName: "James",
+    lastName: "Higoy",
     departmentId: production.id,
     positionId: supervisorPosition.id,
     hireDate: new Date("2020-05-10"),
   });
-  const employee = await upsertUser("employee@universal-leaf.com", "password123", "EMPLOYEE", {
+  const { employee, isNew: isNewEmployee } = await upsertUser("employee@universal-leaf.com", "password123", "EMPLOYEE", {
     employeeNo: "UL-003",
-    firstName: "Ana",
-    lastName: "Reyes",
+    firstName: "Zean",
+    lastName: "Marquez",
     // Must match `supervisor`'s department (Production) — EmployeesService now
     // rejects a supervisorId whose department differs from the employee's,
     // and this employee/supervisor pairing exists specifically to demo that
@@ -154,61 +165,31 @@ async function main() {
     positionId: employeePosition.id,
     hireDate: new Date("2023-03-01"),
   });
-  await prisma.employee.update({ where: { id: employee.id }, data: { supervisorId: supervisor.id } });
+  // Only wire the demo supervisor link on first bootstrap — on an
+  // already-real employee this would silently overwrite a supervisor
+  // reassignment HR made since through the app.
+  if (isNewEmployee) {
+    await prisma.employee.update({ where: { id: employee.id }, data: { supervisorId: supervisor.id } });
+  }
 
   const allClassifications = ["REGULAR", "CONTRACTUAL_SEASONAL", "PIECE_RATE", "SEPARATED"] as const;
 
-  const leaveTypeSeeds = [
-    { name: "Sick Leave", defaultDays: 15, requiresDocument: true, supportingDocumentAfterDays: 2, isAutoCredited: true, isSingleDayOnly: true },
-    { name: "Emergency Leave", defaultDays: 5, requiresDocument: false, isAutoCredited: true, isSingleDayOnly: true },
-    { name: "Vacation Leave", defaultDays: 15, requiresDocument: false, isAutoCredited: true },
-    // Admin-grant-only: an employee applies to HR/Admin, who then grants this
-    // specific leave type (and day count) to that employee via the "Grant
-    // Leave Type" action on the Leave page — see LeaveBalancesService.grant.
-    // Until granted, the employee has 0 days of it.
-    { name: "Study Leave", defaultDays: 15, requiresDocument: true, requiresHrValidation: true, requiresAdminGrant: true },
-    { name: "Adverse Weather Leave", defaultDays: 0, requiresDocument: false, requiresEhsActivation: true, isUnlimitedDays: true },
-    { name: "Bereavement Leave", defaultDays: 5, requiresDocument: true },
-    { name: "Solo Parent Leave", defaultDays: 7, requiresDocument: true, requiresHrValidation: true, requiresAdminGrant: true },
-    { name: "Maternity Leave", defaultDays: 105, requiresDocument: true, requiresHrValidation: true },
-    { name: "Paternity Leave", defaultDays: 7, requiresDocument: false },
-    // The extra days a mother can transfer from her own Maternity Leave to
-    // the father (RA 11210) — the count is whatever she chooses to transfer,
-    // so it starts at 0 and HR sets it per grant.
-    { name: "Added Paternity Leave", defaultDays: 0, requiresDocument: true, requiresHrValidation: true, isTransferable: true, requiresAdminGrant: true },
-  ] as const;
-
-  for (const seedType of leaveTypeSeeds) {
-    await prisma.leaveType.upsert({
-      where: { name: seedType.name },
-      update: {},
-      create: {
-        name: seedType.name,
-        defaultDays: seedType.defaultDays,
-        requiresDocument: seedType.requiresDocument,
-        supportingDocumentAfterDays: "supportingDocumentAfterDays" in seedType ? seedType.supportingDocumentAfterDays : undefined,
-        requiresHrValidation: "requiresHrValidation" in seedType ? seedType.requiresHrValidation : false,
-        requiresEhsActivation: "requiresEhsActivation" in seedType ? seedType.requiresEhsActivation : false,
-        isUnlimitedDays: "isUnlimitedDays" in seedType ? seedType.isUnlimitedDays : false,
-        allowWithoutPay: false,
-        isAutoCredited: "isAutoCredited" in seedType ? seedType.isAutoCredited : false,
-        isTransferable: "isTransferable" in seedType ? seedType.isTransferable : false,
-        requiresAdminGrant: "requiresAdminGrant" in seedType ? seedType.requiresAdminGrant : false,
-        isSingleDayOnly: "isSingleDayOnly" in seedType ? seedType.isSingleDayOnly : false,
-        applicableStatuses: [...allClassifications],
-      },
-    });
-  }
-
-  // Leave Without Pay is retired — archive it (not delete) so any pre-existing
-  // DB that seeded it before this change loses employee-facing access to it
-  // while historical leave records/balances referencing it stay intact.
-  await prisma.leaveType.updateMany({
-    where: { name: "Leave Without Pay" },
-    data: { isActive: false },
+  // Leave Types are HR/Admin-managed business data from here on (Utilities ->
+  // Leave Types), not developer-seeded — this single row just keeps the page
+  // from being completely empty on first boot. HR adds everything else
+  // (Sick, Maternity, Paternity, etc.) themselves, picking each type's Kind
+  // (General/Maternity/Paternity) from the form.
+  const vacationLeave = await prisma.leaveType.upsert({
+    where: { name: "Vacation Leave" },
+    update: {},
+    create: {
+      name: "Vacation Leave",
+      defaultDays: 15,
+      requiresDocument: false,
+      isAutoCredited: true,
+      applicableStatuses: [...allClassifications],
+    },
   });
-
-  const sickLeave = await prisma.leaveType.findUniqueOrThrow({ where: { name: "Sick Leave" } });
   const regularShift = await prisma.shift.upsert({
     where: { id: "66666666-6666-4666-8666-666666666666" },
     update: { name: "Standard Shift", startTime: "08:00", endTime: "17:00", lateThresholdMinutes: 10 },
@@ -233,50 +214,56 @@ async function main() {
     },
   });
 
-  await prisma.employeeSchedule.upsert({
-    where: { id: "88888888-8888-4888-8888-888888888888" },
-    update: {},
-    create: {
-      id: "88888888-8888-4888-8888-888888888888",
-      employeeId: employee.id,
-      shiftId: regularShift.id,
-      startsOn: new Date("2026-06-01"),
-    },
-  });
+  // Demo schedule/leave-request/attendance-record only ever get fabricated
+  // for a brand-new bootstrap employee — attaching them to an already-real
+  // employee (isNewEmployee false) would plant a fake pending leave request
+  // and a fake attendance clock-in under a real person's name.
+  if (isNewEmployee) {
+    await prisma.employeeSchedule.upsert({
+      where: { id: "88888888-8888-4888-8888-888888888888" },
+      update: {},
+      create: {
+        id: "88888888-8888-4888-8888-888888888888",
+        employeeId: employee.id,
+        shiftId: regularShift.id,
+        startsOn: new Date("2026-06-01"),
+      },
+    });
 
-  await prisma.leaveRequest.upsert({
-    where: { id: "55555555-5555-4555-8555-555555555555" },
-    update: {},
-    create: {
-      id: "55555555-5555-4555-8555-555555555555",
-      employeeId: employee.id,
-      leaveTypeId: sickLeave.id,
-      startDate: new Date("2026-06-12"),
-      endDate: new Date("2026-06-12"),
-      totalDays: 1,
-      reason: "Medical appointment",
-    },
-  });
+    await prisma.leaveRequest.upsert({
+      where: { id: "55555555-5555-4555-8555-555555555555" },
+      update: {},
+      create: {
+        id: "55555555-5555-4555-8555-555555555555",
+        employeeId: employee.id,
+        leaveTypeId: vacationLeave.id,
+        startDate: new Date("2026-06-12"),
+        endDate: new Date("2026-06-12"),
+        totalDays: 1,
+        reason: "Family trip",
+      },
+    });
 
-  const today = new Date();
-  const attendanceDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  await prisma.attendanceRecord.upsert({
-    where: {
-      employeeId_attendanceDate_recordType_visitNumber: {
+    const today = new Date();
+    const attendanceDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    await prisma.attendanceRecord.upsert({
+      where: {
+        employeeId_attendanceDate_recordType_visitNumber: {
+          employeeId: employee.id,
+          attendanceDate,
+          recordType: "OFFICE",
+          visitNumber: 1,
+        },
+      },
+      update: {},
+      create: {
         employeeId: employee.id,
         attendanceDate,
-        recordType: "OFFICE",
-        visitNumber: 1,
+        timeInAt: new Date(),
+        status: "PRESENT",
       },
-    },
-    update: {},
-    create: {
-      employeeId: employee.id,
-      attendanceDate,
-      timeInAt: new Date(),
-      status: "PRESENT",
-    },
-  });
+    });
+  }
 }
 
 main()

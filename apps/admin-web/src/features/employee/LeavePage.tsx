@@ -297,7 +297,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
         attachmentName:     attachment?.name,
         attachmentMimeType: attachment?.mimeType,
         attachmentData:     attachment?.base64,
-        extensionRequested: selectedType?.name === "Maternity Leave" ? extensionRequested : undefined,
+        extensionRequested: selectedType?.kind === "MATERNITY" ? extensionRequested : undefined,
       });
       resetForm();
       await loadData();
@@ -618,7 +618,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
               }}
             />
 
-            {selectedType?.name === "Maternity Leave" && (
+            {selectedType?.kind === "MATERNITY" && (
               <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14, cursor: "pointer" }}>
                 <input
                   type="checkbox"

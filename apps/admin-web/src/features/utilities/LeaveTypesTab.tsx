@@ -7,6 +7,7 @@ import {
   Plus,
   RotateCcw,
   Search,
+  Trash2,
   X,
   Zap,
 } from "lucide-react";
@@ -17,6 +18,7 @@ import { apiRequest } from "../../lib/api";
 import type { Notification } from "./UtilitiesPage";
 
 type EmploymentStatus = "REGULAR" | "CONTRACTUAL_SEASONAL" | "PIECE_RATE" | "SEPARATED";
+type LeaveTypeKind = "GENERAL" | "MATERNITY" | "PATERNITY";
 
 type ActorRef = { email: string; employee?: { firstName: string; lastName: string } | null } | null;
 
@@ -37,11 +39,18 @@ type LeaveType = {
   isUnlimitedDays: boolean;
   requiresAdminGrant: boolean;
   isSingleDayOnly: boolean;
+  kind: LeaveTypeKind;
   createdAt: string;
   updatedAt: string;
   createdByUser?: ActorRef;
   updatedByUser?: ActorRef;
 };
+
+const LEAVE_TYPE_KIND_OPTIONS: { value: LeaveTypeKind; label: string }[] = [
+  { value: "GENERAL", label: "General" },
+  { value: "MATERNITY", label: "Maternity" },
+  { value: "PATERNITY", label: "Paternity" },
+];
 
 const EMPLOYMENT_STATUS_OPTIONS: { value: EmploymentStatus; label: string }[] = [
   { value: "REGULAR", label: "Regular Employee" },
@@ -87,6 +96,9 @@ const emptyForm = {
   isUnlimitedDays: false,
   requiresAdminGrant: false,
   isSingleDayOnly: false,
+  isAutoCredited: false,
+  isTransferable: false,
+  kind: "GENERAL" as LeaveTypeKind,
 };
 
 export function LeaveTypesTab({
@@ -158,6 +170,9 @@ export function LeaveTypesTab({
       isUnlimitedDays: type.isUnlimitedDays,
       requiresAdminGrant: type.requiresAdminGrant,
       isSingleDayOnly: type.isSingleDayOnly,
+      isAutoCredited: type.isAutoCredited,
+      isTransferable: type.isTransferable,
+      kind: type.kind,
     });
     setNameError(null);
     setViewLeaveType(null);
@@ -189,6 +204,9 @@ export function LeaveTypesTab({
         isUnlimitedDays: form.isUnlimitedDays,
         requiresAdminGrant: form.requiresAdminGrant,
         isSingleDayOnly: form.isSingleDayOnly,
+        isAutoCredited: form.isAutoCredited,
+        isTransferable: form.isTransferable,
+        kind: form.kind,
       };
 
       if (formMode === "create") {
@@ -268,6 +286,31 @@ export function LeaveTypesTab({
       confirmLabel: "Restore",
       tone: "primary",
       onConfirm: () => setStatus(type, true),
+    });
+  };
+
+  const deleteType = async (type: LeaveType) => {
+    try {
+      await apiRequest(`/leave-types/${type.id}`, { method: "DELETE" });
+      notify({ type: "success", message: `"${type.name}" leave type deleted.` });
+      setViewLeaveType(null);
+      loadLeaveTypes();
+    } catch (err) {
+      notify({
+        type: "error",
+        message: err instanceof Error ? err.message : "Unable to delete leave type.",
+      });
+    }
+  };
+
+  const requestDelete = (type: LeaveType) => {
+    setConfirmConfig({
+      title: `Delete "${type.name}"?`,
+      description:
+        "This permanently removes the leave type. Only possible when it has no leave requests or balances on record — otherwise, archive it instead.",
+      confirmLabel: "Delete",
+      tone: "danger",
+      onConfirm: () => deleteType(type),
     });
   };
 
@@ -394,6 +437,29 @@ export function LeaveTypesTab({
               </label>
 
               <div className="utilities-field">
+                <span className="utilities-field-label">Leave Kind</span>
+                <div className="utilities-segmented">
+                  {LEAVE_TYPE_KIND_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={form.kind === option.value ? "active" : ""}
+                      onClick={() => setForm((c) => ({ ...c, kind: option.value }))}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+                {form.kind !== "GENERAL" && (
+                  <span className="utilities-field-hint">
+                    {form.kind === "MATERNITY"
+                      ? "Restricted to female employees; new female hires are auto-enrolled here."
+                      : "Restricted to male employees; new male hires are auto-enrolled here."}
+                  </span>
+                )}
+              </div>
+
+              <div className="utilities-field">
                 <span className="utilities-field-label">Applicable Classifications</span>
                 <div className="utilities-classification-options">
                   <label className="utilities-checkbox utilities-checkbox--locked">
@@ -507,6 +573,24 @@ export function LeaveTypesTab({
                 />
                 <span>Single day only (each request is automatically 1 day, no date range)</span>
               </label>
+
+              <label className="utilities-checkbox">
+                <input
+                  type="checkbox"
+                  checked={form.isAutoCredited}
+                  onChange={(e) => setForm((c) => ({ ...c, isAutoCredited: e.target.checked }))}
+                />
+                <span>Auto-credited (every eligible regular employee gets this balance automatically each year)</span>
+              </label>
+
+              <label className="utilities-checkbox">
+                <input
+                  type="checkbox"
+                  checked={form.isTransferable}
+                  onChange={(e) => setForm((c) => ({ ...c, isTransferable: e.target.checked }))}
+                />
+                <span>Transferable (days can be transferred from another employee's leave, e.g. Added Paternity Leave)</span>
+              </label>
             </div>
 
             <div className="utilities-modal-actions">
@@ -546,8 +630,26 @@ export function LeaveTypesTab({
                   <strong>{formatDefaultDays(viewLeaveType)}</strong>
                 </div>
                 <div>
+                  <span>Leave Kind</span>
+                  <Badge tone={viewLeaveType.kind === "GENERAL" ? "neutral" : "warning"}>
+                    {LEAVE_TYPE_KIND_OPTIONS.find((o) => o.value === viewLeaveType.kind)?.label ?? viewLeaveType.kind}
+                  </Badge>
+                </div>
+                <div>
                   <span>Applicable Classifications</span>
                   <strong>{viewLeaveType.applicableStatuses.map(formatEmploymentStatus).join(", ")}</strong>
+                </div>
+                <div>
+                  <span>Auto-Credited</span>
+                  <Badge tone={viewLeaveType.isAutoCredited ? "success" : "neutral"}>
+                    {viewLeaveType.isAutoCredited ? "Yes" : "No"}
+                  </Badge>
+                </div>
+                <div>
+                  <span>Transferable</span>
+                  <Badge tone={viewLeaveType.isTransferable ? "warning" : "neutral"}>
+                    {viewLeaveType.isTransferable ? "Yes" : "No"}
+                  </Badge>
                 </div>
                 <div>
                   <span>Requires Document</span>
@@ -626,6 +728,9 @@ export function LeaveTypesTab({
                   <RotateCcw size={13} /> Restore
                 </button>
               )}
+              <button className="utilities-archive-button" onClick={() => requestDelete(viewLeaveType)}>
+                <Trash2 size={13} /> Delete
+              </button>
               <button className="outline-button" onClick={() => setViewLeaveType(null)}>
                 Close
               </button>

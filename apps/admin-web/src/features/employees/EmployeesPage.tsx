@@ -441,6 +441,10 @@ function EditEmployeeModal({
   }, [isModeLocked, departmentMode]);
   const [leaveAllocation, setLeaveAllocation] = useState("");
   const [isAllocationLoading, setIsAllocationLoading] = useState(false);
+  // id of whichever leave type is Maternity/Paternity-kind for this
+  // employee's sex — null until HR has created one (Utilities -> Leave
+  // Types), in which case the allocation field stays hidden.
+  const [genderLeaveTypeId, setGenderLeaveTypeId] = useState<string | null>(null);
 
   // Admin-grant-only leave types (Solo Parent, Study Leave, Added Paternity
   // Leave) — checking one here grants that type's default day allotment to
@@ -464,12 +468,17 @@ function EditEmployeeModal({
 
   useEffect(() => {
     if (!employee.sex) return;
-    const leaveTypeName = employee.sex === "MALE" ? "Paternity Leave" : "Maternity Leave";
+    const wantedKind = employee.sex === "MALE" ? "PATERNITY" : "MATERNITY";
 
     setIsAllocationLoading(true);
-    apiRequest<{ leaveTypeName: string; earnedDays: number }[]>(`/leave-balances/${employee.id}`)
-      .then((balances) => {
-        const match = balances.find((balance) => balance.leaveTypeName === leaveTypeName);
+    Promise.all([
+      apiRequest<{ id: string; isActive: boolean; kind: "GENERAL" | "MATERNITY" | "PATERNITY" }[]>("/leave-types"),
+      apiRequest<{ leaveTypeId: string; earnedDays: number }[]>(`/leave-balances/${employee.id}`),
+    ])
+      .then(([types, balances]) => {
+        const genderType = types.find((t) => t.kind === wantedKind && t.isActive) ?? null;
+        setGenderLeaveTypeId(genderType?.id ?? null);
+        const match = genderType ? balances.find((b) => b.leaveTypeId === genderType.id) : undefined;
         setLeaveAllocation(match ? String(match.earnedDays) : "");
       })
       .catch(() => undefined)
@@ -479,19 +488,19 @@ function EditEmployeeModal({
   useEffect(() => {
     setIsGrantsLoading(true);
     Promise.all([
-      apiRequest<{ id: string; name: string; defaultDays: string; requiresAdminGrant: boolean; isActive: boolean }[]>(
+      apiRequest<{ id: string; name: string; defaultDays: string; requiresAdminGrant: boolean; isActive: boolean; isTransferable: boolean }[]>(
         "/leave-types",
       ),
       apiRequest<{ leaveTypeId: string; earnedDays: number }[]>(`/leave-balances/${employee.id}`),
     ])
       .then(([types, balances]) => {
-        // Added Paternity Leave (the extra days a mother transfers from her
-        // own Maternity Leave) only ever applies to a male employee — hide
-        // the checkbox for anyone else so it can't be granted where it
-        // doesn't make sense.
+        // A transferable admin-grant type (e.g. Added Paternity Leave — the
+        // extra days a mother transfers from her own Maternity Leave) only
+        // ever applies to a male employee — hide the checkbox for anyone
+        // else so it can't be granted where it doesn't make sense.
         const grantTypes = types.filter((t) => {
           if (!t.requiresAdminGrant || !t.isActive) return false;
-          if (t.name === "Added Paternity Leave" && employee.sex !== "MALE") return false;
+          if (t.isTransferable && employee.sex !== "MALE") return false;
           return true;
         });
         setAdminGrantTypes(grantTypes);
@@ -711,7 +720,7 @@ function EditEmployeeModal({
           </label>
         </div>
 
-        {genderLeaveLabel && (
+        {genderLeaveLabel && (isAllocationLoading || genderLeaveTypeId) && (
           <div className="employee-form-grid">
             <label>
               {genderLeaveLabel}

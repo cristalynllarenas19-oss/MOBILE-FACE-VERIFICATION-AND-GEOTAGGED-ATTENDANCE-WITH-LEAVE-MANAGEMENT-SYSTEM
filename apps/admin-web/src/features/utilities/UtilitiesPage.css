@@ -91,6 +91,11 @@
   font-weight: 700;
 }
 
+.utilities-field-hint {
+  color: #64748b;
+  font-size: 11.5px;
+}
+
 /* ── Edit / Archive buttons (View modal footer) ── */
 
 .utilities-edit-button,

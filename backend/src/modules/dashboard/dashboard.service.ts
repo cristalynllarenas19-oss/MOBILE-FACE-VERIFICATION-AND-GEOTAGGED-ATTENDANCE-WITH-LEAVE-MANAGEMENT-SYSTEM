@@ -32,9 +32,6 @@ export class DashboardService {
       pendingLeaves,
       geotaggedLogs,
       pendingReview,
-      vacationType,
-      sickType,
-      specialType,
       monthAttendanceRaw,
       enrolledEmployees,
       assignedEmployeeRows,
@@ -67,9 +64,6 @@ export class DashboardService {
       this.prisma.attendanceLog.count({
         where: { verificationStatus: "PENDING_REVIEW", ...(departmentId ? { employee: { departmentId } } : {}) },
       }),
-      this.prisma.leaveType.findUnique({ where: { name: "Vacation Leave" } }),
-      this.prisma.leaveType.findUnique({ where: { name: "Sick Leave" } }),
-      this.prisma.leaveType.findUnique({ where: { name: "Special Leave" } }),
       this.prisma.attendanceRecord.findMany({
         where: {
           attendanceDate: { gte: monthStart, lte: monthEnd },
@@ -291,11 +285,6 @@ export class DashboardService {
     return {
       stats: { totalEmployees, presentToday, lateToday, absentToday, pendingLeaves, geotaggedLogs },
       attendanceSummary: { present: presentToday, late: lateToday, pendingReview },
-      leaveAvailability: {
-        vacation: Number(vacationType?.defaultDays ?? 0),
-        sick: Number(sickType?.defaultDays ?? 0),
-        special: Number(specialType?.defaultDays ?? 0),
-      },
       enrollment: { enrolled: enrolledEmployees.length, total: totalEmployees },
       geotagging: { assigned: assignedEmployees, total: totalEmployees },
       calendar: { monthLabel, days: calendarDays },

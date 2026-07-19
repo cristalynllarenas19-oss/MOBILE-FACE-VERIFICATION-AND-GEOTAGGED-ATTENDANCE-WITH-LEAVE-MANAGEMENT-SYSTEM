@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Archive, Building2, CheckCircle2, Eye, Pencil, Plus, RotateCcw, Search, X } from "lucide-react";
+import { Archive, Building2, Eye, Pencil, Plus, RotateCcw, Search, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { ConfirmDialog, type ConfirmDialogConfig } from "../../components/ui/ConfirmDialog";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { apiRequest } from "../../lib/api";
 import { PermissionCode, permissions } from "../../types/rbac";
+import type { Notification } from "./UtilitiesPage";
 import "../employees/EmployeesPage.css";
-import "../utilities/UtilitiesPage.css";
 
 type AttendanceMode = "FIXED" | "FIELD" | "BOTH";
 
@@ -17,8 +17,6 @@ type Department = {
   attendanceMode: AttendanceMode;
   _count: { employees: number };
 };
-
-type Notification = { type: "success" | "error"; message: string } | null;
 
 const PAGE_SIZE = 10;
 
@@ -38,7 +36,13 @@ function attendanceModeTone(mode: AttendanceMode): "neutral" | "role" | "warning
   return "neutral";
 }
 
-export function DepartmentsPage({ user }: { user?: { permissions: PermissionCode[] } }) {
+export function DepartmentsTab({
+  user,
+  notify,
+}: {
+  user?: { permissions: PermissionCode[] };
+  notify: (notification: Notification) => void;
+}) {
   const canManage = user?.permissions.includes(permissions.departmentsWrite) ?? true;
 
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -46,7 +50,6 @@ export function DepartmentsPage({ user }: { user?: { permissions: PermissionCode
   const [modeFilter, setModeFilter] = useState("ALL");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
-  const [notification, setNotification] = useState<Notification>(null);
 
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<"create" | "edit">("create");
@@ -64,12 +67,6 @@ export function DepartmentsPage({ user }: { user?: { permissions: PermissionCode
   };
 
   useEffect(loadDepartments, []);
-
-  useEffect(() => {
-    if (!notification) return;
-    const id = window.setTimeout(() => setNotification(null), 3500);
-    return () => window.clearTimeout(id);
-  }, [notification]);
 
   useEffect(() => {
     setPage(1);
@@ -125,17 +122,17 @@ export function DepartmentsPage({ user }: { user?: { permissions: PermissionCode
     try {
       if (formMode === "create") {
         await apiRequest("/departments", { method: "POST", body: JSON.stringify({ name: trimmedName, attendanceMode }) });
-        setNotification({ type: "success", message: `"${trimmedName}" department created.` });
+        notify({ type: "success", message: `"${trimmedName}" department created.` });
       } else if (editingId) {
         await apiRequest(`/departments/${editingId}`, { method: "PATCH", body: JSON.stringify({ name: trimmedName, attendanceMode }) });
-        setNotification({ type: "success", message: `"${trimmedName}" department updated.` });
+        notify({ type: "success", message: `"${trimmedName}" department updated.` });
       }
       closeForm();
       loadDepartments();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to save department.";
       if (/already exists/i.test(message)) setNameError(message);
-      else setNotification({ type: "error", message });
+      else notify({ type: "error", message });
     } finally {
       setIsSaving(false);
     }
@@ -147,14 +144,14 @@ export function DepartmentsPage({ user }: { user?: { permissions: PermissionCode
         method: "PATCH",
         body: JSON.stringify({ isActive }),
       });
-      setNotification({
+      notify({
         type: "success",
         message: `"${department.name}" ${isActive ? "restored" : "archived"} successfully.`,
       });
       setViewDepartment(null);
       loadDepartments();
     } catch (err) {
-      setNotification({
+      notify({
         type: "error",
         message: err instanceof Error ? err.message : "Unable to update department status.",
       });
@@ -186,13 +183,6 @@ export function DepartmentsPage({ user }: { user?: { permissions: PermissionCode
 
   return (
     <>
-      {notification && (
-        <div className={`utilities-notification ${notification.type}`} role="status">
-          {notification.type === "success" ? <CheckCircle2 size={17} /> : <AlertTriangle size={17} />}
-          <span>{notification.message}</span>
-        </div>
-      )}
-
       <div className="employees-filter-bar">
         <div className="employees-filter-group">
           <span className="employees-filter-label">View</span>

@@ -104,6 +104,7 @@ export type LeaveType = {
   isActive: boolean;
   requiresAdminGrant: boolean;
   isSingleDayOnly: boolean;
+  kind: "GENERAL" | "MATERNITY" | "PATERNITY";
 };
 
 export type LeaveBalance = {

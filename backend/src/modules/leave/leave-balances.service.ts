@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { EmploymentStatus, Sex } from "@prisma/client";
+import { EmploymentStatus, LeaveTypeKind, Sex } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 
 // Standard PH working-days-per-year reference (365 − 52 Sundays) — used as a
@@ -7,12 +7,13 @@ import { PrismaService } from "../../prisma/prisma.service";
 // summing every employee's individual balance into one ballooning total.
 const WORKING_DAYS_PER_YEAR = 313;
 
-// Maternity/Paternity Leave are sex-restricted even though both are listed as
-// applicable to REGULAR employees on the leave type itself — an employee with
-// no sex on file is eligible for neither until HR fills it in.
-function isEligibleForLeaveType(leaveTypeName: string, sex: Sex | null | undefined) {
-  if (leaveTypeName === "Maternity Leave") return sex === "FEMALE";
-  if (leaveTypeName === "Paternity Leave") return sex === "MALE";
+// Maternity/Paternity-kind leave types are sex-restricted even though both
+// are listed as applicable to REGULAR employees on the leave type itself —
+// an employee with no sex on file is eligible for neither until HR fills it
+// in. Keyed off `kind`, not `name`, so HR can freely rename these types.
+function isEligibleForLeaveType(kind: LeaveTypeKind, sex: Sex | null | undefined) {
+  if (kind === "MATERNITY") return sex === "FEMALE";
+  if (kind === "PATERNITY") return sex === "MALE";
   return true;
 }
 
@@ -78,7 +79,7 @@ export class LeaveBalancesService {
       .filter(
         (leaveType) =>
           leaveType.applicableStatuses.includes(employee.employmentStatus) &&
-          isEligibleForLeaveType(leaveType.name, employee.sex),
+          isEligibleForLeaveType(leaveType.kind, employee.sex),
       )
       .map((leaveType) => {
       const balance = balances.find((row) => row.leaveTypeId === leaveType.id);
@@ -202,7 +203,7 @@ export class LeaveBalancesService {
 
       for (const leaveType of leaveTypes) {
         if (!leaveType.applicableStatuses.includes(status)) continue;
-        if (!isEligibleForLeaveType(leaveType.name, employee.sex)) continue;
+        if (!isEligibleForLeaveType(leaveType.kind, employee.sex)) continue;
 
         const existing = balanceLookup.get(`${employee.id}::${leaveType.id}`);
         const earnedDays = existing ? existing.earnedDays : leaveType.requiresAdminGrant ? 0 : Number(leaveType.defaultDays);

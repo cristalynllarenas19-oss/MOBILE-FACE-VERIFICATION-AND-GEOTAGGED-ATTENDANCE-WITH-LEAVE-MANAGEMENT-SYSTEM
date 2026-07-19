@@ -107,10 +107,10 @@ export class LeaveService {
       }
     }
 
-    // The 30-day unpaid extension only makes sense for Maternity Leave — a
-    // crafted request against any other leave type is silently ignored
-    // rather than trusted, even though the frontend already gates this.
-    const extensionRequested = Boolean(dto.extensionRequested) && leaveType.name === "Maternity Leave";
+    // The 30-day unpaid extension only makes sense for a Maternity-kind leave
+    // type — a crafted request against any other leave type is silently
+    // ignored rather than trusted, even though the frontend already gates this.
+    const extensionRequested = Boolean(dto.extensionRequested) && leaveType.kind === "MATERNITY";
 
     const request = await this.prisma.leaveRequest.create({
       data: {

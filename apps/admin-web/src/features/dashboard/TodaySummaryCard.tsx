@@ -28,10 +28,6 @@ export function TodaySummaryCard({
         <strong className="tsc-purple">{onLeave}</strong>
       </div>
       <div className="tsc-row">
-        <span>Late</span>
-        <strong className="tsc-yellow">{late}</strong>
-      </div>
-      <div className="tsc-row">
         <span>Absent</span>
         <strong className="tsc-red">{absent}</strong>
       </div>

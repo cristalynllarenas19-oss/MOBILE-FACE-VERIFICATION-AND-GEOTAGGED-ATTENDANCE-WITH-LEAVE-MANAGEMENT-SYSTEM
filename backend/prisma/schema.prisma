@@ -108,6 +108,16 @@ enum LeaveRequestNoteType {
   RESUBMITTED
 }
 
+// Identifies a leave type's statutory role (sex-eligibility, auto-enrollment
+// on hire, maternity extension) independent of its admin-editable display
+// name — see LeaveBalancesService.isEligibleForLeaveType and
+// EmployeesService.assignGenderLeaveType.
+enum LeaveTypeKind {
+  GENERAL
+  MATERNITY
+  PATERNITY
+}
+
 enum FaceEnrollmentStatus {
   PENDING
   ACTIVE
@@ -451,6 +461,10 @@ model LeaveType {
   isAutoCredited              Boolean            @default(false) @map("is_auto_credited")
   applicableStatuses          EmploymentStatus[] @default([]) @map("applicable_statuses")
   isActive                    Boolean            @default(true) @map("is_active")
+  // Statutory role of this type (sex-eligibility, auto-enrollment on hire,
+  // maternity extension) — see LeaveTypeKind. Independent of `name`, which
+  // HR can freely rename without affecting this behavior.
+  kind                         LeaveTypeKind      @default(GENERAL)
   isUnlimitedDays             Boolean            @default(false) @map("is_unlimited_days")
   // True for leave types an employee cannot self-select until HR/Admin has
   // explicitly granted them a balance for the year (Solo Parent, Study

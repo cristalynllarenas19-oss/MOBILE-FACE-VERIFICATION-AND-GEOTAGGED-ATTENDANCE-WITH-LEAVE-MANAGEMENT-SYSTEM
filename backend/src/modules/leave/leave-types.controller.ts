@@ -1,8 +1,8 @@
-import { Body, Controller, Get, Param, Patch, Post, Req, UseGuards } from "@nestjs/common";
-import { EmploymentStatus } from "@prisma/client";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Req } from "@nestjs/common";
+import { EmploymentStatus, LeaveTypeKind } from "@prisma/client";
 import { IsArray, IsBoolean, IsEnum, IsNumber, IsOptional, IsString } from "class-validator";
 import { LeaveTypesService } from "./leave-types.service";
-import { JwtAuthGuard } from "../../common/guards/jwt-auth.guard";
+import { RequirePermissions } from "../../common/decorators/permissions.decorator";
 
 export class CreateLeaveTypeDto {
   @IsString()
@@ -55,6 +55,10 @@ export class CreateLeaveTypeDto {
   @IsOptional()
   @IsBoolean()
   isSingleDayOnly?: boolean;
+
+  @IsOptional()
+  @IsEnum(LeaveTypeKind)
+  kind?: LeaveTypeKind;
 }
 
 export class UpdateLeaveTypeDto {
@@ -110,6 +114,10 @@ export class UpdateLeaveTypeDto {
   @IsOptional()
   @IsBoolean()
   isSingleDayOnly?: boolean;
+
+  @IsOptional()
+  @IsEnum(LeaveTypeKind)
+  kind?: LeaveTypeKind;
 }
 
 export class SetLeaveTypeStatusDto {
@@ -124,7 +132,6 @@ export class SetEhsActivationDto {
 
 
 @Controller("leave-types")
-@UseGuards(JwtAuthGuard)
 export class LeaveTypesController {
   constructor(private readonly leaveTypesService: LeaveTypesService) {}
 
@@ -134,22 +141,32 @@ export class LeaveTypesController {
   }
 
   @Post()
+  @RequirePermissions("leave-types:write")
   create(@Body() dto: CreateLeaveTypeDto, @Req() request: Request) {
     return this.leaveTypesService.create(dto, (request as any).user?.userId);
   }
 
   @Patch(":id")
+  @RequirePermissions("leave-types:write")
   update(@Param("id") id: string, @Body() dto: UpdateLeaveTypeDto, @Req() request: Request) {
     return this.leaveTypesService.update(id, dto, (request as any).user?.userId);
   }
 
   @Patch(":id/status")
+  @RequirePermissions("leave-types:write")
   setStatus(@Param("id") id: string, @Body() dto: SetLeaveTypeStatusDto, @Req() request: Request) {
     return this.leaveTypesService.setStatus(id, dto.isActive, (request as any).user?.userId);
   }
 
   @Patch(":id/ehs-activation")
+  @RequirePermissions("leave-types:write")
   setEhsActivation(@Param("id") id: string, @Body() dto: SetEhsActivationDto, @Req() request: Request) {
     return this.leaveTypesService.setEhsActivation(id, dto.ehsActivated, (request as any).user?.userId);
+  }
+
+  @Delete(":id")
+  @RequirePermissions("leave-types:write")
+  remove(@Param("id") id: string, @Req() request: Request) {
+    return this.leaveTypesService.remove(id, (request as any).user?.userId);
   }
 }

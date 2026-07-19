@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger } from "@nestjs/common";
+import { LeaveTypeKind } from "@prisma/client";
 import * as argon2 from "argon2";
 import { generateTemporaryPassword } from "../../common/utils/password.util";
 import { PrismaService } from "../../prisma/prisma.service";
@@ -6,9 +7,9 @@ import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.serv
 import { MailService } from "../mail/mail.service";
 import { CreateEmployeeDto, CreateEmployeeSex, UpdateEmployeeDto } from "./dto/create-employee.dto";
 
-const GENDER_LEAVE_TYPE_NAME: Record<string, string> = {
-  MALE: "Paternity Leave",
-  FEMALE: "Maternity Leave",
+const GENDER_LEAVE_TYPE_KIND: Record<string, LeaveTypeKind> = {
+  MALE: "PATERNITY",
+  FEMALE: "MATERNITY",
 };
 
 @Injectable()
@@ -243,11 +244,13 @@ export class EmployeesService {
     return created;
   }
 
-  // Male hires are auto-enrolled in Paternity Leave and female hires in
-  // Maternity Leave so HR never has to add these manually after registration.
+  // Male hires are auto-enrolled in the Paternity-kind leave type and female
+  // hires in the Maternity-kind one, so HR never has to add these manually
+  // after registration. No-ops until HR has created a leave type with that
+  // kind (see Utilities -> Leave Types).
   private async assignGenderLeaveType(employeeId: string, sex: CreateEmployeeSex) {
-    const leaveTypeName = GENDER_LEAVE_TYPE_NAME[sex];
-    const leaveType = await this.prisma.leaveType.findFirst({ where: { name: leaveTypeName } });
+    const kind = GENDER_LEAVE_TYPE_KIND[sex];
+    const leaveType = await this.prisma.leaveType.findFirst({ where: { kind, isActive: true } });
     if (!leaveType) return;
 
     const year = new Date().getFullYear();
@@ -385,10 +388,10 @@ export class EmployeesService {
   // Updates the earned days for this year's Paternity/Maternity LeaveBalance
   // row so admin edits in Edit Employee stay in sync with Leave Management.
   private async updateGenderLeaveAllocation(employeeId: string, sex: string, earnedDays: number) {
-    const leaveTypeName = GENDER_LEAVE_TYPE_NAME[sex];
-    if (!leaveTypeName) return;
+    const kind = GENDER_LEAVE_TYPE_KIND[sex];
+    if (!kind) return;
 
-    const leaveType = await this.prisma.leaveType.findFirst({ where: { name: leaveTypeName } });
+    const leaveType = await this.prisma.leaveType.findFirst({ where: { kind, isActive: true } });
     if (!leaveType) return;
 
     const year = new Date().getFullYear();
