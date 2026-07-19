@@ -34,7 +34,7 @@ function getName(employee: Employee) {
 }
 
 function formatDate(value?: string | null) {
-  return value ? new Date(value).toLocaleDateString() : "Ongoing";
+  return value ? new Date(value).toLocaleDateString() : "Present";
 }
 
 function toDateInputValue(value?: string | null) {

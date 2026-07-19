@@ -315,7 +315,7 @@ export function ReportsPage({
       ["Employee", "Department", "Position", "Shift", "Time", "Effective Dates"],
       ...filteredSchedules.map((s) => [
         employeeName(s), s.employee.department.name, s.employee.position?.title ?? "—", s.shift.name,
-        `${s.shift.startTime} - ${s.shift.endTime}`, `${formatDate(s.startsOn)} - ${s.endsOn ? formatDate(s.endsOn) : "Ongoing"}`,
+        `${s.shift.startTime} - ${s.shift.endTime}`, `${formatDate(s.startsOn)} - ${s.endsOn ? formatDate(s.endsOn) : "Present"}`,
       ]),
     ];
     const eRows = [
@@ -429,7 +429,7 @@ export function ReportsPage({
         ["Employee", "Department", "Position", "Shift", "Time", "Effective Dates"],
         filteredSchedules.map((s) => [
           employeeName(s), s.employee.department.name, s.employee.position?.title ?? "—", s.shift.name,
-          `${s.shift.startTime} - ${s.shift.endTime}`, `${formatDate(s.startsOn)} - ${s.endsOn ? formatDate(s.endsOn) : "Ongoing"}`,
+          `${s.shift.startTime} - ${s.shift.endTime}`, `${formatDate(s.startsOn)} - ${s.endsOn ? formatDate(s.endsOn) : "Present"}`,
         ])
       );
     }
@@ -652,7 +652,7 @@ export function ReportsPage({
                     {formatDate(schedule.startsOn)} –{" "}
                     {schedule.endsOn
                       ? formatDate(schedule.endsOn)
-                      : <span className="reports-ongoing">Ongoing</span>}
+                      : <span className="reports-ongoing">Present</span>}
                   </td>
                 </tr>
               ))}

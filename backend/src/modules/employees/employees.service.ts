@@ -4,6 +4,7 @@ import * as argon2 from "argon2";
 import { generateTemporaryPassword } from "../../common/utils/password.util";
 import { PrismaService } from "../../prisma/prisma.service";
 import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
+import { GeolocationService } from "../geolocation/geolocation.service";
 import { MailService } from "../mail/mail.service";
 import { CreateEmployeeDto, CreateEmployeeSex, UpdateEmployeeDto } from "./dto/create-employee.dto";
 
@@ -20,6 +21,7 @@ export class EmployeesService {
     private readonly prisma: PrismaService,
     private readonly auditLogs: AuditLogsService,
     private readonly mail: MailService,
+    private readonly geolocation: GeolocationService,
   ) {}
 
   findAll(departmentId?: string) {
@@ -206,6 +208,8 @@ export class EmployeesService {
           },
         });
       }
+
+      await this.geolocation.assignDefaultOfficeLocation(created.id, created.departmentId, context);
     }
 
     await this.assignGenderLeaveType(created.id, dto.sex);
@@ -335,6 +339,13 @@ export class EmployeesService {
       },
       include: { user: true, department: true, position: true, supervisor: true },
     });
+
+    // Only auto-assign on an actual transition into Fixed — not on every
+    // unrelated save while already Fixed — matching how create() only ever
+    // does this once, at hire.
+    if (dto.attendanceMode === "FIXED" && employee.attendanceMode !== "FIXED") {
+      await this.geolocation.assignDefaultOfficeLocation(id, updated.departmentId, context);
+    }
 
     if (dto.leaveAllocationDays !== undefined && employee.sex) {
       await this.updateGenderLeaveAllocation(id, employee.sex, dto.leaveAllocationDays);

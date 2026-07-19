@@ -344,6 +344,52 @@ export class GeolocationService {
     return this.scopeLocationEmployees(updated, scope.departmentId);
   }
 
+  // Auto-assigns a Fixed-mode employee to whichever geotagged area is
+  // currently the active Office (type: "OFFICE") — never a hardcoded name,
+  // so renaming/replacing the Office area needs no code change. Prefers an
+  // Office area scoped to the employee's own department, falling back to a
+  // shared/global one (departmentId null), same precedence findAllLocations
+  // and assertWithinDepartmentScope already use elsewhere in this file.
+  // Called by EmployeesService on hire and on a mode switch into Fixed —
+  // not exposed as an endpoint, since it's system-triggered, not a manual
+  // Supervisor action (see addEmployee for that).
+  async assignDefaultOfficeLocation(employeeId: string, employeeDepartmentId: string, context: AuditLogContext = {}) {
+    const officeLocation =
+      (await this.prisma.workLocation.findFirst({
+        where: { type: "OFFICE", isActive: true, departmentId: employeeDepartmentId },
+        orderBy: { name: "asc" },
+      })) ??
+      (await this.prisma.workLocation.findFirst({
+        where: { type: "OFFICE", isActive: true, departmentId: null },
+        orderBy: { name: "asc" },
+      }));
+
+    // No Office area configured yet — non-blocking, same as the Standard
+    // Shift lookup in EmployeesService.create() when none exists.
+    if (!officeLocation) return null;
+
+    await this.prisma.$transaction(async (tx) => {
+      // A Fixed employee holds exactly one assignment — clear any stale ones
+      // (leftover Field-site assignments from before a mode switch, or a
+      // previous Office area that's since been archived/replaced) before
+      // attaching the current one. Idempotent: safe even if already correct.
+      await tx.workLocationEmployee.deleteMany({ where: { employeeId } });
+      await tx.workLocationEmployee.create({ data: { workLocationId: officeLocation.id, employeeId } });
+    });
+
+    await this.auditLogs.record({
+      ...context,
+      action: "AUTO_ASSIGN_WORK_LOCATION",
+      module: "Geotagging",
+      entityType: "WorkLocationEmployee",
+      entityId: officeLocation.id,
+      description: `Auto-assigned employee to Office geotagged area ${officeLocation.name}.`,
+      newValues: { employeeId, workLocationId: officeLocation.id },
+    });
+
+    return officeLocation;
+  }
+
   async getLocationForEmployee(employeeId: string) {
     if (await this.hasJoinTable()) {
       return this.prisma.workLocation.findFirst({

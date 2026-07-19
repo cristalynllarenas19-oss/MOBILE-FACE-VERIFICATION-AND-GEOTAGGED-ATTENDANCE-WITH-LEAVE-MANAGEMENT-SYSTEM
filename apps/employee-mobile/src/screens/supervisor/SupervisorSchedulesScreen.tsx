@@ -11,7 +11,7 @@ type Props = {
 };
 
 function formatDate(value?: string | null) {
-  return value ? new Date(value).toLocaleDateString() : "Ongoing";
+  return value ? new Date(value).toLocaleDateString() : "Present";
 }
 
 export default function SupervisorSchedulesScreen({ onClose }: Props) {

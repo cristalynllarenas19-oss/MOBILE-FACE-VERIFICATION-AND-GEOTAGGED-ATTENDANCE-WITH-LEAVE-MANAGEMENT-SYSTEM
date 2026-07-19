@@ -591,13 +591,24 @@ function GeotaggingPageContent({
 
   const filteredLocations = useMemo(() => {
     const query = areaSearchQuery.trim().toLowerCase();
-    return locations.filter((location) => {
-      const isActive = location.isActive !== false;
-      if (areaStatusFilter === "active" && !isActive) return false;
-      if (areaStatusFilter === "inactive" && isActive) return false;
-      if (!query) return true;
-      return location.name.toLowerCase().includes(query);
-    });
+    return locations
+      .filter((location) => {
+        const isActive = location.isActive !== false;
+        if (areaStatusFilter === "active" && !isActive) return false;
+        if (areaStatusFilter === "inactive" && isActive) return false;
+        if (!query) return true;
+        return location.name.toLowerCase().includes(query);
+      })
+      .sort((a, b) => {
+        // Office areas are pinned above Field areas — an Office area is the
+        // default auto-assignment target for Fixed employees (see
+        // GeolocationService.assignDefaultOfficeLocation), so it should
+        // always be easy to find regardless of what it's named.
+        const aOffice = a.type === "OFFICE";
+        const bOffice = b.type === "OFFICE";
+        if (aOffice !== bOffice) return aOffice ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
   }, [areaSearchQuery, areaStatusFilter, locations]);
 
   const areaEmptyMessage = areaSearchQuery.trim()
