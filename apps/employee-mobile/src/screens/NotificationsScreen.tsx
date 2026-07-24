@@ -27,7 +27,7 @@ import {
   markNotificationRead,
   resubmitLeaveRequest,
 } from "../api";
-import { useCachedData } from "../utils/dataCache";
+import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
 
 // Stable fallbacks so downstream filters don't recompute on every render
 // while the cache/network is still empty.
@@ -155,11 +155,11 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
   // Keyed on `visible` so nothing is fetched until the panel opens; while
   // closed the last cached copy is kept for an instant reopen.
   const notificationsCache = useCachedData<AppNotification[]>(
-    visible ? "notifications" : null,
+    visible ? CACHE_KEYS.notifications : null,
     getNotifications,
   );
   const leaveRequestsCache = useCachedData<LeaveRequest[]>(
-    visible && employeeId ? `leave-requests:${employeeId}` : null,
+    visible && employeeId ? CACHE_KEYS.leaveRequests(employeeId) : null,
     () => getLeaveRequests(employeeId!),
   );
   const notifications = notificationsCache.data ?? EMPTY_NOTIFICATIONS;

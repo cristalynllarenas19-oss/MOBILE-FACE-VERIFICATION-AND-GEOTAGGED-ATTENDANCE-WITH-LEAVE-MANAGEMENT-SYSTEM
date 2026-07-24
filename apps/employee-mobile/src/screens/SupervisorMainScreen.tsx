@@ -13,6 +13,7 @@ import BottomTab, { SUPERVISOR_TABS } from "../components/BottomTab";
 
 import { SupervisorTab } from "../types";
 import { EmployeeProfile, MobileUser, getMyProfile, getUnreadNotificationCount } from "../api";
+import { CACHE_KEYS, cacheGet, cacheSet } from "../utils/dataCache";
 
 const NOTIFICATION_POLL_MS = 30000;
 
@@ -40,8 +41,13 @@ export default function SupervisorMainScreen({ user, onLogout, canSwitchToEmploy
 
   useEffect(() => {
     const refreshUnreadCount = () => {
+      const cached = cacheGet<{ count: number }>(CACHE_KEYS.notificationsUnreadCount);
+      if (cached) setUnreadCount(cached.count);
       getUnreadNotificationCount()
-        .then((data) => setUnreadCount(data.count))
+        .then((data) => {
+          setUnreadCount(data.count);
+          cacheSet(CACHE_KEYS.notificationsUnreadCount, data);
+        })
         .catch(() => undefined);
     };
     refreshUnreadCount();

@@ -2,7 +2,7 @@ import React, { useCallback, useState } from "react";
 import { View, Text, Image, Pressable, StyleSheet, ScrollView } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { EmployeeProfile, getMyProfile } from "../../api";
-import { useCachedData } from "../../utils/dataCache";
+import { CACHE_KEYS, useCachedData } from "../../utils/dataCache";
 import ViewProfileScreen from "../ViewProfileScreen";
 import ChangePasswordScreen from "../ChangePasswordScreen";
 import GeotaggedAreasScreen from "./GeotaggedAreasScreen";
@@ -24,7 +24,7 @@ export default function MoreScreen({ onLogout, canSwitchToEmployeePortal, onSwit
   // Same cache key as ViewProfileScreen/MainScreen so all three share one
   // fetched copy of the profile.
   const { data: profile, refresh: refreshProfile } = useCachedData<EmployeeProfile>(
-    "my-profile",
+    CACHE_KEYS.myProfile,
     getMyProfile,
   );
 

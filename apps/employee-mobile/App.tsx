@@ -28,7 +28,9 @@ import {
   getMyWorkLocations,
   getMyProfile,
   forgotPassword,
+  setUnauthorizedHandler,
 } from "./src/api";
+import { CACHE_KEYS, cacheGet, cacheSet } from "./src/utils/dataCache";
 import { getFriendlyReason } from "./src/utils/attendanceMessages";
 import { distanceInMeters } from "./src/utils/geofence";
 import { Portal } from "./src/types";
@@ -52,6 +54,14 @@ function getLandingPortal(user: MobileUser | null): Portal {
     return user.role === "EMPLOYEE" ? "employee" : "supervisor";
   }
   return user.defaultView === "EMPLOYEE" ? "employee" : "supervisor";
+}
+
+function attendanceCacheKey(employeeId: string) {
+  return CACHE_KEYS.todayAttendance(employeeId);
+}
+
+function eligibilityCacheKey(employeeId: string) {
+  return CACHE_KEYS.attendanceEligibility(employeeId);
 }
 
 export default function App() {
@@ -87,6 +97,7 @@ export default function App() {
   const [resetToken, setResetToken] = useState("");
   const [hasSplashAnimationFinished, setHasSplashAnimationFinished] = useState(false);
   const [hasSessionCheckFinished, setHasSessionCheckFinished] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const handleSplashAnimationComplete = useCallback(() => {
     setHasSplashAnimationFinished(true);
@@ -94,6 +105,11 @@ export default function App() {
 
   useEffect(() => {
     let isMounted = true;
+
+    setUnauthorizedHandler(() => {
+      if (!isMounted || isLoggingOut) return;
+      void handleLogout(true);
+    });
 
     async function restoreSavedSession() {
       try {
@@ -115,8 +131,9 @@ export default function App() {
 
     return () => {
       isMounted = false;
+      setUnauthorizedHandler(null);
     };
-  }, []);
+  }, [isLoggingOut]);
 
   useEffect(() => {
     if (user?.employeeId) {
@@ -127,8 +144,11 @@ export default function App() {
 
   async function refreshTodayAttendance(employeeId: string) {
     try {
+      const cached = cacheGet<TodayAttendance>(attendanceCacheKey(employeeId));
+      if (cached) setTodayAttendance(cached);
       const attendance = await getTodayAttendance(employeeId);
       setTodayAttendance(attendance);
+      cacheSet(attendanceCacheKey(employeeId), attendance);
     } catch (error) {
       console.error("Failed to load today's attendance", error);
     }
@@ -136,13 +156,17 @@ export default function App() {
 
   async function refreshEligibility(employeeId: string, attendanceMode?: "FIXED" | "FIELD") {
     try {
+      const cached = cacheGet<AttendanceEligibility>(eligibilityCacheKey(employeeId));
+      if (cached) setEligibility(cached);
       const [profile, hasWorkLocation] = await Promise.all([
         getMyProfile(),
         attendanceMode === "FIELD"
           ? getMyWorkLocations().then((sites) => sites.length > 0)
           : getMyWorkLocation().then((location) => location !== null),
       ]);
-      setEligibility({ faceEnrolled: Boolean(profile.hasActiveFaceEnrollment), hasWorkLocation });
+      const nextEligibility = { faceEnrolled: Boolean(profile.hasActiveFaceEnrollment), hasWorkLocation };
+      setEligibility(nextEligibility);
+      cacheSet(eligibilityCacheKey(employeeId), nextEligibility);
     } catch (error) {
       console.error("Failed to load attendance eligibility", error);
       setEligibility({ faceEnrolled: false, hasWorkLocation: false });
@@ -201,16 +225,33 @@ export default function App() {
     }
   }
 
-  async function handleLogout() {
+  async function handleLogout(fromSessionExpiry = false) {
+    if (isLoggingOut) return;
+    setIsLoggingOut(true);
+
     await logout();
     setUser(null);
     setPortal("employee");
     setTodayAttendance(null);
     setEligibility(null);
+    setScanType(null);
+    setSelectedWorkLocation(null);
+    setResultModal(null);
+    setHasSplashAnimationFinished(true);
+    setHasSessionCheckFinished(true);
+    setAuthView("login");
+    setResetEmail("");
+    setResetToken("");
 
     // Clear fields after logout
     setEmail("");
     setPassword("");
+
+    if (fromSessionExpiry) {
+      Alert.alert("Session Expired", "Your session has expired. Please log in again.");
+    }
+
+    setIsLoggingOut(false);
   }
 
   async function startScan(type: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN") {

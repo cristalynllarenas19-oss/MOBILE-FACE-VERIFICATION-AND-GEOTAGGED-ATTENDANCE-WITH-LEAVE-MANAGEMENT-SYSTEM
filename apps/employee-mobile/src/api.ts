@@ -4,11 +4,7 @@ import { clearDataCache } from "./utils/dataCache";
 
 const DEFAULT_API_BASE_URL = "https://mobile-face-verification-and-geotagged.onrender.com/api/v1";
 
-function getApiBaseUrl() {
-  const configuredUrl =
-    process.env.EXPO_PUBLIC_API_BASE_URL ??
-    DEFAULT_API_BASE_URL;
- 
+function getMetroHost() {
   const metroHost = (
     Constants as unknown as {
       expoConfig?: { hostUri?: string };
@@ -19,15 +15,55 @@ function getApiBaseUrl() {
     ?? (Constants as unknown as { manifest?: { debuggerHost?: string } }).manifest?.debuggerHost
     ?? (Constants as unknown as { manifest2?: { extra?: { expoClient?: { hostUri?: string } } } }).manifest2?.extra?.expoClient?.hostUri;
 
-  const host = metroHost?.split(":")[0];
-  if (host && /localhost|127\.0\.0\.1/.test(configuredUrl)) {
-    return configuredUrl.replace(/localhost|127\.0\.0\.1/, host);
-  }
-
-  return configuredUrl;
+  return metroHost?.split(":")[0];
 }
 
-const API_BASE_URL = getApiBaseUrl();
+function replaceHost(url: string, host: string) {
+  try {
+    const parsed = new URL(url);
+    parsed.hostname = host;
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return url;
+  }
+}
+
+function isLoopbackOrPrivateHost(host: string) {
+  return (
+    host === "localhost" ||
+    host === "127.0.0.1" ||
+    host.startsWith("10.") ||
+    host.startsWith("192.168.") ||
+    /^172\.(1[6-9]|2\d|3[0-1])\./.test(host)
+  );
+}
+
+function getApiBaseUrls() {
+  const configuredUrl = process.env.EXPO_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL;
+  const metroHost = getMetroHost();
+  const urls = [configuredUrl];
+
+  if (metroHost) {
+    try {
+      const parsed = new URL(configuredUrl);
+      if (isLoopbackOrPrivateHost(parsed.hostname)) {
+        urls.push(replaceHost(configuredUrl, metroHost));
+      }
+    } catch {
+      // If the configured URL cannot be parsed, fall back to the raw value.
+    }
+  }
+
+  return [...new Set(urls)];
+}
+
+const API_BASE_URLS = getApiBaseUrls();
+
+let unauthorizedHandler: (() => void) | null = null;
+
+export function setUnauthorizedHandler(handler: (() => void) | null) {
+  unauthorizedHandler = handler;
+}
 
 export type AttendanceMode = "FIXED" | "FIELD";
 export type AttendanceRecordType = "OFFICE" | "FIELD";
@@ -231,26 +267,41 @@ export type AppNotification = {
 };
 
 export async function apiRequest<T>(path: string, options: RequestInit = {}) {
-  const url = `${API_BASE_URL}${path}`;
-  console.log("REQUEST:", url);
   const token = await SecureStore.getItemAsync("accessToken");
-  let response: Response;
+  let response: Response | null = null;
 
-  try {
-    response = await fetch(url, {
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...options.headers,
-      },
-    });
-  } catch (error) {
-    throw new Error(`Cannot reach API server. Check internet connection or API URL: ${API_BASE_URL}`);
+  for (const baseUrl of API_BASE_URLS) {
+    const url = `${baseUrl}${path}`;
+    console.log("REQUEST:", url);
+
+    try {
+      response = await fetch(url, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...options.headers,
+        },
+      });
+      break;
+    } catch (error) {
+      console.warn(`API request failed for ${url}`, error);
+    }
+  }
+
+  if (!response) {
+    throw new Error(`Cannot reach API server. Check internet connection or API URL: ${API_BASE_URLS.join(" or ")}`);
   }
 
   if (!response.ok) {
     const body = await response.text();
+    if (response.status === 401) {
+      clearDataCache();
+      await SecureStore.deleteItemAsync("accessToken");
+      await SecureStore.deleteItemAsync("refreshToken");
+      await SecureStore.deleteItemAsync("sessionUser");
+      unauthorizedHandler?.();
+    }
     throw new Error(extractErrorMessage(body) || `Request failed with status ${response.status}`);
   }
 

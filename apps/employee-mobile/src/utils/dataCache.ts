@@ -12,6 +12,18 @@ import { Directory, File, Paths } from "expo-file-system";
 const memory = new Map<string, unknown>();
 const cacheDir = new Directory(Paths.cache, "data-cache");
 
+export const CACHE_KEYS = {
+  myProfile: "my-profile",
+  notifications: "notifications",
+  notificationsUnreadCount: "notifications:unread-count",
+  todayAttendance: (employeeId: string) => `today-attendance:${employeeId}`,
+  attendanceEligibility: (employeeId: string) => `attendance-eligibility:${employeeId}`,
+  attendanceHistory: (employeeId: string) => `attendance-history:${employeeId}`,
+  leaveBalances: (employeeId: string) => `leave-balances:${employeeId}`,
+  leaveRequests: (employeeId: string) => `leave-requests:${employeeId}`,
+  workArea: (employeeId: string, mode: "field" | "fixed") => `work-area:${employeeId}:${mode}`,
+} as const;
+
 function fileFor(key: string) {
   // Keys contain ":" and query characters — make them filename-safe.
   return new File(cacheDir, `${encodeURIComponent(key)}.json`);

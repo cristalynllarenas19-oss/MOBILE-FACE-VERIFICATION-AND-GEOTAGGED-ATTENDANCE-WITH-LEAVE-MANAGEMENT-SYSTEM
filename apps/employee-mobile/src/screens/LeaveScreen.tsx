@@ -26,7 +26,7 @@ import {
   getLeaveRequests,
   createLeaveRequest,
 } from "../api";
-import { useCachedData } from "../utils/dataCache";
+import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
@@ -70,11 +70,11 @@ function statusLabel(status: string) {
 export default function LeaveScreen({ employeeId }: Props) {
   const leaveTypesCache = useCachedData<LeaveType[]>("leave-types", getLeaveTypes);
   const balancesCache = useCachedData<LeaveBalance[]>(
-    employeeId ? `leave-balances:${employeeId}` : null,
+    employeeId ? CACHE_KEYS.leaveBalances(employeeId) : null,
     () => getLeaveBalances(employeeId!),
   );
   const requestsCache = useCachedData<LeaveRequest[]>(
-    employeeId ? `leave-requests:${employeeId}` : null,
+    employeeId ? CACHE_KEYS.leaveRequests(employeeId) : null,
     () => getLeaveRequests(employeeId!),
   );
   const leaveTypes = leaveTypesCache.data ?? EMPTY_LEAVE_TYPES;

@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { AttendanceHistoryRecord, AttendanceLogPhoto, getAttendanceHistory } from "../api";
-import { useCachedData } from "../utils/dataCache";
+import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
 
 type Props = {
   employeeId?: string;
@@ -92,7 +92,7 @@ export default function DTRScreen({ employeeId }: Props) {
   const [amPmFilter, setAmPmFilter] = useState<"ALL" | "AM" | "PM">("ALL");
 
   const { data, isLoading, refresh } = useCachedData<AttendanceHistoryRecord[]>(
-    employeeId ? `attendance-history:${employeeId}` : null,
+    employeeId ? CACHE_KEYS.attendanceHistory(employeeId) : null,
     () => getAttendanceHistory(employeeId!),
   );
   const records = data ?? EMPTY_RECORDS;

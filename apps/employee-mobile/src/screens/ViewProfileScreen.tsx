@@ -4,7 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import { File } from "expo-file-system";
 import { EmployeeProfile, getMyProfile, updateMyPhoto } from "../api";
-import { useCachedData } from "../utils/dataCache";
+import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
 
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 
@@ -14,7 +14,7 @@ type Props = {
 
 export default function ViewProfileScreen({ onClose }: Props) {
   const { data: profile, isLoading, setData: setProfile } = useCachedData<EmployeeProfile>(
-    "my-profile",
+    CACHE_KEYS.myProfile,
     getMyProfile,
   );
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);

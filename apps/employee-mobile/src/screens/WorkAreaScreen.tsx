@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { WebView } from "react-native-webview";
 import * as Location from "expo-location";
 import { WorkLocation, getMyWorkLocation, getMyWorkLocations } from "../api";
+import { CACHE_KEYS, cacheGet, cacheSet } from "../utils/dataCache";
 import { distanceInMeters } from "../utils/geofence";
 
 type Props = {
@@ -56,6 +57,7 @@ function buildMapHtml(location: WorkLocation, userLat: number | null, userLon: n
 
 export default function WorkAreaScreen({ employeeId, attendanceMode }: Props) {
   const isField = attendanceMode === "FIELD";
+  const cacheKey = employeeId ? CACHE_KEYS.workArea(employeeId, isField ? "field" : "fixed") : null;
 
   const [workLocation, setWorkLocation] = useState<WorkLocation | null>(null);
   const [workLocations, setWorkLocations] = useState<WorkLocation[]>([]);
@@ -68,6 +70,16 @@ export default function WorkAreaScreen({ employeeId, attendanceMode }: Props) {
   const load = useCallback(async () => {
     setError(null);
     try {
+      if (cacheKey) {
+        const cached = cacheGet<WorkLocation[] | WorkLocation | null>(cacheKey);
+        if (isField && Array.isArray(cached)) {
+          setWorkLocations(cached);
+          setSelectedSiteId((current) => (current && cached.some((s) => s.id === current) ? current : cached[0]?.id ?? null));
+        } else if (!isField && cached && !Array.isArray(cached)) {
+          setWorkLocation(cached);
+        }
+      }
+
       const [locations, permission] = await Promise.all([
         isField ? getMyWorkLocations() : getMyWorkLocation(),
         Location.requestForegroundPermissionsAsync(),
@@ -77,8 +89,11 @@ export default function WorkAreaScreen({ employeeId, attendanceMode }: Props) {
         const sites = locations as WorkLocation[];
         setWorkLocations(sites);
         setSelectedSiteId((current) => (current && sites.some((s) => s.id === current) ? current : sites[0]?.id ?? null));
+        if (cacheKey) cacheSet(cacheKey, sites);
       } else {
-        setWorkLocation(locations as WorkLocation | null);
+        const site = locations as WorkLocation | null;
+        setWorkLocation(site);
+        if (cacheKey) cacheSet(cacheKey, site);
       }
 
       if (permission.granted) {
