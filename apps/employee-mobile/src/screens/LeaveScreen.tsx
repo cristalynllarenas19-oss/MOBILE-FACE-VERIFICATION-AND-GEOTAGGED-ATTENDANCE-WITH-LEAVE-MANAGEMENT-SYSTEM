@@ -54,6 +54,12 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function isOneDayLeaveType(name?: string, isSingleDayOnly?: boolean) {
+  if (isSingleDayOnly) return true;
+  const normalized = (name ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+  return normalized.includes("adverse weather") || normalized === "sick leave" || normalized === "emergency leave";
+}
+
 // SUPERVISOR_APPROVED only exists on legacy rows from the old two-step flow;
 // it stays amber because it still needs one more Approve click to finalize.
 function statusTone(status: string) {
@@ -107,6 +113,9 @@ export default function LeaveScreen({ employeeId }: Props) {
   const [resultModal, setResultModal] = useState<{ status: ResultModalStatus; title: string; message: string } | null>(null);
 
   const selectedLeaveType = leaveTypes.find((t) => t.id === leaveTypeId);
+  const isSingleDayLeave = isOneDayLeaveType(selectedLeaveType?.name, selectedLeaveType?.isSingleDayOnly);
+  const today = useMemo(() => new Date(), []);
+  const todayStart = useMemo(() => new Date(today.getFullYear(), today.getMonth(), today.getDate()), [today]);
   const filteredLeaveTypes = leaveTypes
     .filter((item) => item.isActive)
     .filter((item) => item.name.toLowerCase().includes(searchLeave.toLowerCase()));
@@ -156,6 +165,12 @@ export default function LeaveScreen({ employeeId }: Props) {
       return;
     }
     setLeaveTypeId(id);
+    if (type.isSingleDayOnly) {
+      setStartDate(todayStart);
+      setEndDate(todayStart);
+      setStartDateSelected(true);
+      setEndDateSelected(true);
+    }
     setActiveTab("request");
   }
 
@@ -186,7 +201,7 @@ export default function LeaveScreen({ employeeId }: Props) {
     setStartPickerVisibility(false);
     setStartDate(selectedDate);
     setStartDateSelected(true);
-    if (selectedLeaveType?.isSingleDayOnly) {
+    if (isSingleDayLeave) {
       setEndDate(selectedDate);
       setEndDateSelected(true);
       return;
@@ -207,10 +222,11 @@ export default function LeaveScreen({ employeeId }: Props) {
   };
 
   const totalDays = useMemo(() => {
+    if (isSingleDayLeave) return 1;
     if (!startDateSelected || !endDateSelected) return 0;
     const diff = Math.round((endDate.getTime() - startDate.getTime()) / 86400000) + 1;
     return Math.max(1, diff);
-  }, [startDate, endDate, startDateSelected, endDateSelected]);
+  }, [isSingleDayLeave, startDate, endDate, startDateSelected, endDateSelected]);
 
   // The date range a request can span cannot exceed the leave type's
   // remaining allotment (e.g. Vacation Leave with 15 days left caps the end
@@ -228,11 +244,19 @@ export default function LeaveScreen({ employeeId }: Props) {
   // Single-day-only types (Sick Leave, Emergency Leave) always mirror the end
   // date to the start date the moment either one is known.
   useEffect(() => {
-    if (selectedLeaveType?.isSingleDayOnly && startDateSelected) {
+    if (isSingleDayLeave && startDateSelected) {
       setEndDate(startDate);
       setEndDateSelected(true);
     }
-  }, [selectedLeaveType?.isSingleDayOnly, startDate, startDateSelected]);
+  }, [isSingleDayLeave, startDate, startDateSelected]);
+
+  useEffect(() => {
+    if (!isSingleDayLeave) return;
+    setStartDate(todayStart);
+    setEndDate(todayStart);
+    setStartDateSelected(true);
+    setEndDateSelected(true);
+  }, [isSingleDayLeave, todayStart]);
 
   // Clamp a previously-picked end date if switching leave type (or the
   // remaining balance) shrinks the allowed range below it.
@@ -307,6 +331,11 @@ export default function LeaveScreen({ employeeId }: Props) {
       setResultModal({ status: "info", title: "Reason Required", message: "Please tell us the reason for your leave." });
       return;
     }
+
+    const leaveStartDate = isSingleDayLeave ? startDate : startDate;
+    const leaveEndDate = isSingleDayLeave ? startDate : endDate;
+    const leaveTotalDays = isSingleDayLeave ? 1 : totalDays;
+
     if (selectedLeaveType?.requiresDocument && !attachment) {
       setResultModal({
         status: "info",
@@ -325,11 +354,11 @@ export default function LeaveScreen({ employeeId }: Props) {
         });
         return;
       }
-      if (totalDays > remainingDays) {
+      if (leaveTotalDays > remainingDays) {
         setResultModal({
           status: "error",
           title: "Insufficient Balance",
-          message: `You have ${remainingDays} day(s) of ${selectedLeaveType.name} left, but requested ${totalDays}.`,
+          message: `You have ${remainingDays} day(s) of ${selectedLeaveType.name} left, but requested ${leaveTotalDays}.`,
         });
         return;
       }
@@ -340,9 +369,9 @@ export default function LeaveScreen({ employeeId }: Props) {
       await createLeaveRequest({
         employeeId,
         leaveTypeId,
-        startDate: startDate.toISOString(),
-        endDate: endDate.toISOString(),
-        totalDays,
+        startDate: leaveStartDate.toISOString(),
+        endDate: leaveEndDate.toISOString(),
+        totalDays: leaveTotalDays,
         reason: reason.trim(),
         attachmentName: attachment?.name,
         attachmentMimeType: attachment?.mimeType,
@@ -491,6 +520,12 @@ export default function LeaveScreen({ employeeId }: Props) {
                           disabled={exhausted}
                           onPress={() => {
                             setLeaveTypeId(item.id);
+                            if (isOneDayLeaveType(item.name, item.isSingleDayOnly)) {
+                              setStartDate(todayStart);
+                              setEndDate(todayStart);
+                              setStartDateSelected(true);
+                              setEndDateSelected(true);
+                            }
                             setIsDropdownOpen(false);
                             setSearchLeave("");
                           }}
@@ -522,8 +557,8 @@ export default function LeaveScreen({ employeeId }: Props) {
               </View>
             </Modal>
 
-            <Text style={styles.label}>{selectedLeaveType?.isSingleDayOnly ? "Date" : "Leave Duration"}</Text>
-            {selectedLeaveType?.isSingleDayOnly ? (
+            <Text style={styles.label}>{isSingleDayLeave ? "Date" : "Leave Duration"}</Text>
+            {isSingleDayLeave ? (
               <View style={styles.dateRow}>
                 <Pressable style={styles.dateBox} onPress={() => setStartPickerVisibility(true)}>
                   <Text style={[styles.dateText, !startDateSelected && { color: "#94A3B8" }]}>
@@ -549,10 +584,12 @@ export default function LeaveScreen({ employeeId }: Props) {
                 </Pressable>
               </View>
             )}
-            {startDateSelected && endDateSelected && !selectedLeaveType?.isSingleDayOnly && (
+            {isSingleDayLeave ? (
+              <Text style={styles.totalDaysText}>1 day only</Text>
+            ) : startDateSelected && endDateSelected ? (
               <Text style={styles.totalDaysText}>{totalDays} day{totalDays === 1 ? "" : "s"} total</Text>
-            )}
-            {maxEndDate && !selectedLeaveType?.isSingleDayOnly && (
+            ) : null}
+            {maxEndDate && !isSingleDayLeave && (
               <Text style={styles.totalDaysText}>
                 {remainingDaysFor(selectedLeaveType!)} day{remainingDaysFor(selectedLeaveType!) === 1 ? "" : "s"} available for {selectedLeaveType!.name} — end date can't go past {formatDate(maxEndDate)}
               </Text>
@@ -561,6 +598,8 @@ export default function LeaveScreen({ employeeId }: Props) {
             <DateTimePickerModal
               isVisible={isStartPickerVisible}
               mode="date"
+              minimumDate={isSingleDayLeave ? todayStart : undefined}
+              maximumDate={isSingleDayLeave ? todayStart : undefined}
               onConfirm={handleStartDateConfirm}
               onCancel={() => setStartPickerVisibility(false)}
             />
