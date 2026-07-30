@@ -58,7 +58,7 @@ const EMPLOYMENT_STATUS_OPTIONS: { value: EmploymentStatus; label: string }[] = 
   { value: "SEPARATED", label: "Separated" },
 ];
 
-// Every leave type always includes Regular — admins only choose which of these
+// Every leave type always includes Regular - admins only choose which of these
 // additional classifications also get it.
 const OPTIONAL_STATUS_OPTIONS = EMPLOYMENT_STATUS_OPTIONS.filter((o) => o.value !== "REGULAR");
 
@@ -101,8 +101,10 @@ const emptyForm = {
 };
 
 export function LeaveTypesTab({
+  canManage,
   notify,
 }: {
+  canManage: boolean;
   notify: (notification: Notification) => void;
 }) {
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
@@ -299,7 +301,7 @@ export function LeaveTypesTab({
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search leave type by name…"
+              placeholder="Search leave type by name..."
               aria-label="Search leave types by name"
             />
           </div>
@@ -312,9 +314,11 @@ export function LeaveTypesTab({
             menuLabel="Filter by classification"
             ariaLabel="Filter leave types by classification"
           />
-          <button className="primary-button" onClick={openCreateForm}>
-            <Plus size={15} /> Add Leave Type
-          </button>
+          {canManage && (
+            <button className="primary-button" onClick={openCreateForm}>
+              <Plus size={15} /> Add Leave Type
+            </button>
+          )}
         </div>
       </div>
 
@@ -377,7 +381,7 @@ export function LeaveTypesTab({
         )}
       </section>
 
-      {/* ── Add/Edit Leave Type modal ── */}
+      {/* Add/Edit Leave Type modal */}
       {formOpen && (
         <div className="utilities-modal-backdrop" role="presentation">
           <section className="utilities-modal utilities-modal--sm" role="dialog" aria-modal="true" aria-labelledby="leave-type-form-title">
@@ -573,7 +577,7 @@ export function LeaveTypesTab({
                 onClick={submitForm}
                 disabled={isSaving || !form.name.trim() || (!form.isUnlimitedDays && !form.defaultDays)}
               >
-                {isSaving ? "Saving…" : formMode === "create" ? "Add Leave Type" : "Save Changes"}
+                {isSaving ? "Saving..." : formMode === "create" ? "Add Leave Type" : "Save Changes"}
               </button>
               <button className="outline-button" onClick={closeForm} disabled={isSaving}>
                 Cancel
@@ -583,7 +587,7 @@ export function LeaveTypesTab({
         </div>
       )}
 
-      {/* ── View Leave Type modal ── */}
+      {/* View Leave Type modal */}
       {viewLeaveType && (
         <div className="utilities-modal-backdrop" role="presentation">
           <section className="utilities-modal utilities-modal--view" role="dialog" aria-modal="true" aria-labelledby="view-type-title">
@@ -652,7 +656,7 @@ export function LeaveTypesTab({
                 <div>
                   <span>Admin-Grant Only</span>
                   <Badge tone={viewLeaveType.requiresAdminGrant ? "warning" : "neutral"}>
-                    {viewLeaveType.requiresAdminGrant ? "Yes — granted per employee" : "No — available to all"}
+                    {viewLeaveType.requiresAdminGrant ? "Yes - granted per employee" : "No - available to all"}
                   </Badge>
                 </div>
                 <div>
@@ -671,29 +675,31 @@ export function LeaveTypesTab({
                   <span>Created</span>
                   <strong>
                     {formatDate(viewLeaveType.createdAt)}
-                    {actorDisplayName(viewLeaveType.createdByUser) ? ` — ${actorDisplayName(viewLeaveType.createdByUser)}` : ""}
+                    {actorDisplayName(viewLeaveType.createdByUser) ? ` - ${actorDisplayName(viewLeaveType.createdByUser)}` : ""}
                   </strong>
                 </div>
                 <div>
                   <span>Last Updated</span>
                   <strong>
                     {formatDate(viewLeaveType.updatedAt)}
-                    {actorDisplayName(viewLeaveType.updatedByUser) ? ` — ${actorDisplayName(viewLeaveType.updatedByUser)}` : ""}
+                    {actorDisplayName(viewLeaveType.updatedByUser) ? ` - ${actorDisplayName(viewLeaveType.updatedByUser)}` : ""}
                   </strong>
                 </div>
               </div>
             </div>
 
             <div className="utilities-modal-actions">
-              <button className="utilities-edit-button" onClick={() => openEditForm(viewLeaveType)}>
-                <Pencil size={13} /> Edit
-              </button>
-              {viewLeaveType.requiresEhsActivation && (
+              {canManage && (
+                <button className="utilities-edit-button" onClick={() => openEditForm(viewLeaveType)}>
+                  <Pencil size={13} /> Edit
+                </button>
+              )}
+              {canManage && viewLeaveType.requiresEhsActivation && (
                 <button className="utilities-edit-button" onClick={() => toggleEhsActivation(viewLeaveType)}>
                   <Zap size={13} /> {viewLeaveType.ehsActivated ? "Deactivate" : "Activate"}
                 </button>
               )}
-              {viewLeaveType.isActive ? (
+              {canManage && (viewLeaveType.isActive ? (
                 <button className="utilities-archive-button" onClick={() => requestArchive(viewLeaveType)}>
                   <Archive size={13} /> Archive
                 </button>
@@ -701,7 +707,7 @@ export function LeaveTypesTab({
                 <button className="utilities-archive-button restore" onClick={() => requestRestore(viewLeaveType)}>
                   <RotateCcw size={13} /> Restore
                 </button>
-              )}
+              ))}
               <button className="outline-button" onClick={() => setViewLeaveType(null)}>
                 Close
               </button>

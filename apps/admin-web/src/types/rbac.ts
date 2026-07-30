@@ -15,6 +15,7 @@ export const permissions = {
   attendanceRead: "attendance:read",
   attendanceWrite: "attendance:write",
   leaveRead: "leave:read",
+  leaveTypesWrite: "leave-types:write",
   schedulesRead: "schedules:read",
   schedulesWrite: "schedules:write",
   reportsRead: "reports:read",

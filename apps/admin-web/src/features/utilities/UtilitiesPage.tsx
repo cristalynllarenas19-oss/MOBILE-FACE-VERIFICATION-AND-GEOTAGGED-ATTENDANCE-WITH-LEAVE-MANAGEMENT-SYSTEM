@@ -11,6 +11,7 @@ export type Notification = { type: "success" | "error"; message: string } | null
 type UtilTab = "leave-types" | "shifts" | "departments" | "audit-logs";
 
 export function UtilitiesPage({ user }: { user?: { permissions: PermissionCode[] } }) {
+  const canManageLeaveTypes = user?.permissions.includes(permissions.leaveTypesWrite) ?? true;
   const canManageShifts = user?.permissions.includes(permissions.schedulesWrite) ?? true;
   const [tab, setTab] = useState<UtilTab>("leave-types");
   const [notification, setNotification] = useState<Notification>(null);
@@ -45,7 +46,7 @@ export function UtilitiesPage({ user }: { user?: { permissions: PermissionCode[]
         </button>
       </div>
 
-      {tab === "leave-types" && <LeaveTypesTab notify={setNotification} />}
+      {tab === "leave-types" && <LeaveTypesTab canManage={canManageLeaveTypes} notify={setNotification} />}
       {tab === "shifts" && <ShiftsTab canManageShifts={canManageShifts} notify={setNotification} />}
       {tab === "departments" && <DepartmentsTab user={user} notify={setNotification} />}
       {tab === "audit-logs" && <AuditLogsTab notify={setNotification} />}
