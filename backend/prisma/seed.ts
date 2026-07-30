@@ -87,7 +87,69 @@ async function upsertUser(email: string, password: string, roleCode: RoleCode, e
   return { employee: created, isNew: true };
 }
 
+async function seedAttendanceModeOptions() {
+  const modes = [
+    {
+      code: "FIXED",
+      label: "Non-field",
+      description: "Regular office-based attendance mode.",
+      sortOrder: 10,
+      availableForEmployees: true,
+      availableForDepartments: true,
+    },
+    {
+      code: "FIELD",
+      label: "Field",
+      description: "Field/site visit attendance mode.",
+      sortOrder: 20,
+      availableForEmployees: true,
+      availableForDepartments: true,
+    },
+    {
+      code: "BOTH",
+      label: "Both",
+      description: "No department-level restriction.",
+      sortOrder: 30,
+      availableForEmployees: false,
+      availableForDepartments: true,
+    },
+  ];
+
+  for (const mode of modes) {
+    await prisma.$executeRaw`
+      INSERT INTO attendance_mode_options (
+        id,
+        code,
+        label,
+        description,
+        sort_order,
+        is_active,
+        available_for_employees,
+        available_for_departments
+      )
+      VALUES (
+        gen_random_uuid()::text,
+        ${mode.code},
+        ${mode.label},
+        ${mode.description},
+        ${mode.sortOrder},
+        true,
+        ${mode.availableForEmployees},
+        ${mode.availableForDepartments}
+      )
+      ON CONFLICT (code) DO UPDATE SET
+        label = EXCLUDED.label,
+        description = EXCLUDED.description,
+        sort_order = EXCLUDED.sort_order,
+        is_active = EXCLUDED.is_active,
+        available_for_employees = EXCLUDED.available_for_employees,
+        available_for_departments = EXCLUDED.available_for_departments
+    `;
+  }
+}
+
 async function main() {
+  await seedAttendanceModeOptions();
   for (const [code, module] of permissionRows) {
     await prisma.permission.upsert({
       where: { code },

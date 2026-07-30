@@ -55,6 +55,19 @@ enum DepartmentAttendanceMode {
   BOTH
 }
 
+model AttendanceModeOption {
+  id                      String  @id @default(uuid())
+  code                    String  @unique
+  label                   String
+  description             String?
+  sortOrder               Int     @default(0) @map("sort_order")
+  isActive                Boolean @default(true) @map("is_active")
+  availableForEmployees   Boolean @default(true) @map("available_for_employees")
+  availableForDepartments Boolean @default(true) @map("available_for_departments")
+
+  @@map("attendance_mode_options")
+}
+
 // Tags an attendance record as the regular office routine vs a field visit.
 // For a FIXED employee this is always OFFICE. For a FIELD employee it's
 // auto-detected per visit from the WorkLocation.type of the area they

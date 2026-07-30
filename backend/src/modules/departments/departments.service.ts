@@ -6,6 +6,34 @@ import { PrismaService } from "../../prisma/prisma.service";
 export class DepartmentsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  findAttendanceModes() {
+    return this.prisma.$queryRaw<
+      {
+        id: string;
+        code: DepartmentAttendanceMode;
+        label: string;
+        description: string | null;
+        sortOrder: number;
+        isActive: boolean;
+        availableForEmployees: boolean;
+        availableForDepartments: boolean;
+      }[]
+    >`
+      SELECT
+        id,
+        code,
+        label,
+        description,
+        sort_order AS "sortOrder",
+        is_active AS "isActive",
+        available_for_employees AS "availableForEmployees",
+        available_for_departments AS "availableForDepartments"
+      FROM attendance_mode_options
+      WHERE is_active = true
+      ORDER BY sort_order ASC, label ASC
+    `;
+  }
+
   findAll() {
     return this.prisma.department.findMany({
       orderBy: { name: "asc" },

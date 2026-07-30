@@ -37,7 +37,7 @@ export class LeaveBalancesService {
         employmentStatus: "REGULAR",
         ...(employeeIds ? { id: { in: employeeIds } } : {}),
       },
-      select: { id: true },
+      select: { id: true, sex: true },
     });
     if (employees.length === 0) return;
 
@@ -55,6 +55,7 @@ export class LeaveBalancesService {
     for (const employee of employees) {
       for (const type of autoTypes) {
         const key = `${employee.id}::${type.id}`;
+        if (!isEligibleForLeaveType(type.kind, employee.sex)) continue;
         if (!existingKeys.has(key)) {
           toCreate.push({ employeeId: employee.id, leaveTypeId: type.id, year, earnedDays: Number(type.defaultDays), usedDays: 0 });
         }

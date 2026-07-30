@@ -654,7 +654,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
               </div>
               <div>
                 <p>Attendance Mode</p>
-                <strong>{initialEmployee.attendanceMode === "FIELD" ? "Field Technician" : "Fixed"}</strong>
+                <strong>{initialEmployee.attendanceMode === "FIELD" ? "Field" : "Non-field"}</strong>
               </div>
               <div>
                 <p>Sex</p>
@@ -756,7 +756,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
                 </div>
                 <div>
                   <p>Attendance Mode</p>
-                  <strong>{selectedEmployee.attendanceMode === "FIELD" ? "Field Technician" : "Fixed"}</strong>
+                  <strong>{selectedEmployee.attendanceMode === "FIELD" ? "Field" : "Non-field"}</strong>
                 </div>
                 <div>
                   <p>Face Registration</p>

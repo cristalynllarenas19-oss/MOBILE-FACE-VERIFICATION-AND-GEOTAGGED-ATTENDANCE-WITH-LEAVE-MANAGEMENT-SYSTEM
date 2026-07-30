@@ -1512,7 +1512,7 @@ function GeotaggingPageContent({
                           </span>
                           <span className="employee-checklist-meta">
                             {employee.department?.name}
-                            {employee.attendanceMode === "FIELD" ? " · Field Technician" : ""}
+                            {employee.attendanceMode === "FIELD" ? " - Field" : ""}
                           </span>
                           {isAssignedElsewhere && (
                             <span className="employee-assigned-note">

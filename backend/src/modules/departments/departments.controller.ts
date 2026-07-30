@@ -7,6 +7,11 @@ import { DepartmentsService } from "./departments.service";
 export class DepartmentsController {
   constructor(private readonly departmentsService: DepartmentsService) {}
 
+  @Get("attendance-modes")
+  findAttendanceModes() {
+    return this.departmentsService.findAttendanceModes();
+  }
+
   @Get()
   findAll() {
     return this.departmentsService.findAll();

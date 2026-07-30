@@ -10,6 +10,14 @@ import "../employees/EmployeesPage.css";
 
 type AttendanceMode = "FIXED" | "FIELD" | "BOTH";
 
+type AttendanceModeOption = {
+  code: AttendanceMode;
+  label: string;
+  description?: string | null;
+  availableForEmployees: boolean;
+  availableForDepartments: boolean;
+};
+
 type Department = {
   id: string;
   name: string;
@@ -20,14 +28,14 @@ type Department = {
 
 const PAGE_SIZE = 10;
 
-const ATTENDANCE_MODE_OPTIONS: { value: AttendanceMode; label: string }[] = [
-  { value: "FIXED", label: "Fixed" },
-  { value: "FIELD", label: "Field" },
-  { value: "BOTH", label: "Both" },
+const FALLBACK_ATTENDANCE_MODE_OPTIONS: AttendanceModeOption[] = [
+  { code: "FIXED", label: "Non-field", availableForEmployees: true, availableForDepartments: true },
+  { code: "FIELD", label: "Field", availableForEmployees: true, availableForDepartments: true },
+  { code: "BOTH", label: "Both", availableForEmployees: false, availableForDepartments: true },
 ];
 
-function attendanceModeLabel(mode: AttendanceMode) {
-  return ATTENDANCE_MODE_OPTIONS.find((option) => option.value === mode)?.label ?? mode;
+function attendanceModeLabel(mode: AttendanceMode, options = FALLBACK_ATTENDANCE_MODE_OPTIONS) {
+  return options.find((option) => option.code === mode)?.label ?? mode;
 }
 
 function attendanceModeTone(mode: AttendanceMode): "neutral" | "role" | "warning" {
@@ -46,6 +54,7 @@ export function DepartmentsTab({
   const canManage = user?.permissions.includes(permissions.departmentsWrite) ?? true;
 
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [attendanceModeOptions, setAttendanceModeOptions] = useState<AttendanceModeOption[]>(FALLBACK_ATTENDANCE_MODE_OPTIONS);
   const [showArchivedOnly, setShowArchivedOnly] = useState(false);
   const [modeFilter, setModeFilter] = useState("ALL");
   const [search, setSearch] = useState("");
@@ -67,6 +76,15 @@ export function DepartmentsTab({
   };
 
   useEffect(loadDepartments, []);
+
+  useEffect(() => {
+    apiRequest<AttendanceModeOption[]>("/departments/attendance-modes")
+      .then((modes) => {
+        const departmentModes = modes.filter((mode) => mode.availableForDepartments);
+        if (departmentModes.length > 0) setAttendanceModeOptions(departmentModes);
+      })
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     setPage(1);
@@ -208,7 +226,7 @@ export function DepartmentsTab({
             className="department-select"
             value={modeFilter}
             onChange={setModeFilter}
-            options={ATTENDANCE_MODE_OPTIONS}
+            options={attendanceModeOptions.map((option) => ({ value: option.code, label: option.label }))}
             allLabel="All Modes"
             menuLabel="Filter by attendance mode"
             ariaLabel="Filter departments by attendance mode"
@@ -274,7 +292,7 @@ export function DepartmentsTab({
                     <td data-label="Employees">{department._count.employees}</td>
                     <td data-label="Mode">
                       <Badge tone={attendanceModeTone(department.attendanceMode)}>
-                        {attendanceModeLabel(department.attendanceMode)}
+                        {attendanceModeLabel(department.attendanceMode, attendanceModeOptions)}
                       </Badge>
                     </td>
                     <td data-label="Status">
@@ -346,9 +364,9 @@ export function DepartmentsTab({
                   value={attendanceMode}
                   onChange={(e) => setAttendanceMode(e.target.value as AttendanceMode)}
                 >
-                  <option value="FIXED">Fixed (office/site only)</option>
-                  <option value="FIELD">Field (multi-site only)</option>
-                  <option value="BOTH">Both (no restriction)</option>
+                  {attendanceModeOptions.map((option) => (
+                    <option key={option.code} value={option.code}>{option.label}{option.code === "BOTH" ? " (no restriction)" : ""}</option>
+                  ))}
                 </select>
               </label>
             </div>
@@ -388,7 +406,7 @@ export function DepartmentsTab({
                 <div>
                   <span>Attendance Mode</span>
                   <Badge tone={attendanceModeTone(viewDepartment.attendanceMode)}>
-                    {attendanceModeLabel(viewDepartment.attendanceMode)}
+                    {attendanceModeLabel(viewDepartment.attendanceMode, attendanceModeOptions)}
                   </Badge>
                 </div>
                 <div>

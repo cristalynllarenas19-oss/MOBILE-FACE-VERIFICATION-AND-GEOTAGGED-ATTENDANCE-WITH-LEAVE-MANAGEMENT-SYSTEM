@@ -254,17 +254,26 @@ export class EmployeesService {
   // kind (see Utilities -> Leave Types).
   private async assignGenderLeaveType(employeeId: string, sex: CreateEmployeeSex) {
     const kind = GENDER_LEAVE_TYPE_KIND[sex];
+    const oppositeKinds = Object.values(GENDER_LEAVE_TYPE_KIND).filter((candidate) => candidate !== kind);
     const leaveType = await this.prisma.leaveType.findFirst({ where: { kind, isActive: true } });
+    const year = new Date().getFullYear();
+
+    await this.prisma.leaveBalance.deleteMany({
+      where: {
+        employeeId,
+        year,
+        leaveType: { kind: { in: oppositeKinds } },
+      },
+    });
+
     if (!leaveType) return;
 
-    const year = new Date().getFullYear();
     await this.prisma.leaveBalance.upsert({
       where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId: leaveType.id, year } },
       update: {},
       create: { employeeId, leaveTypeId: leaveType.id, year, earnedDays: leaveType.defaultDays, usedDays: 0 },
     });
   }
-
   async update(id: string, dto: UpdateEmployeeDto, context: AuditLogContext = {}, scopeDepartmentId?: string) {
     const employee = await this.prisma.employee.findUniqueOrThrow({
       where: { id },

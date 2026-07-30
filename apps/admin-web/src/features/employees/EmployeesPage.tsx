@@ -18,7 +18,7 @@ type Employee = {
   employmentStatus: "REGULAR" | "CONTRACTUAL_SEASONAL" | "PIECE_RATE" | "SEPARATED";
   soloParentStatus: "NOT_APPLICABLE" | "ELIGIBLE" | "INELIGIBLE";
   sex?: "MALE" | "FEMALE" | null;
-  attendanceMode: "FIXED" | "FIELD";
+  attendanceMode: AttendanceMode;
   hireDate?: string;
   archiveType?: string;
   archiveReason?: string;
@@ -29,7 +29,18 @@ type Employee = {
   supervisor?: { id: string; firstName: string; lastName: string } | null;
 };
 
-type DepartmentOption = { name: string; attendanceMode: "FIXED" | "FIELD" | "BOTH" };
+type AttendanceMode = "FIXED" | "FIELD";
+type DepartmentAttendanceMode = AttendanceMode | "BOTH";
+
+type AttendanceModeOption = {
+  code: DepartmentAttendanceMode;
+  label: string;
+  description?: string | null;
+  availableForEmployees: boolean;
+  availableForDepartments: boolean;
+};
+
+type DepartmentOption = { name: string; attendanceMode: DepartmentAttendanceMode };
 
 type SupervisorOption = {
   id: string;
@@ -50,7 +61,7 @@ type EmployeeForm = {
   position: string;
   hireDate: string;
   employmentStatus: "REGULAR" | "CONTRACTUAL_SEASONAL" | "PIECE_RATE";
-  attendanceMode: "FIXED" | "FIELD";
+  attendanceMode: AttendanceMode;
   soloParentStatus: "NOT_APPLICABLE" | "ELIGIBLE" | "INELIGIBLE";
   sex: "MALE" | "FEMALE";
   // "" = no supervisor assigned.
@@ -119,9 +130,14 @@ function getAttendanceModeTone(mode: Employee["attendanceMode"]) {
   return mode === "FIELD" ? "role" : "neutral";
 }
 
-function getAttendanceModeLabel(mode: Employee["attendanceMode"], short = false) {
-  if (mode === "FIELD") return short ? "Field" : "Field Technician";
-  return "Fixed";
+const FALLBACK_ATTENDANCE_MODE_OPTIONS: AttendanceModeOption[] = [
+  { code: "FIXED", label: "Non-field", availableForEmployees: true, availableForDepartments: true },
+  { code: "FIELD", label: "Field", availableForEmployees: true, availableForDepartments: true },
+  { code: "BOTH", label: "Both", availableForEmployees: false, availableForDepartments: true },
+];
+
+function getAttendanceModeLabel(mode: DepartmentAttendanceMode, options = FALLBACK_ATTENDANCE_MODE_OPTIONS) {
+  return options.find((option) => option.code === mode)?.label ?? mode;
 }
 
 const EMPLOYMENT_STATUS_LABELS: Record<Employee["employmentStatus"], string> = {
@@ -198,12 +214,14 @@ function EmployeeModal({
 
 function AddEmployeeModal({
   departments,
+  attendanceModeOptions,
   supervisors,
   lockedDepartmentName,
   onClose,
   onCreated,
 }: {
   departments: DepartmentOption[];
+  attendanceModeOptions: AttendanceModeOption[];
   supervisors: SupervisorOption[];
   lockedDepartmentName?: string;
   onClose: () => void;
@@ -373,8 +391,9 @@ function AddEmployeeModal({
           <label>
             Attendance Mode
             <select value={form.attendanceMode} onChange={updateField("attendanceMode")} disabled={isModeLocked}>
-              <option value="FIXED">Fixed (office/site)</option>
-              <option value="FIELD">Field Technician (multi-site)</option>
+              {attendanceModeOptions.map((option) => (
+                <option key={option.code} value={option.code}>{option.label}</option>
+              ))}
             </select>
             {isModeLocked && <span className="employee-form-hint">Determined by department</span>}
           </label>
@@ -398,6 +417,7 @@ function AddEmployeeModal({
 function EditEmployeeModal({
   employee,
   departments,
+  attendanceModeOptions,
   positions,
   supervisors,
   lockedDepartmentName,
@@ -406,6 +426,7 @@ function EditEmployeeModal({
 }: {
   employee: Employee;
   departments: DepartmentOption[];
+  attendanceModeOptions: AttendanceModeOption[];
   positions: string[];
   supervisors: SupervisorOption[];
   lockedDepartmentName?: string;
@@ -688,8 +709,9 @@ function EditEmployeeModal({
           <label>
             Attendance Mode
             <select value={form.attendanceMode} onChange={updateField("attendanceMode")} disabled={isModeLocked}>
-              <option value="FIXED">Fixed (office/site)</option>
-              <option value="FIELD">Field Technician (multi-site)</option>
+              {attendanceModeOptions.map((option) => (
+                <option key={option.code} value={option.code}>{option.label}</option>
+              ))}
             </select>
             {isModeLocked && <span className="employee-form-hint">Determined by department</span>}
           </label>
@@ -776,12 +798,14 @@ function EditEmployeeModal({
 
 function ViewEmployeeModal({
   employee,
+  attendanceModeOptions,
   onClose,
   onEdit,
   onArchive,
   canWrite,
 }: {
   employee: Employee;
+  attendanceModeOptions: AttendanceModeOption[];
   onClose: () => void;
   onEdit: () => void;
   onArchive: () => void;
@@ -821,7 +845,7 @@ function ViewEmployeeModal({
         <div>
           <span>Attendance Mode</span>
           <Badge tone={getAttendanceModeTone(employee.attendanceMode)}>
-            {getAttendanceModeLabel(employee.attendanceMode)}
+            {getAttendanceModeLabel(employee.attendanceMode, attendanceModeOptions)}
           </Badge>
         </div>
         {employee.soloParentStatus && employee.soloParentStatus !== "NOT_APPLICABLE" && (
@@ -1013,6 +1037,7 @@ export function EmployeesPage({
   const [editEmployee, setEditEmployee] = useState<Employee | null>(null);
   const [archiveEmployee, setArchiveEmployee] = useState<Employee | null>(null);
   const [notification, setNotification] = useState<Notification>(null);
+  const [attendanceModeOptions, setAttendanceModeOptions] = useState<AttendanceModeOption[]>(FALLBACK_ATTENDANCE_MODE_OPTIONS);
 
   // Same "employees" cache key as AttendancePage — both read GET /employees,
   // so one fetched copy serves both pages.
@@ -1024,7 +1049,7 @@ export function EmployeesPage({
   );
   const supervisors = supervisorsCache.data ?? [];
 
-  const departmentsCache = useCachedData<{ name: string; isActive: boolean; attendanceMode: "FIXED" | "FIELD" | "BOTH" }[]>(
+  const departmentsCache = useCachedData<{ name: string; isActive: boolean; attendanceMode: DepartmentAttendanceMode }[]>(
     "departments",
     () => apiRequest("/departments"),
   );
@@ -1032,6 +1057,15 @@ export function EmployeesPage({
     .filter((department) => department.isActive)
     .map((department) => ({ name: department.name, attendanceMode: department.attendanceMode }))
     .sort((a, b) => a.name.localeCompare(b.name));
+
+  useEffect(() => {
+    apiRequest<AttendanceModeOption[]>("/departments/attendance-modes")
+      .then((modes) => {
+        const employeeModes = modes.filter((mode) => mode.availableForEmployees && mode.code !== "BOTH");
+        if (employeeModes.length > 0) setAttendanceModeOptions(employeeModes);
+      })
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (!notification) return;
@@ -1201,7 +1235,7 @@ export function EmployeesPage({
                   </td>
                   <td data-label="Mode" className="employee-status-cell">
                     <Badge tone="neutral">
-                      {getAttendanceModeLabel(employee.attendanceMode, true)}
+                      {getAttendanceModeLabel(employee.attendanceMode, attendanceModeOptions)}
                     </Badge>
                   </td>
                   <td data-label="Action">
@@ -1225,6 +1259,7 @@ export function EmployeesPage({
       {viewEmployee && (
         <ViewEmployeeModal
           employee={viewEmployee}
+          attendanceModeOptions={attendanceModeOptions}
           onClose={() => setViewEmployee(null)}
           onEdit={() => openEditEmployee(viewEmployee)}
           onArchive={() => {
@@ -1239,6 +1274,7 @@ export function EmployeesPage({
         <EditEmployeeModal
           employee={editEmployee}
           departments={activeDepartments}
+          attendanceModeOptions={attendanceModeOptions}
           positions={positions}
           supervisors={supervisors}
           lockedDepartmentName={lockedDepartmentName}
@@ -1253,6 +1289,7 @@ export function EmployeesPage({
       {isAddOpen && (
         <AddEmployeeModal
           departments={activeDepartments}
+          attendanceModeOptions={attendanceModeOptions}
           supervisors={supervisors}
           lockedDepartmentName={lockedDepartmentName}
           onClose={() => setIsAddOpen(false)}
