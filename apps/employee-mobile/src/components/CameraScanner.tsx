@@ -46,14 +46,20 @@ type ScreenBox = { x: number; y: number; width: number; height: number };
 const GUIDE_BOX_COLOR = "#1D4ED8"; // matches the admin web face-registration guide box
 const LOCKED_COLOR = "#22C55E";
 
-// Matches admin web face-registration's own tracking loop interval
-// (FaceRegistrationPage.tsx's startFaceTracking polls every 250ms) as
-// closely as this architecture allows.
-const DETECT_POLL_MS = 250;
+// Gap between the end of one tracking request and the start of the next
+// (this loop is sequential, not decoupled like the blink-sampling one below,
+// so this is dead time added on top of the network round trip on every
+// cycle). Lowered from 250ms (which matched admin web's tracking-loop
+// interval) since that padding was making "face detected" feel noticeably
+// delayed — the box turning green is now bound mostly by the round trip
+// itself rather than this extra wait.
+const DETECT_POLL_MS = 60;
 // While sampling for a blink, captures are decoupled from the network (see
 // the capture/send loops below) and re-fire almost immediately — this is
 // just a floor to avoid hammering the native camera bridge back-to-back.
-const BLINK_CAPTURE_FLOOR_MS = 30;
+// Lowered from 30ms: most devices' camera bridge handles this fine, and a
+// tighter floor means fewer frames can slip through between two samples.
+const BLINK_CAPTURE_FLOOR_MS = 16;
 const HOLD_TO_LOCK_MS = 800;
 const TICK_MS = 100;
 // Blink-based liveness check: this has to pass *before* the hold-to-lock
@@ -69,18 +75,24 @@ const TICK_MS = 100;
 const REQUIRED_BLINKS = 1;
 // How many baseline samples to collect before dip-checking starts, so the
 // very first (often still-settling) frame can't be compared against nothing.
-const MIN_BASELINE_SAMPLES = 2;
-// A sample this much below baseline counts as a blink. Deliberately loose —
-// the goal is "did the eyes move at all," not a precise measurement. Real
-// device data showed genuine blinks only dip ~5-8% (the landmark model
-// doesn't track closed eyelids precisely), so this has to sit above that,
-// not at a textbook EAR-drop value.
-const EAR_DIP_RATIO = 0.95;
+// Lowered from 2: arms the check one round trip sooner, at the small risk
+// of occasionally baselining off a slightly-off first sample.
+const MIN_BASELINE_SAMPLES = 1;
+// A sample this much below baseline counts as a blink. Pushed to ~1% —
+// past this point real blinks (5-8% dip) are comfortably caught, but so is
+// ordinary frame-to-frame noise/head movement, so this is a deliberate
+// choice to prioritize never missing a real blink over rejecting
+// non-blinks. If BLINK starts firing in the [liveness] console log while
+// just holding still, that's this constant over-triggering — raise it
+// back toward 0.95 to make it stricter again.
+const EAR_DIP_RATIO = 0.99;
 // Detection frames are shrunk to this width before being sent anywhere —
 // the backend's own detector resizes internally to ~224-416px regardless,
 // so anything bigger here only adds encode/transfer/decode latency without
-// improving accuracy.
-const DETECTION_FRAME_WIDTH = 480;
+// improving accuracy. Matched exactly to the backend's own precise-mode
+// input size (416) rather than padded above it, since every extra pixel
+// here is pure encode/transfer/decode time the backend throws away anyway.
+const DETECTION_FRAME_WIDTH = 416;
 // Static on-screen face guide, always shown at a fixed spot/size so the
 // user lines their face up consistently — closer and more consistently
 // framed input gives the backend's landmark model a much easier time
@@ -147,6 +159,27 @@ function computeFaceScreenBox(
   const x = Math.max(0, stageSize.width - rawX - width);
 
   return { x, y, width, height };
+}
+
+// Whether the detected face's on-screen position actually lines up with the
+// static guide box, rather than just "a face was detected somewhere in
+// frame." This is a plain local geometry check against data already on
+// hand (no extra request, no added latency) — checks the detected face's
+// center point falls within the guide rather than requiring an exact/tight
+// overlap, matching the same "not strict" spirit as the blink check.
+function isFaceCentered(
+  box: ScreenBox | null,
+  guide: { left: number; top: number; width: number; height: number } | null,
+): boolean {
+  if (!box || !guide) return false;
+  const centerX = box.x + box.width / 2;
+  const centerY = box.y + box.height / 2;
+  return (
+    centerX >= guide.left - guide.width * 0.1 &&
+    centerX <= guide.left + guide.width * 1.1 &&
+    centerY >= guide.top - guide.height * 0.1 &&
+    centerY <= guide.top + guide.height * 1.1
+  );
 }
 
 function formatStampDate(date: Date) {
@@ -304,6 +337,10 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
     const height = width / FACE_GUIDE_ASPECT_RATIO;
     return { width, height, left: (stageSize.width - width) / 2, top: (stageSize.height - height) / 2 };
   })();
+  // Whether the guide border should read as "locked on" — a face was
+  // detected AND it's actually positioned within the guide, not just
+  // present somewhere in frame.
+  const faceCentered = faceDetected && isFaceCentered(screenBox, faceGuideRect);
   const liveMapGrid = liveCoords
     ? buildMapGrid(liveCoords.latitude, liveCoords.longitude, MAP_THUMBNAIL_DISPLAY_SIZE)
     : null;
@@ -465,11 +502,17 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
     async function captureLoop() {
       if (cancelled || isFinishingRef.current) return;
       let failed = false;
-      // While the blink check hasn't passed yet, this poll's only job is
-      // sampling eye state as accurately and quickly as possible — sharper
-      // photo, faster cadence, and (below) no longer waiting on the network
-      // before taking the next photo.
-      const samplingBlink = blinkCountRef.current < REQUIRED_BLINKS;
+      // Only switch into blink-sampling mode (the heavier, slower precise
+      // backend path — full landmark model, decoupled capture/send) once a
+      // face has actually been confirmed present. Before that, "is a face
+      // here at all" only needs the cheap/fast tracking path (tiny model,
+      // sequential at DETECT_POLL_MS) — there's no point paying for
+      // eyelid-precision landmarks before there's even a face to check.
+      // This used to sample for a blink from the very first frame of every
+      // scan attempt regardless of whether a face had been found yet, which
+      // meant the initial "face detected" feedback was riding on the
+      // slowest backend call instead of the fastest one.
+      const samplingBlink = faceDetectedRef.current && blinkCountRef.current < REQUIRED_BLINKS;
       try {
         // skipProcessing is intentionally NOT set here: it skips orientation
         // correction, which would return raw sensor pixels (often landscape,
@@ -481,7 +524,11 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
         // itself is already fast because the whole session runs at the
         // small fixed pictureSize (see the CameraView props).
         const photo = await cameraRef.current?.takePictureAsync({
-          quality: samplingBlink ? 0.5 : 0.3,
+          // Lower quality while sampling for a blink than before (was 0.5):
+          // this is a detection-only frame, never shown or stored, so a
+          // faster on-device JPEG encode matters more than its sharpness —
+          // the resize step below shrinks it further before it's sent.
+          quality: samplingBlink ? 0.35 : 0.3,
           shutterSound: false,
         });
         if (cancelled) return;
@@ -497,7 +544,10 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
           // making the model looking at it more precise.
           const resized = await manipulateAsync(photo.uri, [{ resize: { width: DETECTION_FRAME_WIDTH } }], {
             base64: true,
-            compress: 0.7,
+            // Lower than before (was 0.7) for a smaller, faster-to-transfer
+            // payload — at this resolution the extra compression doesn't
+            // meaningfully hurt the backend's ability to place eye landmarks.
+            compress: 0.55,
             format: SaveFormat.JPEG,
           });
           if (cancelled) return;
@@ -913,7 +963,7 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
                       top: faceGuideRect.top,
                       width: faceGuideRect.width,
                       height: faceGuideRect.height,
-                      borderColor: faceDetected ? LOCKED_COLOR : GUIDE_BOX_COLOR,
+                      borderColor: faceCentered ? LOCKED_COLOR : GUIDE_BOX_COLOR,
                     },
                   ]}
                 />
