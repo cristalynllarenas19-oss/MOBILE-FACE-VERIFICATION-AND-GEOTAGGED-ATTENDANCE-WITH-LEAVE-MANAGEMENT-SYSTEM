@@ -18,7 +18,7 @@ type EmployeeOption = {
   department: { id: string; name: string };
   position?: { title: string };
   user?: { email?: string };
-  attendanceMode?: "FIXED" | "FIELD";
+  attendanceMode?: string;
 };
 
 type GeotaggedLocation = {

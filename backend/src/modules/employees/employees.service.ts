@@ -29,6 +29,24 @@ export class EmployeesService {
     private readonly notifications: NotificationsService,
   ) {}
 
+  // Derives the final attendanceMode for an employee: a department configured
+  // to anything other than "BOTH" always wins — no per-employee choice is
+  // accepted, closing the gap where an employee's mode could otherwise drift
+  // from their department's policy. A "BOTH" department has no restriction,
+  // so HR must explicitly choose one of the employee-eligible DB-managed modes.
+  private async resolveAttendanceMode(departmentAttendanceMode: string, requested?: string) {
+    if (departmentAttendanceMode !== "BOTH") return departmentAttendanceMode;
+
+    if (!requested) {
+      throw new BadRequestException("Attendance Mode is required for a department with no fixed mode.");
+    }
+    const mode = await this.prisma.attendanceMode.findUnique({ where: { code: requested } });
+    if (!mode || !mode.isActive || !mode.availableForEmployees) {
+      throw new BadRequestException(`"${requested}" is not a valid attendance mode for an employee.`);
+    }
+    return mode.code;
+  }
+
   async findAll(departmentId?: string) {
     await this.checkProbationaryMilestones();
     return this.prisma.employee.findMany({
@@ -210,6 +228,7 @@ export class EmployeesService {
     const resolvedSupervisorId = await this.resolveSupervisorId(dto.supervisorId, department.id);
     const temporaryPassword = generateTemporaryPassword();
     const hireDate = dto.hireDate ? new Date(dto.hireDate) : new Date();
+    const attendanceMode = await this.resolveAttendanceMode(department.attendanceMode, dto.attendanceMode);
 
     const user = await this.prisma.user.create({
       data: {
@@ -230,7 +249,7 @@ export class EmployeesService {
         positionId: position.id,
         hireDate,
         employmentStatus: dto.employmentStatus,
-        attendanceMode: dto.attendanceMode ?? "FIXED",
+        attendanceMode,
         sex: dto.sex,
         soloParentStatus: dto.soloParentStatus ?? "NOT_APPLICABLE",
         ...(resolvedSupervisorId !== undefined ? { supervisorId: resolvedSupervisorId } : {}),
@@ -378,6 +397,16 @@ export class EmployeesService {
       resolvedSupervisorId = null;
     }
 
+    // Recompute only when it could actually change: an explicit
+    // dto.attendanceMode, or an actual department move (which may carry its
+    // own restriction the employee must now conform to). A same-department
+    // edit that touches neither is left alone.
+    let resolvedAttendanceMode: string | undefined;
+    if (dto.attendanceMode !== undefined || (department && department.id !== employee.departmentId)) {
+      const targetDepartmentAttendanceMode = department?.attendanceMode ?? employee.department.attendanceMode;
+      resolvedAttendanceMode = await this.resolveAttendanceMode(targetDepartmentAttendanceMode, dto.attendanceMode);
+    }
+
     const updated = await this.prisma.employee.update({
       where: { id },
       data: {
@@ -387,7 +416,7 @@ export class EmployeesService {
         ...(position ? { positionId: position.id } : {}),
         ...(dto.hireDate ? { hireDate: new Date(dto.hireDate) } : {}),
         ...(dto.employmentStatus ? { employmentStatus: dto.employmentStatus } : {}),
-        ...(dto.attendanceMode ? { attendanceMode: dto.attendanceMode } : {}),
+        ...(resolvedAttendanceMode !== undefined ? { attendanceMode: resolvedAttendanceMode } : {}),
         ...(dto.soloParentStatus ? { soloParentStatus: dto.soloParentStatus } : {}),
         ...(resolvedSupervisorId !== undefined ? { supervisorId: resolvedSupervisorId } : {}),
       },
@@ -397,7 +426,7 @@ export class EmployeesService {
     // Only auto-assign on an actual transition into Fixed — not on every
     // unrelated save while already Fixed — matching how create() only ever
     // does this once, at hire.
-    if (dto.attendanceMode === "FIXED" && employee.attendanceMode !== "FIXED") {
+    if (resolvedAttendanceMode === "FIXED" && employee.attendanceMode !== "FIXED") {
       await this.geolocation.assignDefaultOfficeLocation(id, updated.departmentId, context);
     }
 

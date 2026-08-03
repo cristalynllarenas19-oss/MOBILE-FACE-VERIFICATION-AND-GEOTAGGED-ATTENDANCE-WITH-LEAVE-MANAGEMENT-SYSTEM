@@ -1,5 +1,4 @@
 import { Body, Controller, Get, Param, Patch, Post, Req } from "@nestjs/common";
-import { DepartmentAttendanceMode } from "@prisma/client";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
 import { DepartmentsService } from "./departments.service";
 
@@ -19,7 +18,7 @@ export class DepartmentsController {
 
   @Post()
   @RequirePermissions("departments:write")
-  create(@Body() dto: { name: string; attendanceMode?: DepartmentAttendanceMode }, @Req() request: Request) {
+  create(@Body() dto: { name: string; attendanceMode?: string }, @Req() request: Request) {
     return this.departmentsService.create(dto, (request as any).user?.userId);
   }
 
@@ -27,7 +26,7 @@ export class DepartmentsController {
   @RequirePermissions("departments:write")
   update(
     @Param("id") id: string,
-    @Body() dto: { name?: string; attendanceMode?: DepartmentAttendanceMode },
+    @Body() dto: { name?: string; attendanceMode?: string },
     @Req() request: Request,
   ) {
     return this.departmentsService.update(id, dto, (request as any).user?.userId);

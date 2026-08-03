@@ -154,7 +154,7 @@ export default function App() {
     }
   }
 
-  async function refreshEligibility(employeeId: string, attendanceMode?: "FIXED" | "FIELD") {
+  async function refreshEligibility(employeeId: string, attendanceMode?: string) {
     try {
       const cached = cacheGet<AttendanceEligibility>(eligibilityCacheKey(employeeId));
       if (cached) setEligibility(cached);

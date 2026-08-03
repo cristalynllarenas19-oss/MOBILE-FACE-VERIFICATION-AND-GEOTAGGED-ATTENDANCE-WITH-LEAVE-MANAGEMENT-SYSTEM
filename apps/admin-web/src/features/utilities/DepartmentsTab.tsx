@@ -8,7 +8,9 @@ import { PermissionCode, permissions } from "../../types/rbac";
 import type { Notification } from "./UtilitiesPage";
 import "../employees/EmployeesPage.css";
 
-type AttendanceMode = "FIXED" | "FIELD" | "BOTH";
+// The legal set of attendance mode codes is DB-driven (GET
+// /departments/attendance-modes), not a compiled union.
+type AttendanceMode = string;
 
 type AttendanceModeOption = {
   code: AttendanceMode;
@@ -28,13 +30,10 @@ type Department = {
 
 const PAGE_SIZE = 10;
 
-const FALLBACK_ATTENDANCE_MODE_OPTIONS: AttendanceModeOption[] = [
-  { code: "FIXED", label: "Non-field", availableForEmployees: true, availableForDepartments: true },
-  { code: "FIELD", label: "Field", availableForEmployees: true, availableForDepartments: true },
-  { code: "BOTH", label: "Both", availableForEmployees: false, availableForDepartments: true },
-];
-
-function attendanceModeLabel(mode: AttendanceMode, options = FALLBACK_ATTENDANCE_MODE_OPTIONS) {
+// No hardcoded fallback set — options are always sourced live from
+// GET /departments/attendance-modes; if that hasn't loaded, callers show the
+// raw code rather than substituting made-up data.
+function attendanceModeLabel(mode: AttendanceMode, options: AttendanceModeOption[]) {
   return options.find((option) => option.code === mode)?.label ?? mode;
 }
 
@@ -54,7 +53,7 @@ export function DepartmentsTab({
   const canManage = user?.permissions.includes(permissions.departmentsWrite) ?? true;
 
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [attendanceModeOptions, setAttendanceModeOptions] = useState<AttendanceModeOption[]>(FALLBACK_ATTENDANCE_MODE_OPTIONS);
+  const [attendanceModeOptions, setAttendanceModeOptions] = useState<AttendanceModeOption[]>([]);
   const [showArchivedOnly, setShowArchivedOnly] = useState(false);
   const [modeFilter, setModeFilter] = useState("ALL");
   const [search, setSearch] = useState("");
@@ -80,8 +79,7 @@ export function DepartmentsTab({
   useEffect(() => {
     apiRequest<AttendanceModeOption[]>("/departments/attendance-modes")
       .then((modes) => {
-        const departmentModes = modes.filter((mode) => mode.availableForDepartments);
-        if (departmentModes.length > 0) setAttendanceModeOptions(departmentModes);
+        setAttendanceModeOptions(modes.filter((mode) => mode.availableForDepartments));
       })
       .catch(() => undefined);
   }, []);
@@ -362,12 +360,16 @@ export function DepartmentsTab({
                 <select
                   className="utilities-input"
                   value={attendanceMode}
-                  onChange={(e) => setAttendanceMode(e.target.value as AttendanceMode)}
+                  onChange={(e) => setAttendanceMode(e.target.value)}
+                  disabled={attendanceModeOptions.length === 0}
                 >
                   {attendanceModeOptions.map((option) => (
                     <option key={option.code} value={option.code}>{option.label}{option.code === "BOTH" ? " (no restriction)" : ""}</option>
                   ))}
                 </select>
+                {attendanceModeOptions.length === 0 && (
+                  <span className="utilities-field-error">Unable to load attendance modes.</span>
+                )}
               </label>
             </div>
 

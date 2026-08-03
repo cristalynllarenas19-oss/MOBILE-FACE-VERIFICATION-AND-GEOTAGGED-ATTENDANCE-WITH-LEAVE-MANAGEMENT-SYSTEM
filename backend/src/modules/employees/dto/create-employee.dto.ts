@@ -8,11 +8,6 @@ export enum CreateEmployeeEmploymentStatus {
   PIECE_RATE = "PIECE_RATE",
 }
 
-export enum CreateEmployeeAttendanceMode {
-  FIXED = "FIXED",
-  FIELD = "FIELD",
-}
-
 export enum EmployeeSoloParentStatus {
   NOT_APPLICABLE = "NOT_APPLICABLE",
   ELIGIBLE = "ELIGIBLE",
@@ -45,9 +40,12 @@ export class CreateEmployeeDto {
   @IsEnum(CreateEmployeeEmploymentStatus)
   employmentStatus!: CreateEmployeeEmploymentStatus;
 
+  // Validity is a DB-existence/availability check in EmployeesService, not a
+  // compiled enum — the department's own configured mode may also override
+  // whatever is submitted here (see EmployeesService.resolveAttendanceMode).
   @IsOptional()
-  @IsEnum(CreateEmployeeAttendanceMode)
-  attendanceMode?: CreateEmployeeAttendanceMode;
+  @IsString()
+  attendanceMode?: string;
 
   @IsEnum(CreateEmployeeSex)
   sex!: CreateEmployeeSex;
@@ -96,8 +94,8 @@ export class UpdateEmployeeDto {
   employmentStatus?: CreateEmployeeEmploymentStatus;
 
   @IsOptional()
-  @IsEnum(CreateEmployeeAttendanceMode)
-  attendanceMode?: CreateEmployeeAttendanceMode;
+  @IsString()
+  attendanceMode?: string;
 
   @IsOptional()
   @IsEnum(EmployeeSoloParentStatus)

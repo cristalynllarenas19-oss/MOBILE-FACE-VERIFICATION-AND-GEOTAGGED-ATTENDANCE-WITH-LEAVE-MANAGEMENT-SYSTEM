@@ -1,5 +1,4 @@
-import { ConflictException, Injectable } from "@nestjs/common";
-import { DepartmentAttendanceMode } from "@prisma/client";
+import { BadRequestException, ConflictException, Injectable } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 
 @Injectable()
@@ -7,31 +6,22 @@ export class DepartmentsService {
   constructor(private readonly prisma: PrismaService) {}
 
   findAttendanceModes() {
-    return this.prisma.$queryRaw<
-      {
-        id: string;
-        code: DepartmentAttendanceMode;
-        label: string;
-        description: string | null;
-        sortOrder: number;
-        isActive: boolean;
-        availableForEmployees: boolean;
-        availableForDepartments: boolean;
-      }[]
-    >`
-      SELECT
-        id,
-        code,
-        label,
-        description,
-        sort_order AS "sortOrder",
-        is_active AS "isActive",
-        available_for_employees AS "availableForEmployees",
-        available_for_departments AS "availableForDepartments"
-      FROM attendance_mode_options
-      WHERE is_active = true
-      ORDER BY sort_order ASC, label ASC
-    `;
+    return this.prisma.attendanceMode.findMany({
+      where: { isActive: true },
+      orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
+    });
+  }
+
+  // Validates an incoming department-level attendanceMode code against the
+  // DB-managed set (rather than a compiled enum) — "BOTH" (or any other row
+  // flagged availableForDepartments) is legal here even though it's excluded
+  // from the employee-level set in EmployeesService.
+  private async resolveDepartmentAttendanceMode(code: string) {
+    const mode = await this.prisma.attendanceMode.findUnique({ where: { code } });
+    if (!mode || !mode.isActive || !mode.availableForDepartments) {
+      throw new BadRequestException(`"${code}" is not a valid attendance mode for a department.`);
+    }
+    return mode.code;
   }
 
   findAll() {
@@ -50,12 +40,15 @@ export class DepartmentsService {
     if (existing) throw new ConflictException(`A department named "${name}" already exists.`);
   }
 
-  async create(dto: { name: string; attendanceMode?: DepartmentAttendanceMode }, actorUserId?: string) {
+  async create(dto: { name: string; attendanceMode?: string }, actorUserId?: string) {
     const name = dto.name.trim();
     await this.assertNoDuplicateName(name);
+    const attendanceMode = dto.attendanceMode
+      ? await this.resolveDepartmentAttendanceMode(dto.attendanceMode)
+      : "BOTH";
 
     const created = await this.prisma.department.create({
-      data: { name, attendanceMode: dto.attendanceMode ?? "BOTH" },
+      data: { name, attendanceMode },
     });
 
     await this.prisma.auditLog.create({
@@ -71,7 +64,7 @@ export class DepartmentsService {
     return created;
   }
 
-  async update(id: string, dto: { name?: string; attendanceMode?: DepartmentAttendanceMode }, actorUserId?: string) {
+  async update(id: string, dto: { name?: string; attendanceMode?: string }, actorUserId?: string) {
     const existing = await this.prisma.department.findUniqueOrThrow({ where: { id } });
 
     const name = dto.name?.trim();
@@ -79,10 +72,24 @@ export class DepartmentsService {
       await this.assertNoDuplicateName(name, id);
     }
 
-    const updated = await this.prisma.department.update({
-      where: { id },
-      data: { name, attendanceMode: dto.attendanceMode },
-    });
+    const attendanceMode = dto.attendanceMode
+      ? await this.resolveDepartmentAttendanceMode(dto.attendanceMode)
+      : undefined;
+
+    // A department's restriction (anything other than "BOTH") forces every
+    // employee currently in it to that same mode — done in the same
+    // transaction as the department update itself. Moving TO "BOTH" doesn't
+    // cascade: existing employees keep whatever mode they were last given,
+    // and HR can still edit them individually going forward.
+    const [updated] = await this.prisma.$transaction([
+      this.prisma.department.update({
+        where: { id },
+        data: { name, attendanceMode },
+      }),
+      ...(attendanceMode && attendanceMode !== "BOTH" && attendanceMode !== existing.attendanceMode
+        ? [this.prisma.employee.updateMany({ where: { departmentId: id }, data: { attendanceMode } })]
+        : []),
+    ]);
 
     await this.prisma.auditLog.create({
       data: {

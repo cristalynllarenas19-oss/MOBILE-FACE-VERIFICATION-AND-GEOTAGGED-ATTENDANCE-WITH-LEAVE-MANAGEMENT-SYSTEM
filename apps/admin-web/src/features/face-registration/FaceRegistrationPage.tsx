@@ -40,7 +40,7 @@ export type FaceRegistrationEmployee = {
   supervisor?: { firstName: string; lastName: string } | null;
   hireDate?: string;
   employmentStatus?: "REGULAR" | "PROBATIONARY" | "CONTRACTUAL_SEASONAL" | "PIECE_RATE" | "SEPARATED";
-  attendanceMode?: "FIXED" | "FIELD";
+  attendanceMode?: string;
   sex?: "MALE" | "FEMALE" | null;
   soloParentStatus?: "NOT_APPLICABLE" | "ELIGIBLE" | "INELIGIBLE";
 };

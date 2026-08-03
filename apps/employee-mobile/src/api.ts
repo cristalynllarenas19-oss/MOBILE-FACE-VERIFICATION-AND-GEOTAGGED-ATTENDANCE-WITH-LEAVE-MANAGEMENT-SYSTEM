@@ -65,7 +65,9 @@ export function setUnauthorizedHandler(handler: (() => void) | null) {
   unauthorizedHandler = handler;
 }
 
-export type AttendanceMode = "FIXED" | "FIELD";
+// The legal set of attendance mode codes is DB-driven (GET
+// /departments/attendance-modes on the backend), not a compiled union.
+export type AttendanceMode = string;
 export type AttendanceRecordType = "OFFICE" | "FIELD";
 
 export type MobileUser = {

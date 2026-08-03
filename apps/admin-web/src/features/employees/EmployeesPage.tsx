@@ -29,8 +29,11 @@ type Employee = {
   supervisor?: { id: string; firstName: string; lastName: string } | null;
 };
 
-type AttendanceMode = "FIXED" | "FIELD";
-type DepartmentAttendanceMode = AttendanceMode | "BOTH";
+// The legal set of attendance mode codes is DB-driven (GET
+// /departments/attendance-modes), not a compiled union — any string the API
+// returns is valid here.
+type AttendanceMode = string;
+type DepartmentAttendanceMode = string;
 
 type AttendanceModeOption = {
   code: DepartmentAttendanceMode;
@@ -130,13 +133,10 @@ function getAttendanceModeTone(mode: Employee["attendanceMode"]) {
   return mode === "FIELD" ? "role" : "neutral";
 }
 
-const FALLBACK_ATTENDANCE_MODE_OPTIONS: AttendanceModeOption[] = [
-  { code: "FIXED", label: "Non-field", availableForEmployees: true, availableForDepartments: true },
-  { code: "FIELD", label: "Field", availableForEmployees: true, availableForDepartments: true },
-  { code: "BOTH", label: "Both", availableForEmployees: false, availableForDepartments: true },
-];
-
-function getAttendanceModeLabel(mode: DepartmentAttendanceMode, options = FALLBACK_ATTENDANCE_MODE_OPTIONS) {
+// Labels/options are always sourced live from GET /departments/attendance-modes
+// — no hardcoded fallback set. If that hasn't loaded yet, callers show the
+// raw code rather than substituting made-up data.
+function getAttendanceModeLabel(mode: DepartmentAttendanceMode, options: AttendanceModeOption[]) {
   return options.find((option) => option.code === mode)?.label ?? mode;
 }
 
@@ -421,12 +421,19 @@ function AddEmployeeModal({
           </label>
           <label>
             Attendance Mode
-            <select value={form.attendanceMode} onChange={updateField("attendanceMode")} disabled={isModeLocked}>
+            <select
+              value={form.attendanceMode}
+              onChange={updateField("attendanceMode")}
+              disabled={isModeLocked || attendanceModeOptions.length === 0}
+            >
               {attendanceModeOptions.map((option) => (
                 <option key={option.code} value={option.code}>{option.label}</option>
               ))}
             </select>
             {isModeLocked && <span className="employee-form-hint">Determined by department</span>}
+            {!isModeLocked && attendanceModeOptions.length === 0 && (
+              <span className="employee-form-hint">Unable to load attendance modes.</span>
+            )}
           </label>
         </div>
 
@@ -740,12 +747,19 @@ function EditEmployeeModal({
           </label>
           <label>
             Attendance Mode
-            <select value={form.attendanceMode} onChange={updateField("attendanceMode")} disabled={isModeLocked}>
+            <select
+              value={form.attendanceMode}
+              onChange={updateField("attendanceMode")}
+              disabled={isModeLocked || attendanceModeOptions.length === 0}
+            >
               {attendanceModeOptions.map((option) => (
                 <option key={option.code} value={option.code}>{option.label}</option>
               ))}
             </select>
             {isModeLocked && <span className="employee-form-hint">Determined by department</span>}
+            {!isModeLocked && attendanceModeOptions.length === 0 && (
+              <span className="employee-form-hint">Unable to load attendance modes.</span>
+            )}
           </label>
         </div>
 
@@ -1102,7 +1116,7 @@ export function EmployeesPage({
   const [editEmployee, setEditEmployee] = useState<Employee | null>(null);
   const [archiveEmployee, setArchiveEmployee] = useState<Employee | null>(null);
   const [notification, setNotification] = useState<Notification>(null);
-  const [attendanceModeOptions, setAttendanceModeOptions] = useState<AttendanceModeOption[]>(FALLBACK_ATTENDANCE_MODE_OPTIONS);
+  const [attendanceModeOptions, setAttendanceModeOptions] = useState<AttendanceModeOption[]>([]);
 
   // Same "employees" cache key as AttendancePage — both read GET /employees,
   // so one fetched copy serves both pages.
@@ -1126,8 +1140,7 @@ export function EmployeesPage({
   useEffect(() => {
     apiRequest<AttendanceModeOption[]>("/departments/attendance-modes")
       .then((modes) => {
-        const employeeModes = modes.filter((mode) => mode.availableForEmployees && mode.code !== "BOTH");
-        if (employeeModes.length > 0) setAttendanceModeOptions(employeeModes);
+        setAttendanceModeOptions(modes.filter((mode) => mode.availableForEmployees));
       })
       .catch(() => undefined);
   }, []);

@@ -42,21 +42,11 @@ enum SoloParentStatus {
   INELIGIBLE
 }
 
-enum AttendanceMode {
-  FIXED
-  FIELD
-}
-
-// A department's allowed attendance mode(s) — restricts which mode new hires
-// into that department can be given (see DepartmentsService/EmployeesPage).
-// BOTH means no restriction.
-enum DepartmentAttendanceMode {
-  FIXED
-  FIELD
-  BOTH
-}
-
-model AttendanceModeOption {
+// The set of legal attendance modes is DB-driven, not a compiled enum — HR
+// assigns a department (and, for a "BOTH" department, an individual employee)
+// one of these rows via code, not a hardcoded mapping. See
+// EmployeesService.resolveAttendanceMode / DepartmentsService.update.
+model AttendanceMode {
   id                      String  @id @default(uuid())
   code                    String  @unique
   label                   String
@@ -65,8 +55,10 @@ model AttendanceModeOption {
   isActive                Boolean @default(true) @map("is_active")
   availableForEmployees   Boolean @default(true) @map("available_for_employees")
   availableForDepartments Boolean @default(true) @map("available_for_departments")
+  departments             Department[] @relation("DepartmentAttendanceMode")
+  employees               Employee[]   @relation("EmployeeAttendanceMode")
 
-  @@map("attendance_mode_options")
+  @@map("attendance_modes")
 }
 
 // Tags an attendance record as the regular office routine vs a field visit.
@@ -240,17 +232,22 @@ model RolePermission {
 }
 
 model Department {
-  id            String                    @id @default(uuid())
-  name          String                    @unique
-  isActive      Boolean                   @default(true) @map("is_active")
-  attendanceMode DepartmentAttendanceMode @default(BOTH) @map("attendance_mode")
-  division_id   String?
-  divisions     divisions?     @relation(fields: [division_id], references: [id])
-  employees     Employee[]
-  sections      sections[]
-  workLocations WorkLocation[]
+  id             String         @id @default(uuid())
+  name           String         @unique
+  isActive       Boolean        @default(true) @map("is_active")
+  // "BOTH" means no restriction — HR chooses per employee. Any other code
+  // forces every employee in this department to that mode (see
+  // DepartmentsService.update's cascade and EmployeesService.resolveAttendanceMode).
+  attendanceMode String         @default("BOTH") @map("attendance_mode")
+  attendanceModeRef AttendanceMode @relation("DepartmentAttendanceMode", fields: [attendanceMode], references: [code])
+  division_id    String?
+  divisions      divisions?     @relation(fields: [division_id], references: [id])
+  employees      Employee[]
+  sections       sections[]
+  workLocations  WorkLocation[]
 
   @@index([division_id])
+  @@index([attendanceMode])
   @@map("departments")
 }
 
@@ -296,7 +293,8 @@ model Employee {
   departmentId         String                 @map("department_id")
   positionId           String                 @map("position_id")
   employmentStatus     EmploymentStatus       @default(REGULAR) @map("employment_status")
-  attendanceMode       AttendanceMode         @default(FIXED) @map("attendance_mode")
+  attendanceMode       String                 @default("FIXED") @map("attendance_mode")
+  attendanceModeRef    AttendanceMode         @relation("EmployeeAttendanceMode", fields: [attendanceMode], references: [code])
   hireDate             DateTime               @map("hire_date")
   supervisorId         String?                @map("supervisor_id")
   contactNumber        String?                @map("contact_number")
@@ -324,6 +322,7 @@ model Employee {
   @@index([departmentId])
   @@index([supervisorId])
   @@index([section_id])
+  @@index([attendanceMode])
   @@map("employees")
 }
 

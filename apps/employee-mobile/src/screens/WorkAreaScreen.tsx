@@ -9,7 +9,7 @@ import { distanceInMeters } from "../utils/geofence";
 
 type Props = {
   employeeId?: string;
-  attendanceMode?: "FIXED" | "FIELD";
+  attendanceMode?: string;
 };
 
 function buildMapHtml(location: WorkLocation, userLat: number | null, userLon: number | null) {

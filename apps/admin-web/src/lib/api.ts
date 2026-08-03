@@ -13,7 +13,7 @@ export type AuthUser = {
   departmentId?: string;
   department?: string;
   displayName: string;
-  attendanceMode?: "FIXED" | "FIELD";
+  attendanceMode?: string;
   defaultView?: "ADMIN" | "EMPLOYEE" | null;
 };
 
