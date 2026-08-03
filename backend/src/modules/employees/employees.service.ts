@@ -6,7 +6,11 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
 import { GeolocationService } from "../geolocation/geolocation.service";
 import { MailService } from "../mail/mail.service";
+import { NotificationsService } from "../notifications/notifications.service";
 import { CreateEmployeeDto, CreateEmployeeSex, UpdateEmployeeDto } from "./dto/create-employee.dto";
+
+const PROBATION_MILESTONE_NOTIFICATION_TYPE = "PROBATION_REGULARIZATION_DUE";
+const PROBATION_MILESTONE_MONTHS = 6;
 
 const GENDER_LEAVE_TYPE_KIND: Record<string, LeaveTypeKind> = {
   MALE: "PATERNITY",
@@ -22,15 +26,56 @@ export class EmployeesService {
     private readonly auditLogs: AuditLogsService,
     private readonly mail: MailService,
     private readonly geolocation: GeolocationService,
+    private readonly notifications: NotificationsService,
   ) {}
 
-  findAll(departmentId?: string) {
+  async findAll(departmentId?: string) {
+    await this.checkProbationaryMilestones();
     return this.prisma.employee.findMany({
       where: departmentId ? { departmentId } : undefined,
       include: { user: true, department: true, position: true, supervisor: true },
       // Newest-added employee first (LIFO), matching leave requests.
       orderBy: { createdAt: "desc" },
     });
+  }
+
+  // Recommendation-only check, never touches employmentStatus itself — HR
+  // still has to manually convert Probationary -> Regular via Edit Employee.
+  // Runs opportunistically whenever the employee list is fetched (no cron
+  // job exists in this backend), so it's "automatic" from HR's perspective
+  // without needing a scheduler. Idempotent: the Notification table itself
+  // is the source of truth for "already notified", not a flag on Employee.
+  private async checkProbationaryMilestones() {
+    const cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - PROBATION_MILESTONE_MONTHS);
+
+    const probationaryEmployees = await this.prisma.employee.findMany({
+      where: { employmentStatus: "PROBATIONARY", hireDate: { lte: cutoff } },
+      select: { id: true, firstName: true, lastName: true },
+    });
+    if (probationaryEmployees.length === 0) return;
+
+    const alreadyNotified = await this.prisma.notification.findMany({
+      where: {
+        type: PROBATION_MILESTONE_NOTIFICATION_TYPE,
+        entityId: { in: probationaryEmployees.map((e) => e.id) },
+      },
+      select: { entityId: true },
+    });
+    const notifiedIds = new Set(alreadyNotified.map((n) => n.entityId));
+
+    const dueEmployees = probationaryEmployees.filter((e) => !notifiedIds.has(e.id));
+    if (dueEmployees.length === 0) return;
+
+    const adminUserIds = await this.notifications.adminUserIds();
+    for (const employee of dueEmployees) {
+      await this.notifications.notifyUsers(adminUserIds, {
+        title: "Regularization Review Recommended",
+        message: `${employee.firstName} ${employee.lastName} has completed six (6) months of probationary employment and may be ready for evaluation and conversion to Regular status.`,
+        type: PROBATION_MILESTONE_NOTIFICATION_TYPE,
+        entityId: employee.id,
+      });
+    }
   }
 
   // Candidates for the "Supervisor" field on Add/Edit Employee — anyone

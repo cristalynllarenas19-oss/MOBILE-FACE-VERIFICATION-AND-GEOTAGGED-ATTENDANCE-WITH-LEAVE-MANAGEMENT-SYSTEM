@@ -163,7 +163,7 @@ export class LeaveBalancesService {
     const statusMap = new Map<EmploymentStatus, { usedDays: number; employeeIds: Set<string> }>();
     // Pre-seed every non-separated classification so each always gets its own
     // donut in the overview, even when no employee currently holds it yet.
-    for (const status of ["REGULAR", "CONTRACTUAL_SEASONAL", "PIECE_RATE"] as EmploymentStatus[]) {
+    for (const status of ["REGULAR", "PROBATIONARY", "CONTRACTUAL_SEASONAL", "PIECE_RATE"] as EmploymentStatus[]) {
       statusMap.set(status, { usedDays: 0, employeeIds: new Set<string>() });
     }
     const typeMap = new Map<
@@ -186,7 +186,7 @@ export class LeaveBalancesService {
     // set on the Leave Types page), not a sum across every employee in the
     // classification — otherwise a type like Maternity Leave (105 days) would
     // balloon to 105 × headcount instead of just showing 105.
-    for (const status of ["REGULAR", "CONTRACTUAL_SEASONAL", "PIECE_RATE"] as EmploymentStatus[]) {
+    for (const status of ["REGULAR", "PROBATIONARY", "CONTRACTUAL_SEASONAL", "PIECE_RATE"] as EmploymentStatus[]) {
       for (const leaveType of leaveTypes) {
         if (!leaveType.applicableStatuses.includes(status)) continue;
         typeMap.set(`${status}::${leaveType.id}`, {

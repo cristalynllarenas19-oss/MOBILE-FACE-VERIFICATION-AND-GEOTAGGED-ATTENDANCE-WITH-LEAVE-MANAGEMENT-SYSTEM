@@ -39,7 +39,7 @@ export type FaceRegistrationEmployee = {
   user?: { email: string } | null;
   supervisor?: { firstName: string; lastName: string } | null;
   hireDate?: string;
-  employmentStatus?: "REGULAR" | "CONTRACTUAL_SEASONAL" | "PIECE_RATE" | "SEPARATED";
+  employmentStatus?: "REGULAR" | "PROBATIONARY" | "CONTRACTUAL_SEASONAL" | "PIECE_RATE" | "SEPARATED";
   attendanceMode?: "FIXED" | "FIELD";
   sex?: "MALE" | "FEMALE" | null;
   soloParentStatus?: "NOT_APPLICABLE" | "ELIGIBLE" | "INELIGIBLE";
@@ -49,6 +49,7 @@ type Employee = FaceRegistrationEmployee;
 
 const EMPLOYMENT_STATUS_LABELS: Record<NonNullable<FaceRegistrationEmployee["employmentStatus"]>, string> = {
   REGULAR: "Regular Employee",
+  PROBATIONARY: "Probationary Employee",
   CONTRACTUAL_SEASONAL: "Contractual Employee (Seasonal)",
   PIECE_RATE: "Piece-rate (Pakyawan) Worker",
   SEPARATED: "Separated",

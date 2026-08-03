@@ -15,7 +15,7 @@ type Employee = {
   employeeNo: string;
   firstName: string;
   lastName: string;
-  employmentStatus: "REGULAR" | "CONTRACTUAL_SEASONAL" | "PIECE_RATE" | "SEPARATED";
+  employmentStatus: "REGULAR" | "PROBATIONARY" | "CONTRACTUAL_SEASONAL" | "PIECE_RATE" | "SEPARATED";
   soloParentStatus: "NOT_APPLICABLE" | "ELIGIBLE" | "INELIGIBLE";
   sex?: "MALE" | "FEMALE" | null;
   attendanceMode: AttendanceMode;
@@ -60,7 +60,7 @@ type EmployeeForm = {
   // form no longer asks for or sends it.
   position: string;
   hireDate: string;
-  employmentStatus: "REGULAR" | "CONTRACTUAL_SEASONAL" | "PIECE_RATE";
+  employmentStatus: "REGULAR" | "PROBATIONARY" | "CONTRACTUAL_SEASONAL" | "PIECE_RATE";
   attendanceMode: AttendanceMode;
   soloParentStatus: "NOT_APPLICABLE" | "ELIGIBLE" | "INELIGIBLE";
   sex: "MALE" | "FEMALE";
@@ -142,10 +142,40 @@ function getAttendanceModeLabel(mode: DepartmentAttendanceMode, options = FALLBA
 
 const EMPLOYMENT_STATUS_LABELS: Record<Employee["employmentStatus"], string> = {
   REGULAR: "Regular Employee",
+  PROBATIONARY: "Probationary Employee",
   CONTRACTUAL_SEASONAL: "Contractual Employee (Seasonal)",
   PIECE_RATE: "Piece-rate (Pakyawan) Worker",
   SEPARATED: "Separated",
 };
+
+const PROBATION_MILESTONE_MONTHS = 6;
+
+// Whole months elapsed since hireDate, plus the remainder in days — e.g.
+// "3 months, 12 days". Mirrors the 6-month cutoff EmployeesService uses
+// server-side for the regularization-review notification.
+function getTenure(hireDate?: string) {
+  if (!hireDate) return null;
+  const hired = new Date(hireDate);
+  if (Number.isNaN(hired.getTime())) return null;
+
+  const now = new Date();
+  let months = (now.getFullYear() - hired.getFullYear()) * 12 + (now.getMonth() - hired.getMonth());
+  const monthAnchor = new Date(hired);
+  monthAnchor.setMonth(monthAnchor.getMonth() + months);
+  if (monthAnchor > now) months -= 1;
+
+  const dayAnchor = new Date(hired);
+  dayAnchor.setMonth(dayAnchor.getMonth() + months);
+  const days = Math.max(0, Math.round((now.getTime() - dayAnchor.getTime()) / (1000 * 60 * 60 * 24)));
+
+  return { months, days };
+}
+
+function isDueForRegularizationReview(employee: Employee) {
+  if (employee.employmentStatus !== "PROBATIONARY") return false;
+  const tenure = getTenure(employee.hireDate);
+  return Boolean(tenure && tenure.months >= PROBATION_MILESTONE_MONTHS);
+}
 
 function getStatusLabel(employee: Employee) {
   if (employee.employmentStatus === "SEPARATED" && employee.archiveType) {
@@ -370,6 +400,7 @@ function AddEmployeeModal({
             Employment Status
             <select value={form.employmentStatus} onChange={updateField("employmentStatus")}>
               <option value="REGULAR">Regular Employee</option>
+              <option value="PROBATIONARY">Probationary Employee</option>
               <option value="CONTRACTUAL_SEASONAL">Contractual Employee (Seasonal)</option>
               <option value="PIECE_RATE">Piece-rate (Pakyawan) Worker</option>
             </select>
@@ -661,6 +692,7 @@ function EditEmployeeModal({
             Employment Status
             <select value={form.employmentStatus} onChange={updateField("employmentStatus")}>
               <option value="REGULAR">Regular Employee</option>
+              <option value="PROBATIONARY">Probationary Employee</option>
               <option value="CONTRACTUAL_SEASONAL">Contractual Employee (Seasonal)</option>
               <option value="PIECE_RATE">Piece-rate (Pakyawan) Worker</option>
             </select>
@@ -842,6 +874,19 @@ function ViewEmployeeModal({
             {getStatusLabel(employee)}
           </Badge>
         </div>
+        {employee.hireDate && (
+          <div>
+            <span>Hire Date</span>
+            <strong>
+              {new Date(employee.hireDate).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
+              {(() => {
+                const tenure = getTenure(employee.hireDate);
+                if (!tenure) return null;
+                return ` · ${tenure.months} month${tenure.months === 1 ? "" : "s"}, ${tenure.days} day${tenure.days === 1 ? "" : "s"}`;
+              })()}
+            </strong>
+          </div>
+        )}
         <div>
           <span>Attendance Mode</span>
           <Badge tone={getAttendanceModeTone(employee.attendanceMode)}>
@@ -857,6 +902,26 @@ function ViewEmployeeModal({
           </div>
         )}
       </div>
+
+      {isDueForRegularizationReview(employee) && (
+        <div
+          style={{
+            background: "#eff6ff",
+            border: "1px solid #bfdbfe",
+            borderRadius: 10,
+            padding: "12px 14px",
+            margin: "0 0 16px",
+            fontSize: 13,
+            color: "#1e3a8a",
+            lineHeight: 1.5,
+          }}
+        >
+          <strong>Regularization review recommended.</strong> This employee has completed six (6)
+          months of probationary employment and may be ready for evaluation and conversion to
+          Regular status. This is a recommendation only — review their performance and use
+          "Edit Employee" to convert them if appropriate.
+        </div>
+      )}
 
       {employee.employmentStatus === "SEPARATED" && (
         <div className="employee-archive-details">

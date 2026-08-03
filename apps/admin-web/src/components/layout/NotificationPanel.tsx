@@ -1,4 +1,4 @@
-import { CalendarCheck, CalendarX, Inbox, Bell as BellIcon } from "lucide-react";
+import { CalendarCheck, CalendarX, Inbox, UserCheck, Bell as BellIcon } from "lucide-react";
 import { AppNotification } from "../../lib/notifications";
 
 function timeAgo(value: string) {
@@ -16,6 +16,7 @@ function timeAgo(value: string) {
 function NotificationIcon({ type }: { type: string | null }) {
   if (type === "LEAVE_APPROVED") return <CalendarCheck size={16} />;
   if (type === "LEAVE_REJECTED") return <CalendarX size={16} />;
+  if (type === "PROBATION_REGULARIZATION_DUE") return <UserCheck size={16} />;
   return <BellIcon size={16} />;
 }
 

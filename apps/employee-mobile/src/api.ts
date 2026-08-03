@@ -540,7 +540,7 @@ export type CreateTeamEmployeeInput = {
   email: string;
   department: string;
   hireDate?: string;
-  employmentStatus: "REGULAR" | "CONTRACTUAL_SEASONAL" | "PIECE_RATE";
+  employmentStatus: "REGULAR" | "PROBATIONARY" | "CONTRACTUAL_SEASONAL" | "PIECE_RATE";
   attendanceMode?: AttendanceMode;
   sex: "MALE" | "FEMALE";
   supervisorId?: string;

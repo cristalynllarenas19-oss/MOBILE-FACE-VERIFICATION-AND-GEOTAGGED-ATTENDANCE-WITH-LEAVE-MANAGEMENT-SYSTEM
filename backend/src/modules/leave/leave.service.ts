@@ -68,6 +68,18 @@ export class LeaveService {
 
     const leaveType = await this.prisma.leaveType.findUniqueOrThrow({ where: { id: dto.leaveTypeId } });
 
+    // Only checked server-side here — the balances endpoint already filters
+    // the dropdown to applicable types, but a crafted request could otherwise
+    // bypass that (e.g. a Probationary employee submitting anything other
+    // than Leave Without Pay before HR converts them to Regular).
+    const employee = await this.prisma.employee.findUniqueOrThrow({
+      where: { id: dto.employeeId },
+      select: { employmentStatus: true },
+    });
+    if (!leaveType.applicableStatuses.includes(employee.employmentStatus)) {
+      throw new BadRequestException(`${leaveType.name} is not available for your employment status.`);
+    }
+
     // Sick Leave / Emergency Leave (and any other isSingleDayOnly type) are
     // always exactly one day — the frontend already forces this, but a
     // crafted request is validated the same way every other rule here is.

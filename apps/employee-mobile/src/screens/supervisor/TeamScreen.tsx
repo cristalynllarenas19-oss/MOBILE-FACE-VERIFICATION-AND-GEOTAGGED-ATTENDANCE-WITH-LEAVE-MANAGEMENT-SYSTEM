@@ -30,7 +30,15 @@ type Props = {
   currentEmployeeId?: string;
 };
 
-const EMPLOYMENT_STATUSES = ["REGULAR", "CONTRACTUAL_SEASONAL", "PIECE_RATE"] as const;
+const EMPLOYMENT_STATUSES = ["REGULAR", "PROBATIONARY", "CONTRACTUAL_SEASONAL", "PIECE_RATE"] as const;
+
+function getEmploymentStatusLabel(status: string) {
+  if (status === "REGULAR") return "Regular";
+  if (status === "PROBATIONARY") return "Probationary";
+  if (status === "CONTRACTUAL_SEASONAL") return "Contractual";
+  if (status === "PIECE_RATE") return "Piece-Rate";
+  return status;
+}
 
 function getName(employee: TeamEmployee) {
   return `${employee.firstName} ${employee.lastName}`;
@@ -199,7 +207,7 @@ export default function TeamScreen({ departmentName, currentEmployeeId }: Props)
                       <Text style={styles.rowName} numberOfLines={1}>{getName(employee)}</Text>
                       <View style={[styles.statusChip, employee.employmentStatus !== "REGULAR" && styles.statusChipMuted]}>
                         <Text style={[styles.statusChipText, employee.employmentStatus !== "REGULAR" && styles.statusChipTextMuted]}>
-                          {employee.employmentStatus === "REGULAR" ? "Regular" : employee.employmentStatus === "CONTRACTUAL_SEASONAL" ? "Contractual" : "Piece-Rate"}
+                          {getEmploymentStatusLabel(employee.employmentStatus)}
                         </Text>
                       </View>
                     </View>
