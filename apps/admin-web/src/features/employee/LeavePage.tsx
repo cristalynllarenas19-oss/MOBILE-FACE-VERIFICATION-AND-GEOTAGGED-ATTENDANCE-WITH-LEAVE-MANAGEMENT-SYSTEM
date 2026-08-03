@@ -279,6 +279,10 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
         setResultModal({ ok: false, title: "Not Yet Granted", msg: `${selectedType.name} must be granted by HR/Admin before you can request it. Please apply to HR/Admin first.` });
         return;
       }
+      if (remainingDays <= 0) {
+        setResultModal({ ok: false, title: "No Remaining Balance", msg: "You have no remaining balance for this leave type." });
+        return;
+      }
       if (totalDays > remainingDays) {
         setResultModal({ ok: false, title: "Insufficient Balance", msg: `You have ${remainingDays} day(s) of ${selectedType.name} left, but requested ${totalDays}.` });
         return;

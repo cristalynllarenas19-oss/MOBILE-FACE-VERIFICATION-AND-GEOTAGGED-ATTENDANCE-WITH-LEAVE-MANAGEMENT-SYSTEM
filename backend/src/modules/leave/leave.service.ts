@@ -100,6 +100,10 @@ export class LeaveService {
       const usedDays = balance ? Number(balance.usedDays) : 0;
       const remainingDays = Math.max(0, earnedDays - usedDays);
 
+      if (remainingDays <= 0) {
+        throw new BadRequestException("You have no remaining balance for this leave type.");
+      }
+
       if (Number(dto.totalDays) > remainingDays) {
         throw new BadRequestException(
           `Insufficient ${leaveType.name} balance: you have ${remainingDays} day(s) remaining but requested ${dto.totalDays}.`,

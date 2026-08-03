@@ -103,7 +103,7 @@
   color: #1a3a5c;
 }
 
-.role-cell .badge.role {
+.role-cell {
   white-space: nowrap;
 }
 
@@ -724,7 +724,7 @@
     border-bottom: none;
   }
 
-  .role-cell .badge.role,
+  .role-cell,
   .status-cell .badge,
   .user-status-button {
     justify-self: end;

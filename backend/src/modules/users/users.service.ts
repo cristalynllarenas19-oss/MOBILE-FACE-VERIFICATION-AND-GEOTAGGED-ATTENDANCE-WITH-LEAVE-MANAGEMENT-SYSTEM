@@ -61,7 +61,7 @@ export class UsersService {
         status: true,
         lastLoginAt: true,
         userRoles: { include: { role: true } },
-        employee: true,
+        employee: { include: { department: true } },
       },
       orderBy: { createdAt: "desc" },
     });

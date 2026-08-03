@@ -9,7 +9,7 @@ type UserRow = {
   id: string;
   email: string;
   status: string;
-  employee?: { firstName: string; lastName: string } | null;
+  employee?: { firstName: string; lastName: string; department?: { name: string } | null } | null;
   userRoles: { role: { name: string; code: string } }[];
 };
 
@@ -41,10 +41,13 @@ const initialForm = {
 // Looks across ALL of the account's roles, not just the first one — a
 // promoted account is now EMPLOYEE + SUPERVISOR/ADMIN, and array order isn't
 // guaranteed to put the elevated role first.
-function getRoleLabel(userRoles: UserRow["userRoles"]) {
-  const codes = userRoles.map((userRole) => userRole.role.code);
+function getRoleLabel(user: UserRow) {
+  const codes = user.userRoles.map((userRole) => userRole.role.code);
   if (codes.includes("ADMIN")) return "HR Admin";
-  if (codes.includes("SUPERVISOR")) return "Supervisor";
+  if (codes.includes("SUPERVISOR")) {
+    const department = user.employee?.department?.name;
+    return department ? `${department} Supervisor` : "Supervisor";
+  }
   return "No Role";
 }
 
@@ -312,7 +315,7 @@ export function UsersPage() {
               <tr key={user.id}>
                 <td data-label="Name">{getUserDisplayName(user)}</td>
                 <td data-label="Email">{user.email}</td>
-                <td data-label="Role" className="role-cell"><Badge tone="role">{getRoleLabel(user.userRoles)}</Badge></td>
+                <td data-label="Role" className="role-cell">{getRoleLabel(user)}</td>
                 <td data-label="Status" className="status-cell"><Badge tone={user.status === "ACTIVE" ? "success" : "danger"}>{user.status}</Badge></td>
                 <td data-label="Action">
                   <button
@@ -393,7 +396,7 @@ export function UsersPage() {
                           role="option"
                         >
                           <span>{employee.firstName} {employee.lastName}</span>
-                          <small>{employee.employeeNo}</small>
+                          <small>{employee.department.name}</small>
                         </button>
                       ))}
                     </div>,

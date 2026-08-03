@@ -1150,7 +1150,7 @@ export function LeavePage({
                           Name {listSort.key === "name" ? (listSort.dir === "asc" ? "▲" : "▼") : ""}
                         </button>
                       </th>
-                      <th>Employee No.</th>
+                      <th>Department</th>
                       <th>Position</th>
                       <th>
                         <button type="button" className="employee-list-sort-th" onClick={() => toggleListSort("remaining")}>
@@ -1164,7 +1164,7 @@ export function LeavePage({
                     {classificationListRows.map((row) => (
                       <tr key={row.employeeId}>
                         <td data-label="Name">{row.employee.firstName} {row.employee.lastName}</td>
-                        <td data-label="Employee No.">{row.employee.employeeNo}</td>
+                        <td data-label="Department">{row.employee.department?.name ?? "Unassigned"}</td>
                         <td data-label="Position">{row.employee.position?.title ?? "—"}</td>
                         <td data-label="Total Remaining">{row.totalRemainingDays.toFixed(0)}</td>
                         <td data-label="Action">

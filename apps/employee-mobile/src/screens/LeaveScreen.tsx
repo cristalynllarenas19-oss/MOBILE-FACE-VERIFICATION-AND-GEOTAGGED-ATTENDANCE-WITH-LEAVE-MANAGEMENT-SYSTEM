@@ -354,6 +354,14 @@ export default function LeaveScreen({ employeeId }: Props) {
         });
         return;
       }
+      if (remainingDays <= 0) {
+        setResultModal({
+          status: "error",
+          title: "No Remaining Balance",
+          message: "You have no remaining balance for this leave type.",
+        });
+        return;
+      }
       if (leaveTotalDays > remainingDays) {
         setResultModal({
           status: "error",
