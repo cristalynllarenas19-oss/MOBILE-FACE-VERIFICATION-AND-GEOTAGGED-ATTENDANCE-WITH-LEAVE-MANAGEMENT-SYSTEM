@@ -1,9 +1,12 @@
 import * as faceapi from "face-api.js";
-import { Archive, Camera, CheckCircle2, Eye, Pencil, RotateCcw, ScanFace, Search, X } from "lucide-react";
+import { AlertTriangle, Archive, Camera, CheckCircle2, Eye, Pencil, RotateCcw, ScanFace, Search, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { apiRequest } from "../../lib/api";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { Badge } from "../../components/ui/Badge";
+import { useActiveDepartments } from "../../lib/departments";
+import { formatAttendanceMode, useAttendanceModeOptions } from "../../lib/attendanceModes";
+import { EMPLOYMENT_STATUS_LABELS } from "../../types/employment";
 import "./FaceRegistrationPage.css";
 
 type Enrollment = {
@@ -47,14 +50,6 @@ export type FaceRegistrationEmployee = {
 
 type Employee = FaceRegistrationEmployee;
 
-const EMPLOYMENT_STATUS_LABELS: Record<NonNullable<FaceRegistrationEmployee["employmentStatus"]>, string> = {
-  REGULAR: "Regular Employee",
-  PROBATIONARY: "Probationary Employee",
-  CONTRACTUAL_SEASONAL: "Contractual Employee (Seasonal)",
-  PIECE_RATE: "Piece-rate (Pakyawan) Worker",
-  SEPARATED: "Separated",
-};
-
 type FaceProfile = {
   id: string;
   employeeId: string;
@@ -80,6 +75,107 @@ function employeeLabel(employee: Employee) {
   return `${employee.firstName} ${employee.lastName}`;
 }
 
+// face-api.js ships no dedicated eyewear classifier, so this is a best-effort
+// pixel heuristic built on the 68-point landmarks we already compute for
+// detection/tracking — not a trained model. It looks for two independent
+// signals around the eyes and flags either one:
+//  1. Frame edges — clear/rimmed glasses leave a strong edge across the nose
+//     bridge and around the eye sockets that bare skin doesn't produce
+//     (measured via Sobel gradient magnitude).
+//  2. Lens darkness — sunglasses make the eye region noticeably darker than
+//     the forehead just above it (measured via average luminance delta).
+// EYEGLASS_EDGE_THRESHOLD / SUNGLASSES_DARKNESS_THRESHOLD are starting points,
+// not calibrated against real footage — expect to retune them (and accept
+// some false positives/negatives, especially for thin rimless frames, which
+// barely register on signal 1) once this runs against real captures.
+const EYEGLASS_EDGE_THRESHOLD = 12; // % of bridge-band pixels counted as a strong edge
+const SUNGLASSES_DARKNESS_THRESHOLD = 35; // forehead-vs-eye average brightness delta (0-255 scale)
+
+function pointsBounds(points: faceapi.Point[]) {
+  const xs = points.map((p) => p.x);
+  const ys = points.map((p) => p.y);
+  return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
+}
+
+function detectEyewear(video: HTMLVideoElement, landmarks: faceapi.FaceLandmarks68): boolean {
+  const leftEye = landmarks.getLeftEye();
+  const rightEye = landmarks.getRightEye();
+  const leftBrow = landmarks.getLeftEyeBrow();
+  const rightBrow = landmarks.getRightEyeBrow();
+  if (!leftEye.length || !rightEye.length || !leftBrow.length || !rightBrow.length) return false;
+
+  const eyeBounds = pointsBounds([...leftEye, ...rightEye]);
+  const browBounds = pointsBounds([...leftBrow, ...rightBrow]);
+  const browHeight = eyeBounds.minY - browBounds.minY || 12;
+
+  // Crop from just above the eyebrows (approximating the forehead, since the
+  // 68-point set has no forehead landmarks of its own) down to just below
+  // the eyes, spanning the full eye+brow width with a little side padding.
+  const padX = (eyeBounds.maxX - eyeBounds.minX) * 0.1;
+  const cropX = Math.max(0, eyeBounds.minX - padX);
+  const cropY = Math.max(0, browBounds.minY - browHeight);
+  const cropWidth = Math.min(video.videoWidth - cropX, eyeBounds.maxX - eyeBounds.minX + padX * 2);
+  const cropHeight = Math.min(video.videoHeight - cropY, eyeBounds.maxY - cropY + browHeight * 0.4);
+  if (cropWidth < 20 || cropHeight < 12) return false;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(cropWidth);
+  canvas.height = Math.round(cropHeight);
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return false;
+  ctx.drawImage(video, cropX, cropY, cropWidth, cropHeight, 0, 0, canvas.width, canvas.height);
+
+  const { data, width: w, height: h } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const gray = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) {
+    gray[i] = 0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2];
+  }
+
+  // Signal 1: edge density across the eye-level band (roughly the middle
+  // third of the crop, where a glasses frame/bridge would sit).
+  const bandTop = Math.max(1, Math.round(h * 0.35));
+  const bandBottom = Math.min(h - 1, Math.round(h * 0.7));
+  let strongEdges = 0;
+  let bandPixels = 0;
+  for (let py = Math.max(1, bandTop); py < bandBottom; py++) {
+    for (let px = 1; px < w - 1; px++) {
+      const gx =
+        -gray[(py - 1) * w + (px - 1)] + gray[(py - 1) * w + (px + 1)] +
+        -2 * gray[py * w + (px - 1)] + 2 * gray[py * w + (px + 1)] +
+        -gray[(py + 1) * w + (px - 1)] + gray[(py + 1) * w + (px + 1)];
+      const gy =
+        -gray[(py - 1) * w + (px - 1)] - 2 * gray[(py - 1) * w + px] - gray[(py - 1) * w + (px + 1)] +
+        gray[(py + 1) * w + (px - 1)] + 2 * gray[(py + 1) * w + px] + gray[(py + 1) * w + (px + 1)];
+      const magnitude = Math.sqrt(gx * gx + gy * gy);
+      if (magnitude > 110) strongEdges++;
+      bandPixels++;
+    }
+  }
+  const edgeDensity = bandPixels > 0 ? (strongEdges / bandPixels) * 100 : 0;
+
+  // Signal 2: forehead strip (top ~20%) vs eye-band average brightness.
+  const foreheadEnd = Math.max(1, Math.round(h * 0.2));
+  let foreheadSum = 0;
+  let foreheadCount = 0;
+  for (let i = 0; i < foreheadEnd * w; i++) {
+    foreheadSum += gray[i];
+    foreheadCount++;
+  }
+  let eyeBandSum = 0;
+  let eyeBandCount = 0;
+  for (let py = bandTop; py < bandBottom; py++) {
+    for (let px = 0; px < w; px++) {
+      eyeBandSum += gray[py * w + px];
+      eyeBandCount++;
+    }
+  }
+  const foreheadAvg = foreheadCount > 0 ? foreheadSum / foreheadCount : 0;
+  const eyeBandAvg = eyeBandCount > 0 ? eyeBandSum / eyeBandCount : 0;
+  const darknessDelta = foreheadAvg - eyeBandAvg;
+
+  return edgeDensity > EYEGLASS_EDGE_THRESHOLD || darknessDelta > SUNGLASSES_DARKNESS_THRESHOLD;
+}
+
 export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: FaceRegistrationEmployee } = {}) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -103,6 +199,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
   const [captureStepIndex, setCaptureStepIndex] = useState(0);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [faceFrame, setFaceFrame] = useState<FaceFrame | null>(null);
+  const [eyewearDetected, setEyewearDetected] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showCapturePreview, setShowCapturePreview] = useState(false);
   const [lastRegisteredEmployee, setLastRegisteredEmployee] = useState<Employee | null>(null);
@@ -168,6 +265,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
       setCaptureStepIndex(0);
       setCountdown(null);
       setFaceFrame(null);
+      setEyewearDetected(false);
     } catch {
       setMessage("Camera access was denied or no camera is available.");
     }
@@ -183,6 +281,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
     setBusy(false);
     setCountdown(null);
     setFaceFrame(null);
+    setEyewearDetected(false);
   }
 
   function clearCountdownTimer() {
@@ -206,6 +305,12 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
     if (box.width < 120 || box.height < 120) {
       throw new Error("Move closer so the face is large and clear.");
     }
+    // Belt-and-suspenders: the live tracker already blocks starting a guided
+    // capture while eyewear is detected, but re-check the actual captured
+    // frame in case the on-screen state was stale at the moment of capture.
+    if (input instanceof HTMLVideoElement && detectEyewear(input, results[0].landmarks)) {
+      throw new Error("Eyeglasses or sunglasses detected. Please remove them and try again.");
+    }
     return Array.from(results[0].descriptor);
   }
 
@@ -223,8 +328,11 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
 
         if (!result) {
           setFaceFrame(null);
+          setEyewearDetected(false);
           return;
         }
+
+        setEyewearDetected(detectEyewear(video, result.landmarks));
 
         const scale = Math.max(video.clientWidth / video.videoWidth, video.clientHeight / video.videoHeight);
         const renderedWidth = video.videoWidth * scale;
@@ -250,6 +358,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
         });
       } catch {
         setFaceFrame(null);
+        setEyewearDetected(false);
       }
     }, 250);
   }
@@ -317,6 +426,10 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
 
   async function startGuidedCapture() {
     if (!cameraActive || busy) return;
+    if (eyewearDetected) {
+      setMessage("Eyeglasses or sunglasses detected. Please remove them before capturing.");
+      return;
+    }
     sequenceRef.current = true;
     setBusy(true);
     setDescriptors([]);
@@ -453,9 +566,8 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
     startCamera();
   }
 
-  const departmentOptions = Array.from(
-    new Set(employees.map((e) => e.department?.name).filter((name): name is string => Boolean(name))),
-  ).sort((a, b) => a.localeCompare(b));
+  const { departmentNames: departmentOptions } = useActiveDepartments();
+  const { forEmployees: attendanceModeOptions } = useAttendanceModeOptions();
 
   const visibleEmployees = employees
     .filter((employee) => {
@@ -469,10 +581,6 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
     })
     .filter((employee) => departmentFilter === "ALL" || employee.department?.name === departmentFilter)
     .slice(0, 8);
-
-  const enrollmentDepartmentOptions = Array.from(
-    new Set(enrollments.map((item) => item.employee.department?.name).filter((name): name is string => Boolean(name))),
-  ).sort((a, b) => a.localeCompare(b));
 
   const visibleEnrollments = enrollments
     .filter((item) => listDepartmentFilter === "ALL" || item.employee.department?.name === listDepartmentFilter)
@@ -521,11 +629,17 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
               </div>
               <div>
                 <p>Status</p>
-                <strong className={cameraActive ? (faceFrame ? "status-face-detected" : "status-face-missing") : undefined}>
+                <strong
+                  className={
+                    cameraActive ? (faceFrame && !eyewearDetected ? "status-face-detected" : "status-face-missing") : undefined
+                  }
+                >
                   {cameraActive
-                    ? faceFrame
-                      ? "Face detected"
-                      : "No face detected"
+                    ? eyewearDetected
+                      ? "Remove eyeglasses"
+                      : faceFrame
+                        ? "Face detected"
+                        : "No face detected"
                     : selectedEmployee
                       ? "Ready for capture"
                       : "Choose an employee first"}
@@ -566,6 +680,12 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
                 <small>{CAPTURE_STEPS[captureStepIndex].helper}</small>
               </div>
             )}
+            {cameraActive && eyewearDetected && (
+              <div className="eyewear-warning" role="alert">
+                <AlertTriangle size={15} />
+                <span>Eyeglasses or sunglasses detected — please remove them to continue.</span>
+              </div>
+            )}
 
             {showSuccessModal && lastRegisteredEmployee && (
               <div className="success-modal-overlay">
@@ -589,7 +709,11 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
 
           {message && <p className="capture-message" role="status">{message}</p>}
           <div className="capture-actions">
-            <button className="primary-button" onClick={cameraActive ? startGuidedCapture : startCamera} disabled={!modelsReady || busy}>
+            <button
+              className="primary-button"
+              onClick={cameraActive ? startGuidedCapture : startCamera}
+              disabled={!modelsReady || busy || (cameraActive && eyewearDetected)}
+            >
               <Camera size={17} /> {busy ? "Capturing automatically..." : cameraActive ? "Start guided capture" : "Start camera"}
             </button>
             <button className="outline-button" onClick={resetCapture} disabled={busy || (!cameraActive && descriptors.length === 0)}>
@@ -655,7 +779,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
               </div>
               <div>
                 <p>Attendance Mode</p>
-                <strong>{initialEmployee.attendanceMode === "FIELD" ? "Field" : "Non-field"}</strong>
+                <strong>{formatAttendanceMode(initialEmployee.attendanceMode, attendanceModeOptions)}</strong>
               </div>
               <div>
                 <p>Sex</p>
@@ -757,7 +881,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
                 </div>
                 <div>
                   <p>Attendance Mode</p>
-                  <strong>{selectedEmployee.attendanceMode === "FIELD" ? "Field" : "Non-field"}</strong>
+                  <strong>{formatAttendanceMode(selectedEmployee.attendanceMode, attendanceModeOptions)}</strong>
                 </div>
                 <div>
                   <p>Face Registration</p>
@@ -829,7 +953,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
             <DropdownFilter
               value={listDepartmentFilter}
               onChange={setListDepartmentFilter}
-              options={enrollmentDepartmentOptions.map((name) => ({ value: name, label: name }))}
+              options={departmentOptions.map((name) => ({ value: name, label: name }))}
               allLabel="All Departments"
               menuLabel="Filter by department"
               ariaLabel="Department"

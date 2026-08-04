@@ -5,7 +5,14 @@ import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { apiRequest } from "../../lib/api";
 import { useCachedData } from "../../lib/dataCache";
+import { useActiveDepartments } from "../../lib/departments";
+import {
+  type AttendanceModeOption,
+  formatAttendanceMode as getAttendanceModeLabel,
+  useAttendanceModeOptions,
+} from "../../lib/attendanceModes";
 import { PermissionCode, permissions } from "../../types/rbac";
+import { EMPLOYMENT_STATUS_LABELS, SELECTABLE_EMPLOYMENT_STATUSES } from "../../types/employment";
 import "./EmployeesPage.css";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3001/api/v1";
@@ -34,14 +41,6 @@ type Employee = {
 // returns is valid here.
 type AttendanceMode = string;
 type DepartmentAttendanceMode = string;
-
-type AttendanceModeOption = {
-  code: DepartmentAttendanceMode;
-  label: string;
-  description?: string | null;
-  availableForEmployees: boolean;
-  availableForDepartments: boolean;
-};
 
 type DepartmentOption = { name: string; attendanceMode: DepartmentAttendanceMode };
 
@@ -132,21 +131,6 @@ function getStatusTone(status: Employee["employmentStatus"]) {
 function getAttendanceModeTone(mode: Employee["attendanceMode"]) {
   return mode === "FIELD" ? "role" : "neutral";
 }
-
-// Labels/options are always sourced live from GET /departments/attendance-modes
-// — no hardcoded fallback set. If that hasn't loaded yet, callers show the
-// raw code rather than substituting made-up data.
-function getAttendanceModeLabel(mode: DepartmentAttendanceMode, options: AttendanceModeOption[]) {
-  return options.find((option) => option.code === mode)?.label ?? mode;
-}
-
-const EMPLOYMENT_STATUS_LABELS: Record<Employee["employmentStatus"], string> = {
-  REGULAR: "Regular Employee",
-  PROBATIONARY: "Probationary Employee",
-  CONTRACTUAL_SEASONAL: "Contractual Employee (Seasonal)",
-  PIECE_RATE: "Piece-rate (Pakyawan) Worker",
-  SEPARATED: "Separated",
-};
 
 const PROBATION_MILESTONE_MONTHS = 6;
 
@@ -399,10 +383,9 @@ function AddEmployeeModal({
           <label>
             Employment Status
             <select value={form.employmentStatus} onChange={updateField("employmentStatus")}>
-              <option value="REGULAR">Regular Employee</option>
-              <option value="PROBATIONARY">Probationary Employee</option>
-              <option value="CONTRACTUAL_SEASONAL">Contractual Employee (Seasonal)</option>
-              <option value="PIECE_RATE">Piece-rate (Pakyawan) Worker</option>
+              {SELECTABLE_EMPLOYMENT_STATUSES.map((status) => (
+                <option key={status} value={status}>{EMPLOYMENT_STATUS_LABELS[status]}</option>
+              ))}
             </select>
           </label>
           <label>
@@ -430,7 +413,6 @@ function AddEmployeeModal({
                 <option key={option.code} value={option.code}>{option.label}</option>
               ))}
             </select>
-            {isModeLocked && <span className="employee-form-hint">Determined by department</span>}
             {!isModeLocked && attendanceModeOptions.length === 0 && (
               <span className="employee-form-hint">Unable to load attendance modes.</span>
             )}
@@ -698,10 +680,9 @@ function EditEmployeeModal({
           <label>
             Employment Status
             <select value={form.employmentStatus} onChange={updateField("employmentStatus")}>
-              <option value="REGULAR">Regular Employee</option>
-              <option value="PROBATIONARY">Probationary Employee</option>
-              <option value="CONTRACTUAL_SEASONAL">Contractual Employee (Seasonal)</option>
-              <option value="PIECE_RATE">Piece-rate (Pakyawan) Worker</option>
+              {SELECTABLE_EMPLOYMENT_STATUSES.map((status) => (
+                <option key={status} value={status}>{EMPLOYMENT_STATUS_LABELS[status]}</option>
+              ))}
             </select>
           </label>
         </div>
@@ -756,7 +737,6 @@ function EditEmployeeModal({
                 <option key={option.code} value={option.code}>{option.label}</option>
               ))}
             </select>
-            {isModeLocked && <span className="employee-form-hint">Determined by department</span>}
             {!isModeLocked && attendanceModeOptions.length === 0 && (
               <span className="employee-form-hint">Unable to load attendance modes.</span>
             )}
@@ -1116,7 +1096,6 @@ export function EmployeesPage({
   const [editEmployee, setEditEmployee] = useState<Employee | null>(null);
   const [archiveEmployee, setArchiveEmployee] = useState<Employee | null>(null);
   const [notification, setNotification] = useState<Notification>(null);
-  const [attendanceModeOptions, setAttendanceModeOptions] = useState<AttendanceModeOption[]>([]);
 
   // Same "employees" cache key as AttendancePage — both read GET /employees,
   // so one fetched copy serves both pages.
@@ -1128,22 +1107,8 @@ export function EmployeesPage({
   );
   const supervisors = supervisorsCache.data ?? [];
 
-  const departmentsCache = useCachedData<{ name: string; isActive: boolean; attendanceMode: DepartmentAttendanceMode }[]>(
-    "departments",
-    () => apiRequest("/departments"),
-  );
-  const activeDepartments: DepartmentOption[] = (departmentsCache.data ?? [])
-    .filter((department) => department.isActive)
-    .map((department) => ({ name: department.name, attendanceMode: department.attendanceMode }))
-    .sort((a, b) => a.name.localeCompare(b.name));
-
-  useEffect(() => {
-    apiRequest<AttendanceModeOption[]>("/departments/attendance-modes")
-      .then((modes) => {
-        setAttendanceModeOptions(modes.filter((mode) => mode.availableForEmployees));
-      })
-      .catch(() => undefined);
-  }, []);
+  const { departments: activeDepartments, departmentNames: departments } = useActiveDepartments();
+  const { forEmployees: attendanceModeOptions } = useAttendanceModeOptions();
 
   useEffect(() => {
     if (!notification) return;
@@ -1151,7 +1116,6 @@ export function EmployeesPage({
     return () => window.clearTimeout(timeoutId);
   }, [notification]);
 
-  const departments = Array.from(new Set(employees.map((employee) => employee.department.name))).sort();
   const positions = Array.from(new Set(employees.map((employee) => employee.position.title))).sort();
   const activeEmployeeCount = employees.filter((employee) => employee.employmentStatus !== "SEPARATED").length;
 

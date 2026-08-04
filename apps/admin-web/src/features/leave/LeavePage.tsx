@@ -19,11 +19,14 @@ import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { apiRequest } from "../../lib/api";
 import { useCachedData } from "../../lib/dataCache";
+import {
+  type EmploymentStatus,
+  formatEmploymentStatus,
+  SELECTABLE_EMPLOYMENT_STATUS_OPTIONS as EMPLOYMENT_STATUS_OPTIONS,
+} from "../../types/employment";
 import "./LeavePage.css";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
-
-type EmploymentStatus = "REGULAR" | "PROBATIONARY" | "CONTRACTUAL_SEASONAL" | "PIECE_RATE" | "SEPARATED";
 
 type LeaveType = {
   id: string;
@@ -199,19 +202,6 @@ function getLatestResubmissionAttachment(request: LeaveRequest) {
   };
 }
 
-const EMPLOYMENT_STATUS_LABELS: Record<EmploymentStatus, string> = {
-  REGULAR: "Regular Employee",
-  PROBATIONARY: "Probationary Employee",
-  CONTRACTUAL_SEASONAL: "Contractual Employee (Seasonal)",
-  PIECE_RATE: "Piece-rate (Pakyawan) Worker",
-  SEPARATED: "Separated",
-};
-
-function formatEmploymentStatus(status?: EmploymentStatus) {
-  if (!status) return "Unspecified";
-  return EMPLOYMENT_STATUS_LABELS[status];
-}
-
 const EMPLOYMENT_STATUS_COLORS: Record<EmploymentStatus, string> = {
   REGULAR: "#2979d0",
   PROBATIONARY: "#0d9488",
@@ -219,16 +209,6 @@ const EMPLOYMENT_STATUS_COLORS: Record<EmploymentStatus, string> = {
   PIECE_RATE: "#7c3aed",
   SEPARATED: "#94a3b8",
 };
-
-// Same classifications the Overview donut cards represent — SEPARATED is
-// deliberately excluded, matching getSummary/getByClassification's default
-// scope (separated employees aren't tracked here).
-const EMPLOYMENT_STATUS_OPTIONS = [
-  { value: "REGULAR", label: "Regular Employee" },
-  { value: "PROBATIONARY", label: "Probationary Employee" },
-  { value: "CONTRACTUAL_SEASONAL", label: "Contractual Employee (Seasonal)" },
-  { value: "PIECE_RATE", label: "Piece-rate (Pakyawan) Worker" },
-];
 
 // ─── Donut chart (plain SVG, no chart library) ───────────────────────────────
 

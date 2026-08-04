@@ -17,6 +17,7 @@ import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { StatCard } from "../../components/ui/StatCard";
 import { apiRequest } from "../../lib/api";
 import { useCachedData } from "../../lib/dataCache";
+import { useActiveDepartments } from "../../lib/departments";
 import { AttendanceDonut } from "./AttendanceDonut";
 import { computeAttendanceRate, getRateTone, RATE_TONE_COLOR } from "./attendanceRate";
 import { formatShortDate } from "./dateUtils";
@@ -260,13 +261,15 @@ export function DashboardPage({
 
   const onLeaveToday = summary.departmentAttendance.today.reduce((sum, row) => sum + row.onLeave, 0);
 
+  // Sourced from GET /departments (all active departments), not from the
+  // calendar summary's per-day rows — those only include departments that
+  // had employees/attendance on that day, so an empty department would
+  // otherwise never appear as a filter option. filteredDays below already
+  // defaults a department with no matching row to all-zeros.
+  const { departmentNames: departmentOptionNames } = useActiveDepartments();
   const departmentOptions = useMemo(
-    () =>
-      (summary.calendar.days[0]?.departments ?? []).map((row) => ({
-        value: row.department,
-        label: row.department,
-      })),
-    [summary.calendar.days],
+    () => departmentOptionNames.map((name) => ({ value: name, label: name })),
+    [departmentOptionNames],
   );
 
   // The chart's top-level day fields are already company-wide totals; filtering

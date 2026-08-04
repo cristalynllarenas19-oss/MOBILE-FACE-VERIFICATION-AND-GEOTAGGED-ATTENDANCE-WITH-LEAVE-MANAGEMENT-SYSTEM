@@ -209,6 +209,28 @@
   font-weight: 500;
 }
 
+.eyewear-warning {
+  align-items: center;
+  background: rgba(127, 29, 29, 0.92);
+  border-radius: 10px;
+  bottom: 14px;
+  color: #fef2f2;
+  display: flex;
+  font-size: 12.5px;
+  font-weight: 600;
+  gap: 8px;
+  left: 14px;
+  padding: 10px 14px;
+  position: absolute;
+  right: 14px;
+  z-index: 3;
+}
+
+.eyewear-warning svg {
+  color: #fca5a5;
+  flex-shrink: 0;
+}
+
 .success-modal-overlay {
   position: absolute;
   inset: 0;

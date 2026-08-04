@@ -44,23 +44,23 @@
   transform: rotate(180deg);
 }
 
-.dropdown-filter-shell .dropdown-filter-menu {
+/* Portaled to <body> (see DropdownFilter.tsx) and positioned via inline
+   top/left/minWidth computed from the trigger's bounding rect — fixed
+   positioning plus a high z-index keeps it from being clipped by any
+   ancestor card/modal that sets overflow:hidden/auto. */
+.dropdown-filter-menu {
   background: white;
   border: 1px solid #dbe5ef;
   border-radius: 10px;
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
-  margin-top: 6px;
   max-height: 280px;
   overflow: auto;
   padding: 8px;
-  position: absolute;
-  left: 0;
-  top: calc(100% + 4px);
-  width: max(220px, 100%);
-  z-index: 30;
+  position: fixed;
+  z-index: 3000;
 }
 
-.dropdown-filter-shell .dropdown-filter-menu-header {
+.dropdown-filter-menu-header {
   align-items: center;
   color: #64748b;
   display: flex;
@@ -72,7 +72,7 @@
   text-transform: uppercase;
 }
 
-.dropdown-filter-shell .dropdown-filter-clear {
+.dropdown-filter-clear {
   align-items: center;
   background: none;
   border: 0;
@@ -85,7 +85,7 @@
   padding: 0;
 }
 
-.dropdown-filter-shell .dropdown-filter-option {
+.dropdown-filter-option {
   background: none;
   border: 0;
   border-radius: 7px;
@@ -99,11 +99,11 @@
   width: 100%;
 }
 
-.dropdown-filter-shell .dropdown-filter-option:hover {
+.dropdown-filter-option:hover {
   background: #eef4fb;
 }
 
-.dropdown-filter-shell .dropdown-filter-option.active {
+.dropdown-filter-option.active {
   background: #1a3a5c;
   color: white;
 }

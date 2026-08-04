@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { AlertTriangle, CheckCircle2, ChevronDown, Eye, Pencil, Plus, Search, X } from "lucide-react";
 import { apiRequest } from "../../lib/api";
+import { useActiveDepartments } from "../../lib/departments";
 import { PermissionCode, permissions } from "../../types/rbac";
 import "./SchedulesPage.css";
 
@@ -238,10 +239,7 @@ export function SchedulesPage({
     return () => window.clearTimeout(timeoutId);
   }, [notification]);
 
-  const departments = useMemo(
-    () => Array.from(new Set(employees.map((e) => e.department.name))).sort(),
-    [employees]
-  );
+  const { departmentNames: departments } = useActiveDepartments();
 
   const createSchedule = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

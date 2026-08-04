@@ -8,6 +8,8 @@ import markerIconUrl from "leaflet/dist/images/marker-icon.png";
 import markerShadowUrl from "leaflet/dist/images/marker-shadow.png";
 import "./GeotaggingPage.css";
 import { apiRequest } from "../../lib/api";
+import { useActiveDepartments } from "../../lib/departments";
+import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { PermissionCode, permissions } from "../../types/rbac";
 
 type EmployeeOption = {
@@ -159,35 +161,14 @@ function ViewAreaEmployeesModal({
   employeeList: EmployeeOption[];
   onClose: () => void;
 }) {
-  const [deptFilter, setDeptFilter] = useState("");
-  const [deptMenuOpen, setDeptMenuOpen] = useState(false);
-  const deptMenuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!deptMenuOpen) return;
-    function handleClickOutside(event: MouseEvent) {
-      if (deptMenuRef.current && !deptMenuRef.current.contains(event.target as Node)) {
-        setDeptMenuOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [deptMenuOpen]);
+  const [deptFilter, setDeptFilter] = useState("ALL");
 
   const isGlobal = isGlobalZoneLocation(location);
 
-  const departmentOptions = useMemo(() => {
-    const names = new Set<string>();
-    employeeList.forEach((employee) => {
-      if (employee.department?.name) {
-        names.add(employee.department.name);
-      }
-    });
-    return Array.from(names).sort((a, b) => a.localeCompare(b));
-  }, [employeeList]);
+  const { departmentNames: departmentOptions } = useActiveDepartments();
 
   const filteredEmployees = useMemo(() => {
-    if (!deptFilter) return employeeList;
+    if (deptFilter === "ALL") return employeeList;
     return employeeList.filter((employee) => employee.department?.name === deptFilter);
   }, [deptFilter, employeeList]);
 
@@ -224,66 +205,20 @@ function ViewAreaEmployeesModal({
         {!isGlobal && departmentOptions.length > 1 && (
           <div className="geotagging-modal-toolbar">
             <span className="geotagging-modal-toolbar-label">
-              {deptFilter
+              {deptFilter !== "ALL"
                 ? `Showing ${filteredEmployees.length} of ${employeeList.length}`
                 : "Filter by department"}
             </span>
 
-            <div className="modal-department-filter-wrap" ref={deptMenuRef}>
-              <button
-                type="button"
-                className={`department-filter-trigger ${deptFilter ? "active" : ""}`}
-                onClick={() => setDeptMenuOpen((open) => !open)}
-              >
-                <span>{deptFilter || "All departments"}</span>
-                <ChevronDown
-                  size={14}
-                  className={deptMenuOpen ? "department-filter-chevron open" : "department-filter-chevron"}
-                />
-              </button>
-              {deptMenuOpen && (
-                <div className="modal-department-filter-menu">
-                  <div className="department-filter-menu-header">
-                    <span>Filter by department</span>
-                    {deptFilter && (
-                      <button
-                        type="button"
-                        className="department-filter-clear"
-                        onClick={() => {
-                          setDeptFilter("");
-                          setDeptMenuOpen(false);
-                        }}
-                      >
-                        <X size={13} /> Clear
-                      </button>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    className={`department-filter-option ${!deptFilter ? "active" : ""}`}
-                    onClick={() => {
-                      setDeptFilter("");
-                      setDeptMenuOpen(false);
-                    }}
-                  >
-                    All departments
-                  </button>
-                  {departmentOptions.map((name) => (
-                    <button
-                      type="button"
-                      key={name}
-                      className={`department-filter-option ${deptFilter === name ? "active" : ""}`}
-                      onClick={() => {
-                        setDeptFilter(name);
-                        setDeptMenuOpen(false);
-                      }}
-                    >
-                      {name}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <DropdownFilter
+              className="modal-department-filter-wrap"
+              value={deptFilter}
+              onChange={setDeptFilter}
+              options={departmentOptions.map((name) => ({ value: name, label: name }))}
+              allLabel="All departments"
+              menuLabel="Filter by department"
+              ariaLabel="Filter employees by department"
+            />
           </div>
         )}
 
@@ -350,8 +285,6 @@ function GeotaggingPageContent({
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [employeeSearch, setEmployeeSearch] = useState("");
   const [departmentFilter, setDepartmentFilter] = useState("");
-  const [showDepartmentMenu, setShowDepartmentMenu] = useState(false);
-  const departmentMenuRef = useRef<HTMLDivElement>(null);
   const [areaSearchQuery, setAreaSearchQuery] = useState("");
   const [areaStatusFilter, setAreaStatusFilter] = useState<"active" | "inactive" | "all">("active");
   const [assignmentError, setAssignmentError] = useState("");
@@ -370,17 +303,6 @@ function GeotaggingPageContent({
   const draftMarkerRef = useRef<L.Marker | null>(null);
   const draftCircleRef = useRef<L.Circle | null>(null);
   const savedLayerRef = useRef<L.LayerGroup | null>(null);
-
-  useEffect(() => {
-    if (!showDepartmentMenu) return;
-    function handleClickOutside(event: MouseEvent) {
-      if (departmentMenuRef.current && !departmentMenuRef.current.contains(event.target as Node)) {
-        setShowDepartmentMenu(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [showDepartmentMenu]);
 
   useEffect(() => {
     if (!notice) return;
@@ -491,30 +413,15 @@ function GeotaggingPageContent({
     return baseList.map((employee) => employeesById.get(employee.id) ?? employee);
   }
 
-  const departmentOptions = useMemo(() => {
-    const names = new Set<string>();
-    employees.forEach((employee) => {
-      if (employee.department?.name) {
-        names.add(employee.department.name);
-      }
-    });
-    return Array.from(names).sort((a, b) => a.localeCompare(b));
-  }, [employees]);
+  const { departments: activeDepartmentList, departmentNames: departmentOptions } = useActiveDepartments();
 
-  // Admin-only picker for a new/edited area's owning department — built from
-  // whichever departments are already visible in the (role-scoped) employee
-  // list, so no extra endpoint is needed.
-  const departmentIdOptions = useMemo(() => {
-    const byId = new Map<string, string>();
-    employees.forEach((employee) => {
-      if (employee.department?.id) {
-        byId.set(employee.department.id, employee.department.name);
-      }
-    });
-    return Array.from(byId.entries())
-      .map(([id, name]) => ({ id, name }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [employees]);
+  // Admin-only picker for a new/edited area's owning department — sourced
+  // from GET /departments (all active departments), not just whichever
+  // departments happen to already have employees assigned.
+  const departmentIdOptions = useMemo(
+    () => activeDepartmentList.map((department) => ({ id: department.id, name: department.name })),
+    [activeDepartmentList],
+  );
 
   const employeeRows = useMemo(() => {
     const query = employeeSearch.trim().toLowerCase();
@@ -1369,58 +1276,16 @@ function GeotaggingPageContent({
                         <span>{scopedDepartmentName}</span>
                       </div>
                     ) : (
-                      <div className="department-filter-shell" ref={departmentMenuRef}>
-                        <button
-                          type="button"
-                          className={`department-filter-trigger ${departmentFilter ? "active" : ""}`}
-                          onClick={() => setShowDepartmentMenu((open) => !open)}
-                        >
-                          <span>{departmentFilter || "All departments"}</span>
-                          <ChevronDown size={15} className={showDepartmentMenu ? "department-filter-chevron open" : "department-filter-chevron"} />
-                        </button>
-                        {showDepartmentMenu && (
-                          <div className="department-filter-menu">
-                            <div className="department-filter-menu-header">
-                              <span>Filter by department</span>
-                              {departmentFilter && (
-                                <button
-                                  type="button"
-                                  className="department-filter-clear"
-                                  onClick={() => {
-                                    setDepartmentFilter("");
-                                    setShowDepartmentMenu(false);
-                                  }}
-                                >
-                                  <X size={13} /> Clear
-                                </button>
-                              )}
-                            </div>
-                            <button
-                              type="button"
-                              className={`department-filter-option ${!departmentFilter ? "active" : ""}`}
-                              onClick={() => {
-                                setDepartmentFilter("");
-                                setShowDepartmentMenu(false);
-                              }}
-                            >
-                              All departments
-                            </button>
-                            {departmentOptions.map((name) => (
-                              <button
-                                type="button"
-                                key={name}
-                                className={`department-filter-option ${departmentFilter === name ? "active" : ""}`}
-                                onClick={() => {
-                                  setDepartmentFilter(name);
-                                  setShowDepartmentMenu(false);
-                                }}
-                              >
-                                {name}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                      <DropdownFilter
+                        className="department-filter-shell"
+                        value={departmentFilter}
+                        onChange={setDepartmentFilter}
+                        options={departmentOptions.map((name) => ({ value: name, label: name }))}
+                        allLabel="All departments"
+                        allValue=""
+                        menuLabel="Filter by department"
+                        ariaLabel="Filter employees by department"
+                      />
                     )}
 
                     {/* Select / Unselect All — placed under the department filter, right-aligned in this column */}

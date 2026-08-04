@@ -6,6 +6,8 @@ import { StatCard } from "../../components/ui/StatCard";
 import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { apiRequest } from "../../lib/api";
+import { useActiveDepartments } from "../../lib/departments";
+import { formatEmploymentStatus } from "../../types/employment";
 import logo from "../../assets/unileaf-logo.png";
 import "./ReportsPage.css";
 
@@ -85,10 +87,6 @@ const REPORT_TYPE_LABELS: Record<ReportTab, string> = {
 // header since "All Reports" alone doesn't say what's included.
 const ALL_REPORTS_INCLUDES = ["DTR", "Attendance", REPORT_TYPE_LABELS.leave, REPORT_TYPE_LABELS.schedules].join(" | ");
 
-type EmployeeOption = {
-  department: { name: string };
-};
-
 function employeeName(row: { employee: { firstName: string; lastName: string } }) {
   return `${row.employee.firstName} ${row.employee.lastName}`;
 }
@@ -99,18 +97,6 @@ function formatDate(value: string) {
 
 function formatTime(value?: string | null) {
   return value ? new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Pending";
-}
-
-const EMPLOYMENT_STATUS_LABELS: Record<string, string> = {
-  REGULAR: "Regular Employee",
-  CONTRACTUAL_SEASONAL: "Contractual Employee (Seasonal)",
-  PIECE_RATE: "Piece-rate (Pakyawan) Worker",
-  SEPARATED: "Separated",
-};
-
-function formatEmploymentStatus(status?: string) {
-  if (!status) return "Unspecified";
-  return EMPLOYMENT_STATUS_LABELS[status] ?? status;
 }
 
 // jsPDF's addImage needs pixel data (base64/canvas), not a bundler asset URL —
@@ -177,7 +163,6 @@ export function ReportsPage({
 
   const [data, setData] = useState<ReportData | null>(null);
   const [tab, setTab] = useState<ReportTab>("ALL");
-  const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [filters, setFilters] = useState({
     from: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10),
     to: new Date().toISOString().slice(0, 10),
@@ -196,14 +181,7 @@ export function ReportsPage({
 
   useEffect(loadReport, [filters.from, filters.to, filters.department]);
 
-  useEffect(() => {
-    apiRequest<EmployeeOption[]>("/employees").then(setEmployees).catch(() => undefined);
-  }, []);
-
-  const departments = useMemo(
-    () => Array.from(new Set(employees.map((e) => e.department.name))).sort(),
-    [employees]
-  );
+  const { departmentNames: departments } = useActiveDepartments();
 
   // --- Client-side filtering for all report types ---
   const filteredAttendance = useMemo(() => {

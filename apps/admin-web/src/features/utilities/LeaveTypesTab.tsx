@@ -14,9 +14,13 @@ import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { ConfirmDialog, type ConfirmDialogConfig } from "../../components/ui/ConfirmDialog";
 import { apiRequest } from "../../lib/api";
+import {
+  type EmploymentStatus,
+  EMPLOYMENT_STATUS_OPTIONS,
+  formatEmploymentStatus,
+} from "../../types/employment";
 import type { Notification } from "./UtilitiesPage";
 
-type EmploymentStatus = "REGULAR" | "PROBATIONARY" | "CONTRACTUAL_SEASONAL" | "PIECE_RATE" | "SEPARATED";
 type LeaveTypeKind = "GENERAL" | "MATERNITY" | "PATERNITY";
 
 type ActorRef = { email: string; employee?: { firstName: string; lastName: string } | null } | null;
@@ -51,23 +55,11 @@ const LEAVE_TYPE_KIND_OPTIONS: { value: LeaveTypeKind; label: string }[] = [
   { value: "PATERNITY", label: "Paternity" },
 ];
 
-const EMPLOYMENT_STATUS_OPTIONS: { value: EmploymentStatus; label: string }[] = [
-  { value: "REGULAR", label: "Regular Employee" },
-  { value: "PROBATIONARY", label: "Probationary Employee" },
-  { value: "CONTRACTUAL_SEASONAL", label: "Contractual Employee (Seasonal)" },
-  { value: "PIECE_RATE", label: "Piece-rate (Pakyawan) Worker" },
-  { value: "SEPARATED", label: "Separated" },
-];
-
 // Every leave type always includes Regular - admins only choose which of these
 // additional classifications also get it.
 const OPTIONAL_STATUS_OPTIONS = EMPLOYMENT_STATUS_OPTIONS.filter((o) => o.value !== "REGULAR");
 
 const PAGE_SIZE = 10;
-
-function formatEmploymentStatus(status: EmploymentStatus) {
-  return EMPLOYMENT_STATUS_OPTIONS.find((o) => o.value === status)?.label ?? status;
-}
 
 function formatDefaultDays(type: LeaveType) {
   if (type.isUnlimitedDays) return "As needed";

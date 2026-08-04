@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, Eye, MapPin, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { apiRequest } from "../../lib/api";
 import { useCachedData } from "../../lib/dataCache";
+import { useActiveDepartments } from "../../lib/departments";
 import { PermissionCode, permissions } from "../../types/rbac";
 import "./AttendancePage.css";
 
@@ -455,10 +456,7 @@ export function AttendancePage({
     return () => window.clearTimeout(timeoutId);
   }, [notification]);
 
-  const departments = useMemo(
-    () => Array.from(new Set(employeeOptions.map((employee) => employee.department.name))).sort(),
-    [employeeOptions],
-  );
+  const { departmentNames: departments } = useActiveDepartments();
 
   const handleUpdated = (record: AttendanceRecord, message: string) => {
     recordsCache.setData(records.map((item) => (item.id === record.id ? record : item)));

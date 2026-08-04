@@ -4,21 +4,14 @@ import { Badge } from "../../components/ui/Badge";
 import { ConfirmDialog, type ConfirmDialogConfig } from "../../components/ui/ConfirmDialog";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { apiRequest } from "../../lib/api";
+import {
+  type AttendanceMode,
+  formatAttendanceMode as attendanceModeLabel,
+  useAttendanceModeOptions,
+} from "../../lib/attendanceModes";
 import { PermissionCode, permissions } from "../../types/rbac";
 import type { Notification } from "./UtilitiesPage";
 import "../employees/EmployeesPage.css";
-
-// The legal set of attendance mode codes is DB-driven (GET
-// /departments/attendance-modes), not a compiled union.
-type AttendanceMode = string;
-
-type AttendanceModeOption = {
-  code: AttendanceMode;
-  label: string;
-  description?: string | null;
-  availableForEmployees: boolean;
-  availableForDepartments: boolean;
-};
 
 type Department = {
   id: string;
@@ -29,13 +22,6 @@ type Department = {
 };
 
 const PAGE_SIZE = 10;
-
-// No hardcoded fallback set — options are always sourced live from
-// GET /departments/attendance-modes; if that hasn't loaded, callers show the
-// raw code rather than substituting made-up data.
-function attendanceModeLabel(mode: AttendanceMode, options: AttendanceModeOption[]) {
-  return options.find((option) => option.code === mode)?.label ?? mode;
-}
 
 function attendanceModeTone(mode: AttendanceMode): "neutral" | "role" | "warning" {
   if (mode === "FIELD") return "role";
@@ -53,7 +39,6 @@ export function DepartmentsTab({
   const canManage = user?.permissions.includes(permissions.departmentsWrite) ?? true;
 
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [attendanceModeOptions, setAttendanceModeOptions] = useState<AttendanceModeOption[]>([]);
   const [showArchivedOnly, setShowArchivedOnly] = useState(false);
   const [modeFilter, setModeFilter] = useState("ALL");
   const [search, setSearch] = useState("");
@@ -76,13 +61,7 @@ export function DepartmentsTab({
 
   useEffect(loadDepartments, []);
 
-  useEffect(() => {
-    apiRequest<AttendanceModeOption[]>("/departments/attendance-modes")
-      .then((modes) => {
-        setAttendanceModeOptions(modes.filter((mode) => mode.availableForDepartments));
-      })
-      .catch(() => undefined);
-  }, []);
+  const { forDepartments: attendanceModeOptions } = useAttendanceModeOptions();
 
   useEffect(() => {
     setPage(1);

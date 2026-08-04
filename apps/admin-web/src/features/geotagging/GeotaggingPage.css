@@ -624,89 +624,6 @@
   color: #5b7291;
 }
 
-.department-filter-trigger.active {
-  background: #eef4fb;
-  border-color: #1a3a5c;
-  color: #1a3a5c;
-}
-
-.department-filter-chevron {
-  color: #94a3b8;
-  flex-shrink: 0;
-  transition: transform 0.18s ease;
-}
-
-.department-filter-chevron.open {
-  transform: rotate(180deg);
-}
-
-.department-filter-menu {
-  background: white;
-  border: 1px solid #dbe5ef;
-  border-radius: 10px;
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
-  margin-top: 6px;
-  max-height: 280px;
-  overflow: auto;
-  padding: 8px;
-  position: absolute;
-  left: 0;
-  top: calc(100% + 4px);
-  width: 220px;
-  z-index: 30;
-}
-
-.department-filter-menu-header {
-  align-items: center;
-  color: #64748b;
-  display: flex;
-  font-size: 11px;
-  font-weight: 800;
-  justify-content: space-between;
-  letter-spacing: 0.08em;
-  padding: 4px 8px 8px;
-  text-transform: uppercase;
-}
-
-.department-filter-clear {
-  align-items: center;
-  background: none;
-  border: 0;
-  color: #ef4444;
-  cursor: pointer;
-  display: flex;
-  font-size: 11px;
-  font-weight: 700;
-  gap: 3px;
-  padding: 0;
-  text-transform: none;
-}
-
-.department-filter-option {
-  background: none;
-  border: 0;
-  border-radius: 7px;
-  color: #1e293b;
-  cursor: pointer;
-  display: block;
-  font-size: 13px;
-  font-weight: 600;
-  padding: 9px 10px;
-  text-align: left;
-  text-transform: none;
-  width: 100%;
-}
-
-.department-filter-option:hover {
-  background: #eef4fb;
-}
-
-.department-filter-option.active {
-  background: #1a3a5c;
-  color: white;
-}
-
-
 /* ── Select / Unselect All ─────────────────────────────── */
 
 .select-all-row {
@@ -1556,47 +1473,8 @@
   font-weight: 600;
 }
 
-/* Modal department filter — a true floating overlay (position:absolute)
-   that does NOT shift surrounding layout when opened. The wrap element
-   must have position:relative directly (not inherited from a scoped
-   ancestor rule) or the absolute menu positions itself relative to the
-   modal backdrop instead of the button, which is what broke it before. */
 .modal-department-filter-wrap {
-  position: relative;
   flex-shrink: 0;
-}
-
-.modal-department-filter-wrap .department-filter-trigger {
-  width: auto;
-  min-width: 168px;
-  height: 32px;
-}
-
-.modal-department-filter-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  width: 220px;
-  max-width: min(260px, 80vw);
-  max-height: 240px;
-  overflow-y: auto;
-  background: #ffffff;
-  border: 1px solid #dbe5ef;
-  border-radius: 10px;
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
-  padding: 8px;
-  z-index: 40;
-  scrollbar-width: thin;
-  scrollbar-color: #b8c7d8 #f4f7fb;
-}
-
-.modal-department-filter-menu::-webkit-scrollbar {
-  width: 6px;
-}
-
-.modal-department-filter-menu::-webkit-scrollbar-thumb {
-  background: #b8c7d8;
-  border-radius: 999px;
 }
 
 .geotagging-modal-body {
@@ -1842,13 +1720,6 @@
     display: none;
   }
 
-  .modal-department-filter-wrap .department-filter-trigger {
-    min-width: 140px;
-  }
-
-  .modal-department-filter-menu {
-    max-width: 78vw;
-  }
 
   .geotagging-modal-employee-row {
     flex-direction: column;
