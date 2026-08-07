@@ -28,6 +28,7 @@ import {
   resubmitLeaveRequest,
 } from "../api";
 import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
+import { FormattedAnnouncementText, stripFormattingTokens } from "../utils/richText";
 
 // Stable fallbacks so downstream filters don't recompute on every render
 // while the cache/network is still empty.
@@ -67,6 +68,7 @@ function notificationIcon(type: string | null) {
   if (type === "LEAVE_REJECTED") return { name: "close-circle-outline" as const, color: "#B91C1C" };
   if (type === "LEAVE_NEEDS_REQUIREMENTS") return { name: "document-attach-outline" as const, color: "#B45309" };
   if (type === "LEAVE_SUBMITTED") return { name: "document-text-outline" as const, color: "#1680D8" };
+  if (type === "ANNOUNCEMENT") return { name: "megaphone-outline" as const, color: "#7C3AED" };
   return { name: "notifications-outline" as const, color: "#244c7a" };
 }
 
@@ -359,7 +361,9 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                   </View>
                   <View style={styles.notificationBody}>
                     <Text style={styles.notificationTitle}>{item.title}</Text>
-                    <Text style={styles.notificationMessage} numberOfLines={2}>{item.message}</Text>
+                    <Text style={styles.notificationMessage} numberOfLines={2}>
+                      {item.type === "ANNOUNCEMENT" ? stripFormattingTokens(item.message) : item.message}
+                    </Text>
                     <Text style={styles.notificationTime}>{timeAgo(item.createdAt)}</Text>
                   </View>
                   {isUnread && <PulsingDot />}
@@ -403,7 +407,11 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
               </View>
 
               <ScrollView contentContainerStyle={styles.detailScrollContent}>
-                <Text style={styles.detailMessage}>{detailNotification.message}</Text>
+                {detailNotification.type === "ANNOUNCEMENT" ? (
+                  <FormattedAnnouncementText message={detailNotification.message} textStyle={styles.detailMessage} />
+                ) : (
+                  <Text style={styles.detailMessage}>{detailNotification.message}</Text>
+                )}
 
                 {detailNotification.type === "LEAVE_NEEDS_REQUIREMENTS" && expandedId === detailNotification.id && (
                   <View style={styles.resubmitPanel}>

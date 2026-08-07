@@ -1,8 +1,10 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { APP_GUARD } from "@nestjs/core";
+import { ScheduleModule } from "@nestjs/schedule";
 import { JwtAuthGuard } from "./common/guards/jwt-auth.guard";
 import { PermissionsGuard } from "./common/guards/permissions.guard";
+import { AnnouncementsModule } from "./modules/announcements/announcements.module";
 import { AttendanceModule } from "./modules/attendance/attendance.module";
 import { AuditLogsModule } from "./modules/audit-logs/audit-logs.module";
 import { AuthModule } from "./modules/auth/auth.module";
@@ -28,6 +30,7 @@ import { HealthController } from "./health.controller";
       isGlobal: true,
       envFilePath: ["backend/.env", ".env", "../.env"],
     }),
+    ScheduleModule.forRoot(),
     PrismaModule,
     AuthModule,
     DashboardModule,
@@ -45,6 +48,7 @@ import { HealthController } from "./health.controller";
     SchedulesModule,
     ReportsModule,
     AuditLogsModule,
+    AnnouncementsModule,
   ],
   controllers: [HealthController],
   providers: [

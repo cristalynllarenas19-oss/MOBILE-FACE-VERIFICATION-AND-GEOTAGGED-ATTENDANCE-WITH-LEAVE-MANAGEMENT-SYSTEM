@@ -22,6 +22,7 @@ const permissionRows = [
   ["reports:read", "Reports"],
   ["audit:read", "Audit"],
   ["geolocation:write", "Geolocation"],
+  ["announcements:write", "Announcements"],
 ] as const;
 
 const rolePermissions: Record<RoleCode, string[]> = {

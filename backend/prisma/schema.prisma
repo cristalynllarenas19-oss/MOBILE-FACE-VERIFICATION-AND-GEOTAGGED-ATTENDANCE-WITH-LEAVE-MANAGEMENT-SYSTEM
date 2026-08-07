@@ -159,6 +159,7 @@ model User {
   userRoles              UserRole[]
   auditLogs              AuditLog[]
   notifications          Notification[]
+  announcements          Announcement[]
   passwordResetOtps      PasswordResetOtp[]
   reviewedLeaveRequests  LeaveRequest[]
   reviewedAttendanceLogs AttendanceLog[]
@@ -617,6 +618,39 @@ model Notification {
 
   @@index([userId, readAt])
   @@map("notifications")
+}
+
+enum AnnouncementStatus {
+  DRAFT
+  SCHEDULED
+  PUBLISHED
+}
+
+model Announcement {
+  id                    String             @id @default(uuid())
+  title                 String
+  message               String
+  status                AnnouncementStatus @default(PUBLISHED)
+  // Only set when status is SCHEDULED — AnnouncementsService's cron
+  // publishes (resolves recipients + notifies) once this time has passed.
+  scheduledAt           DateTime?          @map("scheduled_at")
+  // Set when the announcement actually goes out (immediately for PUBLISHED,
+  // or by the scheduler for SCHEDULED). Null for DRAFT.
+  publishedAt           DateTime?          @map("published_at")
+  // All target fields empty/false = all active employees. Otherwise the
+  // recipient set is the UNION of: employees in targetDepartmentIds,
+  // employees with the SUPERVISOR role (if targetSupervisorsOnly), and
+  // employees in targetEmployeeIds — see resolveTargetEmployees. Plain
+  // scalar arrays, same pattern as LeaveType.applicableStatuses — no join
+  // table needed.
+  targetDepartmentIds   String[]           @map("target_department_ids")
+  targetSupervisorsOnly Boolean            @default(false) @map("target_supervisors_only")
+  targetEmployeeIds     String[]           @map("target_employee_ids")
+  createdByUserId       String?            @map("created_by_user_id")
+  createdBy             User?              @relation(fields: [createdByUserId], references: [id])
+  createdAt             DateTime           @default(now()) @map("created_at")
+
+  @@map("announcements")
 }
 
 model AuditLog {

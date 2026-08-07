@@ -54,6 +54,8 @@ function computeShiftHours(startTime: string, endTime: string): string | null {
   return remMinutes === 0 ? `${hours}h` : `${hours}h ${remMinutes}m`;
 }
 
+const PAGE_SIZE = 10;
+
 const emptyForm = {
   name: "",
   startTime: "",
@@ -77,6 +79,7 @@ export function ShiftsTab({
 }) {
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
 
   const [formOpen, setFormOpen] = useState(false);
   const [formMode, setFormMode] = useState<"create" | "edit">("create");
@@ -95,9 +98,16 @@ export function ShiftsTab({
 
   useEffect(loadShifts, []);
 
+  useEffect(() => {
+    setPage(1);
+  }, [search]);
+
   const visibleShifts = shifts.filter(
     (shift) => !search.trim() || shift.name.toLowerCase().includes(search.trim().toLowerCase()),
   );
+
+  const pageCount = Math.max(1, Math.ceil(visibleShifts.length / PAGE_SIZE));
+  const pagedShifts = visibleShifts.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const openCreateForm = () => {
     setFormMode("create");
@@ -252,7 +262,7 @@ export function ShiftsTab({
             </tr>
           </thead>
           <tbody>
-            {visibleShifts.length === 0 ? (
+            {pagedShifts.length === 0 ? (
               <tr>
                 <td colSpan={5} className="utilities-empty-state">
                   {shifts.length === 0 ? (
@@ -266,7 +276,7 @@ export function ShiftsTab({
                 </td>
               </tr>
             ) : (
-              visibleShifts.map((shift) => (
+              pagedShifts.map((shift) => (
                 <tr key={shift.id}>
                   <td data-label="Name">{shift.name}</td>
                   <td data-label="Time">{shift.startTime} – {shift.endTime}</td>
@@ -284,6 +294,15 @@ export function ShiftsTab({
             )}
           </tbody>
         </table>
+        </div>
+        <div className="utilities-pagination utilities-pagination-footer">
+          <button className="outline-button" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+            Previous
+          </button>
+          <span>Page {page} of {pageCount}</span>
+          <button className="outline-button" disabled={page >= pageCount} onClick={() => setPage((p) => p + 1)}>
+            Next
+          </button>
         </div>
       </section>
 

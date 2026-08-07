@@ -697,6 +697,466 @@
   word-break: break-word;
 }
 
+/* Gmail-style compose window for the Compose Announcement modal — underlined
+   rows instead of boxed inputs, with "To" holding a unified recipients
+   dropdown (All Employees + departments) inline where recipient chips would
+   normally go. The formatting toolbar writes a small custom syntax (see
+   lib/richText.tsx) into the plain-text message field; priority tags and
+   the email-copy toggle remain visual-only. */
+.announcement-compose-modal {
+  width: min(640px, 100%);
+  max-height: min(82vh, 620px);
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);
+  overflow: hidden;
+}
+
+.announcement-compose-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 22px;
+  border-bottom: 1px solid #edf2f7;
+  flex-shrink: 0;
+}
+
+.announcement-compose-header h2 {
+  color: #193d69;
+  font-size: 16px;
+  margin: 0;
+}
+
+.announcement-compose-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 22px;
+}
+
+.announcement-compose-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 0;
+  border-bottom: 1px solid #edf2f7;
+  flex-shrink: 0;
+}
+
+.announcement-compose-row-label {
+  color: #7b8794;
+  font-size: 12.5px;
+  font-weight: 700;
+  width: 54px;
+  flex-shrink: 0;
+}
+
+.announcement-compose-row-content {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  flex: 1;
+  min-width: 0;
+}
+
+.announcement-department-select {
+  min-width: 220px;
+}
+
+.announcement-date-filter {
+  min-width: 150px;
+}
+
+/* Sent-date range filter beside the Announcements search box — matches the
+   EmployeesPage filter-bar chrome (.employees-filter-group has no input
+   styling of its own, only .employee-search does). */
+.announcement-filter-date-group input[type="date"] {
+  height: 34px;
+  min-width: 150px;
+  border: 1px solid #d4dfe9;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #2d4a65;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.announcement-filter-date-group input[type="date"]:focus {
+  border-color: #1a3a5c;
+  box-shadow: 0 0 0 3px rgba(26, 58, 92, 0.08);
+}
+
+/* Gmail-style "Add specific employee" chips + search, alongside the group
+   recipients dropdown above. flex-basis:100% drops it to its own line
+   within the wrapping .announcement-compose-row-content flex row. */
+.announcement-employee-picker {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex-basis: 100%;
+}
+
+.announcement-employee-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 6px 0 12px;
+  border-radius: 999px;
+  background: #eef4fb;
+  color: #1a3a5c;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.announcement-employee-chip button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: #1a3a5c;
+  cursor: pointer;
+}
+
+.announcement-employee-chip button:hover {
+  background: #dbe5ef;
+}
+
+.announcement-employee-search-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 160px;
+}
+
+.announcement-employee-search-input {
+  width: 100%;
+  height: 28px;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: #0f172a;
+  font-size: 13px;
+  font-family: inherit;
+  padding: 0;
+}
+
+.announcement-employee-search-input::placeholder {
+  color: #9aa9bb;
+}
+
+.announcement-employee-suggestions {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: white;
+  border: 1px solid #dbe5ef;
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 6px;
+  z-index: 20;
+}
+
+.announcement-employee-suggestion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  border: none;
+  background: none;
+  border-radius: 7px;
+  padding: 8px 10px;
+  color: #1e293b;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.announcement-employee-suggestion:hover {
+  background: #eef4fb;
+}
+
+.announcement-employee-suggestion small {
+  color: #7b8794;
+  font-size: 11px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.announcement-compose-subject-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  padding: 0;
+}
+
+.announcement-compose-subject-input::placeholder {
+  color: #9aa9bb;
+  font-weight: 500;
+}
+
+.announcement-compose-message {
+  flex: 1;
+  min-height: 180px;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: #334155;
+  font-size: 13.5px;
+  font-family: inherit;
+  line-height: 1.6;
+  padding: 16px 0;
+}
+
+.announcement-compose-message::placeholder {
+  color: #9aa9bb;
+}
+
+.announcement-compose-error {
+  margin: 0 0 12px;
+}
+
+/* Formatting toolbar — writes the small custom syntax in lib/richText.tsx
+   into the plain-text message field (see modal comment above). */
+.announcement-compose-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 8px 0;
+  border-bottom: 1px solid #edf2f7;
+  flex-shrink: 0;
+}
+
+.announcement-compose-toolbar button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  min-width: 30px;
+  padding: 0 6px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  color: #64748b;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.announcement-compose-toolbar button:hover {
+  background: #eef4fb;
+  color: #1a3a5c;
+}
+
+.announcement-toolbar-body-select {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 0 8px 0 10px !important;
+  width: auto !important;
+}
+
+.announcement-toolbar-divider {
+  width: 1px;
+  height: 18px;
+  background: #e2e8f0;
+  margin: 0 6px;
+  flex-shrink: 0;
+}
+
+.announcement-priority-row {
+  align-items: flex-start;
+  padding-top: 14px;
+}
+
+.announcement-priority-row .announcement-compose-row-label {
+  padding-top: 6px;
+}
+
+.announcement-priority-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.announcement-priority-tag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1.5px solid #dbe5ef;
+  background: #ffffff;
+  border-radius: 999px;
+  color: #7b8794;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.announcement-priority-tag:hover {
+  border-color: #94a3b8;
+}
+
+.announcement-priority-tag--urgent.active {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #991b1b;
+}
+
+.announcement-priority-tag--important.active {
+  background: #fef3c7;
+  border-color: #fcd34d;
+  color: #92400e;
+}
+
+.announcement-priority-tag--standard.active {
+  background: #eef4fb;
+  border-color: #1a3a5c;
+  color: #1a3a5c;
+}
+
+.announcement-priority-tag--pinned.active {
+  background: #dbeafe;
+  border-color: #93c5fd;
+  color: #1d4ed8;
+}
+
+/* Publish Controls footer — Publish Now / Save Draft / Schedule are all
+   wired to the announcements API (status: PUBLISHED/DRAFT/SCHEDULED); only
+   the email-copy toggle remains a visual placeholder. */
+.announcement-publish-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 22px;
+  border-top: 1px solid #edf2f7;
+  flex-shrink: 0;
+}
+
+.announcement-publish-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.announcement-send-button {
+  height: 42px;
+  border: 1.5px solid #157a5c;
+  background: #157a5c;
+  color: white;
+  padding: 0 24px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 13.5px;
+  font-family: inherit;
+  transition: background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+  box-shadow: 0 8px 18px rgba(21, 122, 92, 0.22);
+}
+
+.announcement-send-button:hover:not(:disabled) {
+  background: #12694e;
+  border-color: #12694e;
+  box-shadow: 0 10px 22px rgba(21, 122, 92, 0.26);
+}
+
+.announcement-send-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.announcement-view-message {
+  color: #334155;
+  font-size: 13.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.announcement-recipient-list {
+  display: grid;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.announcement-recipient-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #edf2f7;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.announcement-recipient-row > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.announcement-recipient-row strong {
+  color: #1a3a5c;
+  font-size: 13px;
+}
+
+.announcement-recipient-row > div:first-child span {
+  color: #7b8794;
+  font-size: 11.5px;
+}
+
+.announcement-recipient-viewed {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #15803d;
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.announcement-recipient-unviewed {
+  color: #94a3b8;
+  font-size: 11.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .utilities-audit-json-block {
   display: grid;
   gap: 7px;
@@ -930,4 +1390,93 @@
   .utilities-table-scroll {
     overflow: visible;
   }
+}
+
+/* ── Draft/scheduled row actions + Schedule popover ── */
+
+.utilities-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.utilities-view-button--danger {
+  border-color: #f3b4b4;
+  color: #b91c1c;
+}
+
+.utilities-view-button--danger:hover {
+  background: #fef2f2;
+  border-color: #dc2626;
+}
+
+.announcement-schedule-wrap {
+  position: relative;
+}
+
+.announcement-schedule-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 240px;
+  padding: 14px;
+  background: #ffffff;
+  border: 1px solid #dbe5ef;
+  border-radius: 12px;
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.18);
+  z-index: 30;
+}
+
+.announcement-schedule-popover label {
+  color: #7b8794;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.announcement-schedule-popover input[type="datetime-local"] {
+  height: 34px;
+  border: 1px solid #d4dfe9;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #2d4a65;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: inherit;
+  outline: none;
+}
+
+.announcement-schedule-popover input[type="datetime-local"]:focus {
+  border-color: #1a3a5c;
+  box-shadow: 0 0 0 3px rgba(26, 58, 92, 0.08);
+}
+
+.announcement-schedule-popover-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.announcement-schedule-popover-actions .outline-button,
+.announcement-schedule-popover-actions .announcement-send-button {
+  height: 32px;
+  padding: 0 14px;
+  font-size: 12px;
+}
+
+/* ── Formatted view (renderFormattedText output) ── */
+
+.announcement-view-heading {
+  color: #1a3a5c;
+  font-size: 15px;
+  margin: 0 0 4px;
+}
+
+.announcement-inline-image {
+  max-width: 100%;
+  border-radius: 8px;
+  margin: 4px 0;
 }

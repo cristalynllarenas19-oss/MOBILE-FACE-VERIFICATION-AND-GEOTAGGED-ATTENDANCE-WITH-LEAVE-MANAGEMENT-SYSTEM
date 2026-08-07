@@ -151,6 +151,9 @@ export class AuditLogsService {
             for (const row of rows) names.set(row.id, row.name);
             break;
           }
+          // FaceVerification logs its entityId as the verified employee's
+          // id (see AttendanceService), not a separate table — same lookup.
+          case "FaceVerification":
           case "Employee": {
             const rows = await this.prisma.employee.findMany({
               where: { id: { in: ids } },
@@ -177,6 +180,77 @@ export class AuditLogsService {
             for (const row of rows) {
               names.set(row.id, `${row.employee.firstName} ${row.employee.lastName} — ${row.attendanceDate.toLocaleDateString()}`);
             }
+            break;
+          }
+          case "AttendanceLog": {
+            const rows = await this.prisma.attendanceLog.findMany({
+              where: { id: { in: ids } },
+              select: { id: true, capturedAt: true, employee: { select: { firstName: true, lastName: true } } },
+            });
+            for (const row of rows) {
+              names.set(row.id, `${row.employee.firstName} ${row.employee.lastName} — ${row.capturedAt.toLocaleString()}`);
+            }
+            break;
+          }
+          case "FaceProfile": {
+            const rows = await this.prisma.faceProfile.findMany({
+              where: { id: { in: ids } },
+              select: { id: true, employee: { select: { firstName: true, lastName: true } } },
+            });
+            for (const row of rows) names.set(row.id, `${row.employee.firstName} ${row.employee.lastName}`);
+            break;
+          }
+          case "Department": {
+            const rows = await this.prisma.department.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
+            for (const row of rows) names.set(row.id, row.name);
+            break;
+          }
+          case "WorkLocation": {
+            const rows = await this.prisma.workLocation.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
+            for (const row of rows) names.set(row.id, row.name);
+            break;
+          }
+          case "WorkLocationEmployee": {
+            const rows = await this.prisma.workLocationEmployee.findMany({
+              where: { id: { in: ids } },
+              select: {
+                id: true,
+                employee: { select: { firstName: true, lastName: true } },
+                workLocation: { select: { name: true } },
+              },
+            });
+            for (const row of rows) {
+              names.set(row.id, `${row.employee.firstName} ${row.employee.lastName} — ${row.workLocation.name}`);
+            }
+            break;
+          }
+          case "LeaveBalance": {
+            const rows = await this.prisma.leaveBalance.findMany({
+              where: { id: { in: ids } },
+              select: {
+                id: true,
+                employee: { select: { firstName: true, lastName: true } },
+                leaveType: { select: { name: true } },
+              },
+            });
+            for (const row of rows) {
+              names.set(row.id, `${row.employee.firstName} ${row.employee.lastName} — ${row.leaveType.name}`);
+            }
+            break;
+          }
+          case "User": {
+            const rows = await this.prisma.user.findMany({
+              where: { id: { in: ids } },
+              select: { id: true, email: true, employee: { select: { firstName: true, lastName: true } } },
+            });
+            for (const row of rows) {
+              names.set(row.id, row.employee ? `${row.employee.firstName} ${row.employee.lastName}` : row.email);
+            }
+            break;
+          }
+          case "Announcement": {
+            const rows = await this.prisma.announcement.findMany({ where: { id: { in: ids } }, select: { id: true, title: true } });
+            for (const row of rows) names.set(row.id, row.title);
             break;
           }
         }

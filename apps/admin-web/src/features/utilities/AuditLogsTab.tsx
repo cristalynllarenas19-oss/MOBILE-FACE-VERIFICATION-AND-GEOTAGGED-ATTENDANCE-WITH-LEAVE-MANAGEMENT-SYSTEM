@@ -82,9 +82,10 @@ function actorRoleLabel(log: AuditLog) {
 }
 
 function affectedRecordLabel(log: AuditLog) {
-  if (log.entityName) return log.entityName;
-  if (log.entityId) return log.entityId.slice(0, 8);
-  return "—";
+  // entityName is resolved server-side (AuditLogsService.resolveEntityNames)
+  // for every entity type this app logs — a raw ID here would mean the
+  // referenced record was since deleted, not that resolution is missing.
+  return log.entityName ?? "—";
 }
 
 // Builds a Field / (Previous /) Value table for the "Changes" section of the
@@ -248,20 +249,19 @@ export function AuditLogsTab({
                 <th>ROLE</th>
                 <th>MODULE</th>
                 <th>ACTION</th>
-                <th>AFFECTED RECORD</th>
                 <th>DETAILS</th>
               </tr>
             </thead>
             <tbody>
               {auditLoading ? (
                 <tr>
-                  <td colSpan={7} className="utilities-empty-state">
+                  <td colSpan={6} className="utilities-empty-state">
                     <span className="utilities-loading-dot" /> Loading audit logs…
                   </td>
                 </tr>
               ) : auditLogs.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="utilities-empty-state">
+                  <td colSpan={6} className="utilities-empty-state">
                     {hasActiveAuditFilters
                       ? "No audit log entries match your current filters."
                       : "No audit log entries found."}
@@ -279,7 +279,6 @@ export function AuditLogsTab({
                         <Badge tone={actionTone(log.action)}>{formatAction(log.action)}</Badge>
                       </div>
                     </td>
-                    <td data-label="Affected Record">{affectedRecordLabel(log)}</td>
                     <td data-label="Details">
                       <button type="button" className="utilities-view-button" onClick={() => setViewLog(log)}>
                         <Eye size={13} /> View

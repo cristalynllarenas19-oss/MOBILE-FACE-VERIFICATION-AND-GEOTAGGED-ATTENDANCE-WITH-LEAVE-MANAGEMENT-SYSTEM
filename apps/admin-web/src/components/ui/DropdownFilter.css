@@ -107,3 +107,34 @@
   background: #1a3a5c;
   color: white;
 }
+
+.multi-select-option {
+  align-items: center;
+  border-radius: 7px;
+  color: #1e293b;
+  cursor: pointer;
+  display: flex;
+  font-size: 13px;
+  font-weight: 500;
+  gap: 10px;
+  padding: 7px 10px;
+  transition: background 0.15s ease;
+}
+
+.multi-select-option:hover {
+  background: #eef4fb;
+}
+
+.multi-select-option input[type="checkbox"] {
+  accent-color: #193d69;
+  cursor: pointer;
+  flex-shrink: 0;
+  height: 16px;
+  width: 16px;
+}
+
+.multi-select-empty {
+  color: #7b8794;
+  font-size: 12.5px;
+  padding: 10px;
+}
