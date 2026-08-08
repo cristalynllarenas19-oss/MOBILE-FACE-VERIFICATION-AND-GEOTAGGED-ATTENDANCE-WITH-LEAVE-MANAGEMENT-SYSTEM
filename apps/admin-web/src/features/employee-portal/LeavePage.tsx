@@ -5,8 +5,9 @@ import { AlertCircle, CheckCircle, ChevronDown, ChevronUp, FileText, Paperclip, 
 import "./EmployeeLeavePage.css";
 import "./EmployeePortal.css";
 import {
-  LeaveType, LeaveBalance, LeaveRequest,
+  LeaveType, LeaveBalance, LeaveRequest, UndertimeEligibility, UndertimeFiling,
   getLeaveTypes, getLeaveBalances, getLeaveRequests, createLeaveRequest, cancelLeaveRequest, resubmitLeaveRequest,
+  getUndertimeEligibility, getUndertimeFilings, fileUndertime,
 } from "./api";
 import { LeaveBalanceChart } from "./components/LeaveBalanceChart";
 import type { AuthUser } from "../../lib/api";
@@ -16,7 +17,7 @@ type Props = {
   initialFocusRequestId?: string;
   onFocusRequestHandled?: () => void;
 };
-type Tab   = "balance" | "request";
+type Tab   = "balance" | "request" | "undertime";
 
 const MAX_BYTES = 5 * 1024 * 1024;
 
@@ -65,6 +66,13 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
   const [resubmitFile,    setResubmitFile]    = useState<{ name: string; mimeType: string; sizeBytes: number; base64: string } | null>(null);
   const [resubmitErr,     setResubmitErr]     = useState<string | null>(null);
   const [isResubmitting,  setIsResubmitting]  = useState(false);
+
+  // Undertime filing
+  const [undertimeEligibility, setUndertimeEligibility] = useState<UndertimeEligibility | null>(null);
+  const [undertimeFilings,     setUndertimeFilings]     = useState<UndertimeFiling[]>([]);
+  const [undertimeReason,      setUndertimeReason]      = useState("");
+  const [isFilingUndertime,    setIsFilingUndertime]    = useState(false);
+  const [undertimeErr,         setUndertimeErr]         = useState<string | null>(null);
 
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -116,14 +124,32 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
       const types = await getLeaveTypes();
       setLeaveTypes(types);
       if (user.employeeId) {
-        const [bal, reqs] = await Promise.all([
+        const [bal, reqs, eligibility, filings] = await Promise.all([
           getLeaveBalances(user.employeeId),
           getLeaveRequests(user.employeeId),
+          getUndertimeEligibility(user.employeeId),
+          getUndertimeFilings(user.employeeId),
         ]);
         setBalances(bal);
         setRequests(reqs);
+        setUndertimeEligibility(eligibility);
+        setUndertimeFilings(filings);
       }
     } catch { /* non-blocking */ } finally { setLoadingData(false); }
+  }
+
+  async function handleFileUndertime() {
+    if (!user.employeeId) return;
+    setIsFilingUndertime(true);
+    setUndertimeErr(null);
+    try {
+      await fileUndertime(user.employeeId, undertimeReason.trim() || undefined);
+      setUndertimeReason("");
+      await loadData();
+      setResultModal({ ok: true, title: "Undertime Filed", msg: "Your undertime filing for today has been recorded." });
+    } catch (err) {
+      setUndertimeErr(err instanceof Error ? err.message : "Unable to file undertime.");
+    } finally { setIsFilingUndertime(false); }
   }
 
   useEffect(() => { loadData(); }, [user.employeeId]);
@@ -150,7 +176,13 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
     try {
       await cancelLeaveRequest(requestId);
       await loadData();
-    } catch { /* non-blocking */ } finally { setCancellingId(null); }
+    } catch (err) {
+      setResultModal({
+        ok: false,
+        title: "Cancellation Failed",
+        msg: err instanceof Error ? err.message : "Unable to cancel this leave request.",
+      });
+    } finally { setCancellingId(null); }
   }
 
   function openResubmit(requestId: string) {
@@ -209,6 +241,16 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
     max.setDate(max.getDate() + Math.max(0, remaining - 1));
     return max.toISOString().slice(0, 10);
   }, [selectedType, startDate, remainingByLeaveType]);
+
+  // Leave types with advanceFilingAllowed === false (Sick Leave) cannot be
+  // filed for a future date — driven by the selected type's own config so
+  // this isn't a rule baked into the frontend, it just mirrors whatever HR
+  // set on the Leave Types admin page. The backend enforces this
+  // independently in leave.service.ts; this only improves the picking UX.
+  const maxStartDate = useMemo(() => {
+    if (selectedType?.advanceFilingAllowed === false) return new Date().toISOString().slice(0, 10);
+    return undefined;
+  }, [selectedType]);
 
   // Single-day-only types (Sick Leave, Emergency Leave) always mirror the end
   // date to the start date the moment either one is known.
@@ -314,7 +356,11 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
   function renderRequestCard(r: LeaveRequest) {
     const tone = statusTone(r.status);
     const needsRevision = r.status === "NEEDS_REVISION";
-    const canCancel = r.status === "PENDING" || r.status === "SUPERVISOR_APPROVED";
+    // APPROVED is included here too — the server is the one that actually
+    // enforces the cancellation grace window (and whether the leave has
+    // already started), so the button is always offered and any rejection
+    // (e.g. past the window) surfaces through handleCancel's error modal.
+    const canCancel = r.status === "PENDING" || r.status === "SUPERVISOR_APPROVED" || r.status === "APPROVED";
     const lastRejection = needsRevision
       ? [...(r.notes ?? [])].reverse().find((n) => n.type === "REJECTED")
       : undefined;
@@ -446,13 +492,13 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
 
       {/* Tab switcher */}
       <div className="leave-tab-switcher">
-        {(["balance", "request"] as const).map((t) => (
+        {(["balance", "request", "undertime"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={`leave-tab-btn${tab === t ? " is-active" : ""}`}
           >
-            {t === "balance" ? "Balance" : "Request"}
+            {t === "balance" ? "Balance" : t === "request" ? "Request" : "Undertime"}
           </button>
         ))}
       </div>
@@ -552,10 +598,10 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
             {/* Dates */}
             <label style={fldLbl}>{selectedType?.isSingleDayOnly ? "Date" : "Leave Duration"}</label>
             {selectedType?.isSingleDayOnly ? (
-              <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={dateInp} />
+              <input type="date" value={startDate} max={maxStartDate} onChange={(e) => setStartDate(e.target.value)} style={dateInp} />
             ) : (
               <div style={{ display: "flex", gap: 10 }}>
-                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} style={dateInp} />
+                <input type="date" value={startDate} max={maxStartDate} onChange={(e) => setStartDate(e.target.value)} style={dateInp} />
                 <input type="date" value={endDate} min={startDate} max={maxEndDate} onChange={(e) => setEndDate(e.target.value)} style={dateInp} />
               </div>
             )}
@@ -640,6 +686,71 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
             >
               {isSubmitting ? "Submitting…" : "Submit Leave Request"}
             </button>
+        </div>
+      )}
+
+      {/* ── Undertime tab ────────────────────────────────────────────────────── */}
+      {tab === "undertime" && (
+        <div style={{ background: "#FFFFFF", borderRadius: 18, border: "1px solid #E2E8F0", padding: 20 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+            <FileText size={28} color="#DC2777" />
+            <h3 style={{ color: "#062B59", fontSize: 18, fontWeight: 700, margin: 0 }}>File Undertime</h3>
+          </div>
+
+          {/* Everything here mirrors whatever the backend's eligibility check
+              returns — the 8th/23rd filing days and the 3-per-month cap are
+              not hardcoded on this page, only reflected from the API. */}
+          {undertimeEligibility && (
+            <p style={{ color: "#475569", fontSize: 13, marginTop: 0, marginBottom: 14, lineHeight: "18px" }}>
+              {undertimeEligibility.filedThisMonth}/{undertimeEligibility.maxFilingsPerMonth} filed this month.{" "}
+              {undertimeEligibility.alreadyFiledToday
+                ? "You've already filed undertime today."
+                : !undertimeEligibility.isFilingDay
+                  ? `Undertime can only be filed on the ${undertimeEligibility.filingDaysOfMonth.join(" or ")} of the month.`
+                  : undertimeEligibility.remaining <= 0
+                    ? "You've reached this month's filing limit."
+                    : "You're eligible to file undertime today."}
+            </p>
+          )}
+
+          <label style={fldLbl}>Reason (optional)</label>
+          <textarea
+            value={undertimeReason}
+            onChange={(e) => setUndertimeReason(e.target.value)}
+            placeholder="Optional note for this filing"
+            style={{ ...dateInp, height: 70, resize: "vertical", width: "100%", boxSizing: "border-box" }}
+          />
+
+          {undertimeErr && (
+            <p style={{ color: "#DC2626", fontSize: 12, marginTop: 8 }}>{undertimeErr}</p>
+          )}
+
+          <button
+            disabled={isFilingUndertime || !undertimeEligibility?.eligible}
+            onClick={handleFileUndertime}
+            style={{
+              ...primBtn,
+              marginTop: 16,
+              opacity: isFilingUndertime || !undertimeEligibility?.eligible ? 0.6 : 1,
+              cursor: isFilingUndertime || !undertimeEligibility?.eligible ? "not-allowed" : "pointer",
+            }}
+          >
+            {isFilingUndertime ? "Filing…" : "File Undertime for Today"}
+          </button>
+
+          <p style={{ color: "#062B59", fontSize: 13, fontWeight: 700, marginTop: 22, marginBottom: 8 }}>
+            This Month's Filings
+          </p>
+          {undertimeFilings.length === 0 ? (
+            <p style={{ color: "#94A3B8", fontSize: 13 }}>No undertime filings yet.</p>
+          ) : (
+            undertimeFilings.map((f) => (
+              <div key={f.id} style={{ background: "#F8FAFC", borderRadius: 12, padding: 12, marginBottom: 8 }}>
+                <p style={{ fontWeight: 700, margin: 0, fontSize: 13 }}>{new Date(f.filingDate).toLocaleDateString()}</p>
+                {f.reason && <p style={{ color: "#64748B", fontSize: 12, margin: "3px 0 0" }}>{f.reason}</p>}
+              </div>
+            ))
+          )}
         </div>
       )}
 

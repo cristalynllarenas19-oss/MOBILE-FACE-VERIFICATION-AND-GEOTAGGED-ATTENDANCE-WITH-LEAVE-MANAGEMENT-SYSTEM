@@ -317,6 +317,7 @@ model Employee {
   faceProfiles         FaceProfile[]
   leaveRequests        LeaveRequest[]
   leaveBalances        LeaveBalance[]
+  undertimeFilings     UndertimeFiling[]
   schedules            EmployeeSchedule[]
   workLocations        WorkLocationEmployee[]
 
@@ -488,6 +489,12 @@ model LeaveType {
   // (Sick Leave, Emergency Leave) — the application form skips the end-date
   // picker and forces startDate = endDate, totalDays = 1.
   isSingleDayOnly             Boolean            @default(false) @map("is_single_day_only")
+  // False for leave types that must be filed for today only, never a future
+  // date (Sick Leave). True (default) leaves every existing type's behavior
+  // unchanged — e.g. Compassionate Leave, which may be filed ahead of time,
+  // including for a doctor's appointment (a reason under this type, not a
+  // separate leave type).
+  advanceFilingAllowed         Boolean            @default(true) @map("advance_filing_allowed")
   createdAt                   DateTime           @default(now()) @map("created_at")
   updatedAt                   DateTime           @updatedAt @map("updated_at")
   createdBy                   String?            @map("created_by")
@@ -564,6 +571,25 @@ model LeaveBalance {
 
   @@unique([employeeId, leaveTypeId, year])
   @@map("leave_balances")
+}
+
+// A self-filed notice of intent to render undertime, independent of the
+// automatic AttendanceRecord.undertimeMinutes computed from actual clock-out
+// vs. shift end. Filing is only permitted on the 8th/23rd of the month, capped
+// at 3 per employee per calendar month — both enforced in UndertimeService,
+// never trusted from the client. No approval workflow: filing itself is the
+// record, matching what HR described (no mention of a review step, unlike
+// leave requests).
+model UndertimeFiling {
+  id         String   @id @default(uuid())
+  employeeId String   @map("employee_id")
+  filingDate DateTime @map("filing_date")
+  reason     String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  employee   Employee @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId, filingDate])
+  @@map("undertime_filings")
 }
 
 model Shift {

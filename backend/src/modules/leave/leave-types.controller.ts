@@ -57,6 +57,10 @@ export class CreateLeaveTypeDto {
   isSingleDayOnly?: boolean;
 
   @IsOptional()
+  @IsBoolean()
+  advanceFilingAllowed?: boolean;
+
+  @IsOptional()
   @IsEnum(LeaveTypeKind)
   kind?: LeaveTypeKind;
 }
@@ -114,6 +118,10 @@ export class UpdateLeaveTypeDto {
   @IsOptional()
   @IsBoolean()
   isSingleDayOnly?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  advanceFilingAllowed?: boolean;
 
   @IsOptional()
   @IsEnum(LeaveTypeKind)

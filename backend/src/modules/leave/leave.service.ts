@@ -9,6 +9,19 @@ import { ResubmitLeaveRequestDto } from "./dto/resubmit-leave-request.dto";
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 type LeaveRequestStatus = "PENDING" | "SUPERVISOR_APPROVED" | "APPROVED" | "REJECTED" | "NEEDS_REVISION" | "CANCELLED";
 
+// How long after HR/Admin approval an employee may still self-cancel an
+// approved leave request. An elevated actor (Admin/Supervisor) cancelling on
+// an employee's behalf is not bound by this window — see cancel() below.
+const CANCELLATION_GRACE_HOURS = 24;
+
+// Local-midnight truncation, matching the same toDateString()-based same-day
+// comparisons already used elsewhere in this file (see isSingleDayOnly check
+// in create()) — keeps "today"/"already started" comparisons independent of
+// time-of-day.
+function toDateOnly(value: Date): Date {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+}
+
 @Injectable()
 export class LeaveService {
   constructor(
@@ -87,6 +100,20 @@ export class LeaveService {
       const sameDay = new Date(dto.startDate).toDateString() === new Date(dto.endDate).toDateString();
       if (!sameDay || Number(dto.totalDays) !== 1) {
         throw new BadRequestException(`${leaveType.name} can only be requested for a single day.`);
+      }
+    }
+
+    // Leave types flagged !advanceFilingAllowed (Sick Leave) cannot be filed
+    // for a future date — driven by the leave type's own config, not the
+    // type's name, so HR can retune which types this applies to without a
+    // code change. Compassionate Leave (advanceFilingAllowed = true) is
+    // unaffected, including when the reason given is a doctor's appointment —
+    // that's a reason under Compassionate Leave, not a separate leave type.
+    if (!leaveType.advanceFilingAllowed) {
+      const requestedStart = toDateOnly(new Date(dto.startDate));
+      const today = toDateOnly(new Date());
+      if (requestedStart > today) {
+        throw new BadRequestException(`${leaveType.name} cannot be filed in advance — the date must be today or earlier.`);
       }
     }
 
@@ -204,6 +231,13 @@ export class LeaveService {
     context: AuditLogContext = {},
     scopeDepartmentId?: string,
     selfReviewEmployeeId?: string,
+    // skipBalanceRestore: set by cancel() when the leave period has already
+    // started — the days were already taken, so reversing an APPROVED status
+    // must not hand the balance back. Every other caller (rejecting an
+    // approved request, an admin reversing an approval) still restores in
+    // full, which is why this defaults to false rather than being folded into
+    // the wasApproved/isNowApproved check below.
+    options: { skipBalanceRestore?: boolean } = {},
   ) {
     // Load the request first so we know its *current* status before changing anything.
     // This is what lets us tell "first time being approved" apart from "already approved,
@@ -278,7 +312,7 @@ export class LeaveService {
     //   only the final HR-level APPROVED transition does.
     if (!wasApproved && isNowApproved) {
       await this.adjustLeaveBalance(request.employeeId, request.leaveTypeId, request.startDate, Number(request.totalDays));
-    } else if (wasApproved && !isNowApproved) {
+    } else if (wasApproved && !isNowApproved && !options.skipBalanceRestore) {
       await this.adjustLeaveBalance(request.employeeId, request.leaveTypeId, request.startDate, -Number(request.totalDays));
     }
 
@@ -400,8 +434,9 @@ export class LeaveService {
   async cancel(id: string, context: AuditLogContext = {}, requestingEmployeeId?: string) {
     const existing = await this.prisma.leaveRequest.findUniqueOrThrow({ where: { id } });
 
-    if (existing.status !== "PENDING" && existing.status !== "SUPERVISOR_APPROVED") {
-      throw new BadRequestException("Only a pending or supervisor-approved request can be cancelled.");
+    const cancellableStatuses: LeaveRequestStatus[] = ["PENDING", "SUPERVISOR_APPROVED", "APPROVED"];
+    if (!cancellableStatuses.includes(existing.status as LeaveRequestStatus)) {
+      throw new BadRequestException("Only a pending, supervisor-approved, or approved request can be cancelled.");
     }
 
     // requestingEmployeeId is undefined for an elevated (ADMIN/SUPERVISOR) actor
@@ -410,7 +445,28 @@ export class LeaveService {
       throw new BadRequestException("You can only cancel your own leave request.");
     }
 
-    return this.updateStatus(id, "CANCELLED", undefined, context);
+    // An already-approved leave can only be self-cancelled within the grace
+    // window after approval — past that, the employee must go through HR/Admin,
+    // who cancel with requestingEmployeeId unset and so aren't bound by this
+    // check (an elevated override, same pattern as the self-review guards above).
+    if (existing.status === "APPROVED" && requestingEmployeeId) {
+      const hoursSinceApproval = existing.reviewedAt
+        ? (Date.now() - existing.reviewedAt.getTime()) / 3_600_000
+        : Infinity;
+      if (hoursSinceApproval > CANCELLATION_GRACE_HOURS) {
+        throw new BadRequestException(
+          `Approved leave can only be cancelled within ${CANCELLATION_GRACE_HOURS} hours of approval. Please contact HR/Admin.`,
+        );
+      }
+    }
+
+    // The leave period has already started (or passed) — the days were
+    // already taken, so cancelling now must not hand the balance back.
+    const alreadyUsed = existing.status === "APPROVED" && toDateOnly(existing.startDate) <= toDateOnly(new Date());
+
+    return this.updateStatus(id, "CANCELLED", undefined, context, undefined, undefined, {
+      skipBalanceRestore: alreadyUsed,
+    });
   }
 
   // The employee's side of the reject <-> resubmit loop: only valid while the

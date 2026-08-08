@@ -42,6 +42,7 @@ type LeaveType = {
   isUnlimitedDays: boolean;
   requiresAdminGrant: boolean;
   isSingleDayOnly: boolean;
+  advanceFilingAllowed: boolean;
   kind: LeaveTypeKind;
   createdAt: string;
   updatedAt: string;
@@ -88,6 +89,7 @@ const emptyForm = {
   isUnlimitedDays: false,
   requiresAdminGrant: false,
   isSingleDayOnly: false,
+  advanceFilingAllowed: true,
   isAutoCredited: false,
   isTransferable: false,
   kind: "GENERAL" as LeaveTypeKind,
@@ -164,6 +166,7 @@ export function LeaveTypesTab({
       isUnlimitedDays: type.isUnlimitedDays,
       requiresAdminGrant: type.requiresAdminGrant,
       isSingleDayOnly: type.isSingleDayOnly,
+      advanceFilingAllowed: type.advanceFilingAllowed,
       isAutoCredited: type.isAutoCredited,
       isTransferable: type.isTransferable,
       kind: type.kind,
@@ -198,6 +201,7 @@ export function LeaveTypesTab({
         isUnlimitedDays: form.isUnlimitedDays,
         requiresAdminGrant: form.requiresAdminGrant,
         isSingleDayOnly: form.isSingleDayOnly,
+        advanceFilingAllowed: form.advanceFilingAllowed,
         isAutoCredited: form.isAutoCredited,
         isTransferable: form.isTransferable,
         kind: form.kind,
@@ -546,6 +550,15 @@ export function LeaveTypesTab({
               <label className="utilities-checkbox">
                 <input
                   type="checkbox"
+                  checked={form.advanceFilingAllowed}
+                  onChange={(e) => setForm((c) => ({ ...c, advanceFilingAllowed: e.target.checked }))}
+                />
+                <span>Allow advance filing (uncheck for a type like Sick Leave that can only be filed for today, never a future date)</span>
+              </label>
+
+              <label className="utilities-checkbox">
+                <input
+                  type="checkbox"
                   checked={form.isAutoCredited}
                   onChange={(e) => setForm((c) => ({ ...c, isAutoCredited: e.target.checked }))}
                 />
@@ -654,6 +667,12 @@ export function LeaveTypesTab({
                   <span>Single Day Only</span>
                   <Badge tone={viewLeaveType.isSingleDayOnly ? "warning" : "neutral"}>
                     {viewLeaveType.isSingleDayOnly ? "Yes" : "No"}
+                  </Badge>
+                </div>
+                <div>
+                  <span>Advance Filing</span>
+                  <Badge tone={viewLeaveType.advanceFilingAllowed ? "neutral" : "warning"}>
+                    {viewLeaveType.advanceFilingAllowed ? "Allowed" : "Today only — no future dates"}
                   </Badge>
                 </div>
                 <div>

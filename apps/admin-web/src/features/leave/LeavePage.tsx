@@ -135,6 +135,14 @@ type ClassificationBalanceRow = {
 
 type Notification = { type: "success" | "error"; message: string } | null;
 
+type UndertimeFiling = {
+  id: string;
+  filingDate: string;
+  reason: string | null;
+  createdAt: string;
+  employee: { firstName: string; lastName: string; department: { name: string } | null };
+};
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function getEmployeeName(request: LeaveRequest) {
@@ -715,7 +723,7 @@ export function LeavePage({
   // also an Admin (or not a Supervisor at all) gets full, unscoped access.
   const isDepartmentLocked = roles.includes("SUPERVISOR") && !isAdmin;
 
-  const [topTab, setTopTab]                     = useState<"requests" | "history">("requests");
+  const [topTab, setTopTab]                     = useState<"requests" | "history" | "undertime">("requests");
   const [statusFilter, setStatusFilter]         = useState("ALL");
   const [typeFilter, setTypeFilter]             = useState("ALL");
   const [historyDepartmentFilter, setHistoryDepartmentFilter] = useState("ALL");
@@ -755,6 +763,11 @@ export function LeavePage({
 
   const leaveTypesCache = useCachedData<LeaveType[]>("leave-types", () => apiRequest<LeaveType[]>("/leave-types"));
   const leaveTypes = leaveTypesCache.data ?? [];
+
+  const undertimeCache = useCachedData<UndertimeFiling[]>("undertime-filings", () =>
+    apiRequest<UndertimeFiling[]>("/undertime-filings"),
+  );
+  const undertimeFilings = undertimeCache.data ?? [];
 
   const summaryCache = useCachedData<LeaveBalanceSummary>(`leave-balance-summary:${summaryYear}`, () =>
     apiRequest<LeaveBalanceSummary>(`/leave-balances/summary?year=${summaryYear}`),
@@ -927,6 +940,15 @@ export function LeavePage({
       (reviewRequest.status === "PENDING" || reviewRequest.status === "SUPERVISOR_APPROVED"),
   );
 
+  // Mirrors the employee self-service Cancel action, available to HR/Admin
+  // (and a Supervisor acting within their department) on any request that
+  // hasn't already reached a terminal REJECTED/CANCELLED state.
+  const canCancelRequest = Boolean(
+    reviewRequest &&
+      !(isOwnRequest && !isAdmin) &&
+      ["PENDING", "SUPERVISOR_APPROVED", "APPROVED"].includes(reviewRequest.status),
+  );
+
   const matchingBalance =
     reviewRequest && reviewBalances
       ? reviewBalances.find((b) => b.leaveTypeId === reviewRequest.leaveType.id)
@@ -1028,6 +1050,29 @@ export function LeavePage({
       setNotification({
         type: "error",
         message: err instanceof Error ? err.message : "Unable to review leave.",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Admin/Supervisor cancellation is not bound by the 24-hour post-approval
+  // grace window employee self-cancel is (see leave.service.ts's cancel()) —
+  // an elevated actor cancelling on the employee's behalf is treated as an
+  // override, same as the self-review bypass already used elsewhere here.
+  const cancelRequest = async () => {
+    if (!reviewRequest) return;
+    setIsSaving(true);
+    try {
+      await apiRequest(`/leave-requests/${reviewRequest.id}/cancel`, { method: "PATCH" });
+      setReviewRequest(null);
+      setNotification({ type: "success", message: "Leave request was cancelled." });
+      loadRequests();
+      loadSummary();
+    } catch (err) {
+      setNotification({
+        type: "error",
+        message: err instanceof Error ? err.message : "Unable to cancel leave request.",
       });
     } finally {
       setIsSaving(false);
@@ -1195,6 +1240,9 @@ export function LeavePage({
         </button>
         <button className={topTab === "history" ? "active" : ""} onClick={() => setTopTab("history")}>
           Leave History
+        </button>
+        <button className={topTab === "undertime" ? "active" : ""} onClick={() => setTopTab("undertime")}>
+          Undertime
         </button>
       </div>
 
@@ -1384,6 +1432,37 @@ export function LeavePage({
             </table>
           </section>
         </>
+      )}
+
+      {topTab === "undertime" && (
+        <section className="table-card leave-table-card">
+          <table>
+            <thead>
+              <tr>
+                <th>EMPLOYEE</th>
+                <th>DEPARTMENT</th>
+                <th>DATE FILED</th>
+                <th>REASON</th>
+              </tr>
+            </thead>
+            <tbody>
+              {undertimeFilings.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="leave-empty-state">No undertime filings found.</td>
+                </tr>
+              ) : (
+                undertimeFilings.map((f) => (
+                  <tr key={f.id}>
+                    <td data-label="Employee">{f.employee.firstName} {f.employee.lastName}</td>
+                    <td data-label="Department">{f.employee.department?.name ?? "Unassigned"}</td>
+                    <td data-label="Date Filed">{formatDate(f.filingDate)}</td>
+                    <td data-label="Reason">{f.reason ?? "—"}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </section>
       )}
 
       {/* ── Review modal ── */}
@@ -1612,6 +1691,11 @@ export function LeavePage({
                     Approve
                   </button>
                 </>
+              )}
+              {!historyViewOnly && canCancelRequest && (
+                <button className="leave-reject-button" onClick={cancelRequest} disabled={isSaving}>
+                  Cancel Leave
+                </button>
               )}
               {!historyViewOnly && isAdmin && reviewRequest.extensionRequested && reviewRequest.extensionApproved == null && (
                 <>

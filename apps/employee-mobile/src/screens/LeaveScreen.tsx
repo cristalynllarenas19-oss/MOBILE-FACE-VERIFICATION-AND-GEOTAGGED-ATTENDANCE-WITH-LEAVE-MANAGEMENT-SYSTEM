@@ -21,10 +21,16 @@ import {
   LeaveType,
   LeaveBalance,
   LeaveRequest,
+  UndertimeEligibility,
+  UndertimeFiling,
   getLeaveTypes,
   getLeaveBalances,
   getLeaveRequests,
   createLeaveRequest,
+  cancelLeaveRequest,
+  getUndertimeEligibility,
+  getUndertimeFilings,
+  fileUndertime,
 } from "../api";
 import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
 
@@ -36,6 +42,7 @@ const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 const EMPTY_LEAVE_TYPES: LeaveType[] = [];
 const EMPTY_BALANCES: LeaveBalance[] = [];
 const EMPTY_REQUESTS: LeaveRequest[] = [];
+const EMPTY_UNDERTIME_FILINGS: UndertimeFiling[] = [];
 
 type PickedAttachment = {
   name: string;
@@ -108,12 +115,51 @@ export default function LeaveScreen({ employeeId }: Props) {
   const [isPickingFile, setIsPickingFile] = useState(false);
 
   const [showPending, setShowPending] = useState(false);
-  const [activeTab, setActiveTab] = useState<"balance" | "request">("balance");
+  const [activeTab, setActiveTab] = useState<"balance" | "request" | "undertime">("balance");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [resultModal, setResultModal] = useState<{ status: ResultModalStatus; title: string; message: string } | null>(null);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
+
+  // Undertime filing
+  const undertimeEligibilityCache = useCachedData<UndertimeEligibility>(
+    employeeId ? CACHE_KEYS.undertimeEligibility(employeeId) : null,
+    () => getUndertimeEligibility(employeeId!),
+  );
+  const undertimeFilingsCache = useCachedData<UndertimeFiling[]>(
+    employeeId ? CACHE_KEYS.undertimeFilings(employeeId) : null,
+    () => getUndertimeFilings(employeeId!),
+  );
+  const undertimeEligibility = undertimeEligibilityCache.data;
+  const undertimeFilings = undertimeFilingsCache.data ?? EMPTY_UNDERTIME_FILINGS;
+  const [undertimeReason, setUndertimeReason] = useState("");
+  const [isFilingUndertime, setIsFilingUndertime] = useState(false);
+
+  async function handleFileUndertime() {
+    if (!employeeId) return;
+    setIsFilingUndertime(true);
+    try {
+      await fileUndertime(employeeId, undertimeReason.trim() || undefined);
+      setUndertimeReason("");
+      await Promise.all([undertimeEligibilityCache.refresh(), undertimeFilingsCache.refresh()]);
+      setResultModal({ status: "approved", title: "Undertime Filed", message: "Your undertime filing for today has been recorded." });
+    } catch (err) {
+      setResultModal({
+        status: "error",
+        title: "Filing Failed",
+        message: err instanceof Error ? err.message : "Unable to file undertime.",
+      });
+    } finally {
+      setIsFilingUndertime(false);
+    }
+  }
 
   const selectedLeaveType = leaveTypes.find((t) => t.id === leaveTypeId);
   const isSingleDayLeave = isOneDayLeaveType(selectedLeaveType?.name, selectedLeaveType?.isSingleDayOnly);
+  // Separate from isSingleDayLeave (which only controls the 1-day duration
+  // UI) — this is the advance-filing rule (Sick Leave: today only, never a
+  // future date), driven by the leave type's own config so it isn't tied to
+  // the type's name or its single-day-ness.
+  const lockedToToday = selectedLeaveType?.advanceFilingAllowed === false;
   const today = useMemo(() => new Date(), []);
   const todayStart = useMemo(() => new Date(today.getFullYear(), today.getMonth(), today.getDate()), [today]);
   const filteredLeaveTypes = leaveTypes
@@ -197,6 +243,22 @@ export default function LeaveScreen({ employeeId }: Props) {
     }
   }
 
+  async function handleCancel(requestId: string) {
+    setCancellingId(requestId);
+    try {
+      await cancelLeaveRequest(requestId);
+      await requestsCache.refresh();
+    } catch (err) {
+      setResultModal({
+        status: "error",
+        title: "Cancellation Failed",
+        message: err instanceof Error ? err.message : "Unable to cancel this leave request.",
+      });
+    } finally {
+      setCancellingId(null);
+    }
+  }
+
   const handleStartDateConfirm = (selectedDate = new Date()) => {
     setStartPickerVisibility(false);
     setStartDate(selectedDate);
@@ -251,12 +313,12 @@ export default function LeaveScreen({ employeeId }: Props) {
   }, [isSingleDayLeave, startDate, startDateSelected]);
 
   useEffect(() => {
-    if (!isSingleDayLeave) return;
+    if (!lockedToToday) return;
     setStartDate(todayStart);
     setEndDate(todayStart);
     setStartDateSelected(true);
     setEndDateSelected(true);
-  }, [isSingleDayLeave, todayStart]);
+  }, [lockedToToday, todayStart]);
 
   // Clamp a previously-picked end date if switching leave type (or the
   // remaining balance) shrinks the allowed range below it.
@@ -419,6 +481,12 @@ export default function LeaveScreen({ employeeId }: Props) {
         >
           <Text style={[styles.tabButtonText, activeTab === "request" && styles.tabButtonTextActive]}>Request</Text>
         </Pressable>
+        <Pressable
+          style={[styles.tabButton, activeTab === "undertime" && styles.tabButtonActive]}
+          onPress={() => setActiveTab("undertime")}
+        >
+          <Text style={[styles.tabButtonText, activeTab === "undertime" && styles.tabButtonTextActive]}>Undertime</Text>
+        </Pressable>
       </View>
 
       {activeTab === "balance" ? (
@@ -431,6 +499,69 @@ export default function LeaveScreen({ employeeId }: Props) {
             onRequestLeave={handleRequestFromBalance}
           />
         </View>
+      ) : activeTab === "undertime" ? (
+        <ScrollView
+          contentContainerStyle={[styles.tabContentPad, { flexGrow: 1 }]}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.card}>
+            <View style={styles.formHeader}>
+              <Ionicons color="#DC2777" name="document-text-outline" size={32} />
+              <Text style={styles.cardTitle}>File Undertime</Text>
+            </View>
+
+            {/* Mirrors whatever the backend's eligibility check returns — the
+                8th/23rd filing days and the 3-per-month cap are not hardcoded
+                here, only reflected from the API. */}
+            {undertimeEligibility && (
+              <Text style={styles.pendingNoticeText}>
+                {undertimeEligibility.filedThisMonth}/{undertimeEligibility.maxFilingsPerMonth} filed this month.{" "}
+                {undertimeEligibility.alreadyFiledToday
+                  ? "You've already filed undertime today."
+                  : !undertimeEligibility.isFilingDay
+                    ? `Undertime can only be filed on the ${undertimeEligibility.filingDaysOfMonth.join(" or ")} of the month.`
+                    : undertimeEligibility.remaining <= 0
+                      ? "You've reached this month's filing limit."
+                      : "You're eligible to file undertime today."}
+              </Text>
+            )}
+
+            <Text style={styles.label}>Reason (optional)</Text>
+            <View style={styles.textAreaContainer}>
+              <TextInput
+                placeholder="Optional note for this filing"
+                multiline
+                value={undertimeReason}
+                onChangeText={setUndertimeReason}
+                style={styles.textAreaInput}
+              />
+            </View>
+
+            <Pressable
+              style={[styles.button, (isFilingUndertime || !undertimeEligibility?.eligible) && styles.buttonDisabled]}
+              onPress={handleFileUndertime}
+              disabled={isFilingUndertime || !undertimeEligibility?.eligible}
+            >
+              {isFilingUndertime ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={styles.buttonText}>File Undertime for Today</Text>
+              )}
+            </Pressable>
+
+            <Text style={[styles.cardTitle, { fontSize: 15, marginTop: 20, marginBottom: 8 }]}>This Month's Filings</Text>
+            {undertimeFilings.length === 0 ? (
+              <Text style={styles.modalEmptyText}>No undertime filings yet.</Text>
+            ) : (
+              undertimeFilings.map((f) => (
+                <View key={f.id} style={styles.requestCard}>
+                  <Text style={styles.requestTitle}>{new Date(f.filingDate).toLocaleDateString()}</Text>
+                  {f.reason && <Text>{f.reason}</Text>}
+                </View>
+              ))
+            )}
+          </View>
+        </ScrollView>
       ) : pendingRequests.length > 0 ? (
         <ScrollView
           contentContainerStyle={[styles.tabContentPad, { flexGrow: 1 }]}
@@ -463,6 +594,17 @@ export default function LeaveScreen({ employeeId }: Props) {
                   <Text style={[styles.pendingText, { color: tone.color, backgroundColor: tone.bg }]}>
                     {statusLabel(request.status)}
                   </Text>
+                  {(request.status === "PENDING" || request.status === "SUPERVISOR_APPROVED") && (
+                    <Pressable
+                      style={styles.cancelRequestButton}
+                      onPress={() => handleCancel(request.id)}
+                      disabled={cancellingId === request.id}
+                    >
+                      <Text style={styles.cancelRequestButtonText}>
+                        {cancellingId === request.id ? "Cancelling…" : "Cancel"}
+                      </Text>
+                    </Pressable>
+                  )}
                 </View>
               );
             })}
@@ -606,8 +748,7 @@ export default function LeaveScreen({ employeeId }: Props) {
             <DateTimePickerModal
               isVisible={isStartPickerVisible}
               mode="date"
-              minimumDate={isSingleDayLeave ? todayStart : undefined}
-              maximumDate={isSingleDayLeave ? todayStart : undefined}
+              maximumDate={lockedToToday ? todayStart : undefined}
               onConfirm={handleStartDateConfirm}
               onCancel={() => setStartPickerVisibility(false)}
             />
@@ -700,6 +841,17 @@ export default function LeaveScreen({ employeeId }: Props) {
                       <Text style={[styles.pendingText, { color: tone.color, backgroundColor: tone.bg }]}>
                         {statusLabel(request.status)}
                       </Text>
+                      {(request.status === "PENDING" || request.status === "SUPERVISOR_APPROVED") && (
+                        <Pressable
+                          style={styles.cancelRequestButton}
+                          onPress={() => handleCancel(request.id)}
+                          disabled={cancellingId === request.id}
+                        >
+                          <Text style={styles.cancelRequestButtonText}>
+                            {cancellingId === request.id ? "Cancelling…" : "Cancel"}
+                          </Text>
+                        </Pressable>
+                      )}
                     </View>
                   );
                 })
@@ -977,6 +1129,8 @@ const styles = StyleSheet.create({
   requestAttachmentRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
   requestAttachmentText: { fontSize: 12, color: "#64748B" },
   pendingText: { fontWeight: "700", marginTop: 8, alignSelf: "flex-start", fontSize: 11, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, overflow: "hidden" },
+  cancelRequestButton: { alignSelf: "flex-start", marginTop: 10, borderWidth: 1.5, borderColor: "#FCA5A5", backgroundColor: "#FEF2F2", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5 },
+  cancelRequestButtonText: { color: "#DC2626", fontWeight: "700", fontSize: 11 },
   closeButton: { backgroundColor: "#062B59", borderRadius: 12, padding: 12, marginTop: 12 },
   closeText: { color: "#FFFFFF", textAlign: "center", fontWeight: "700" },
 });

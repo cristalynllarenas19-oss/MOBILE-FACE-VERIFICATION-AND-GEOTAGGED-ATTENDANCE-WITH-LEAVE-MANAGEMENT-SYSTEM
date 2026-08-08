@@ -21,6 +21,8 @@ export const CACHE_KEYS = {
   attendanceHistory: (employeeId: string) => `attendance-history:${employeeId}`,
   leaveBalances: (employeeId: string) => `leave-balances:${employeeId}`,
   leaveRequests: (employeeId: string) => `leave-requests:${employeeId}`,
+  undertimeEligibility: (employeeId: string) => `undertime-eligibility:${employeeId}`,
+  undertimeFilings: (employeeId: string) => `undertime-filings:${employeeId}`,
   workArea: (employeeId: string, mode: "field" | "fixed") => `work-area:${employeeId}:${mode}`,
 } as const;
 

@@ -104,6 +104,7 @@ export type LeaveType = {
   isActive: boolean;
   requiresAdminGrant: boolean;
   isSingleDayOnly: boolean;
+  advanceFilingAllowed: boolean;
   kind: "GENERAL" | "MATERNITY" | "PATERNITY";
 };
 
@@ -220,6 +221,38 @@ export function resubmitLeaveRequest(id: string, input: ResubmitLeaveRequestInpu
   return apiRequest<LeaveRequest>(`/leave-requests/${id}/resubmit`, {
     method: "PATCH",
     body: JSON.stringify(input),
+  });
+}
+
+export type UndertimeEligibility = {
+  isFilingDay: boolean;
+  filingDaysOfMonth: number[];
+  maxFilingsPerMonth: number;
+  filedThisMonth: number;
+  remaining: number;
+  alreadyFiledToday: boolean;
+  eligible: boolean;
+};
+
+export type UndertimeFiling = {
+  id: string;
+  filingDate: string;
+  reason: string | null;
+  createdAt: string;
+};
+
+export function getUndertimeEligibility(employeeId: string) {
+  return apiRequest<UndertimeEligibility>(`/undertime-filings/eligibility/${employeeId}`);
+}
+
+export function getUndertimeFilings(employeeId: string) {
+  return apiRequest<UndertimeFiling[]>(`/undertime-filings?employeeId=${employeeId}`);
+}
+
+export function fileUndertime(employeeId: string, reason?: string) {
+  return apiRequest<UndertimeFiling>("/undertime-filings", {
+    method: "POST",
+    body: JSON.stringify({ employeeId, reason }),
   });
 }
 

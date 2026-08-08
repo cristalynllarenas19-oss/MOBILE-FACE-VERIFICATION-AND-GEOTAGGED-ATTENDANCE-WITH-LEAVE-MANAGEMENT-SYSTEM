@@ -38,6 +38,7 @@ export class LeaveTypesService {
       isUnlimitedDays?: boolean;
       requiresAdminGrant?: boolean;
       isSingleDayOnly?: boolean;
+      advanceFilingAllowed?: boolean;
       kind?: LeaveTypeKind;
     },
     actorUserId?: string,
@@ -66,6 +67,7 @@ export class LeaveTypesService {
         isUnlimitedDays: dto.isUnlimitedDays ?? false,
         requiresAdminGrant: dto.requiresAdminGrant ?? false,
         isSingleDayOnly: dto.isSingleDayOnly ?? false,
+        advanceFilingAllowed: dto.advanceFilingAllowed ?? true,
         kind: dto.kind ?? "GENERAL",
         createdBy: actorUserId,
       },
@@ -91,6 +93,7 @@ export class LeaveTypesService {
           isUnlimitedDays: created.isUnlimitedDays,
           requiresAdminGrant: created.requiresAdminGrant,
           isSingleDayOnly: created.isSingleDayOnly,
+          advanceFilingAllowed: created.advanceFilingAllowed,
           kind: created.kind,
         },
       },
@@ -115,6 +118,7 @@ export class LeaveTypesService {
       isUnlimitedDays?: boolean;
       requiresAdminGrant?: boolean;
       isSingleDayOnly?: boolean;
+      advanceFilingAllowed?: boolean;
       kind?: LeaveTypeKind;
     },
     actorUserId?: string,
@@ -146,6 +150,7 @@ export class LeaveTypesService {
         isUnlimitedDays: dto.isUnlimitedDays,
         requiresAdminGrant: dto.requiresAdminGrant,
         isSingleDayOnly: dto.isSingleDayOnly,
+        advanceFilingAllowed: dto.advanceFilingAllowed,
         kind: dto.kind,
         updatedBy: actorUserId,
       },
@@ -175,6 +180,7 @@ export class LeaveTypesService {
           isUnlimitedDays: existing.isUnlimitedDays,
           requiresAdminGrant: existing.requiresAdminGrant,
           isSingleDayOnly: existing.isSingleDayOnly,
+          advanceFilingAllowed: existing.advanceFilingAllowed,
           kind: existing.kind,
         },
         newValues: {
@@ -191,6 +197,7 @@ export class LeaveTypesService {
           isUnlimitedDays: updated.isUnlimitedDays,
           requiresAdminGrant: updated.requiresAdminGrant,
           isSingleDayOnly: updated.isSingleDayOnly,
+          advanceFilingAllowed: updated.advanceFilingAllowed,
           kind: updated.kind,
         },
       },

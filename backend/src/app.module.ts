@@ -22,6 +22,7 @@ import { UsersModule } from "./modules/users/users.module";
 import { DashboardModule } from "./modules/dashboard/dashboard.module";
 import { ReportsModule } from "./modules/reports/reports.module";
 import { SchedulesModule } from "./modules/schedules/schedules.module";
+import { UndertimeModule } from "./modules/undertime/undertime.module";
 import { HealthController } from "./health.controller";
 
 @Module({
@@ -44,6 +45,7 @@ import { HealthController } from "./health.controller";
     LeaveModule,
     LeaveTypesModule,
     LeaveBalancesModule,
+    UndertimeModule,
     NotificationsModule,
     SchedulesModule,
     ReportsModule,
