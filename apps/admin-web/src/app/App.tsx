@@ -12,11 +12,11 @@ import { UtilitiesPage } from "../features/utilities/UtilitiesPage";
 import { FaceRegistrationPage, FaceRegistrationEmployee } from "../features/face-registration/FaceRegistrationPage";
 import { GeotaggingPage } from "../features/geotagging/GeotaggingPage";
 // Employee self-service pages (mirrors employee-mobile)
-import { AttendancePage as EmployeeAttendancePage } from "../features/employee/AttendancePage";
-import { LeavePage as EmployeeLeavePage } from "../features/employee/LeavePage";
-import { DtrPage } from "../features/employee/DtrPage";
-import { WorkAreaPage } from "../features/employee/WorkAreaPage";
-import { SettingsPage } from "../features/employee/SettingsPage";
+import { AttendancePage as EmployeeAttendancePage } from "../features/employee-portal/AttendancePage";
+import { LeavePage as EmployeeLeavePage } from "../features/employee-portal/LeavePage";
+import { DtrPage } from "../features/employee-portal/DtrPage";
+import { WorkAreaPage } from "../features/employee-portal/WorkAreaPage";
+import { SettingsPage } from "../features/employee-portal/SettingsPage";
 import { AppLayout, getVisibleNavItems, isNavItemVisible, navItems } from "../components/layout/AppLayout";
 import { PermissionCode } from "../types/rbac";
 import { AuthUser, getStoredUser, logout, setOnSessionExpired } from "../lib/api";
