@@ -90,6 +90,7 @@ function employeeLabel(employee: Employee) {
 // barely register on signal 1) once this runs against real captures.
 const EYEGLASS_EDGE_THRESHOLD = 12; // % of bridge-band pixels counted as a strong edge
 const SUNGLASSES_DARKNESS_THRESHOLD = 35; // forehead-vs-eye average brightness delta (0-255 scale)
+const ENROLLMENTS_PAGE_SIZE = 5;
 
 function pointsBounds(points: faceapi.Point[]) {
   const xs = points.map((p) => p.x);
@@ -184,8 +185,6 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
   const faceTrackingTimerRef = useRef<number | null>(null);
   const [modelsReady, setModelsReady] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [employeeSearch, setEmployeeSearch] = useState("");
   // A just-created employee handed over from Employee Management arrives
   // pre-selected so the admin can go straight to the camera capture. Until
   // their face is registered the page stays locked to them — no search UI.
@@ -204,9 +203,9 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
   const [showCapturePreview, setShowCapturePreview] = useState(false);
   const [lastRegisteredEmployee, setLastRegisteredEmployee] = useState<Employee | null>(null);
   const [lastActionWasEdit, setLastActionWasEdit] = useState(false);
-  const [departmentFilter, setDepartmentFilter] = useState<string>("ALL");
   const [listDepartmentFilter, setListDepartmentFilter] = useState<string>("ALL");
   const [listSearch, setListSearch] = useState("");
+  const [enrollmentsPage, setEnrollmentsPage] = useState(1);
   const [viewProfile, setViewProfile] = useState<FaceProfile | null>(null);
   const [editingEnrollmentId, setEditingEnrollmentId] = useState<string | null>(null);
   const captureCardRef = useRef<HTMLDivElement>(null);
@@ -215,14 +214,12 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
 
   useEffect(() => {
     Promise.all([
-      apiRequest<Employee[]>("/employees"),
       apiRequest<FaceProfile[]>("/face-profiles"),
       faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
       faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL),
       faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
     ])
-      .then(([employeeData, faceProfiles]) => {
-        setEmployees(employeeData);
+      .then(([faceProfiles]) => {
         setEnrollments(faceProfiles);
         setModelsReady(true);
         setMessage(
@@ -481,7 +478,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
 
   function saveEnrollment() {
     if (!selectedEmployee) {
-      setMessage("Search and select an employee first.");
+      setMessage("Select an employee first.");
       return;
     }
     if (!preview || descriptors.length < CAMERA_SAMPLE_TARGET) {
@@ -519,7 +516,6 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
       if (!enrollmentIdBeingEdited && handoffPending) setHandoffCompleted(true);
       setSelectedEmployee(enrollmentIdBeingEdited && handoffPending ? initialEmployee! : null);
       setEditingEnrollmentId(null);
-      setEmployeeSearch("");
       setDescriptors([]);
       setPreview("");
       setCaptureStepIndex(0);
@@ -560,7 +556,6 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
     setViewProfile(null);
     setEditingEnrollmentId(profile.id);
     setSelectedEmployee(profile.employee);
-    setEmployeeSearch(`${employeeLabel(profile.employee)} · ${profile.employee.employeeNo}`);
     setMessage(`Editing face photo for ${employeeLabel(profile.employee)}. Starting camera...`);
     captureCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     startCamera();
@@ -568,19 +563,6 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
 
   const { departmentNames: departmentOptions } = useActiveDepartments();
   const { forEmployees: attendanceModeOptions } = useAttendanceModeOptions();
-
-  const visibleEmployees = employees
-    .filter((employee) => {
-      const query = employeeSearch.trim().toLowerCase();
-      if (!query) return true;
-      return (
-        employee.employeeNo.toLowerCase().includes(query) ||
-        employeeLabel(employee).toLowerCase().includes(query) ||
-        employee.department?.name?.toLowerCase().includes(query)
-      );
-    })
-    .filter((employee) => departmentFilter === "ALL" || employee.department?.name === departmentFilter)
-    .slice(0, 8);
 
   const visibleEnrollments = enrollments
     .filter((item) => listDepartmentFilter === "ALL" || item.employee.department?.name === listDepartmentFilter)
@@ -593,6 +575,14 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
       );
     });
 
+  useEffect(() => setEnrollmentsPage(1), [listDepartmentFilter, listSearch]);
+  const enrollmentsPageCount = Math.max(1, Math.ceil(visibleEnrollments.length / ENROLLMENTS_PAGE_SIZE));
+  const enrollmentsPageSafe = Math.min(enrollmentsPage, enrollmentsPageCount);
+  const pagedEnrollments = visibleEnrollments.slice(
+    (enrollmentsPageSafe - 1) * ENROLLMENTS_PAGE_SIZE,
+    enrollmentsPageSafe * ENROLLMENTS_PAGE_SIZE,
+  );
+
   // While the handed-over new employee hasn't been registered yet, the picker
   // is hidden entirely — the panel shows only their details, and Cancel just
   // resets the capture without unlocking the search.
@@ -601,13 +591,6 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
   const selectedEnrollment = selectedEmployee
     ? enrollments.find((item) => item.employeeId === selectedEmployee.id) ?? null
     : null;
-
-  // Picking an employee stamps their label into the search box; while it
-  // still matches, the result list collapses so their details take its place.
-  const selectedSearchLabel = selectedEmployee
-    ? `${employeeLabel(selectedEmployee)} · ${selectedEmployee.employeeNo}`
-    : "";
-  const showEmployeePicks = !selectedEmployee || employeeSearch !== selectedSearchLabel;
 
   function enrollmentStatusTone(status: FaceProfile["enrollmentStatus"]) {
     if (status === "ACTIVE") return "success" as const;
@@ -625,7 +608,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
             <div className="capture-summary">
               <div>
                 <p>{editingEnrollmentId ? "Editing photo for" : "Selected employee"}</p>
-                <strong>{selectedEmployee ? `${employeeLabel(selectedEmployee)} · ${selectedEmployee.employeeNo}` : "None selected"}</strong>
+                <strong>{selectedEmployee ? employeeLabel(selectedEmployee) : "None selected"}</strong>
               </div>
               <div>
                 <p>Status</p>
@@ -725,176 +708,70 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
         <section className="face-card enrollment-form">
           <div className="form-title-row">
             <div>
-              {!isPreselectedNewEmployee && <p className="form-kicker">{editingEnrollmentId ? "Editing" : "Re-registration"}</p>}
-              <h3>{editingEnrollmentId ? "Update Face Photo" : isPreselectedNewEmployee ? "New Employee" : "Select Employee"}</h3>
+              <p className="form-kicker">{editingEnrollmentId ? "Editing" : "Face Registration"}</p>
+              <h3>{editingEnrollmentId ? "Update Face Photo" : selectedEmployee ? "New Employee" : "No Employee Selected"}</h3>
             </div>
-            {!editingEnrollmentId && !isPreselectedNewEmployee && (
-              <DropdownFilter
-                value={departmentFilter}
-                onChange={setDepartmentFilter}
-                options={departmentOptions.map((name) => ({ value: name, label: name }))}
-                allLabel="All Departments"
-                menuLabel="Filter by department"
-                ariaLabel="Department"
-              />
-            )}
           </div>
 
-          {editingEnrollmentId ? (
+          {editingEnrollmentId && (
             <p className="capture-message">Capture a new photo below for this employee, then save to replace their existing photo.</p>
-          ) : isPreselectedNewEmployee && initialEmployee ? (
-            <div className="selected-employee-card new-employee-details">
+          )}
+
+          {selectedEmployee ? (
+            <div className="selected-employee-card new-employee-details reregister-details">
               <div className="new-employee-details-name">
-                <p>New employee</p>
-                <strong>{employeeLabel(initialEmployee)}</strong>
-                <span>{initialEmployee.employeeNo}</span>
+                <p>{editingEnrollmentId ? "Editing photo for" : "New employee"}</p>
+                <strong>{employeeLabel(selectedEmployee)}</strong>
+                <span>{selectedEmployee.employeeNo}</span>
               </div>
               <div>
                 <p>Email</p>
-                <strong>{initialEmployee.user?.email ?? "—"}</strong>
+                <strong>{selectedEmployee.user?.email ?? "—"}</strong>
               </div>
               <div>
                 <p>Department</p>
-                <strong>{initialEmployee.department?.name ?? "—"}</strong>
+                <strong>{selectedEmployee.department?.name ?? "—"}</strong>
               </div>
               <div>
                 <p>Supervisor</p>
                 <strong>
-                  {initialEmployee.supervisor
-                    ? `${initialEmployee.supervisor.firstName} ${initialEmployee.supervisor.lastName}`
+                  {selectedEmployee.supervisor
+                    ? `${selectedEmployee.supervisor.firstName} ${selectedEmployee.supervisor.lastName}`
                     : "None"}
                 </strong>
               </div>
               <div>
                 <p>Hire Date</p>
                 <strong>
-                  {initialEmployee.hireDate ? new Date(initialEmployee.hireDate).toLocaleDateString() : "—"}
+                  {selectedEmployee.hireDate ? new Date(selectedEmployee.hireDate).toLocaleDateString() : "—"}
                 </strong>
               </div>
               <div>
                 <p>Employment Status</p>
                 <strong>
-                  {initialEmployee.employmentStatus ? EMPLOYMENT_STATUS_LABELS[initialEmployee.employmentStatus] : "—"}
+                  {selectedEmployee.employmentStatus ? EMPLOYMENT_STATUS_LABELS[selectedEmployee.employmentStatus] : "—"}
                 </strong>
               </div>
               <div>
                 <p>Attendance Mode</p>
-                <strong>{formatAttendanceMode(initialEmployee.attendanceMode, attendanceModeOptions)}</strong>
+                <strong>{formatAttendanceMode(selectedEmployee.attendanceMode, attendanceModeOptions)}</strong>
               </div>
               <div>
-                <p>Sex</p>
-                <strong>{initialEmployee.sex === "FEMALE" ? "Female" : initialEmployee.sex === "MALE" ? "Male" : "—"}</strong>
+                <p>Face Registration</p>
+                <strong>
+                  {selectedEnrollment
+                    ? selectedEnrollment.enrolledAt
+                      ? `Registered · ${new Date(selectedEnrollment.enrolledAt).toLocaleDateString()}`
+                      : "Registered"
+                    : "Not yet registered"}
+                </strong>
               </div>
             </div>
           ) : (
-            <>
-              <label htmlFor="employee-search">Search an existing employee by name or ID</label>
-              <div className="search-shell">
-                <svg className="search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
-                </svg>
-                <input
-                  id="employee-search"
-                  value={employeeSearch}
-                  onChange={(event) => setEmployeeSearch(event.target.value)}
-                  placeholder="Type an employee name or ID"
-                  maxLength={80}
-                  autoComplete="off"
-                />
-              </div>
-
-              {showEmployeePicks && (
-                <div className="employee-picks">
-                  {visibleEmployees.map((employee) => {
-                    const active = selectedEmployee?.id === employee.id;
-                    return (
-                      <button
-                        key={employee.id}
-                        type="button"
-                        className={`employee-pick ${active ? "active" : ""}`}
-                        onClick={() => {
-                          setSelectedEmployee(employee);
-                          setEmployeeSearch(`${employeeLabel(employee)} · ${employee.employeeNo}`);
-                        }}
-                      >
-                        <strong>{employeeLabel(employee)}</strong>
-                        <span>{employee.employeeNo}</span>
-                        <small>{employee.department?.name ?? "No department"}</small>
-                      </button>
-                    );
-                  })}
-                  {visibleEmployees.length === 0 && (
-                    <p className="no-employee-matches">No employees match this search or filter.</p>
-                  )}
-                </div>
-              )}
-            </>
-          )}
-
-          {selectedEmployee && !isPreselectedNewEmployee && (
-            editingEnrollmentId ? (
-              <div className="selected-employee-card">
-                <div>
-                  <p>Editing photo for</p>
-                  <strong>{employeeLabel(selectedEmployee)}</strong>
-                  <span>{selectedEmployee.employeeNo}</span>
-                </div>
-                <div>
-                  <p>Department</p>
-                  <strong>{selectedEmployee.department?.name ?? "Unknown"}</strong>
-                </div>
-              </div>
-            ) : (
-              <div className="selected-employee-card new-employee-details reregister-details">
-                <div className="new-employee-details-name">
-                  <p>Selected employee</p>
-                  <strong>{employeeLabel(selectedEmployee)}</strong>
-                  <span>{selectedEmployee.employeeNo}</span>
-                </div>
-                <div>
-                  <p>Email</p>
-                  <strong>{selectedEmployee.user?.email ?? "—"}</strong>
-                </div>
-                <div>
-                  <p>Department</p>
-                  <strong>{selectedEmployee.department?.name ?? "—"}</strong>
-                </div>
-                <div>
-                  <p>Supervisor</p>
-                  <strong>
-                    {selectedEmployee.supervisor
-                      ? `${selectedEmployee.supervisor.firstName} ${selectedEmployee.supervisor.lastName}`
-                      : "None"}
-                  </strong>
-                </div>
-                <div>
-                  <p>Hire Date</p>
-                  <strong>
-                    {selectedEmployee.hireDate ? new Date(selectedEmployee.hireDate).toLocaleDateString() : "—"}
-                  </strong>
-                </div>
-                <div>
-                  <p>Employment Status</p>
-                  <strong>
-                    {selectedEmployee.employmentStatus ? EMPLOYMENT_STATUS_LABELS[selectedEmployee.employmentStatus] : "—"}
-                  </strong>
-                </div>
-                <div>
-                  <p>Attendance Mode</p>
-                  <strong>{formatAttendanceMode(selectedEmployee.attendanceMode, attendanceModeOptions)}</strong>
-                </div>
-                <div>
-                  <p>Face Registration</p>
-                  <strong>
-                    {selectedEnrollment
-                      ? selectedEnrollment.enrolledAt
-                        ? `Registered · ${new Date(selectedEnrollment.enrolledAt).toLocaleDateString()}`
-                        : "Registered"
-                      : "Not yet registered"}
-                  </strong>
-                </div>
-              </div>
-            )
+            <p className="capture-message">
+              New employees are sent here automatically from Employee Management. To re-register an existing
+              employee's face, use the "Re-register" action from the list below.
+            </p>
           )}
 
           <div className="form-actions">
@@ -916,7 +793,6 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
                 // A pending handoff stays locked to the new employee; Cancel
                 // only resets the capture instead of reopening the picker.
                 setSelectedEmployee(initialEmployee && !handoffCompleted ? initialEmployee : null);
-                setEmployeeSearch("");
                 resetCapture();
                 stopCamera();
               }}
@@ -970,6 +846,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
               <p className="empty-enrollments">No registered employees match this search or filter.</p>
             ) : (
               <div className="table-card">
+                <div className="enrollment-table-scroll">
                 <table>
                   <thead>
                     <tr>
@@ -981,7 +858,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
                     </tr>
                   </thead>
                   <tbody>
-                    {visibleEnrollments.map((item) => (
+                    {pagedEnrollments.map((item) => (
                       <tr key={item.id}>
                         <td data-label="Name">{employeeLabel(item.employee)}</td>
                         <td data-label="Department">{item.employee.department?.name ?? "Unknown"}</td>
@@ -1000,6 +877,26 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
                     ))}
                   </tbody>
                 </table>
+                </div>
+                <div className="enrollment-pagination">
+                  <button
+                    type="button"
+                    className="outline-button"
+                    disabled={enrollmentsPageSafe <= 1}
+                    onClick={() => setEnrollmentsPage(enrollmentsPageSafe - 1)}
+                  >
+                    Previous
+                  </button>
+                  <span>Page {enrollmentsPageSafe} of {enrollmentsPageCount}</span>
+                  <button
+                    type="button"
+                    className="outline-button"
+                    disabled={enrollmentsPageSafe >= enrollmentsPageCount}
+                    onClick={() => setEnrollmentsPage(enrollmentsPageSafe + 1)}
+                  >
+                    Next
+                  </button>
+                </div>
               </div>
             )}
           </>

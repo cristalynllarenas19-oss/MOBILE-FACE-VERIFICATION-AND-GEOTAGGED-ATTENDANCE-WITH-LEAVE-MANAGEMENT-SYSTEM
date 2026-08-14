@@ -47,6 +47,7 @@ const emptyEditForm = { shiftId: "", startsOn: "", endsOn: "" };
 
 // ── Shared floating-panel dropdown ──
 const SEARCH_THRESHOLD = 6;
+const SCHEDULES_PAGE_SIZE = 10;
 
 function FormDropdown({
   label,
@@ -204,6 +205,7 @@ export function SchedulesPage({
   const [departmentFilter, setDepartmentFilter] = useState("ALL");
   const [shiftFilter, setShiftFilter] = useState("ALL");
   const [statusFilter, setStatusFilter] = useState("ACTIVE");
+  const [page, setPage] = useState(1);
   const [viewSchedule, setViewSchedule] = useState<Schedule | null>(null);
   const [editSchedule, setEditSchedule] = useState<Schedule | null>(null);
   const [editForm, setEditForm] = useState(emptyEditForm);
@@ -232,6 +234,11 @@ export function SchedulesPage({
   };
 
   useEffect(loadData, [departmentFilter, shiftFilter, statusFilter]);
+  useEffect(() => setPage(1), [departmentFilter, shiftFilter, statusFilter]);
+
+  const pageCount = Math.max(1, Math.ceil(schedules.length / SCHEDULES_PAGE_SIZE));
+  const pageSafe = Math.min(page, pageCount);
+  const pagedSchedules = schedules.slice((pageSafe - 1) * SCHEDULES_PAGE_SIZE, pageSafe * SCHEDULES_PAGE_SIZE);
 
   useEffect(() => {
     if (!notification) return;
@@ -449,6 +456,7 @@ export function SchedulesPage({
       </div>
 
       <section className="table-card schedules-table-card">
+        <div className="schedules-table-scroll">
         <table>
           <thead>
             <tr>
@@ -469,7 +477,7 @@ export function SchedulesPage({
                 </td>
               </tr>
             ) : (
-              schedules.map((schedule) => (
+              pagedSchedules.map((schedule) => (
                 <tr key={schedule.id}>
                   <td data-label="Employee">{getName(schedule.employee)}</td>
                   <td data-label="Department">{schedule.employee.department.name}</td>
@@ -494,6 +502,18 @@ export function SchedulesPage({
             )}
           </tbody>
         </table>
+        </div>
+        {pageCount > 1 && (
+          <div className="schedules-pagination">
+            <button type="button" className="outline-button" disabled={pageSafe <= 1} onClick={() => setPage(pageSafe - 1)}>
+              Previous
+            </button>
+            <span>Page {pageSafe} of {pageCount}</span>
+            <button type="button" className="outline-button" disabled={pageSafe >= pageCount} onClick={() => setPage(pageSafe + 1)}>
+              Next
+            </button>
+          </div>
+        )}
       </section>
 
       {/* ── View Schedule Modal ── */}

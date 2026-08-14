@@ -11,7 +11,7 @@ const WORKING_DAYS_PER_YEAR = 313;
 // are listed as applicable to REGULAR employees on the leave type itself —
 // an employee with no sex on file is eligible for neither until HR fills it
 // in. Keyed off `kind`, not `name`, so HR can freely rename these types.
-function isEligibleForLeaveType(kind: LeaveTypeKind, sex: Sex | null | undefined) {
+export function isEligibleForLeaveType(kind: LeaveTypeKind, sex: Sex | null | undefined) {
   if (kind === "MATERNITY") return sex === "FEMALE";
   if (kind === "PATERNITY") return sex === "MALE";
   return true;

@@ -22,7 +22,6 @@ import { useCachedData } from "../../lib/dataCache";
 import {
   type EmploymentStatus,
   formatEmploymentStatus,
-  SELECTABLE_EMPLOYMENT_STATUS_OPTIONS as EMPLOYMENT_STATUS_OPTIONS,
 } from "../../types/employment";
 import "./LeavePage.css";
 
@@ -135,6 +134,8 @@ type ClassificationBalanceRow = {
 
 type Notification = { type: "success" | "error"; message: string } | null;
 
+const LEAVE_TABLE_PAGE_SIZE = 10;
+
 type UndertimeFiling = {
   id: string;
   filingDate: string;
@@ -239,8 +240,8 @@ function LeaveStatusDonut({
   isActive?: boolean;
   onSelect?: (employmentStatus: EmploymentStatus) => void;
 }) {
-  const size = 132;
-  const stroke = 16;
+  const size = 104;
+  const stroke = 13;
   const radius = (size - stroke) / 2;
   const circumference = 2 * Math.PI * radius;
   const usedRatio = earnedDays > 0 ? Math.min(1, usedDays / earnedDays) : 0;
@@ -368,6 +369,27 @@ function EmployeeSummaryDonut({ earnedDays, usedDays, remainingDays }: {
         <span>days left</span>
         <em>{usedPercent}% used</em>
       </div>
+    </div>
+  );
+}
+
+// ─── Table pagination footer (shared by every table in this module) ────────
+
+function LeaveTablePagination({ page, pageCount, onChange }: {
+  page: number;
+  pageCount: number;
+  onChange: (page: number) => void;
+}) {
+  if (pageCount <= 1) return null;
+  return (
+    <div className="leave-pagination">
+      <button type="button" className="outline-button" disabled={page <= 1} onClick={() => onChange(page - 1)}>
+        Previous
+      </button>
+      <span>Page {page} of {pageCount}</span>
+      <button type="button" className="outline-button" disabled={page >= pageCount} onClick={() => onChange(page + 1)}>
+        Next
+      </button>
     </div>
   );
 }
@@ -753,6 +775,11 @@ export function LeavePage({
     dir: "asc",
   });
 
+  const [requestsPage, setRequestsPage] = useState(1);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [undertimePage, setUndertimePage] = useState(1);
+  const [employeeListPage, setEmployeeListPage] = useState(1);
+
   const requestsCache = useCachedData<LeaveRequest[]>("admin-leave-requests", () =>
     apiRequest<LeaveRequest[]>("/leave-requests"),
   );
@@ -886,6 +913,14 @@ export function LeavePage({
     [requests, statusFilter, typeFilter, searchTerm]
   );
 
+  useEffect(() => setRequestsPage(1), [statusFilter, typeFilter, searchTerm]);
+  const requestsPageCount = Math.max(1, Math.ceil(visibleRequests.length / LEAVE_TABLE_PAGE_SIZE));
+  const requestsPageSafe = Math.min(requestsPage, requestsPageCount);
+  const pagedRequests = visibleRequests.slice(
+    (requestsPageSafe - 1) * LEAVE_TABLE_PAGE_SIZE,
+    requestsPageSafe * LEAVE_TABLE_PAGE_SIZE,
+  );
+
   // Built from the full employee directory, not just whoever currently has a
   // leave request on file — otherwise a department with zero requests would
   // never appear as a filter option at all. For a scoped Supervisor,
@@ -921,6 +956,24 @@ export function LeavePage({
         })
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
     [requests, typeFilter, historyDepartmentFilter, dateFiledFilter, searchTerm]
+  );
+
+  useEffect(
+    () => setHistoryPage(1),
+    [typeFilter, historyDepartmentFilter, dateFiledFilter, searchTerm],
+  );
+  const historyPageCount = Math.max(1, Math.ceil(visibleHistoryRequests.length / LEAVE_TABLE_PAGE_SIZE));
+  const historyPageSafe = Math.min(historyPage, historyPageCount);
+  const pagedHistoryRequests = visibleHistoryRequests.slice(
+    (historyPageSafe - 1) * LEAVE_TABLE_PAGE_SIZE,
+    historyPageSafe * LEAVE_TABLE_PAGE_SIZE,
+  );
+
+  const undertimePageCount = Math.max(1, Math.ceil(undertimeFilings.length / LEAVE_TABLE_PAGE_SIZE));
+  const undertimePageSafe = Math.min(undertimePage, undertimePageCount);
+  const pagedUndertimeFilings = undertimeFilings.slice(
+    (undertimePageSafe - 1) * LEAVE_TABLE_PAGE_SIZE,
+    undertimePageSafe * LEAVE_TABLE_PAGE_SIZE,
   );
 
   const selectedLeaveType = reviewRequest
@@ -978,12 +1031,14 @@ export function LeavePage({
   const openClassificationList = (employmentStatus: EmploymentStatus) => {
     setMonitorClassification(employmentStatus);
     setShowEmployeeList(true);
+    setEmployeeListPage(1);
   };
 
   const closeClassificationList = () => {
     setShowEmployeeList(false);
     setMonitorClassification("ALL");
     setListSearch("");
+    setEmployeeListPage(1);
   };
 
   function toggleListSort(key: "name" | "remaining") {
@@ -1018,6 +1073,14 @@ export function LeavePage({
 
     return rows;
   }, [classificationBalances, directory, listSearch, listSort]);
+
+  useEffect(() => setEmployeeListPage(1), [listSearch, listSort]);
+  const employeeListPageCount = Math.max(1, Math.ceil(classificationListRows.length / LEAVE_TABLE_PAGE_SIZE));
+  const employeeListPageSafe = Math.min(employeeListPage, employeeListPageCount);
+  const pagedClassificationListRows = classificationListRows.slice(
+    (employeeListPageSafe - 1) * LEAVE_TABLE_PAGE_SIZE,
+    employeeListPageSafe * LEAVE_TABLE_PAGE_SIZE,
+  );
 
   const reviewLeave = async (action: "approve" | "reject") => {
     if (!reviewRequest) return;
@@ -1122,18 +1185,6 @@ export function LeavePage({
             <p>Earned vs. used leave credits grouped by employment classification.</p>
           </div>
           <div className="leave-summary-controls">
-            <DropdownFilter
-              className="leave-select"
-              value={monitorClassification}
-              onChange={(value) => {
-                setMonitorClassification(value);
-                setShowEmployeeList(true);
-              }}
-              options={EMPLOYMENT_STATUS_OPTIONS}
-              allLabel="All Classifications"
-              menuLabel="Filter by employment classification"
-              ariaLabel="Filter employee list by classification"
-            />
             <YearCalendarPicker value={summaryYear} onChange={setSummaryYear} />
           </div>
         </div>
@@ -1143,7 +1194,7 @@ export function LeavePage({
             <div className="employee-detail-context-row">
               <button type="button" className="employee-detail-back" onClick={closeClassificationList}>
                 <ArrowLeft size={16} />
-                Back to Leave Balances Overview
+                Back 
               </button>
               <p className="employee-detail-context">
                 {monitorClassification === "ALL" ? "All Classifications" : formatEmploymentStatus(monitorClassification as EmploymentStatus)}
@@ -1158,7 +1209,7 @@ export function LeavePage({
                   type="text"
                   value={listSearch}
                   onChange={(e) => setListSearch(e.target.value)}
-                  placeholder="Search within this classification…"
+                  placeholder="Search…"
                   aria-label="Search employees in the selected classification"
                 />
               </div>
@@ -1170,6 +1221,7 @@ export function LeavePage({
               <p className="leave-summary-empty">No employees match this filter.</p>
             ) : (
               <div className="leave-table-card">
+                <div className="leave-table-scroll">
                 <table>
                   <thead>
                     <tr>
@@ -1189,7 +1241,7 @@ export function LeavePage({
                     </tr>
                   </thead>
                   <tbody>
-                    {classificationListRows.map((row) => (
+                    {pagedClassificationListRows.map((row) => (
                       <tr key={row.employeeId}>
                         <td data-label="Name">{row.employee.firstName} {row.employee.lastName}</td>
                         <td data-label="Department">{row.employee.department?.name ?? "Unassigned"}</td>
@@ -1209,6 +1261,8 @@ export function LeavePage({
                     ))}
                   </tbody>
                 </table>
+                </div>
+                <LeaveTablePagination page={employeeListPageSafe} pageCount={employeeListPageCount} onChange={setEmployeeListPage} />
               </div>
             )}
           </div>
@@ -1287,6 +1341,7 @@ export function LeavePage({
 
           {/* ── Table ── */}
           <section className="table-card leave-table-card">
+            <div className="leave-table-scroll">
             <table>
               <thead>
                 <tr>
@@ -1310,7 +1365,7 @@ export function LeavePage({
                     </td>
                   </tr>
                 ) : (
-                  visibleRequests.map((r) => (
+                  pagedRequests.map((r) => (
                     <tr key={r.id}>
                       <td data-label="Employee">{getEmployeeName(r)}</td>
                       <td data-label="Department">{r.employee.department?.name ?? "Unassigned"}</td>
@@ -1336,6 +1391,8 @@ export function LeavePage({
                 )}
               </tbody>
             </table>
+            </div>
+            <LeaveTablePagination page={requestsPageSafe} pageCount={requestsPageCount} onChange={setRequestsPage} />
           </section>
         </>
       )}
@@ -1383,6 +1440,7 @@ export function LeavePage({
 
           {/* ── History table ── */}
           <section className="table-card leave-table-card">
+            <div className="leave-table-scroll">
             <table>
               <thead>
                 <tr>
@@ -1406,7 +1464,7 @@ export function LeavePage({
                     </td>
                   </tr>
                 ) : (
-                  visibleHistoryRequests.map((r) => (
+                  pagedHistoryRequests.map((r) => (
                     <tr key={r.id}>
                       <td data-label="Employee">{getEmployeeName(r)}</td>
                       <td data-label="Department">{r.employee.department?.name ?? "Unassigned"}</td>
@@ -1430,12 +1488,15 @@ export function LeavePage({
                 )}
               </tbody>
             </table>
+            </div>
+            <LeaveTablePagination page={historyPageSafe} pageCount={historyPageCount} onChange={setHistoryPage} />
           </section>
         </>
       )}
 
       {topTab === "undertime" && (
         <section className="table-card leave-table-card">
+          <div className="leave-table-scroll">
           <table>
             <thead>
               <tr>
@@ -1451,7 +1512,7 @@ export function LeavePage({
                   <td colSpan={4} className="leave-empty-state">No undertime filings found.</td>
                 </tr>
               ) : (
-                undertimeFilings.map((f) => (
+                pagedUndertimeFilings.map((f) => (
                   <tr key={f.id}>
                     <td data-label="Employee">{f.employee.firstName} {f.employee.lastName}</td>
                     <td data-label="Department">{f.employee.department?.name ?? "Unassigned"}</td>
@@ -1462,6 +1523,8 @@ export function LeavePage({
               )}
             </tbody>
           </table>
+          </div>
+          <LeaveTablePagination page={undertimePageSafe} pageCount={undertimePageCount} onChange={setUndertimePage} />
         </section>
       )}
 

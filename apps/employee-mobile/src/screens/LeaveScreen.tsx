@@ -23,6 +23,7 @@ import {
   LeaveRequest,
   UndertimeEligibility,
   UndertimeFiling,
+  EmployeeProfile,
   getLeaveTypes,
   getLeaveBalances,
   getLeaveRequests,
@@ -31,6 +32,7 @@ import {
   getUndertimeEligibility,
   getUndertimeFilings,
   fileUndertime,
+  getMyProfile,
 } from "../api";
 import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
 
@@ -61,6 +63,15 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+// Mirrors the backend's isEligibleForLeaveType (leave-balances.service.ts) —
+// Maternity/Paternity-kind types are sex-restricted even though both are
+// listed as applicable to REGULAR employees on the leave type itself.
+function isEligibleForLeaveType(kind: LeaveType["kind"], sex: EmployeeProfile["sex"]) {
+  if (kind === "MATERNITY") return sex === "FEMALE";
+  if (kind === "PATERNITY") return sex === "MALE";
+  return true;
+}
+
 function isOneDayLeaveType(name?: string, isSingleDayOnly?: boolean) {
   if (isSingleDayOnly) return true;
   const normalized = (name ?? "").toLowerCase().replace(/\s+/g, " ").trim();
@@ -82,6 +93,10 @@ function statusLabel(status: string) {
 
 export default function LeaveScreen({ employeeId }: Props) {
   const leaveTypesCache = useCachedData<LeaveType[]>("leave-types", getLeaveTypes);
+  // Same cache key as MainScreen/ViewProfileScreen, so this reuses whatever
+  // profile is already in cache instead of firing a redundant fetch.
+  const profileCache = useCachedData<EmployeeProfile>(CACHE_KEYS.myProfile, getMyProfile);
+  const employeeSex = profileCache.data?.sex;
   const balancesCache = useCachedData<LeaveBalance[]>(
     employeeId ? CACHE_KEYS.leaveBalances(employeeId) : null,
     () => getLeaveBalances(employeeId!),
@@ -164,6 +179,7 @@ export default function LeaveScreen({ employeeId }: Props) {
   const todayStart = useMemo(() => new Date(today.getFullYear(), today.getMonth(), today.getDate()), [today]);
   const filteredLeaveTypes = leaveTypes
     .filter((item) => item.isActive)
+    .filter((item) => isEligibleForLeaveType(item.kind, employeeSex))
     .filter((item) => item.name.toLowerCase().includes(searchLeave.toLowerCase()));
 
   const remainingByLeaveType = useMemo(() => {

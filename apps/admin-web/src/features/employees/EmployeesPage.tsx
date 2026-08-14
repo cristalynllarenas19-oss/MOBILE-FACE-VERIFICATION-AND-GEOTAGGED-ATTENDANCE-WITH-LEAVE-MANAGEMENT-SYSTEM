@@ -17,6 +17,8 @@ import "./EmployeesPage.css";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3001/api/v1";
 
+const EMPLOYEES_PAGE_SIZE = 10;
+
 type Employee = {
   id: string;
   employeeNo: string;
@@ -841,10 +843,6 @@ function ViewEmployeeModal({
     <EmployeeModal title="Employee Details" description={getEmployeeName(employee)} onClose={onClose}>
       <div className="employee-detail-grid">
         <div>
-          <span>Employee No.</span>
-          <strong>{employee.employeeNo}</strong>
-        </div>
-        <div>
           <span>Email</span>
           <strong>{employee.user?.email ?? "Unassigned"}</strong>
         </div>
@@ -1091,6 +1089,7 @@ export function EmployeesPage({
   const [departmentFilter, setDepartmentFilter] = useState("ALL");
   const [showArchivedOnly, setShowArchivedOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [page, setPage] = useState(1);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [viewEmployee, setViewEmployee] = useState<Employee | null>(null);
   const [editEmployee, setEditEmployee] = useState<Employee | null>(null);
@@ -1129,6 +1128,14 @@ export function EmployeesPage({
     if (!matchesSearch(employee, searchQuery)) return false;
     return true;
   });
+
+  useEffect(() => setPage(1), [departmentFilter, showArchivedOnly, searchQuery]);
+  const pageCount = Math.max(1, Math.ceil(visibleEmployees.length / EMPLOYEES_PAGE_SIZE));
+  const pageSafe = Math.min(page, pageCount);
+  const pagedEmployees = visibleEmployees.slice(
+    (pageSafe - 1) * EMPLOYEES_PAGE_SIZE,
+    pageSafe * EMPLOYEES_PAGE_SIZE,
+  );
 
   const handleEmployeeCreated = (employee: Employee) => {
     // Newest employee goes to the top (LIFO), matching the backend's createdAt-desc order.
@@ -1244,6 +1251,7 @@ export function EmployeesPage({
       </div>
 
       <section className="table-card employees-table-card">
+        <div className="employees-table-scroll">
         <table>
           <thead>
             <tr>
@@ -1264,7 +1272,7 @@ export function EmployeesPage({
                 </td>
               </tr>
             ) : (
-              visibleEmployees.map((employee) => (
+              pagedEmployees.map((employee) => (
                 <tr key={employee.id}>
                   <td data-label="Name">{getEmployeeName(employee)}</td>
                   <td data-label="Email">{employee.user?.email ?? "Unassigned"}</td>
@@ -1296,6 +1304,18 @@ export function EmployeesPage({
             )}
           </tbody>
         </table>
+        </div>
+        {pageCount > 1 && (
+          <div className="employees-pagination">
+            <button type="button" className="outline-button" disabled={pageSafe <= 1} onClick={() => setPage(pageSafe - 1)}>
+              Previous
+            </button>
+            <span>Page {pageSafe} of {pageCount}</span>
+            <button type="button" className="outline-button" disabled={pageSafe >= pageCount} onClick={() => setPage(pageSafe + 1)}>
+              Next
+            </button>
+          </div>
+        )}
       </section>
 
       {viewEmployee && (

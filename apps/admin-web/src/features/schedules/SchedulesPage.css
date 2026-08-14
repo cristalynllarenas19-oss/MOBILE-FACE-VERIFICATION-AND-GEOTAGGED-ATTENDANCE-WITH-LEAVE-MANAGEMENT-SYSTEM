@@ -380,35 +380,57 @@
 
 
 .table-card.schedules-table-card {
+  display: flex;
+  flex-direction: column;
   border: 1px solid #e3e9f0;
   border-radius: 12px;
-  overflow-x: auto;
-  overflow-y: scroll;
-  max-height: 540px;
   background: #ffffff;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.schedules-table-scroll {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 540px;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
   scrollbar-color: #b8c7d8 #f4f7fb;
 }
 
-.table-card.schedules-table-card::-webkit-scrollbar {
+.schedules-table-scroll::-webkit-scrollbar {
   width: 7px;
   height: 7px;
 }
 
-.table-card.schedules-table-card::-webkit-scrollbar-track {
+.schedules-table-scroll::-webkit-scrollbar-track {
   background: #f4f7fb;
   border-radius: 999px;
 }
 
-.table-card.schedules-table-card::-webkit-scrollbar-thumb {
+.schedules-table-scroll::-webkit-scrollbar-thumb {
   background: #b8c7d8;
   border-radius: 999px;
 }
 
-.table-card.schedules-table-card::-webkit-scrollbar-thumb:hover {
+.schedules-table-scroll::-webkit-scrollbar-thumb:hover {
   background: #8fa9c4;
+}
+
+.schedules-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 10px 0;
+  flex-shrink: 0;
+  border-top: 1px solid #e3e9f0;
+  background: #ffffff;
+}
+
+.schedules-pagination span {
+  color: #7b8794;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .schedules-table-card table {
@@ -697,7 +719,7 @@
 }
 
 @media (max-width: 480px) {
-  .table-card.schedules-table-card {
+  .schedules-table-scroll {
     max-height: 400px;
   }
 }

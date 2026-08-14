@@ -10,6 +10,8 @@ import "./AttendancePage.css";
 
 type AttendanceStatus = "PRESENT" | "LATE" | "ABSENT" | "ON_LEAVE" | "OFFICIAL_BUSINESS" | "PENDING_REVIEW" | "FLAGGED";
 
+const ATTENDANCE_PAGE_SIZE = 10;
+
 type PhotoLogType = "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN";
 
 type AttendanceLog = {
@@ -401,6 +403,7 @@ export function AttendancePage({
   const [recordTypeFilter, setRecordTypeFilter] = useState("ALL");
   const [dateFrom, setDateFrom] = useState(initialFilter?.date ?? "");
   const [dateTo, setDateTo] = useState(initialFilter?.date ?? "");
+  const [page, setPage] = useState(1);
   const [viewRecord, setViewRecord] = useState<AttendanceRecord | null>(null);
   const [notification, setNotification] = useState<Notification>(null);
   const now = useNow();
@@ -444,6 +447,14 @@ export function AttendancePage({
   const loadRecords = () => {
     recordsCache.refresh().catch(() => undefined);
   };
+
+  useEffect(
+    () => setPage(1),
+    [departmentFilter, statusFilter, recordTypeFilter, dateFrom, dateTo],
+  );
+  const pageCount = Math.max(1, Math.ceil(records.length / ATTENDANCE_PAGE_SIZE));
+  const pageSafe = Math.min(page, pageCount);
+  const pagedRecords = records.slice((pageSafe - 1) * ATTENDANCE_PAGE_SIZE, pageSafe * ATTENDANCE_PAGE_SIZE);
 
   const employeeOptionsCache = useCachedData<EmployeeOption[]>("employees", () =>
     apiRequest<EmployeeOption[]>("/employees"),
@@ -543,6 +554,7 @@ export function AttendancePage({
       </div>
 
       <section className="table-card attendance-table-card">
+        <div className="attendance-table-scroll">
         <table>
           <thead>
             <tr>
@@ -562,7 +574,7 @@ export function AttendancePage({
             {records.length === 0 ? (
               <tr><td colSpan={10} className="attendance-empty-state">No attendance records found.</td></tr>
             ) : (
-              records.map((record) => (
+              pagedRecords.map((record) => (
                 <tr key={record.id}>
                   <td data-label="Employee">{getName(record)}</td>
                   <td data-label="Department">{record.employee.department.name}</td>
@@ -587,6 +599,18 @@ export function AttendancePage({
             )}
           </tbody>
         </table>
+        </div>
+        {pageCount > 1 && (
+          <div className="attendance-pagination">
+            <button type="button" className="outline-button" disabled={pageSafe <= 1} onClick={() => setPage(pageSafe - 1)}>
+              Previous
+            </button>
+            <span>Page {pageSafe} of {pageCount}</span>
+            <button type="button" className="outline-button" disabled={pageSafe >= pageCount} onClick={() => setPage(pageSafe + 1)}>
+              Next
+            </button>
+          </div>
+        )}
       </section>
 
       {viewRecord && (

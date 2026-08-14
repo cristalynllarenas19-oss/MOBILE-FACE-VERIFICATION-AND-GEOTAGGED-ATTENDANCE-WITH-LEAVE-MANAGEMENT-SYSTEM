@@ -98,40 +98,63 @@
 }
 
 .attendance-table-card {
+  display: flex;
+  flex-direction: column;
   border: 1px solid #e3e9f0;
   border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.attendance-table-scroll {
   overflow-x: auto;
   overflow-y: auto;
   max-height: 430px;
-  background: #ffffff;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
   scrollbar-color: #b8c7d8 #f4f7fb;
 }
 
-.attendance-table-card::-webkit-scrollbar {
+.attendance-table-scroll::-webkit-scrollbar {
   width: 7px;
   height: 7px;
 }
 
-.attendance-table-card::-webkit-scrollbar-track {
+.attendance-table-scroll::-webkit-scrollbar-track {
   background: #f4f7fb;
   border-radius: 999px;
 }
 
-.attendance-table-card::-webkit-scrollbar-thumb {
+.attendance-table-scroll::-webkit-scrollbar-thumb {
   background: #b8c7d8;
   border-radius: 999px;
 }
 
-.attendance-table-card::-webkit-scrollbar-thumb:hover {
+.attendance-table-scroll::-webkit-scrollbar-thumb:hover {
   background: #8fa9c4;
+}
+
+.attendance-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 10px 0;
+  flex-shrink: 0;
+  border-top: 1px solid #e3e9f0;
+  background: #ffffff;
+}
+
+.attendance-pagination span {
+  color: #7b8794;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .attendance-table-card table {
   width: 100%;
-  min-width: 860px;
+  min-width: 0;
+  table-layout: fixed;
   border-collapse: collapse;
 }
 
@@ -145,28 +168,45 @@
 .attendance-table-card th,
 .attendance-table-card td {
   text-align: center;
+  padding: 10px 6px;
+  font-size: 11.5px;
+  word-break: break-word;
 }
 
 .attendance-table-card th {
   color: #1a3a5c;
-  white-space: nowrap;
+  font-size: 10.5px;
+  white-space: normal;
+}
+
+.attendance-table-card .badge {
+  min-width: 0;
+  max-width: 100%;
+  padding: 5px 7px;
+  font-size: 10px;
+  white-space: normal;
+  line-height: 1.25;
+  background: none !important;
+  color: #1a3a5c !important;
+  font-weight: 700;
 }
 
 .attendance-view-button {
-  min-width: 94px;
-  height: 38px;
+  min-width: 0;
+  height: 32px;
   border: 1.5px solid #b8c7d8;
   border-radius: 8px;
   background: #ffffff;
   color: #1a3a5c;
-  padding: 0 14px;
+  padding: 0 10px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  font-size: 12px;
+  gap: 5px;
+  font-size: 11px;
   font-weight: 700;
   cursor: pointer;
+  white-space: nowrap;
 }
 
 .attendance-empty-state {
@@ -563,9 +603,12 @@
   .attendance-table-card {
     background: transparent;
     box-shadow: none;
+    border: none;
+  }
+
+  .attendance-table-scroll {
     overflow: visible;
     max-height: none;
-    border: none;
   }
 
   .attendance-table-card table,

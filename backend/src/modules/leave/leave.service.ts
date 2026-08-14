@@ -5,6 +5,7 @@ import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.serv
 import { CreateLeaveRequestDto } from "./dto/create-leave-request.dto";
 import { RejectLeaveRequestDto } from "./dto/reject-leave-request.dto";
 import { ResubmitLeaveRequestDto } from "./dto/resubmit-leave-request.dto";
+import { isEligibleForLeaveType } from "./leave-balances.service";
 
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 type LeaveRequestStatus = "PENDING" | "SUPERVISOR_APPROVED" | "APPROVED" | "REJECTED" | "NEEDS_REVISION" | "CANCELLED";
@@ -87,10 +88,16 @@ export class LeaveService {
     // than Leave Without Pay before HR converts them to Regular).
     const employee = await this.prisma.employee.findUniqueOrThrow({
       where: { id: dto.employeeId },
-      select: { employmentStatus: true },
+      select: { employmentStatus: true, sex: true },
     });
     if (!leaveType.applicableStatuses.includes(employee.employmentStatus)) {
       throw new BadRequestException(`${leaveType.name} is not available for your employment status.`);
+    }
+    // Same bypass concern as above, for Maternity/Paternity — the frontend
+    // dropdown already hides these from the wrong sex, but nothing stopped a
+    // crafted request from filing one anyway.
+    if (!isEligibleForLeaveType(leaveType.kind, employee.sex)) {
+      throw new BadRequestException(`${leaveType.name} is not available for you.`);
     }
 
     // Sick Leave / Emergency Leave (and any other isSingleDayOnly type) are

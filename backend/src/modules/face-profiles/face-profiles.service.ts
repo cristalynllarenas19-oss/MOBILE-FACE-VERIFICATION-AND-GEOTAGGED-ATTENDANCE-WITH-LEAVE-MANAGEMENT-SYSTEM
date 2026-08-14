@@ -16,7 +16,7 @@ export class FaceProfilesService {
       where: { isArchived: false },
       include: {
         employee: {
-          include: { department: true, position: true, user: true },
+          include: { department: true, position: true, user: true, supervisor: true },
         },
       },
       orderBy: { enrolledAt: "desc" },
@@ -60,7 +60,7 @@ export class FaceProfilesService {
         } as any,
         include: {
           employee: {
-            include: { department: true, position: true, user: true },
+            include: { department: true, position: true, user: true, supervisor: true },
           },
         },
       });
@@ -89,7 +89,7 @@ export class FaceProfilesService {
       } as any,
       include: {
         employee: {
-          include: { department: true, position: true, user: true },
+          include: { department: true, position: true, user: true, supervisor: true },
         },
       },
     });
@@ -121,7 +121,7 @@ export class FaceProfilesService {
       data: { isArchived: true },
       include: {
         employee: {
-          include: { department: true, position: true, user: true },
+          include: { department: true, position: true, user: true, supervisor: true },
         },
       },
     });

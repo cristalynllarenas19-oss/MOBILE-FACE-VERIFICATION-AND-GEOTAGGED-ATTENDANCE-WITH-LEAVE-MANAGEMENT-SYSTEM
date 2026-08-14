@@ -187,6 +187,7 @@ export type EmployeeProfile = {
   // Only present on the GET /employees/me response (not on the photo-update
   // response) — whether this employee has an ACTIVE FaceProfile enrolled.
   hasActiveFaceEnrollment?: boolean;
+  sex?: "MALE" | "FEMALE";
   user: { email: string };
   department: { name: string };
   position: { title: string };
@@ -206,6 +207,7 @@ export type LeaveType = {
   requiresAdminGrant: boolean;
   isSingleDayOnly: boolean;
   advanceFilingAllowed: boolean;
+  kind?: "GENERAL" | "MATERNITY" | "PATERNITY";
 };
 
 export type LeaveBalance = {

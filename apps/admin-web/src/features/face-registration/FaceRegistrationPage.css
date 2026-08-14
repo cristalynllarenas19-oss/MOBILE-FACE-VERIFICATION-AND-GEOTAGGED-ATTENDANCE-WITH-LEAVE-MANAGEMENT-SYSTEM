@@ -54,8 +54,7 @@
 }
 
 .capture-summary > div,
-.selected-employee-card,
-.employee-pick {
+.selected-employee-card {
   border: 1px solid #dbe5ef;
   background: #f8fafc;
   border-radius: 10px;
@@ -349,7 +348,14 @@
 }
 
 .enrollment-list .table-card {
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
+}
+
+.enrollment-table-scroll {
   max-height: 480px;
+  overflow-x: auto;
   overflow-y: auto;
 }
 
@@ -364,97 +370,23 @@
   text-align: center;
 }
 
-.no-employee-matches {
-  color: #94a3b8;
-  font-size: 13px;
-  padding: 18px 4px;
-  text-align: center;
-}
-
-.enrollment-form label {
-  color: #475569;
-  font-size: 12px;
-  font-weight: 700;
-  margin-bottom: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-top: 14px;
-}
-
-.enrollment-form label:first-of-type {
-  margin-top: 0;
-}
-
-.enrollment-form input {
-  border: none;
-  outline: none;
-  background: transparent;
-  color: #172b3f;
-  height: 100%;
-  padding: 0;
-  font-size: 14px;
-  width: 100%;
-}
-
-.enrollment-form input::placeholder {
-  color: #94a3b8;
-}
-
-.search-shell {
+.enrollment-pagination {
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 48px;
-  border: 1px solid #dbe5ef;
-  border-radius: 10px;
-  background: white;
-  padding: 0 14px;
-  margin-bottom: 12px;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease;
-}
-
-.search-shell:focus-within {
-  border-color: #1a3a5c;
-  box-shadow: 0 0 0 3px rgba(26, 58, 92, 0.1);
-}
-
-.search-icon {
-  color: #94a3b8;
+  justify-content: center;
+  gap: 14px;
+  padding: 10px 0;
   flex-shrink: 0;
+  border-top: 1px solid var(--line);
+  background: #ffffff;
 }
 
-.employee-picks {
-  display: grid;
-  align-content: start;
-  gap: 10px;
-  margin-bottom: 16px;
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
+.enrollment-pagination span {
+  color: #7b8794;
+  font-size: 12px;
+  font-weight: 700;
 }
 
-.employee-pick {
-  cursor: pointer;
-  display: grid;
-  gap: 4px;
-  padding: 12px 14px;
-  text-align: left;
-  transition: border-color 0.2s ease, background 0.2s ease;
-}
-
-.employee-pick:hover,
-.employee-pick.active {
-  background: #eef4fb;
-  border-color: #2979d0;
-}
-
-.employee-pick strong {
-  color: #0f172a;
-  font-size: 14px;
-}
-
-.employee-pick span,
-.employee-pick small,
 .selected-employee-card span {
   color: #64748b;
   font-size: 12px;
@@ -899,11 +831,6 @@
     aspect-ratio: 16 / 10;
   }
 
-  .employee-picks {
-    flex: none;
-    max-height: 320px;
-  }
-
   .save-face-button {
     margin-top: 20px;
   }
@@ -922,27 +849,6 @@
 
   .capture-summary strong {
     font-size: 15px;
-  }
-
-  .employee-picks {
-    gap: 12px;
-  }
-
-  .employee-pick {
-    padding: 14px 16px;
-  }
-
-  .employee-pick strong {
-    font-size: 15px;
-  }
-
-  .employee-pick span,
-  .employee-pick small {
-    font-size: 13px;
-  }
-
-  .search-shell {
-    height: 50px;
   }
 
   .capture-actions button,
@@ -980,6 +886,9 @@
   .enrollment-list .table-card {
     background: transparent;
     box-shadow: none;
+  }
+
+  .enrollment-table-scroll {
     overflow: visible;
     max-height: none;
   }
