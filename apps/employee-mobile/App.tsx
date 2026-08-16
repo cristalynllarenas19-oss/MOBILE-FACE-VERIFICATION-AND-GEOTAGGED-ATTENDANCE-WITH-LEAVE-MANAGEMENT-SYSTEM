@@ -360,20 +360,17 @@ export default function App() {
       }
     }
 
-    const isOutsideWorkArea = await checkOutsideWorkArea();
-    if (isOutsideWorkArea) {
-      Alert.alert(
-        "Outside Work Area",
-        "You appear to be outside your designated work area. You can still continue, but your attendance may be flagged for review.",
-        [
-          { text: "Cancel", style: "cancel" },
-          { text: "Continue Anyway", onPress: () => setScanType(type) },
-        ],
-      );
-      return;
-    }
-
+    // The work-area warning is advisory, so do not hold the camera, live
+    // timestamp, or map behind its GPS request.
     setScanType(type);
+    void checkOutsideWorkArea().then((isOutsideWorkArea) => {
+      if (isOutsideWorkArea) {
+        Alert.alert(
+          "Outside Work Area",
+          "You appear to be outside your designated work area. Your attendance may be flagged for review.",
+        );
+      }
+    });
   }
 
   // FIELD employees have no single fixed time-in/out pair — sequencing

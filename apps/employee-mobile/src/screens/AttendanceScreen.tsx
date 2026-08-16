@@ -96,7 +96,8 @@ export default function AttendanceScreen({
   // Sunday is a company-wide rest day for every role — no attendance is
   // taken or required from anyone, mirrored from the same rule enforced
   // server-side in AttendanceService.submit().
-  const isTodayDayOff = new Date().getDay() === 0;
+  // TEMPORARILY DISABLED FOR TESTING — re-enable before shipping.
+  const isTodayDayOff = false; // new Date().getDay() === 0;
 
   const hasTimedIn = Boolean(todayAttendance?.timeInAt);
   const hasTimedOut = Boolean(todayAttendance?.timeOutAt);

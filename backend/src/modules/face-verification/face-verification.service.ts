@@ -93,7 +93,7 @@ export class FaceVerificationService implements OnModuleInit {
       const result = await faceapi
         .detectSingleFace(
           image as any,
-          new faceapi.TinyFaceDetectorOptions({ inputSize: precise ? 416 : 224, scoreThreshold: 0.45 }),
+          new faceapi.TinyFaceDetectorOptions({ inputSize: precise ? 288 : 192, scoreThreshold: 0.45 }),
         )
         .withFaceLandmarks(!precise);
 

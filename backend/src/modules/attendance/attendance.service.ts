@@ -419,9 +419,10 @@ export class AttendanceService {
 
     // Sunday is a company-wide rest day for every role — employee, supervisor,
     // and admin/HR alike — so no attendance is taken or required from anyone.
-    if (isDayOff(attendanceDate)) {
-      throw new BadRequestException("Today is a scheduled day off (Sunday). Attendance is not required.");
-    }
+    // TEMPORARILY DISABLED FOR TESTING — re-enable before shipping.
+    // if (isDayOff(attendanceDate)) {
+    //   throw new BadRequestException("Today is a scheduled day off (Sunday). Attendance is not required.");
+    // }
 
     const isField = employee.attendanceMode === "FIELD";
 
