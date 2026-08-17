@@ -1034,12 +1034,7 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
 
       <View style={styles.stageWrapper}>
         <View
-          style={[
-            styles.captureStage,
-            photoSize.width && photoSize.height
-              ? { aspectRatio: photoSize.width / photoSize.height }
-              : { aspectRatio: 3 / 4 },
-          ]}
+          style={[styles.captureStage, { aspectRatio: 3 / 4 }]}
           onLayout={(event) => setStageSize({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height })}
         >
           <CameraView
