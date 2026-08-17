@@ -5,6 +5,7 @@ import { AuthService } from "./auth.service";
 import { ForgotPasswordDto } from "./dto/forgot-password.dto";
 import { LoginDto } from "./dto/login.dto";
 import { ResetPasswordDto } from "./dto/reset-password.dto";
+import { RefreshTokenDto } from "./dto/refresh-token.dto";
 import { VerifyResetOtpDto } from "./dto/verify-reset-otp.dto";
 
 @Controller("auth")
@@ -19,8 +20,8 @@ export class AuthController {
 
   @Public()
   @Post("refresh")
-  refresh() {
-    return { message: "Refresh token endpoint is ready for secure cookie/mobile token integration." };
+  refresh(@Body() dto: RefreshTokenDto) {
+    return this.authService.refresh(dto.refreshToken);
   }
 
   @Post("logout")

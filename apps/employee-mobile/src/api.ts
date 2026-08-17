@@ -60,6 +60,7 @@ function getApiBaseUrls() {
 const API_BASE_URLS = getApiBaseUrls();
 
 let unauthorizedHandler: (() => void) | null = null;
+let refreshPromise: Promise<string | null> | null = null;
 
 export function setUnauthorizedHandler(handler: (() => void) | null) {
   unauthorizedHandler = handler;
@@ -271,8 +272,7 @@ export type AppNotification = {
   createdAt: string;
 };
 
-export async function apiRequest<T>(path: string, options: RequestInit = {}) {
-  const token = await SecureStore.getItemAsync("accessToken");
+async function fetchFromApi(path: string, options: RequestInit, token?: string | null) {
   let response: Response | null = null;
 
   for (const baseUrl of API_BASE_URLS) {
@@ -298,14 +298,63 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}) {
     throw new Error(`Cannot reach API server. Check internet connection or API URL: ${API_BASE_URLS.join(" or ")}`);
   }
 
+  return response;
+}
+
+async function refreshAccessToken(): Promise<string | null> {
+  if (refreshPromise) return refreshPromise;
+
+  refreshPromise = (async () => {
+    const refreshToken = await SecureStore.getItemAsync("refreshToken");
+    if (!refreshToken) return null;
+
+    try {
+      const response = await fetchFromApi("/auth/refresh", {
+        method: "POST",
+        body: JSON.stringify({ refreshToken }),
+      });
+      if (!response.ok) return null;
+
+      const data = (await response.json()) as { accessToken?: string; refreshToken?: string };
+      if (!data.accessToken || !data.refreshToken) return null;
+
+      await SecureStore.setItemAsync("accessToken", data.accessToken);
+      await SecureStore.setItemAsync("refreshToken", data.refreshToken);
+      return data.accessToken;
+    } catch {
+      return null;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
+}
+
+async function clearExpiredSession() {
+  clearDataCache();
+  await SecureStore.deleteItemAsync("accessToken");
+  await SecureStore.deleteItemAsync("refreshToken");
+  await SecureStore.deleteItemAsync("sessionUser");
+  unauthorizedHandler?.();
+}
+
+export async function apiRequest<T>(path: string, options: RequestInit = {}) {
+  let token = await SecureStore.getItemAsync("accessToken");
+  let response = await fetchFromApi(path, options, token);
+
+  // An access token expires before the saved mobile session. Refresh it once
+  // and replay the request; simultaneous initial screen requests share one
+  // refresh operation instead of logging the user out multiple times.
+  if (response.status === 401 && token) {
+    token = await refreshAccessToken();
+    if (token) response = await fetchFromApi(path, options, token);
+  }
+
   if (!response.ok) {
     const body = await response.text();
     if (response.status === 401) {
-      clearDataCache();
-      await SecureStore.deleteItemAsync("accessToken");
-      await SecureStore.deleteItemAsync("refreshToken");
-      await SecureStore.deleteItemAsync("sessionUser");
-      unauthorizedHandler?.();
+      await clearExpiredSession();
     }
     throw new Error(extractErrorMessage(body) || `Request failed with status ${response.status}`);
   }

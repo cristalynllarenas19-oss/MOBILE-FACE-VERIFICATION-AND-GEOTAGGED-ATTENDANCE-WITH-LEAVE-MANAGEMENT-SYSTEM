@@ -10,12 +10,14 @@ import { Directory, File, Paths } from "expo-file-system";
 // approvals) never touch the cache and always hit the server directly.
 
 const memory = new Map<string, unknown>();
+const inFlight = new Map<string, Promise<unknown>>();
 const cacheDir = new Directory(Paths.cache, "data-cache");
 
 export const CACHE_KEYS = {
   myProfile: "my-profile",
   notifications: "notifications",
   notificationsUnreadCount: "notifications:unread-count",
+  leaveTypes: "leave-types",
   todayAttendance: (employeeId: string) => `today-attendance:${employeeId}`,
   attendanceEligibility: (employeeId: string) => `attendance-eligibility:${employeeId}`,
   attendanceHistory: (employeeId: string) => `attendance-history:${employeeId}`,
@@ -24,6 +26,13 @@ export const CACHE_KEYS = {
   undertimeEligibility: (employeeId: string) => `undertime-eligibility:${employeeId}`,
   undertimeFilings: (employeeId: string) => `undertime-filings:${employeeId}`,
   workArea: (employeeId: string, mode: "field" | "fixed") => `work-area:${employeeId}:${mode}`,
+  supervisorDashboard: "supervisor-dashboard",
+  teamEmployees: "team-employees",
+  teamLeaveRequests: "team-leave-requests",
+  teamSchedules: "team-schedules",
+  teamReportsSummary: "team-reports-summary",
+  geotaggedLocations: "geotagged-locations",
+  teamAttendance: (date: string) => `team-attendance:${date}`,
 } as const;
 
 function fileFor(key: string) {
@@ -58,11 +67,38 @@ export function cacheSet(key: string, value: unknown) {
 // account's cached data on a shared device.
 export function clearDataCache() {
   memory.clear();
+  inFlight.clear();
   try {
     if (cacheDir.exists) cacheDir.delete();
   } catch {
     // Ignore — worst case stale files linger in the OS-managed cache dir.
   }
+}
+
+// All consumers of the same resource share one network request. This avoids
+// a tab mount, header, and background prefetch each fetching the same data at
+// once, while still making every successful response available immediately to
+// the next screen.
+export function revalidateCached<T>(key: string, fetcher: () => Promise<T>): Promise<T> {
+  const existing = inFlight.get(key) as Promise<T> | undefined;
+  if (existing) return existing;
+
+  const request = fetcher()
+    .then((fresh) => {
+      cacheSet(key, fresh);
+      return fresh;
+    })
+    .finally(() => {
+      inFlight.delete(key);
+    });
+  inFlight.set(key, request);
+  return request;
+}
+
+// Starts a stale-while-revalidate fetch without making the caller wait. Used
+// after sign-in so tabs are ready by the time the employee opens them.
+export function prefetchCached<T>(key: string, fetcher: () => Promise<T>) {
+  void revalidateCached(key, fetcher).catch(() => undefined);
 }
 
 // Pass `null` as the key to disable fetching (e.g. modal not visible yet,
@@ -76,8 +112,7 @@ export function useCachedData<T>(key: string | null, fetcher: () => Promise<T>) 
 
   const refresh = useCallback(async () => {
     if (!key) return;
-    const fresh = await fetcherRef.current();
-    cacheSet(key, fresh);
+    const fresh = await revalidateCached(key, fetcherRef.current);
     setDataState(fresh);
   }, [key]);
 

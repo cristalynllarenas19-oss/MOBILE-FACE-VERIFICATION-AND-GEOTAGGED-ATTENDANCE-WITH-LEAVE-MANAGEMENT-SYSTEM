@@ -7,8 +7,10 @@ import {
   Pressable,
   Linking,
   Image,
+  Animated,
 } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
+import { useAudioPlayer } from "expo-audio";
 import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
 import { captureRef } from "react-native-view-shot";
@@ -56,9 +58,12 @@ const LOCKED_COLOR = "#22C55E";
 const DETECT_POLL_MS = 20;
 // While sampling for a blink, captures are decoupled from the network (see
 // the capture/send loops below) and re-fire almost immediately — this is
-// Capture completion already provides natural back-pressure, so no extra
-// timer gap is needed between blink frames.
-const BLINK_CAPTURE_FLOOR_MS = 0;
+// Native camera sessions need a small recovery window between snapshots on
+// lower-end Android devices. Without it, continuous captures can fail even
+// though the preview remains visible.
+const BLINK_CAPTURE_FLOOR_MS = 80;
+const CAMERA_RECONFIGURE_SETTLE_MS = 500;
+const CAPTURE_FAILURE_RETRY_MS = 250;
 const HOLD_TO_LOCK_MS = 450;
 const TICK_MS = 100;
 // Blink-based liveness check: this has to pass *before* the hold-to-lock
@@ -111,8 +116,12 @@ const MAP_THUMBNAIL_DISPLAY_SIZE = 90;
 const SAVED_MAP_THUMBNAIL_DISPLAY_SIZE = 210;
 // How long the captured photo stays frozen on screen (with the GPS stamp
 // already baked in) before handing off, so the capture feels like a real
-// snapshot instead of the live preview just continuing to move.
-const FREEZE_DISPLAY_MS = 900;
+// snapshot instead of the live preview just continuing to move. Kept just
+// long enough for the success checkmark + sound to register, not for the
+// background GPS/watermark work (which runs during this window regardless).
+const FREEZE_DISPLAY_MS = 500;
+
+const SUCCESS_SOUND = require("../../assets/sounds/success.wav");
 
 function getStageText(faceDetected: boolean, progress: number, blinkCount: number) {
   if (!faceDetected) return "No face detected — line your face up with the outline";
@@ -296,12 +305,21 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
   // unless) the size list has been queried successfully.
   const [scanPictureSize, setScanPictureSize] = useState<string | null>(null);
   const scanPictureSizeRef = useRef<string | null>(null);
+  const cameraConfiguringRef = useRef(false);
+  const cameraConfigTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [liveCoords, setLiveCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [liveAddress, setLiveAddress] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
   const [frozenPreviewUri, setFrozenPreviewUri] = useState<string | null>(null);
   const [isFrozenStamped, setIsFrozenStamped] = useState(false);
   const [frozenStamp, setFrozenStamp] = useState<{ date: Date; address: string | null; mapGrid: MapGrid } | null>(null);
+  // Success checkmark shown right after the blink liveness check passes,
+  // for the rest of finishScan's freeze hold, so the user gets a clear
+  // "verified" moment before this screen hands off/closes.
+  const [showSuccessCheck, setShowSuccessCheck] = useState(false);
+  const successScaleAnim = useRef(new Animated.Value(0)).current;
+  const successOpacityAnim = useRef(new Animated.Value(0)).current;
+  const successSoundPlayer = useAudioPlayer(SUCCESS_SOUND);
 
   const isFinishingRef = useRef(false);
   const faceDetectedRef = useRef(false);
@@ -352,11 +370,16 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
   const overlayAddress = frozenStamp ? frozenStamp.address : liveAddress;
   const overlayMapGrid = frozenStamp ? frozenStamp.mapGrid : liveMapGrid;
 
-  // Live clock for the on-screen GPS-camera-style stamp preview.
+  // Live clock for the on-screen GPS-camera-style stamp preview. Pauses the
+  // instant a face is detected (holding the timestamp steady while
+  // verification is underway) and resumes ticking as soon as the face is
+  // lost again, so the badge always reads live "current time" while no one
+  // is being verified.
   useEffect(() => {
+    if (faceDetected) return;
     const tick = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(tick);
-  }, []);
+  }, [faceDetected]);
 
   // Best-effort approximate location for the live stamp preview, refreshed
   // periodically. The final submitted photo always re-fetches a fresh
@@ -400,6 +423,10 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
     };
   }, [locationPermission?.granted]);
 
+  useEffect(() => () => {
+    if (cameraConfigTimeoutRef.current) clearTimeout(cameraConfigTimeoutRef.current);
+  }, []);
+
   useEffect(() => {
     if (!permission?.granted) {
       requestPermission();
@@ -420,8 +447,24 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
   // capture. Sizes come back as "WIDTHxHEIGHT" strings; anything else (some
   // iOS preset names) is skipped, and any failure just leaves the camera's
   // default full-resolution capture in place.
+  function waitForCameraReconfigure() {
+    cameraConfiguringRef.current = true;
+    setCameraReady(false);
+    if (cameraConfigTimeoutRef.current) clearTimeout(cameraConfigTimeoutRef.current);
+    cameraConfigTimeoutRef.current = setTimeout(() => {
+      cameraConfiguringRef.current = false;
+      setCameraReady(true);
+      cameraConfigTimeoutRef.current = null;
+    }, CAMERA_RECONFIGURE_SETTLE_MS);
+  }
+
   async function handleCameraReady() {
-    setCameraReady(true);
+    // CameraView can emit this again when pictureSize changes. The existing
+    // settle timer owns readiness in that case, so a second callback cannot
+    // accidentally restart polling during native reconfiguration.
+    if (cameraConfiguringRef.current) return;
+    setCameraReady(false);
+    let pictureSizeChanged = false;
     try {
       const sizes = (await cameraRef.current?.getAvailablePictureSizesAsync()) ?? [];
       const candidates = sizes
@@ -435,12 +478,22 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
         .filter((size): size is NonNullable<typeof size> => size !== null && size.shortSide >= WATERMARK_WIDTH)
         .sort((a, b) => a.area - b.area);
       if (candidates.length > 0) {
-        scanPictureSizeRef.current = candidates[0].label;
-        setScanPictureSize(candidates[0].label);
-        if (__DEV__) console.log(`[liveness] scan pictureSize=${candidates[0].label}`);
+        const nextPictureSize = candidates[0].label;
+        if (scanPictureSizeRef.current !== nextPictureSize) {
+          scanPictureSizeRef.current = nextPictureSize;
+          setScanPictureSize(nextPictureSize);
+          pictureSizeChanged = true;
+          if (__DEV__) console.log(`[liveness] scan pictureSize=${nextPictureSize}`);
+        }
       }
     } catch (error) {
       if (__DEV__) console.log("[liveness] getAvailablePictureSizesAsync failed, keeping default size", error);
+    } finally {
+      if (pictureSizeChanged) {
+        waitForCameraReconfigure();
+      } else {
+        setCameraReady(true);
+      }
     }
   }
 
@@ -519,6 +572,10 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
 
     async function captureLoop() {
       if (cancelled || isFinishingRef.current) return;
+      if (cameraConfiguringRef.current) {
+        captureTimeoutId = setTimeout(captureLoop, CAMERA_RECONFIGURE_SETTLE_MS);
+        return;
+      }
       let failed = false;
       // Only switch into blink-sampling mode (the heavier, slower precise
       // backend path — full landmark model, decoupled capture/send) once a
@@ -596,11 +653,10 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
       } catch (error) {
         if (cancelled) return;
         failed = true;
-        console.error("Face detection poll failed", error);
-        faceDetectedRef.current = false;
-        setFaceDetected(false);
-        setConfidence(0);
-        setFaceBox(null);
+        // A frame capture can fail transiently while the native camera is
+        // busy. Keep the last valid detection rather than resetting liveness
+        // progress, and retry after the camera has had time to recover.
+        if (__DEV__) console.warn("Face detection poll capture failed; retrying", error);
         // Some devices reject captures at a non-default pictureSize (or
         // fail while the session is reconfiguring to it, which happens once
         // when the size is first applied after camera-ready). One or two
@@ -613,6 +669,7 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
             if (__DEV__) console.log("[liveness] custom pictureSize keeps failing, reverting to default size");
             scanPictureSizeRef.current = null;
             setScanPictureSize(null);
+            waitForCameraReconfigure();
           }
         }
       } finally {
@@ -629,7 +686,7 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
           // first precise blink capture immediately after face detection
           // rather than adding one ordinary tracking-poll delay.
           const nowSamplingBlink = faceDetectedRef.current && blinkCountRef.current < REQUIRED_BLINKS;
-          const nextDelay = failed ? DETECT_POLL_MS * 3 : nowSamplingBlink ? BLINK_CAPTURE_FLOOR_MS : DETECT_POLL_MS;
+          const nextDelay = failed ? CAPTURE_FAILURE_RETRY_MS : nowSamplingBlink ? BLINK_CAPTURE_FLOOR_MS : DETECT_POLL_MS;
           captureTimeoutId = setTimeout(captureLoop, nextDelay);
         }
       }
@@ -806,6 +863,30 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
 
       setIsFrozenStamped(false);
       setFrozenPreviewUri(photo.uri);
+
+      // Liveness has just passed and the verified photo is captured — show
+      // the success checkmark now, for the rest of this function's freeze
+      // hold, rather than waiting for the (often slower) GPS/watermark work
+      // below to finish first.
+      setShowSuccessCheck(true);
+      successSoundPlayer.seekTo(0);
+      successSoundPlayer.play();
+      successScaleAnim.setValue(0);
+      successOpacityAnim.setValue(0);
+      Animated.parallel([
+        Animated.spring(successScaleAnim, {
+          toValue: 1,
+          friction: 5,
+          tension: 80,
+          useNativeDriver: true,
+        }),
+        Animated.timing(successOpacityAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+
       // Hold the on-screen stamp preview (map/time/address) at this exact
       // instant — without this it kept ticking the live clock forward even
       // though the photo itself had already frozen.
@@ -849,6 +930,7 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
       setFrozenPreviewUri(null);
       setIsFrozenStamped(false);
       setFrozenStamp(null);
+      setShowSuccessCheck(false);
       console.error("Scan error", error);
       setScanError(error instanceof Error ? error.message : "Failed to capture location or photo.");
       setIsScanning(false);
@@ -871,6 +953,7 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
     setFrozenPreviewUri(null);
     setIsFrozenStamped(false);
     setFrozenStamp(null);
+    setShowSuccessCheck(false);
   }
 
   if (!permission || !locationPermission) return <View style={styles.container} />;
@@ -994,6 +1077,19 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
                 />
               )}
 
+              {showSuccessCheck && (
+                <Animated.View
+                  pointerEvents="none"
+                  style={[styles.successOverlay, { opacity: successOpacityAnim }]}
+                >
+                  <Animated.View
+                    style={[styles.successCircle, { transform: [{ scale: successScaleAnim }] }]}
+                  >
+                    <Ionicons name="checkmark" size={64} color="#FFFFFF" />
+                  </Animated.View>
+                </Animated.View>
+              )}
+
               {!frozenPreviewUri && faceGuideRect && (
                 <View
                   pointerEvents="none"
@@ -1051,26 +1147,28 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
         <View style={styles.statusCard}>
           <View style={styles.statusCardRow}>
             <View style={styles.statusIconWrap}>
-              {isScanning ? (
+              {isScanning && !showSuccessCheck ? (
                 <ActivityIndicator size="small" color="#2563EB" />
               ) : (
                 <Ionicons
                   name={isLocked ? "checkmark-circle" : faceDetected ? "scan-outline" : "alert-circle-outline"}
                   size={18}
-                  color="#2563EB"
+                  color={showSuccessCheck ? LOCKED_COLOR : "#2563EB"}
                 />
               )}
             </View>
             <View style={styles.statusCopy}>
               <Text style={styles.statusLabel}>
-                {isScanning ? "Processing" : isLocked ? "Ready" : faceDetected ? "Tracking" : "Preparing"}
+                {showSuccessCheck ? "Verified" : isScanning ? "Processing" : isLocked ? "Ready" : faceDetected ? "Tracking" : "Preparing"}
               </Text>
               <Text style={styles.statusText}>{getStageText(faceDetected, scanProgress, blinkCount)}</Text>
             </View>
           </View>
-          <View style={styles.progressTrack}>
-            <View style={[styles.progressFill, { width: `${Math.min(100, Math.max(6, scanProgress))}%` }]} />
-          </View>
+          {!showSuccessCheck && (
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: `${Math.min(100, Math.max(6, scanProgress))}%` }]} />
+            </View>
+          )}
         </View>
         <View style={styles.footerCard}>
           <Ionicons name="shield-checkmark-outline" size={18} color="#2563EB" />
@@ -1315,6 +1413,26 @@ const styles = StyleSheet.create({
     borderStyle: "dashed",
     borderRadius: 999,
     backgroundColor: "rgba(255,255,255,0.03)",
+  },
+  successOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 5,
+    backgroundColor: "rgba(2,6,23,0.35)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  successCircle: {
+    width: 112,
+    height: 112,
+    borderRadius: 999,
+    backgroundColor: LOCKED_COLOR,
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#020617",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
+    elevation: 8,
   },
   statusCard: {
     backgroundColor: "rgba(255,255,255,0.95)",

@@ -58,12 +58,20 @@ function buildMapHtml(location: WorkLocation, userLat: number | null, userLon: n
 export default function WorkAreaScreen({ employeeId, attendanceMode }: Props) {
   const isField = attendanceMode === "FIELD";
   const cacheKey = employeeId ? CACHE_KEYS.workArea(employeeId, isField ? "field" : "fixed") : null;
+  const cachedArea = cacheKey ? cacheGet<WorkLocation[] | WorkLocation | null>(cacheKey) : null;
+  const hasInitialCachedArea = cachedArea !== null;
 
-  const [workLocation, setWorkLocation] = useState<WorkLocation | null>(null);
-  const [workLocations, setWorkLocations] = useState<WorkLocation[]>([]);
-  const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
+  const [workLocation, setWorkLocation] = useState<WorkLocation | null>(
+    () => (!isField && cachedArea && !Array.isArray(cachedArea) ? cachedArea : null),
+  );
+  const [workLocations, setWorkLocations] = useState<WorkLocation[]>(
+    () => (isField && Array.isArray(cachedArea) ? cachedArea : []),
+  );
+  const [selectedSiteId, setSelectedSiteId] = useState<string | null>(
+    () => (isField && Array.isArray(cachedArea) ? cachedArea[0]?.id ?? null : null),
+  );
   const [userLocation, setUserLocation] = useState<Location.LocationObjectCoords | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(!hasInitialCachedArea);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -80,10 +88,7 @@ export default function WorkAreaScreen({ employeeId, attendanceMode }: Props) {
         }
       }
 
-      const [locations, permission] = await Promise.all([
-        isField ? getMyWorkLocations() : getMyWorkLocation(),
-        Location.requestForegroundPermissionsAsync(),
-      ]);
+      const locations = await (isField ? getMyWorkLocations() : getMyWorkLocation());
 
       if (isField) {
         const sites = locations as WorkLocation[];
@@ -95,20 +100,26 @@ export default function WorkAreaScreen({ employeeId, attendanceMode }: Props) {
         setWorkLocation(site);
         if (cacheKey) cacheSet(cacheKey, site);
       }
-
-      if (permission.granted) {
-        const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        setUserLocation(position.coords);
-      }
+      // GPS is useful for the distance badge, not for rendering the assigned
+      // work area. Load it in the background so the map is never held up.
+      void Location.requestForegroundPermissionsAsync()
+        .then((permission) => permission.granted
+          ? Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
+          : null)
+        .then((position) => position && setUserLocation(position.coords))
+        .catch(() => undefined);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load your work area.");
+      if (!cacheKey || cacheGet<WorkLocation[] | WorkLocation | null>(cacheKey) === null) {
+        setError(err instanceof Error ? err.message : "Failed to load your work area.");
+      }
     }
-  }, [isField]);
+  }, [cacheKey, isField]);
 
   useEffect(() => {
-    setIsLoading(true);
+    const cached = cacheKey ? cacheGet<WorkLocation[] | WorkLocation | null>(cacheKey) : null;
+    setIsLoading(cached === null);
     load().finally(() => setIsLoading(false));
-  }, [load]);
+  }, [cacheKey, load]);
 
   async function handleRefresh() {
     setIsRefreshing(true);

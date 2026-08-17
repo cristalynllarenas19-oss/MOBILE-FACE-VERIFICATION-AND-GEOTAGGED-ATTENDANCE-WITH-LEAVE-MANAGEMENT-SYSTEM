@@ -27,10 +27,25 @@ import {
   getMyWorkLocation,
   getMyWorkLocations,
   getMyProfile,
+  getAttendanceHistory,
+  getLeaveTypes,
+  getLeaveBalances,
+  getLeaveRequests,
+  getUndertimeEligibility,
+  getUndertimeFilings,
+  getNotifications,
+  getUnreadNotificationCount,
+  getDashboardSummary,
+  getTeamEmployees,
+  getTeamAttendance,
+  getGeotaggedLocations,
+  getTeamLeaveRequests,
+  getSchedules,
+  getReportsSummary,
   forgotPassword,
   setUnauthorizedHandler,
 } from "./src/api";
-import { CACHE_KEYS, cacheGet, cacheSet } from "./src/utils/dataCache";
+import { CACHE_KEYS, cacheGet, cacheSet, prefetchCached, revalidateCached } from "./src/utils/dataCache";
 import { getFriendlyReason } from "./src/utils/attendanceMessages";
 import { distanceInMeters } from "./src/utils/geofence";
 import { Portal } from "./src/types";
@@ -142,13 +157,52 @@ export default function App() {
     }
   }, [user?.employeeId]);
 
+  // Warm every read-only tab after sign-in/restoration. This is deliberately
+  // deferred until the landing screen is visible: the user gets there first,
+  // while the remaining tabs populate their persistent cache in background.
+  useEffect(() => {
+    if (!user?.employeeId) return;
+
+    const employeeId = user.employeeId;
+    const isField = user.attendanceMode === "FIELD";
+    const today = new Date().toISOString().slice(0, 10);
+    const timer = setTimeout(() => {
+      prefetchCached(CACHE_KEYS.myProfile, getMyProfile);
+      prefetchCached(CACHE_KEYS.todayAttendance(employeeId), () => getTodayAttendance(employeeId));
+      prefetchCached(CACHE_KEYS.attendanceHistory(employeeId), () => getAttendanceHistory(employeeId));
+      if (isField) {
+        prefetchCached(CACHE_KEYS.workArea(employeeId, "field"), getMyWorkLocations);
+      } else {
+        prefetchCached(CACHE_KEYS.workArea(employeeId, "fixed"), getMyWorkLocation);
+      }
+      prefetchCached(CACHE_KEYS.leaveTypes, getLeaveTypes);
+      prefetchCached(CACHE_KEYS.leaveBalances(employeeId), () => getLeaveBalances(employeeId));
+      prefetchCached(CACHE_KEYS.leaveRequests(employeeId), () => getLeaveRequests(employeeId));
+      prefetchCached(CACHE_KEYS.undertimeEligibility(employeeId), () => getUndertimeEligibility(employeeId));
+      prefetchCached(CACHE_KEYS.undertimeFilings(employeeId), () => getUndertimeFilings(employeeId));
+      prefetchCached(CACHE_KEYS.notifications, getNotifications);
+      prefetchCached(CACHE_KEYS.notificationsUnreadCount, getUnreadNotificationCount);
+
+      if ((user.roles ?? [user.role]).some((role) => role !== "EMPLOYEE")) {
+        prefetchCached(CACHE_KEYS.supervisorDashboard, getDashboardSummary);
+        prefetchCached(CACHE_KEYS.teamEmployees, getTeamEmployees);
+        prefetchCached(CACHE_KEYS.teamAttendance(today), () => getTeamAttendance({ date: today }));
+        prefetchCached(CACHE_KEYS.geotaggedLocations, getGeotaggedLocations);
+        prefetchCached(CACHE_KEYS.teamLeaveRequests, getTeamLeaveRequests);
+        prefetchCached(CACHE_KEYS.teamSchedules, getSchedules);
+        prefetchCached(CACHE_KEYS.teamReportsSummary, getReportsSummary);
+      }
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, [user?.id, user?.employeeId, user?.attendanceMode, user?.role, user?.roles]);
+
   async function refreshTodayAttendance(employeeId: string) {
     try {
       const cached = cacheGet<TodayAttendance>(attendanceCacheKey(employeeId));
       if (cached) setTodayAttendance(cached);
-      const attendance = await getTodayAttendance(employeeId);
+      const attendance = await revalidateCached(attendanceCacheKey(employeeId), () => getTodayAttendance(employeeId));
       setTodayAttendance(attendance);
-      cacheSet(attendanceCacheKey(employeeId), attendance);
     } catch (error) {
       console.error("Failed to load today's attendance", error);
     }
@@ -159,10 +213,10 @@ export default function App() {
       const cached = cacheGet<AttendanceEligibility>(eligibilityCacheKey(employeeId));
       if (cached) setEligibility(cached);
       const [profile, hasWorkLocation] = await Promise.all([
-        getMyProfile(),
+        revalidateCached(CACHE_KEYS.myProfile, getMyProfile),
         attendanceMode === "FIELD"
-          ? getMyWorkLocations().then((sites) => sites.length > 0)
-          : getMyWorkLocation().then((location) => location !== null),
+          ? revalidateCached(CACHE_KEYS.workArea(employeeId, "field"), getMyWorkLocations).then((sites) => sites.length > 0)
+          : revalidateCached(CACHE_KEYS.workArea(employeeId, "fixed"), getMyWorkLocation).then((location) => location !== null),
       ]);
       const nextEligibility = { faceEnrolled: Boolean(profile.hasActiveFaceEnrollment), hasWorkLocation };
       setEligibility(nextEligibility);
@@ -561,7 +615,12 @@ export default function App() {
         });
       }
 
-      await refreshTodayAttendance(user.employeeId);
+      // The Time In/Out button should re-enable the moment the verification
+      // result is known, not after this background refresh (which only
+      // updates the DTR summary and has its own error handling) finishes.
+      setIsLoading(false);
+      setSelectedWorkLocation(null);
+      void refreshTodayAttendance(user.employeeId);
     } catch (error) {
       setResultModal({
         status: "error",
@@ -571,7 +630,6 @@ export default function App() {
             ? error.message
             : "Failed to connect to the server. Check your connection and try again.",
       });
-    } finally {
       setIsLoading(false);
       setSelectedWorkLocation(null);
     }

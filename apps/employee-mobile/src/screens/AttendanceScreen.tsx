@@ -381,11 +381,7 @@ export default function AttendanceScreen({
         />
 
         <Text style={styles.buttonText}>
-          {isLoading
-            ? "Loading..."
-            : isField
-              ? "START VISIT"
-              : "TIME IN"}
+          {isField ? "START VISIT" : "TIME IN"}
         </Text>
       </Pressable>
 
@@ -440,7 +436,7 @@ export default function AttendanceScreen({
               { color: lunchButtonDisabled ? "#94A3B8" : "#EA580C" },
             ]}
           >
-            {isLoading ? "Loading..." : lunchButtonLabel}
+            {lunchButtonLabel}
           </Text>
         </Pressable>
       )}

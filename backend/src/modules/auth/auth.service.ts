@@ -15,6 +15,17 @@ const MAX_OTP_ATTEMPTS = 5;
 const GENERIC_FORGOT_PASSWORD_MESSAGE =
   "If an account with that email exists, a verification code has been sent.";
 
+type AuthTokenPayload = {
+  sub: string;
+  email: string;
+  role: string | undefined;
+  roles: string[];
+  permissions: string[];
+  employeeId?: string;
+  departmentId?: string;
+  tokenVersion: number;
+};
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -72,7 +83,7 @@ export class AuthService {
       ),
     ];
     const displayName = user.employee ? `${user.employee.firstName} ${user.employee.lastName}` : user.email;
-    const payload = {
+    const payload: AuthTokenPayload = {
       sub: user.id,
       email: user.email,
       role: primaryRole,
@@ -114,7 +125,7 @@ export class AuthService {
     return {
       accessToken: await this.jwtService.signAsync(payload, {
         secret: this.config.get<string>("JWT_ACCESS_SECRET") ?? "dev-access-secret-change-me",
-        // 12h so a mobile session survives a full work day. The client never
+        // 12h keeps the access token short-lived while mobile can refresh it.
         // uses its stored refreshToken (apiRequest has no refresh-and-retry,
         // and /auth/refresh is a stub), so once this expires every request
         // 401s until the user logs in again — shorten only after real
@@ -140,6 +151,42 @@ export class AuthService {
         defaultView: user.defaultView,
         mustChangePassword: user.mustChangePassword,
       },
+    };
+  }
+
+  async refresh(refreshToken: string) {
+    let payload: AuthTokenPayload;
+    try {
+      payload = await this.jwtService.verifyAsync<AuthTokenPayload>(refreshToken, {
+        secret: this.config.get<string>("JWT_REFRESH_SECRET") ?? "dev-refresh-secret-change-me",
+      });
+    } catch {
+      throw new UnauthorizedException("Session has expired. Please log in again.");
+    }
+
+    // Preserve immediate invalidation when an account is disabled or an
+    // administrator changes its roles/permissions.
+    const user = await this.prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: { status: true, tokenVersion: true },
+    });
+    if (!user || user.status !== "ACTIVE" || user.tokenVersion !== payload.tokenVersion) {
+      throw new UnauthorizedException("Session is no longer valid.");
+    }
+
+    return this.issueTokenPair(payload);
+  }
+
+  private async issueTokenPair(payload: AuthTokenPayload) {
+    return {
+      accessToken: await this.jwtService.signAsync(payload, {
+        secret: this.config.get<string>("JWT_ACCESS_SECRET") ?? "dev-access-secret-change-me",
+        expiresIn: "12h",
+      }),
+      refreshToken: await this.jwtService.signAsync(payload, {
+        secret: this.config.get<string>("JWT_REFRESH_SECRET") ?? "dev-refresh-secret-change-me",
+        expiresIn: "7d",
+      }),
     };
   }
 

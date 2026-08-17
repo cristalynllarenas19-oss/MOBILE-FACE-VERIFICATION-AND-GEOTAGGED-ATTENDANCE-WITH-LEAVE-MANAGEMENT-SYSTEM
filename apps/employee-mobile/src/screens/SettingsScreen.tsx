@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
 import { View, Text, Image, Pressable, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { EmployeeProfile, getMyProfile } from "../api";
+import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
 import ViewProfileScreen from "./ViewProfileScreen";
 import ChangePasswordScreen from "./ChangePasswordScreen";
 
@@ -16,15 +17,14 @@ type SettingsView = "root" | "profile" | "password";
 
 export default function SettingsScreen({ onLogout, onProfileChanged, canSwitchToSupervisorPortal, onSwitchToSupervisorPortal }: Props) {
   const [view, setView] = useState<SettingsView>("root");
-  const [profile, setProfile] = useState<EmployeeProfile | null>(null);
+  const { data: profile, refresh: refreshProfile } = useCachedData<EmployeeProfile>(
+    CACHE_KEYS.myProfile,
+    getMyProfile,
+  );
 
   const loadProfile = useCallback(() => {
-    getMyProfile().then(setProfile).catch(() => undefined);
-  }, []);
-
-  useEffect(() => {
-    loadProfile();
-  }, [loadProfile]);
+    refreshProfile().catch(() => undefined);
+  }, [refreshProfile]);
 
   if (view === "profile") {
     return (

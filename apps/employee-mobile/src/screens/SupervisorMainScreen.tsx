@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { SafeAreaView, View } from "react-native";
 
 import SupervisorDashboardScreen from "./supervisor/SupervisorDashboardScreen";
@@ -13,7 +13,7 @@ import BottomTab, { SUPERVISOR_TABS } from "../components/BottomTab";
 
 import { SupervisorTab } from "../types";
 import { EmployeeProfile, MobileUser, getMyProfile, getUnreadNotificationCount } from "../api";
-import { CACHE_KEYS, cacheGet, cacheSet } from "../utils/dataCache";
+import { CACHE_KEYS, cacheGet, cacheSet, useCachedData } from "../utils/dataCache";
 
 const NOTIFICATION_POLL_MS = 30000;
 
@@ -29,15 +29,7 @@ export default function SupervisorMainScreen({ user, onLogout, canSwitchToEmploy
 
   const [unreadCount, setUnreadCount] = useState(0);
   const [notificationsVisible, setNotificationsVisible] = useState(false);
-  const [profile, setProfile] = useState<EmployeeProfile | null>(null);
-
-  const loadProfile = useCallback(() => {
-    getMyProfile().then(setProfile).catch(() => undefined);
-  }, []);
-
-  useEffect(() => {
-    loadProfile();
-  }, [loadProfile]);
+  const { data: profile } = useCachedData<EmployeeProfile>(CACHE_KEYS.myProfile, getMyProfile);
 
   useEffect(() => {
     const refreshUnreadCount = () => {
