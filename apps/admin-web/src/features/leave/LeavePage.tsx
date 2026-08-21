@@ -473,7 +473,7 @@ function EmployeeListViewButton({
                     {employee.firstName} {employee.lastName}
                   </h2>
                   <p>
-                    {employee.employeeNo} · {formatEmploymentStatus(employee.employmentStatus)} · {year}
+                    {formatEmploymentStatus(employee.employmentStatus)} · {year}
                   </p>
                 </div>
                 <button className="icon-button" onClick={() => setOpen(false)} aria-label="Close">
@@ -495,16 +495,15 @@ function EmployeeListViewButton({
 
                       <div className="employee-summary-info">
                         <strong>{employee.firstName} {employee.lastName}</strong>
-                        <span>{employee.employeeNo} · {formatEmploymentStatus(employee.employmentStatus)}</span>
+                        <span className="employee-summary-badge">
+                          <span className="employee-summary-badge-dot" />
+                          {formatEmploymentStatus(employee.employmentStatus)}
+                        </span>
                       </div>
 
                       <div className="employee-summary-total">
                         <span>Total Balance</span>
                         <strong>{totalRemainingDays.toFixed(0)}/{totalEarnedDays.toFixed(0)}</strong>
-                        <span className="employee-summary-badge">
-                          <span className="employee-summary-badge-dot" />
-                          {formatEmploymentStatus(employee.employmentStatus)}
-                        </span>
                       </div>
                     </div>
 

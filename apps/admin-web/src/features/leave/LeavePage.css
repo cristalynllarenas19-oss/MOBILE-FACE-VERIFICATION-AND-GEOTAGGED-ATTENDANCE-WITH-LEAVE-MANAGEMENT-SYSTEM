@@ -1421,6 +1421,7 @@
 .employee-summary-info {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 2px;
   flex: 1 1 auto;
   min-width: 0;
@@ -1432,10 +1433,8 @@
   font-weight: 800;
 }
 
-.employee-summary-info span {
-  color: #7b8794;
-  font-size: 11px;
-  font-weight: 600;
+.employee-summary-info .employee-summary-badge {
+  margin-top: 2px;
 }
 
 .employee-summary-total {

@@ -338,6 +338,13 @@
   white-space: nowrap;
 }
 
+
+.employee-employment-status-cell .badge {
+  width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .employee-action-group {
   display: inline-flex;
   align-items: center;
@@ -418,7 +425,7 @@
 }
 
 .employee-modal {
-  width: min(480px, 100%);
+  width: min(560px, 100%);
   max-height: calc(100vh - 36px);
   background: #ffffff;
   border-radius: 14px;
@@ -480,7 +487,9 @@
 }
 
 .employee-form label {
-  display: grid;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
   gap: 6px;
   color: #334155;
   font-size: 12px;
@@ -543,11 +552,15 @@
   line-height: 1.4;
 }
 
-/* Two classes deep so this beats ".employee-form label"'s `display: grid`
-   (which otherwise splits each checkbox from its text onto separate grid
-   rows/columns — see the Edit Employee "Additional Leave Types" section). */
+/* Explicit flex-direction/justify-content because ".employee-form label"
+   sets those to `column`/`flex-end` — properties aren't overridden just by
+   this selector's higher specificity on `display`, so each one must be
+   restated here, or the checkbox stacks above its text instead of beside it,
+   right-aligned per row (Edit Employee "Additional Leave Types" section). */
 .employee-leave-grants .employee-leave-grant-row {
   display: flex;
+  flex-direction: row;
+  justify-content: flex-start;
   align-items: center;
   gap: 10px;
   padding: 7px 6px;

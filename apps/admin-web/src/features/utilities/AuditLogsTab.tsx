@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronDown, Eye, Search, X } from "lucide-react";
+import { Eye, Search, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { apiRequest } from "../../lib/api";
@@ -122,7 +122,6 @@ export function AuditLogsTab({
   const [auditFrom, setAuditFrom] = useState("");
   const [auditTo, setAuditTo] = useState("");
   const [viewLog, setViewLog] = useState<AuditLog | null>(null);
-  const [showRawJson, setShowRawJson] = useState(false);
 
   const hasActiveAuditFilters =
     auditSearch.trim() !== "" ||
@@ -163,10 +162,6 @@ export function AuditLogsTab({
     loadAuditLogs(1, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sortOrder, auditFrom, auditTo]);
-
-  useEffect(() => {
-    setShowRawJson(false);
-  }, [viewLog]);
 
   const clearAuditSearch = () => {
     setAuditSearch("");
@@ -384,35 +379,6 @@ export function AuditLogsTab({
                     </table>
                   </div>
                 </>
-              )}
-
-              {hasRawJson && (
-                <div className="utilities-field">
-                  <button
-                    type="button"
-                    className="utilities-raw-json-toggle"
-                    onClick={() => setShowRawJson((v) => !v)}
-                  >
-                    <ChevronDown size={13} className={showRawJson ? "open" : ""} />
-                    {showRawJson ? "Hide raw JSON" : "Show raw JSON"}
-                  </button>
-                  {showRawJson && (
-                    <>
-                      {viewLog.oldValues != null && (
-                        <div className="utilities-audit-json-block">
-                          <span className="utilities-field-label">Previous Values</span>
-                          <pre>{JSON.stringify(viewLog.oldValues, null, 2)}</pre>
-                        </div>
-                      )}
-                      {viewLog.newValues != null && (
-                        <div className="utilities-audit-json-block">
-                          <span className="utilities-field-label">New Values</span>
-                          <pre>{JSON.stringify(viewLog.newValues, null, 2)}</pre>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
               )}
 
               {changeRows.length === 0 && !hasRawJson && (

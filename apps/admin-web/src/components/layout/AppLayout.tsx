@@ -196,6 +196,8 @@ export function AppLayout({
     markAllNotificationsRead().catch(() => undefined);
   };
 
+  const ATTENDANCE_NOTIFICATION_TYPES = ["ATTENDANCE_FLAGGED", "FACE_MISMATCH_STREAK", "ATTENDANCE_VALIDATED", "ATTENDANCE_FAKE_ATTEMPT"];
+
   const handleSelectNotification = (notification: AppNotification) => {
     if (notification.type?.startsWith("LEAVE") && activeView === "admin" && (user.adminPermissions ?? user.permissions).includes(permissions.leaveRead)) {
       // Jumps straight to this request's review modal instead of dropping HR/
@@ -203,6 +205,16 @@ export function AppLayout({
       onNavigate("leave", notification.entityId ?? undefined);
     } else if (notification.type?.startsWith("LEAVE") && activeView === "employee") {
       onNavigate("employee-leave", notification.entityId ?? undefined);
+    } else if (
+      notification.type &&
+      ATTENDANCE_NOTIFICATION_TYPES.includes(notification.type) &&
+      activeView === "admin" &&
+      (user.adminPermissions ?? user.permissions).includes(permissions.attendanceRead)
+    ) {
+      // Same as above but for Attendance — a supervisor gets this from the
+      // exact same view/permission set an admin does, so no separate branch
+      // is needed for that role.
+      onNavigate("attendance");
     }
     setNotifOpen(false);
   };

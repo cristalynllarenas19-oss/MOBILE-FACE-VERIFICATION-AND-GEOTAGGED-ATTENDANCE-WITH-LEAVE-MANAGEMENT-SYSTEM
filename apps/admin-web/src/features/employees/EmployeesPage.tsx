@@ -771,9 +771,6 @@ function EditEmployeeModal({
               />
             </label>
           )}
-        </div>
-
-        <div className="employee-form-grid">
           <label>
             Solo Parent Status
             <select value={form.soloParentStatus} onChange={updateField("soloParentStatus")}>
@@ -1087,6 +1084,7 @@ export function EmployeesPage({
   const lockedDepartmentName = isDepartmentLocked ? user?.department : undefined;
 
   const [departmentFilter, setDepartmentFilter] = useState("ALL");
+  const [modeFilter, setModeFilter] = useState<"ALL" | "FIELD" | "NON_FIELD">("ALL");
   const [showArchivedOnly, setShowArchivedOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(1);
@@ -1120,6 +1118,8 @@ export function EmployeesPage({
 
   const visibleEmployees = employees.filter((employee) => {
     if (departmentFilter !== "ALL" && employee.department.name !== departmentFilter) return false;
+    if (modeFilter === "FIELD" && employee.attendanceMode !== "FIELD") return false;
+    if (modeFilter === "NON_FIELD" && employee.attendanceMode === "FIELD") return false;
     if (showArchivedOnly) {
       if (employee.employmentStatus !== "SEPARATED") return false;
     } else {
@@ -1129,7 +1129,7 @@ export function EmployeesPage({
     return true;
   });
 
-  useEffect(() => setPage(1), [departmentFilter, showArchivedOnly, searchQuery]);
+  useEffect(() => setPage(1), [departmentFilter, modeFilter, showArchivedOnly, searchQuery]);
   const pageCount = Math.max(1, Math.ceil(visibleEmployees.length / EMPLOYEES_PAGE_SIZE));
   const pageSafe = Math.min(page, pageCount);
   const pagedEmployees = visibleEmployees.slice(
@@ -1190,17 +1190,21 @@ export function EmployeesPage({
           </div>
         </div>
 
-        {/* ARCHIVE — Archived employees tab */}
+        {/* MODE — Field / Non-field, matching the wording used in the MODE column */}
         <div className="employees-filter-group">
-          <span className="employees-filter-label">Archive</span>
-          <div className="filter-tabs">
-            <button
-              className={showArchivedOnly ? "active" : ""}
-              onClick={() => setShowArchivedOnly(true)}
-            >
-              Archived Employees
-            </button>
-          </div>
+          <label className="employees-filter-label">Mode</label>
+          <DropdownFilter
+            className="department-select"
+            value={modeFilter}
+            onChange={(value) => setModeFilter(value as "ALL" | "FIELD" | "NON_FIELD")}
+            options={[
+              { value: "NON_FIELD", label: "Non-field" },
+              { value: "FIELD", label: "Field" },
+            ]}
+            allLabel="Non-field & Field"
+            menuLabel="Filter by attendance mode"
+            ariaLabel="Filter employees by attendance mode"
+          />
         </div>
 
         {!isDepartmentLocked && (
@@ -1236,6 +1240,19 @@ export function EmployeesPage({
               aria-label="Clear search"
             >
               <X size={13} />
+            </button>
+          </div>
+        </div>
+
+        {/* ARCHIVE — Archived employees tab */}
+        <div className="employees-filter-group">
+          <span className="employees-filter-label">Archive</span>
+          <div className="filter-tabs">
+            <button
+              className={showArchivedOnly ? "active" : ""}
+              onClick={() => setShowArchivedOnly(true)}
+            >
+              Archived Employees
             </button>
           </div>
         </div>
@@ -1278,7 +1295,7 @@ export function EmployeesPage({
                   <td data-label="Email">{employee.user?.email ?? "Unassigned"}</td>
                   <td data-label="Department">{employee.department.name}</td>
                   <td data-label="Position">{employee.position.title}</td>
-                  <td data-label="Status" className="employee-status-cell">
+                  <td data-label="Status" className="employee-status-cell employee-employment-status-cell">
                     <Badge tone={getStatusTone(employee.employmentStatus)}>
                       {getStatusLabel(employee)}
                     </Badge>

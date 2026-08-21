@@ -688,13 +688,6 @@ export function LeaveTypesTab({
                     {actorDisplayName(viewLeaveType.createdByUser) ? ` - ${actorDisplayName(viewLeaveType.createdByUser)}` : ""}
                   </strong>
                 </div>
-                <div>
-                  <span>Last Updated</span>
-                  <strong>
-                    {formatDate(viewLeaveType.updatedAt)}
-                    {actorDisplayName(viewLeaveType.updatedByUser) ? ` - ${actorDisplayName(viewLeaveType.updatedByUser)}` : ""}
-                  </strong>
-                </div>
               </div>
             </div>
 

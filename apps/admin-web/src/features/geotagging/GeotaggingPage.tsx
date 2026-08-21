@@ -21,6 +21,7 @@ type EmployeeOption = {
   position?: { title: string };
   user?: { email?: string };
   attendanceMode?: string;
+  employmentStatus?: string;
 };
 
 type GeotaggedLocation = {
@@ -285,6 +286,7 @@ function GeotaggingPageContent({
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [employeeSearch, setEmployeeSearch] = useState("");
   const [departmentFilter, setDepartmentFilter] = useState("");
+  const [employeeModeFilter, setEmployeeModeFilter] = useState<"ALL" | "FIELD" | "NON_FIELD">("ALL");
   const [areaSearchQuery, setAreaSearchQuery] = useState("");
   const [areaStatusFilter, setAreaStatusFilter] = useState<"active" | "inactive" | "all">("active");
   const [assignmentError, setAssignmentError] = useState("");
@@ -325,7 +327,7 @@ function GeotaggingPageContent({
       try {
         const emps = await empsPromise;
         if (alive) {
-          setEmployees(Array.isArray(emps) ? emps : []);
+          setEmployees(Array.isArray(emps) ? emps.filter((employee) => employee.employmentStatus !== "SEPARATED") : []);
         }
       } catch (error) {
         console.error("Failed to load employees", error);
@@ -423,7 +425,7 @@ function GeotaggingPageContent({
     [activeDepartmentList],
   );
 
-  const employeeRows = useMemo(() => {
+  const employeeRowsBeforeModeFilter = useMemo(() => {
     const query = employeeSearch.trim().toLowerCase();
     return employees
       .filter((employee) => {
@@ -442,6 +444,22 @@ function GeotaggingPageContent({
         return `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`);
       });
   }, [currentLocationAssignedIds, departmentFilter, employeeSearch, employees]);
+
+  const employeeModeCounts = useMemo(
+    () => ({
+      all: employeeRowsBeforeModeFilter.length,
+      field: employeeRowsBeforeModeFilter.filter((employee) => employee.attendanceMode === "FIELD").length,
+      nonField: employeeRowsBeforeModeFilter.filter((employee) => employee.attendanceMode !== "FIELD").length,
+    }),
+    [employeeRowsBeforeModeFilter],
+  );
+
+  const employeeRows = useMemo(() => {
+    if (employeeModeFilter === "ALL") return employeeRowsBeforeModeFilter;
+    return employeeRowsBeforeModeFilter.filter((employee) =>
+      employeeModeFilter === "FIELD" ? employee.attendanceMode === "FIELD" : employee.attendanceMode !== "FIELD",
+    );
+  }, [employeeModeFilter, employeeRowsBeforeModeFilter]);
 
   // Employees in the current filtered list that can be toggled (assigned here,
   // not assigned anywhere, or a Field Technician — who may have many sites)
@@ -1287,28 +1305,64 @@ function GeotaggingPageContent({
                         ariaLabel="Filter employees by department"
                       />
                     )}
-
-                    {/* Select / Unselect All — placed under the department filter, right-aligned in this column */}
-                    {canWrite && (
-                      <div className="select-all-row">
-                        <button
-                          type="button"
-                          className={`select-all-button${allSelectableSelected ? " active" : ""}`}
-                          onClick={toggleSelectAll}
-                          disabled={selectableEmployeeIds.length === 0}
-                          aria-label={allSelectableSelected ? "Unselect all visible employees" : "Select all visible employees"}
-                        >
-                          <span className="select-all-checkbox" aria-hidden="true">
-                            {allSelectableSelected && <Check size={11} strokeWidth={3} />}
-                          </span>
-                          {allSelectableSelected ? "Unselect All" : "Select All"}
-                          {selectableEmployeeIds.length > 0 && (
-                            <span className="select-all-count">{selectableEmployeeIds.length}</span>
-                          )}
-                        </button>
-                      </div>
-                    )}
                   </div>
+                </div>
+              )}
+
+              {!editingIsGlobalZone && (
+                <div className="employee-mode-row">
+                  <div className="employee-mode-tabs" role="tablist" aria-label="Filter employees by attendance mode">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={employeeModeFilter === "ALL"}
+                      className={`status-tab${employeeModeFilter === "ALL" ? " is-selected" : ""}`}
+                      onClick={() => setEmployeeModeFilter("ALL")}
+                    >
+                      All
+                      <span className="status-tab-count">{employeeModeCounts.all}</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={employeeModeFilter === "FIELD"}
+                      className={`status-tab${employeeModeFilter === "FIELD" ? " is-selected" : ""}`}
+                      onClick={() => setEmployeeModeFilter("FIELD")}
+                    >
+                      Field
+                      <span className="status-tab-count">{employeeModeCounts.field}</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={employeeModeFilter === "NON_FIELD"}
+                      className={`status-tab${employeeModeFilter === "NON_FIELD" ? " is-selected" : ""}`}
+                      onClick={() => setEmployeeModeFilter("NON_FIELD")}
+                    >
+                      Non-Field
+                      <span className="status-tab-count">{employeeModeCounts.nonField}</span>
+                    </button>
+                  </div>
+
+                  {canWrite && (
+                    <div className="select-all-row">
+                      <button
+                        type="button"
+                        className={`select-all-button${allSelectableSelected ? " active" : ""}`}
+                        onClick={toggleSelectAll}
+                        disabled={selectableEmployeeIds.length === 0}
+                        aria-label={allSelectableSelected ? "Unselect all visible employees" : "Select all visible employees"}
+                      >
+                        <span className="select-all-checkbox" aria-hidden="true">
+                          {allSelectableSelected && <Check size={11} strokeWidth={3} />}
+                        </span>
+                        {allSelectableSelected ? "Unselect All" : "Select All"}
+                        {selectableEmployeeIds.length > 0 && (
+                          <span className="select-all-count">{selectableEmployeeIds.length}</span>
+                        )}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, Eye, MapPin, X } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Eye, MapPin, X, XCircle } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { apiRequest } from "../../lib/api";
@@ -88,7 +88,7 @@ const statusOptions = ["PRESENT", "LATE", "ABSENT", "ON_LEAVE", "OFFICIAL_BUSINE
 const recordTypeOptions = ["OFFICE", "FIELD"];
 
 function getRecordTypeLabel(recordType: string) {
-  return recordType === "FIELD" ? "Field" : "Office";
+  return recordType === "FIELD" ? "Field" : "Non-field";
 }
 
 function flaggedLogToRecord(log: FlaggedLog): AttendanceRecord {
@@ -310,7 +310,6 @@ function AttendanceDetailsModal({
         <div className="attendance-section-title">Employee &amp; Attendance</div>
         <div className="attendance-detail-grid attendance-modal-main-grid">
           <div><span>Employee Name</span><strong>{getName(record)}</strong></div>
-          <div><span>Employee No.</span><strong>{record.employee.employeeNo ?? "—"}</strong></div>
           <div><span>Position</span><strong>{record.employee.position?.title ?? "—"}</strong></div>
           <div><span>Department</span><strong>{record.employee.department.name}</strong></div>
           <div><span>Site</span><strong>{record.workLocation?.name ?? "—"}</strong></div>
@@ -352,9 +351,11 @@ function AttendanceDetailsModal({
             {canWrite && record.isFlagged && (
               <>
                 <button className="attendance-reject-button" onClick={() => reviewFlagged("reject")} disabled={isSaving}>
+                  <XCircle size={15} />
                   Reject as Fake Attempt
                 </button>
-                <button className="primary-button" onClick={() => reviewFlagged("validate")} disabled={isSaving}>
+                <button className="primary-button attendance-validate-button" onClick={() => reviewFlagged("validate")} disabled={isSaving}>
+                  <CheckCircle2 size={15} />
                   Validate as Legitimate
                 </button>
               </>
@@ -526,7 +527,7 @@ export function AttendancePage({
             value={recordTypeFilter}
             onChange={setRecordTypeFilter}
             options={recordTypeOptions.map((recordType) => ({ value: recordType, label: getRecordTypeLabel(recordType) }))}
-            allLabel="Office & Field"
+            allLabel="Non-field & Field"
             menuLabel="Filter by office/field"
             ariaLabel="Office or Field"
           />

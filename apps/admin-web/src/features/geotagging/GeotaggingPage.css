@@ -578,6 +578,19 @@
   align-items: flex-start;
 }
 
+.employee-mode-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.employee-mode-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .employee-search-label {
   flex: 1 1 0;
   min-width: 0;
@@ -629,13 +642,7 @@
 .select-all-row {
   display: flex;
   align-items: center;
-}
-
-/* Now nested under the department filter column — right-align it there,
-   with a touch of top spacing to separate it from the dropdown above. */
-.employee-department-label .select-all-row {
-  margin-top: 2px;
-  justify-content: flex-end;
+  flex-shrink: 0;
 }
 
 .select-all-button {
@@ -1709,6 +1716,10 @@
   .employee-department-label {
     max-width: none;
     flex: 1 1 auto;
+  }
+
+  .employee-mode-row {
+    flex-wrap: wrap;
   }
 
   .geotagging-modal {
