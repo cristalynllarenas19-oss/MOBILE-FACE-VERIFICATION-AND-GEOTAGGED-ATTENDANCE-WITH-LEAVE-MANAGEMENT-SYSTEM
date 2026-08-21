@@ -608,22 +608,13 @@ export default function CameraScanner({ logType, onComplete, onCancel, onFaceMis
         return;
       }
       let failed = false;
-      // Only switch into blink-sampling mode (the heavier, slower precise
-      // backend path — full landmark model, decoupled capture/send) once a
-      // face has actually been confirmed present. Before that, "is a face
-      // here at all" only needs the cheap/fast tracking path (tiny model,
-      // sequential at DETECT_POLL_MS) — there's no point paying for
-      // eyelid-precision landmarks before there's even a face to check.
-      // This used to sample for a blink from the very first frame of every
-      // scan attempt regardless of whether a face had been found yet, which
-      // meant the initial "face detected" feedback was riding on the
-      // slowest backend call instead of the fastest one.
-      // Nothing gates this but the face itself: the moment a face is found,
-      // the very next frame goes straight into the decoupled blink stream.
+      // Start the decoupled blink stream with the very first camera frame.
+      // The fast endpoint still rejects frames without a face, but no longer
+      // makes a real blink wait for a separate face-tracking round trip.
       // Identity matching does not run at this stage at all — it happens
       // once, after liveness passes, on the final captured photo (see
       // verifyCapturedIdentity in finishScan).
-      const samplingBlink = faceDetectedRef.current && blinkCountRef.current < REQUIRED_BLINKS;
+      const samplingBlink = blinkCountRef.current < REQUIRED_BLINKS;
       try {
         // skipProcessing is intentionally NOT set here: it skips orientation
         // correction, which would return raw sensor pixels (often landscape,
