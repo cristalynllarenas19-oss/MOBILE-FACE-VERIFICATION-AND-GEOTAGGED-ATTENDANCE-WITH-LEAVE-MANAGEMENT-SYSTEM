@@ -529,6 +529,56 @@ export class AttendanceService {
       );
     }
 
+    const geoResult =
+      this.geolocation.validateGeofence({
+        latitude: dto.latitude,
+        longitude: dto.longitude,
+        accuracyMeters:
+          dto.accuracyMeters,
+
+        siteLatitude: Number(
+          location.latitude,
+        ),
+
+        siteLongitude: Number(
+          location.longitude,
+        ),
+
+        radiusMeters: Number(
+          location.radiusMeters,
+        ),
+
+        allowedAccuracyMeters: Number(
+          location.allowedAccuracyMeters,
+        ),
+      });
+
+    // Location is validated before anything face-related runs at all: a
+    // request outside the allowed area is rejected immediately, without ever
+    // loading the employee's FaceProfile or running descriptor
+    // extraction/comparison. This mirrors the mobile client, which must
+    // never open the camera in this case either — and it means a request
+    // that bypasses the mobile UI and hits this endpoint directly still
+    // cannot buy an approval by lying about face verification, since
+    // approval never depends on anything the client claims about its own
+    // face check, and no face data is even processed until location clears.
+    if (!geoResult.approved) {
+      return {
+        approved: false,
+        verificationStatus: "REJECTED" as const,
+        logType,
+        faceResult: {
+          status: "REJECTED" as const,
+          reason: "Face verification unavailable — outside the allowed area",
+          similarityScore: 0,
+        },
+        geoResult,
+        attendanceRecordId: existingRecord?.id ?? null,
+        similarityScore: 0,
+        faceImage: null,
+      };
+    }
+
     const faceProfile = (await this.prisma.faceProfile.findFirst({
       where: { employeeId: dto.employeeId, enrollmentStatus: "ACTIVE" },
       orderBy: { enrolledAt: "desc" },
@@ -559,44 +609,21 @@ export class AttendanceService {
     const faceResult = this.faceVerification.evaluateMatch(livenessScore, distance);
     const similarityScore = faceResult.similarityScore;
 
-    const geoResult =
-      this.geolocation.validateGeofence({
-        latitude: dto.latitude,
-        longitude: dto.longitude,
-        accuracyMeters:
-          dto.accuracyMeters,
+    // geoResult.approved is already guaranteed true here (see the
+    // short-circuit above), so approval now rests solely on the face match.
+    const approved = faceResult.status === "APPROVED" && geoResult.approved;
 
-        siteLatitude: Number(
-          location.latitude,
-        ),
-
-        siteLongitude: Number(
-          location.longitude,
-        ),
-
-        radiusMeters: Number(
-          location.radiusMeters,
-        ),
-
-        allowedAccuracyMeters: Number(
-          location.allowedAccuracyMeters,
-        ),
-      });
-
-    const approved =
-      faceResult.status ===
-        "APPROVED" &&
-      geoResult.approved;
-
-    // A face that didn't cleanly match (flat mismatch or borderline) but was
-    // captured inside the correct geofence is escalated to the supervisor/
-    // admin for a human decision, rather than silently discarded — this is
-    // exactly the "someone else is using my account" case. A geofence
-    // failure is never escalated this way (wrong location isn't evidence of
-    // impersonation), and neither is a capture with no detectable face at
-    // all (`distance === null`, e.g. bad lighting) — that's a technical
-    // retake, not a mismatch worth a fraud review.
-    const shouldFlag = !approved && geoResult.approved && distance !== null;
+    // Only a genuinely borderline match (evaluateMatch's PENDING_REVIEW —
+    // close enough that bad lighting/angle could explain it) is escalated to
+    // the supervisor/admin for a human decision. A flat mismatch
+    // (evaluateMatch's REJECTED — confidently a different person) is a hard
+    // rejection: it must never become a "Time In Pending Review" record,
+    // never notify a supervisor as if this might be the account owner, and
+    // never leave a path to being approved after review. A geofence failure
+    // is never escalated this way either (wrong location isn't evidence of
+    // impersonation) — geoResult.approved is already guaranteed true here
+    // regardless, per the short-circuit above.
+    const shouldFlag = faceResult.status === "PENDING_REVIEW" && geoResult.approved;
 
     const verificationStatus = approved ? "APPROVED" : shouldFlag ? "PENDING_REVIEW" : "REJECTED";
 
@@ -722,6 +749,13 @@ export class AttendanceService {
           deviceId: dto.deviceId,
         },
       });
+    } else if (faceResult.status === "REJECTED" && faceResult.reason === "Face does not match enrolled profile") {
+      // Only reached by a client that skipped (or lied about) the mobile
+      // app's pre-submit /face/match check — that check already stops a
+      // confident mismatch before it ever reaches here in the normal flow —
+      // but it still needs to count toward the same-day strike threshold so
+      // a bypassing client can't dodge the supervisor notification.
+      await this.faceVerification.recordFaceMismatch(dto.employeeId);
     }
 
     return {
@@ -921,6 +955,49 @@ export class AttendanceService {
         entityId: logId,
       });
     }
+
+    return updatedLog;
+  }
+
+  // Admin/supervisor dismisses a flagged attempt without deciding it was
+  // legitimate or impersonation — e.g. a stale/unreachable attempt not worth
+  // pursuing. Removes it from the flagged review queue with no DTR created
+  // and no notification to the employee, since no decision about them is
+  // being communicated.
+  async archiveFlaggedLog(logId: string, remarks: string | undefined, context: AuditLogContext = {}, scopeDepartmentId?: string) {
+    const log = await this.prisma.attendanceLog.findUniqueOrThrow({
+      where: { id: logId },
+      include: { employee: { select: { departmentId: true, firstName: true, lastName: true } } },
+    });
+
+    if (log.verificationStatus !== "PENDING_REVIEW" || log.attendanceRecordId) {
+      throw new BadRequestException("This attendance attempt has already been reviewed.");
+    }
+
+    if (scopeDepartmentId && log.employee.departmentId !== scopeDepartmentId) {
+      throw new ForbiddenException("You can only manage attendance records from your own department.");
+    }
+
+    const updatedLog = await this.prisma.attendanceLog.update({
+      where: { id: logId },
+      data: {
+        verificationStatus: "ARCHIVED",
+        reviewedAt: new Date(),
+        reviewedBy: context.actorUserId,
+        reviewRemarks: remarks?.trim() || null,
+      },
+    });
+
+    await this.auditLogs.record({
+      ...context,
+      action: "ARCHIVE_FLAGGED_ATTENDANCE",
+      module: "Attendance",
+      entityType: "AttendanceLog",
+      entityId: logId,
+      description: `Archived a flagged attendance attempt on ${log.employee.firstName} ${log.employee.lastName}'s account.`,
+      oldValues: { verificationStatus: log.verificationStatus },
+      newValues: { remarks: remarks?.trim(), verificationStatus: "ARCHIVED" },
+    });
 
     return updatedLog;
   }

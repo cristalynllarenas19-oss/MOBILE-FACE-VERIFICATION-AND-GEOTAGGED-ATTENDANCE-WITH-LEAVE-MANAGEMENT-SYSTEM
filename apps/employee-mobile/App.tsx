@@ -414,17 +414,29 @@ export default function App() {
       }
     }
 
-    // The work-area warning is advisory, so do not hold the camera, live
-    // timestamp, or map behind its GPS request.
+    // The geofence check must fully resolve, and pass, before the camera is
+    // ever allowed to open. Face verification (including blink/liveness) has
+    // no awareness of location on its own — if it were allowed to start in
+    // parallel with this check, it could show "Face verified" for someone
+    // standing outside their work area. Blocking here is what prevents that
+    // state from ever being reachable on this device; the backend
+    // independently re-checks and rejects regardless (see
+    // attendance.service.ts submit()), so this is a UX improvement on top of
+    // an already-enforced backend rule, not the actual security boundary.
+    setIsLoading(true);
+    const isOutsideWorkArea = await checkOutsideWorkArea();
+    setIsLoading(false);
+
+    if (isOutsideWorkArea) {
+      setResultModal({
+        status: "error",
+        title: "Outside the Allowed Area",
+        message: "You're outside your designated work area, so face verification can't start. Move within range and try again.",
+      });
+      return;
+    }
+
     setScanType(type);
-    void checkOutsideWorkArea().then((isOutsideWorkArea) => {
-      if (isOutsideWorkArea) {
-        Alert.alert(
-          "Outside Work Area",
-          "You appear to be outside your designated work area. Your attendance may be flagged for review.",
-        );
-      }
-    });
   }
 
   // FIELD employees have no single fixed time-in/out pair — sequencing
@@ -482,14 +494,18 @@ export default function App() {
 
     const isOutsideSite = await checkOutsideSite(site);
     if (isOutsideSite) {
-      Alert.alert(
-        "Outside Work Area",
-        "You appear to be outside this site's geotagged area. You can still continue, but your attendance may be flagged for review.",
-        [
-          { text: "Cancel", style: "cancel" },
-          { text: "Continue Anyway", onPress: () => setScanType("TIME_IN") },
-        ],
-      );
+      // No "Continue Anyway" here: opening the camera would let blink/
+      // liveness run and locally succeed regardless of location, which is
+      // exactly the state we must never reach. The backend rejects a
+      // geofence failure outright (it isn't eligible for the flagged/
+      // pending-review path — that's reserved for face mismatches inside
+      // the geofence), so continuing anyway could never have resulted in a
+      // recorded attendance entry either.
+      setResultModal({
+        status: "error",
+        title: "Outside the Allowed Area",
+        message: "You're outside this site's geotagged area, so face verification can't start. Move within range and try again.",
+      });
       return;
     }
 
@@ -610,7 +626,11 @@ export default function App() {
       } else {
         setResultModal({
           status: "rejected",
-          title: `${actionLabel} Not Recorded`,
+          // A flat face mismatch (as opposed to no-face-detected, liveness
+          // failure, or being outside the work area — each keeps the
+          // generic title below) gets its own clear title, since this is
+          // the "someone else's face" case specifically.
+          title: reason === "Face does not match enrolled profile" ? "Face Verification Failed" : `${actionLabel} Not Recorded`,
           message: friendlyMessage,
         });
       }
@@ -675,6 +695,22 @@ export default function App() {
           onCancel={() => {
             setScanType(null);
             setSelectedWorkLocation(null);
+          }}
+          onFaceMismatch={() => {
+            // Liveness passed, but the identity check that runs on the
+            // captured photo right after it confidently found a different
+            // person — the scanner never showed a verified state and no
+            // attendance was submitted. Reuses the exact same title/message
+            // shown when a mismatch is instead caught at final submission,
+            // so the employee sees one consistent error regardless of when
+            // it was detected.
+            setScanType(null);
+            setSelectedWorkLocation(null);
+            setResultModal({
+              status: "rejected",
+              title: "Face Verification Failed",
+              message: getFriendlyReason("Face does not match enrolled profile", "REJECTED"),
+            });
           }}
         />
       ) : portal === "supervisor" ? (

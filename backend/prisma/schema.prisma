@@ -98,6 +98,9 @@ enum VerificationStatus {
   PENDING_REVIEW
   // Admin/supervisor confirmed a mismatched-face attempt was impersonation.
   FAKE_ATTEMPT
+  // Admin/supervisor dismissed a flagged attempt without deciding it was
+  // legitimate or impersonation — removes it from the review queue.
+  ARCHIVED
 }
 
 enum LeaveStatus {
@@ -305,6 +308,14 @@ model Employee {
   section_id           String?
   sex                  Sex?
   soloParentStatus     SoloParentStatus       @default(NOT_APPLICABLE) @map("solo_parent_status")
+  // Confident face-mismatch strikes ("this is a different person," not a
+  // borderline match or a geofence failure) for the current calendar day —
+  // see FaceVerificationService.matchEmployeeFace. Resets to 1 the first
+  // time a mismatch lands on a new day (faceMismatchCountDate no longer
+  // matches today), so a supervisor is notified again on that day's 3rd
+  // strike rather than staying silently maxed out forever.
+  faceMismatchCount     Int                    @default(0) @map("face_mismatch_count")
+  faceMismatchCountDate DateTime?              @map("face_mismatch_count_date")
   createdAt            DateTime               @default(now()) @map("created_at")
   sections             sections?              @relation(fields: [section_id], references: [id])
   user                 User                   @relation(fields: [userId], references: [id])

@@ -4,20 +4,13 @@ const FRIENDLY_REASONS: Record<string, string> = {
   "No face detected in the captured photo. Please retake in good lighting.":
     "We couldn't find a face in the photo. Make sure you're well-lit and facing the camera, then try again.",
   "Face does not match enrolled profile":
-    "We couldn't verify your identity. Try again with clear lighting and your face centered in the frame.",
+    "The detected face does not match the registered employee. Please make sure you are the employee assigned to this account.",
   "Borderline face match requires HR review":
     "Your face match was inconclusive, so this attendance has been sent to HR for review.",
   "Liveness check failed": "We couldn't confirm a live face. Please try again.",
 };
 
 export function getFriendlyReason(reason: string | null | undefined, verificationStatus: string) {
-  // This exact reason is returned in two different situations: a flat
-  // mismatch inside the correct geofence (escalated to admin review) vs.
-  // one outside it too (a plain rejection) — the message needs to match
-  // which one actually happened.
-  if (reason === "Face does not match enrolled profile" && verificationStatus === "PENDING_REVIEW") {
-    return "We couldn't confirm this is you. Your attempt has been flagged and sent to your supervisor/admin for review — you'll be notified once it's resolved.";
-  }
   if (reason && FRIENDLY_REASONS[reason]) {
     return FRIENDLY_REASONS[reason];
   }

@@ -103,4 +103,11 @@ export class AttendanceController {
     const departmentId = getSupervisorDepartmentScope((request as any).user);
     return this.attendanceService.rejectFlaggedLog(logId, body.remarks, getAuditContext(request), departmentId);
   }
+
+  @Patch("flagged/:logId/archive")
+  @RequirePermissions("attendance:write")
+  archiveFlagged(@Param("logId") logId: string, @Body() body: { remarks?: string }, @Req() request: Request) {
+    const departmentId = getSupervisorDepartmentScope((request as any).user);
+    return this.attendanceService.archiveFlaggedLog(logId, body.remarks, getAuditContext(request), departmentId);
+  }
 }

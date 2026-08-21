@@ -2,6 +2,8 @@ import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import * as path from "path";
 import * as canvasLib from "canvas";
 import * as faceapi from "face-api.js";
+import { PrismaService } from "../../prisma/prisma.service";
+import { NotificationsService } from "../notifications/notifications.service";
 
 const { Canvas, Image, ImageData } = canvasLib;
 faceapi.env.monkeyPatch({ Canvas: Canvas as any, Image: Image as any, ImageData: ImageData as any });
@@ -13,10 +15,22 @@ const MODELS_PATH = path.join(process.cwd(), "models");
 const APPROVE_DISTANCE = 0.45;
 const REVIEW_DISTANCE = 0.6;
 
+// A confident, same-day face-mismatch streak reaching this many strikes
+// notifies the employee's supervisor. Chosen so isolated bad-lighting/angle
+// misfires (which land as PENDING_REVIEW anyway, not this path) don't page a
+// supervisor over a single attempt, while a real, repeated impersonation
+// attempt still gets flagged quickly.
+const MISMATCH_NOTIFY_THRESHOLD = 3;
+
 @Injectable()
 export class FaceVerificationService implements OnModuleInit {
   private readonly logger = new Logger(FaceVerificationService.name);
   private modelsLoadingPromise: Promise<void> | null = null;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   async onModuleInit() {
     await this.ensureModelsLoaded();
@@ -263,5 +277,115 @@ export class FaceVerificationService implements OnModuleInit {
     }
 
     return { status: "REJECTED" as const, reason: "Face does not match enrolled profile", similarityScore };
+  }
+
+  // Post-liveness identity check: the mobile client calls this once, on the
+  // photo it just captured after blink/liveness passed, so a wrong-person
+  // scan can be stopped before the user is ever shown a verified result.
+  // This is NOT the authoritative decision —
+  // attendance.service.ts's submit() independently re-extracts and
+  // re-compares the final captured photo at submission time regardless of
+  // what this endpoint returned, since a tampered client could fake this
+  // response. employeeId always comes from the caller's own JWT (set by the
+  // controller), never from the request body, so this can't be used to
+  // probe another employee's enrolled similarity score.
+  async matchEmployeeFace(employeeId: string, imageBase64: string) {
+    const faceProfile = (await this.prisma.faceProfile.findFirst({
+      where: { employeeId, enrollmentStatus: "ACTIVE" },
+      orderBy: { enrolledAt: "desc" },
+    })) as any;
+
+    const enrolledDescriptor = Array.isArray(faceProfile?.descriptors) ? faceProfile.descriptors[0] : null;
+    if (!enrolledDescriptor) {
+      return { status: "REJECTED" as const, reason: "No active face profile is enrolled for this employee", similarityScore: 0 };
+    }
+
+    await this.ensureModelsLoaded();
+
+    const base64Data = imageBase64.includes("base64,") ? imageBase64.split("base64,")[1] : imageBase64;
+    const buffer = Buffer.from(base64Data, "base64");
+
+    const capturedDescriptor = await this.extractDescriptor(buffer);
+    const distance = capturedDescriptor ? this.compareDescriptors(enrolledDescriptor, capturedDescriptor) : null;
+
+    const result = this.evaluateMatch(100, distance);
+
+    // Only a confident "this is a different person" result is a face
+    // mismatch for strike-counting purposes — a missing enrolled profile
+    // (handled above) or no face found in the frame (distance === null,
+    // its own REJECTED reason) is never the account owner's fault, and a
+    // geofence failure never reaches this method at all (it's checked
+    // client-side before the camera even opens, and this endpoint has no
+    // location input to begin with).
+    if (result.status === "REJECTED" && result.reason === "Face does not match enrolled profile") {
+      await this.recordFaceMismatch(employeeId);
+    }
+
+    return result;
+  }
+
+  // Tracks same-day confident face-mismatch strikes and notifies the
+  // employee's supervisor once the count reaches MISMATCH_NOTIFY_THRESHOLD
+  // (not on every mismatch, and not again for the rest of that day). The
+  // count resets whenever a strike lands on a day different from the one
+  // last recorded, so tomorrow starts back at zero rather than staying
+  // permanently maxed out.
+  async recordFaceMismatch(employeeId: string) {
+    const employee = await this.prisma.employee.findUnique({
+      where: { id: employeeId },
+      select: {
+        userId: true,
+        supervisorId: true,
+        firstName: true,
+        lastName: true,
+        faceMismatchCount: true,
+        faceMismatchCountDate: true,
+      },
+    });
+    if (!employee) return;
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const isSameDay = employee.faceMismatchCountDate?.getTime() === today.getTime();
+    const nextCount = isSameDay ? employee.faceMismatchCount + 1 : 1;
+
+    await this.prisma.employee.update({
+      where: { id: employeeId },
+      data: { faceMismatchCount: nextCount, faceMismatchCountDate: today },
+    });
+
+    if (nextCount === MISMATCH_NOTIFY_THRESHOLD) {
+      await this.notifySupervisorOfMismatchStreak(employee);
+    }
+  }
+
+  // Mirrors attendance.service.ts's notifyFlaggedAttempt(): a regular
+  // employee's streak routes to their direct supervisor; a supervisor (or
+  // an employee with no assigned supervisor) has no one above them to
+  // escalate to, so it routes to HR/Admin instead.
+  private async notifySupervisorOfMismatchStreak(employee: {
+    userId: string;
+    supervisorId: string | null;
+    firstName: string;
+    lastName: string;
+  }) {
+    const isSupervisor = await this.notifications.userHasRole(employee.userId, "SUPERVISOR");
+
+    let recipientIds: string[];
+    if (!isSupervisor && employee.supervisorId) {
+      const supervisor = await this.prisma.employee.findUnique({
+        where: { id: employee.supervisorId },
+        select: { userId: true },
+      });
+      recipientIds = supervisor?.userId ? [supervisor.userId] : await this.notifications.adminUserIds();
+    } else {
+      recipientIds = await this.notifications.adminUserIds();
+    }
+
+    await this.notifications.notifyUsers(recipientIds, {
+      title: "Repeated Face Mismatches",
+      message: `${employee.firstName} ${employee.lastName}'s account has had ${MISMATCH_NOTIFY_THRESHOLD} face verification mismatches today. Please check in with them.`,
+      type: "FACE_MISMATCH_STREAK",
+    });
   }
 }

@@ -2,7 +2,8 @@ import * as SecureStore from "expo-secure-store";
 import Constants from "expo-constants";
 import { clearDataCache } from "./utils/dataCache";
 
-const DEFAULT_API_BASE_URL = "https://mobile-face-verification-and-geotagged.onrender.com/api/v1";
+const DEFAULT_API_BASE_URL = "http://localhost:3001/api/v1";
+// "https://mobile-face-verification-and-geotagged.onrender.com/api/v1"
 
 function getMetroHost() {
   const metroHost = (
@@ -457,6 +458,20 @@ export async function detectFace(imageBase64: string, precise = false) {
       body: JSON.stringify({ imageBase64, precise }),
     },
   );
+}
+
+export type FaceMatchResult = { status: "APPROVED" | "PENDING_REVIEW" | "REJECTED"; reason: string | null; similarityScore: number };
+
+// Mid-scan identity pre-check: compares the given frame against the
+// logged-in employee's own enrolled profile (server resolves employeeId
+// from the JWT, never from this call's body). Not the authoritative
+// decision — submitAttendance() below independently re-verifies the final
+// captured photo regardless of what this returned.
+export async function matchFace(imageBase64: string) {
+  return apiRequest<FaceMatchResult>("/face/match", {
+    method: "POST",
+    body: JSON.stringify({ imageBase64 }),
+  });
 }
 
 export async function submitAttendance(input: SubmitAttendanceInput) {
