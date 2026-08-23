@@ -27,7 +27,17 @@
       "package": "com.unileaf.employeeattendance"
     },
     "plugins": [
-      "@react-native-community/datetimepicker",
+      [
+        "@react-native-community/datetimepicker",
+        {
+          "android": {
+            "datePicker": {
+              "colorAccent": { "light": "#1680D8" },
+              "colorControlActivated": { "light": "#1680D8" }
+            }
+          }
+        }
+      ],
       "expo-secure-store",
       "expo-asset",
       "expo-audio"

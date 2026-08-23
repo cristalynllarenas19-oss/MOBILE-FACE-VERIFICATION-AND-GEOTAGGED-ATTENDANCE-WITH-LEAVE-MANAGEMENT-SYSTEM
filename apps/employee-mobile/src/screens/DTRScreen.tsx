@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
+import DateTimePickerModal from "react-native-modal-datetime-picker";
 import { AttendanceHistoryRecord, AttendanceLogPhoto, getAttendanceHistory } from "../api";
 import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
 
@@ -28,6 +29,12 @@ const EMPTY_RECORDS: AttendanceHistoryRecord[] = [];
 const PHOTO_STAMP_TILE_SIZE = 256;
 const PHOTO_STAMP_MAP_SIZE = 56;
 const PHOTO_STAMP_MAP_ZOOM = 16;
+// Matches the app's own accent blue (used for icons/CTAs elsewhere on this
+// screen) instead of the picker's default iOS blue — only takes effect on
+// iOS via the accentColor prop below; the Android calendar's colors come
+// from the native theme instead (see the datetimepicker plugin config in
+// app.json), which needs a rebuild, not just a JS change, to pick up.
+const CALENDAR_ACCENT_COLOR = "#1680D8";
 
 function buildPhotoStampTiles(latitude: string | number, longitude: string | number): PhotoStampTile[] {
   const lat = Number(latitude);
@@ -62,6 +69,24 @@ function isMorning(value: string | null) {
 
 function formatDate(value: string) {
   return new Date(value).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+
+// Compact form for the date-filter chips — no weekday, these sit side by
+// side in a "From ... To ..." row where the full formatDate() output
+// wouldn't fit.
+function formatShortDate(value: Date) {
+  return value.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+// Local calendar-day boundaries (not UTC) so a "From"/"To" pick matches what
+// the user actually tapped on the date picker, not a day shifted by
+// timezone — attendanceDate comparisons below use these, inclusive on both
+// ends.
+function startOfDay(value: Date) {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime();
+}
+function endOfDay(value: Date) {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate(), 23, 59, 59, 999).getTime();
 }
 
 function formatTime(value: string | null) {
@@ -152,6 +177,15 @@ export default function DTRScreen({ employeeId }: Props) {
   const [selectedRecord, setSelectedRecord] = useState<AttendanceHistoryRecord | null>(null);
   const [photoTab, setPhotoTab] = useState<"TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN">("TIME_IN");
   const [amPmFilter, setAmPmFilter] = useState<"ALL" | "AM" | "PM">("ALL");
+  // Date-range filter for the list below the (now-pinned) summary card —
+  // both ends optional/independent, inclusive. Deliberately does not affect
+  // the "Today's Hours Rendered" summary card above it (see
+  // todayOfficeRecord/todayFieldRecord below), which always reflects today
+  // regardless of what range the list itself is filtered to.
+  const [dateFrom, setDateFrom] = useState<Date | null>(null);
+  const [dateTo, setDateTo] = useState<Date | null>(null);
+  const [isFromPickerVisible, setIsFromPickerVisible] = useState(false);
+  const [isToPickerVisible, setIsToPickerVisible] = useState(false);
   const [photoStampAddress, setPhotoStampAddress] = useState<string | null>(null);
 
   const { data, isLoading, refresh } = useCachedData<AttendanceHistoryRecord[]>(
@@ -166,21 +200,43 @@ export default function DTRScreen({ employeeId }: Props) {
     setIsRefreshing(false);
   }
 
-  const officeRecords = useMemo(() => records.filter((r) => r.recordType !== "FIELD"), [records]);
-  const fieldRecords = useMemo(() => records.filter((r) => r.recordType === "FIELD"), [records]);
+  // Unfiltered by date — these back the "Today's Hours Rendered" summary
+  // card, which should keep reflecting today even while the list below is
+  // filtered to a different date range.
+  const officeRecordsAll = useMemo(() => records.filter((r) => r.recordType !== "FIELD"), [records]);
+  const fieldRecordsAll = useMemo(() => records.filter((r) => r.recordType === "FIELD"), [records]);
+  const todayOfficeRecord = useMemo(() => latestOf(officeRecordsAll), [officeRecordsAll]);
+  const todayFieldRecord = useMemo(() => latestOf(fieldRecordsAll), [fieldRecordsAll]);
+
+  const dateFilteredRecords = useMemo(() => {
+    if (!dateFrom && !dateTo) return records;
+    const fromMs = dateFrom ? startOfDay(dateFrom) : -Infinity;
+    const toMs = dateTo ? endOfDay(dateTo) : Infinity;
+    return records.filter((r) => {
+      const ts = new Date(r.attendanceDate).getTime();
+      return ts >= fromMs && ts <= toMs;
+    });
+  }, [records, dateFrom, dateTo]);
+
+  const officeRecords = useMemo(
+    () => dateFilteredRecords.filter((r) => r.recordType !== "FIELD"),
+    [dateFilteredRecords],
+  );
+  const fieldRecords = useMemo(
+    () => dateFilteredRecords.filter((r) => r.recordType === "FIELD"),
+    [dateFilteredRecords],
+  );
 
   const filteredFieldRecords = useMemo(() => {
     if (amPmFilter === "ALL") return fieldRecords;
     return fieldRecords.filter((record) => isMorning(record.timeInAt) === (amPmFilter === "AM"));
   }, [fieldRecords, amPmFilter]);
 
-  const todayOfficeRecord = useMemo(() => latestOf(officeRecords), [officeRecords]);
-  const todayFieldRecord = useMemo(() => latestOf(fieldRecords), [fieldRecords]);
-
   const isOfficeTab = activeTab === "office";
   const todayRecord = isOfficeTab ? todayOfficeRecord : todayFieldRecord;
   const todayInProgress = Boolean(todayRecord?.timeInAt) && !todayRecord?.timeOutAt;
   const listData = isOfficeTab ? officeRecords : filteredFieldRecords;
+  const hasDateFilter = Boolean(dateFrom || dateTo);
 
   useEffect(() => {
     const log = selectedRecord?.logs.find((item) => item.logType === photoTab);
@@ -208,74 +264,147 @@ export default function DTRScreen({ employeeId }: Props) {
 
   return (
     <>
+    <View style={styles.card}>
+      {/* Pinned header — title, tabs, today's-hours summary, and filters
+          all stay fixed above the list instead of scrolling away with it
+          (previously a FlatList ListHeaderComponent, which scrolls with
+          the content). Only the record rows below scroll now. */}
+      <View style={styles.pinnedHeader}>
+        <Text style={styles.cardTitle}>Daily Time Record</Text>
+
+        <View style={styles.tabSwitcher}>
+          <Pressable
+            style={[styles.tabButton, isOfficeTab && styles.tabButtonActive]}
+            onPress={() => setActiveTab("office")}
+          >
+            <Text style={[styles.tabButtonText, isOfficeTab && styles.tabButtonTextActive]}>Office</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.tabButton, !isOfficeTab && styles.tabButtonActive]}
+            onPress={() => setActiveTab("field")}
+          >
+            <Text style={[styles.tabButtonText, !isOfficeTab && styles.tabButtonTextActive]}>Field</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.summaryCard}>
+          <Ionicons name="time" size={22} color="#1680D8" />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.summaryLabel}>
+              {isOfficeTab ? "Today's Hours Rendered" : "Today's Hours Rendered (Latest Visit)"}
+            </Text>
+            <Text style={styles.summaryValue}>
+              {todayRecord
+                ? formatHoursRendered(todayRecord.totalMinutes) ?? (todayInProgress ? "In progress" : "--")
+                : isOfficeTab
+                  ? "Not yet timed in"
+                  : "No visit started"}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.filterRow}>
+          <Pressable
+            style={[styles.dateFilterChip, dateFrom && styles.dateFilterChipActive]}
+            onPress={() => setIsFromPickerVisible(true)}
+          >
+            <Ionicons name="calendar-outline" size={13} color={dateFrom ? "#FFFFFF" : "#1680D8"} />
+            <Text style={[styles.dateFilterChipText, dateFrom && styles.dateFilterChipTextActive]} numberOfLines={1}>
+              {dateFrom ? formatShortDate(dateFrom) : "From"}
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[styles.dateFilterChip, dateTo && styles.dateFilterChipActive]}
+            onPress={() => setIsToPickerVisible(true)}
+          >
+            <Ionicons name="calendar-outline" size={13} color={dateTo ? "#FFFFFF" : "#1680D8"} />
+            <Text style={[styles.dateFilterChipText, dateTo && styles.dateFilterChipTextActive]} numberOfLines={1}>
+              {dateTo ? formatShortDate(dateTo) : "To"}
+            </Text>
+          </Pressable>
+          {hasDateFilter && (
+            <Pressable
+              style={styles.dateFilterClear}
+              onPress={() => {
+                setDateFrom(null);
+                setDateTo(null);
+              }}
+            >
+              <Ionicons name="close" size={16} color="#94A3B8" />
+            </Pressable>
+          )}
+        </View>
+
+        {!isOfficeTab && (
+          <View style={styles.filterRow}>
+            {(["ALL", "AM", "PM"] as const).map((option) => {
+              const isActive = amPmFilter === option;
+              return (
+                <Pressable
+                  key={option}
+                  style={[styles.filterChip, isActive && styles.filterChipActive]}
+                  onPress={() => setAmPmFilter(option)}
+                >
+                  <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>{option}</Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
+      </View>
+
+      <DateTimePickerModal
+        isVisible={isFromPickerVisible}
+        mode="date"
+        date={dateFrom ?? new Date()}
+        // Can't be later than today (no attendance exists for future dates
+        // yet) or later than "To", whichever is earlier.
+        maximumDate={dateTo ?? new Date()}
+        accentColor={CALENDAR_ACCENT_COLOR}
+        themeVariant="light"
+        onConfirm={(value) => {
+          setDateFrom(value);
+          setIsFromPickerVisible(false);
+        }}
+        onCancel={() => setIsFromPickerVisible(false)}
+      />
+      <DateTimePickerModal
+        isVisible={isToPickerVisible}
+        mode="date"
+        date={dateTo ?? new Date()}
+        minimumDate={dateFrom ?? undefined}
+        // No attendance exists for future dates yet, so "To" can never be
+        // set past today either.
+        maximumDate={new Date()}
+        accentColor={CALENDAR_ACCENT_COLOR}
+        themeVariant="light"
+        onConfirm={(value) => {
+          setDateTo(value);
+          setIsToPickerVisible(false);
+        }}
+        onCancel={() => setIsToPickerVisible(false)}
+      />
+
     <FlatList
+      style={styles.list}
       data={listData}
       keyExtractor={(item) => item.id}
       refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} colors={["#1680D8"]} />}
-      ListHeaderComponent={
-        <>
-          <Text style={styles.cardTitle}>Daily Time Record</Text>
-
-          <View style={styles.tabSwitcher}>
-            <Pressable
-              style={[styles.tabButton, isOfficeTab && styles.tabButtonActive]}
-              onPress={() => setActiveTab("office")}
-            >
-              <Text style={[styles.tabButtonText, isOfficeTab && styles.tabButtonTextActive]}>Office</Text>
-            </Pressable>
-            <Pressable
-              style={[styles.tabButton, !isOfficeTab && styles.tabButtonActive]}
-              onPress={() => setActiveTab("field")}
-            >
-              <Text style={[styles.tabButtonText, !isOfficeTab && styles.tabButtonTextActive]}>Field</Text>
-            </Pressable>
-          </View>
-
-          <View style={styles.summaryCard}>
-            <Ionicons name="time" size={22} color="#1680D8" />
-            <View style={{ flex: 1 }}>
-              <Text style={styles.summaryLabel}>
-                {isOfficeTab ? "Today's Hours Rendered" : "Today's Hours Rendered (Latest Visit)"}
-              </Text>
-              <Text style={styles.summaryValue}>
-                {todayRecord
-                  ? formatHoursRendered(todayRecord.totalMinutes) ?? (todayInProgress ? "In progress" : "--")
-                  : isOfficeTab
-                    ? "Not yet timed in"
-                    : "No visit started"}
-              </Text>
-            </View>
-          </View>
-
-          {!isOfficeTab && (
-            <View style={styles.filterRow}>
-              {(["ALL", "AM", "PM"] as const).map((option) => {
-                const isActive = amPmFilter === option;
-                return (
-                  <Pressable
-                    key={option}
-                    style={[styles.filterChip, isActive && styles.filterChipActive]}
-                    onPress={() => setAmPmFilter(option)}
-                  >
-                    <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>{option}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
-          )}
-        </>
-      }
       ListEmptyComponent={
         !isLoading ? (
           <View style={styles.emptyState}>
             <Ionicons name="document-text-outline" size={36} color="#CBD5E1" />
             <Text style={styles.emptyText}>
-              {isOfficeTab ? "No office attendance records yet." : "No visit records yet."}
+              {hasDateFilter
+                ? "No attendance records in this date range."
+                : isOfficeTab
+                  ? "No office attendance records yet."
+                  : "No visit records yet."}
             </Text>
           </View>
         ) : null
       }
-      contentContainerStyle={styles.listContainer}
+      contentContainerStyle={styles.listContent}
       renderItem={({ item }) => {
         const tone = statusTone(item.status);
         const hoursRendered = formatHoursRendered(item.totalMinutes);
@@ -335,6 +464,7 @@ export default function DTRScreen({ employeeId }: Props) {
         );
       }}
     />
+    </View>
 
     <Modal
       visible={!!selectedRecord}
@@ -456,12 +586,30 @@ export default function DTRScreen({ employeeId }: Props) {
 }
 
 const styles = StyleSheet.create({
-  listContainer: {
+  // Outer card border/background — previously on the FlatList's own
+  // contentContainerStyle (listContainer), which meant it only wrapped
+  // scrollable content. Now a real sibling wrapper around both the pinned
+  // header and the FlatList, so the card look is unchanged even though the
+  // header no longer scrolls with the list inside it.
+  card: {
+    flex: 1,
     backgroundColor: "#fff",
     borderRadius: 10,
     borderWidth: 1,
     borderColor: "#dbe5ef",
+  },
+  // Title, tabs, summary card, and filters — fixed above the list, not part
+  // of the FlatList's scrollable content.
+  pinnedHeader: {
     padding: 18,
+    paddingBottom: 0,
+  },
+  list: {
+    flex: 1,
+  },
+  listContent: {
+    padding: 18,
+    paddingTop: 4,
     flexGrow: 1,
   },
   cardTitle: {
@@ -535,6 +683,39 @@ const styles = StyleSheet.create({
   },
   filterChipTextActive: {
     color: "#FFFFFF",
+  },
+  // Blue-tinted (matches the summary card above and the app's accent color)
+  // rather than the plain gray of the AM/PM chips, so the date filter reads
+  // as its own distinct control — and, unlike before, actually has a
+  // matching active-state background instead of leaving white text sitting
+  // on the same light gray fill.
+  dateFilterChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: "#EFF6FF",
+  },
+  dateFilterChipActive: {
+    backgroundColor: "#1680D8",
+  },
+  dateFilterChipText: {
+    color: "#1680D8",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  dateFilterChipTextActive: {
+    color: "#FFFFFF",
+  },
+  dateFilterClear: {
+    alignItems: "center",
+    justifyContent: "center",
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: "#F1F5F9",
   },
   siteNameText: {
     color: "#64748B",
