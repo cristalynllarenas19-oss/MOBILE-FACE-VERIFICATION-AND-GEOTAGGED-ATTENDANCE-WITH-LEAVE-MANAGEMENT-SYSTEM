@@ -5,6 +5,7 @@ import { EmployeeProfile, getMyProfile } from "../api";
 import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
 import ViewProfileScreen from "./ViewProfileScreen";
 import ChangePasswordScreen from "./ChangePasswordScreen";
+import AboutScreen from "./AboutScreen";
 
 type Props = {
   onLogout: () => void;
@@ -13,7 +14,7 @@ type Props = {
   onSwitchToSupervisorPortal?: () => void;
 };
 
-type SettingsView = "root" | "profile" | "password";
+type SettingsView = "root" | "profile" | "password" | "about";
 
 export default function SettingsScreen({ onLogout, onProfileChanged, canSwitchToSupervisorPortal, onSwitchToSupervisorPortal }: Props) {
   const [view, setView] = useState<SettingsView>("root");
@@ -40,6 +41,9 @@ export default function SettingsScreen({ onLogout, onProfileChanged, canSwitchTo
   if (view === "password") {
     return <ChangePasswordScreen onClose={() => setView("root")} />;
   }
+  if (view === "about") {
+    return <AboutScreen onClose={() => setView("root")} />;
+  }
 
   const avatarSource = profile?.profilePhotoData
     ? `data:${profile.profilePhotoMimeType ?? "image/jpeg"};base64,${profile.profilePhotoData}`
@@ -65,25 +69,45 @@ export default function SettingsScreen({ onLogout, onProfileChanged, canSwitchTo
 
       <Text style={styles.cardTitle}>Settings</Text>
 
-      <SettingsRow icon="person-outline" label="My Profile" onPress={() => setView("profile")} />
-      <SettingsRow icon="key-outline" label="Change Password" onPress={() => setView("password")} />
+      <SettingsRow icon="person-outline" tint="#1680D8" label="My Profile" onPress={() => setView("profile")} />
+      <SettingsRow icon="key-outline" tint="#15803D" label="Change Password" onPress={() => setView("password")} />
       {canSwitchToSupervisorPortal && onSwitchToSupervisorPortal && (
-        <SettingsRow icon="swap-horizontal-outline" label="Switch to Supervisor View" onPress={onSwitchToSupervisorPortal} />
+        <SettingsRow icon="swap-horizontal-outline" tint="#DB2777" label="Switch to Supervisor View" onPress={onSwitchToSupervisorPortal} />
       )}
+      <SettingsRow icon="information-circle-outline" tint="#64748B" label="About" onPress={() => setView("about")} last />
 
-      <Pressable onPress={onLogout} style={styles.logoutButton}>
-        <Text style={styles.logoutText}>Logout</Text>
+      <Pressable onPress={onLogout} style={({ pressed }) => [styles.logoutRow, pressed && styles.logoutRowPressed]}>
+        <Ionicons name="log-out-outline" size={22} color="#DC2626" />
+        <Text style={styles.logoutText}>Log out</Text>
       </Pressable>
     </View>
   );
 }
 
-function SettingsRow({ icon, label, onPress }: { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void }) {
+function SettingsRow({
+  icon,
+  tint,
+  label,
+  onPress,
+  last,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  tint: string;
+  label: string;
+  onPress: () => void;
+  last?: boolean;
+}) {
   return (
-    <Pressable style={styles.listRow} onPress={onPress}>
-      <Ionicons name={icon} size={20} color="#244c7a" />
+    <Pressable
+      style={({ pressed }) => [styles.listRow, last && styles.listRowLast, pressed && styles.listRowPressed]}
+      onPress={onPress}
+      hitSlop={4}
+    >
+      <View style={[styles.rowIconWrap, { backgroundColor: `${tint}17` }]}>
+        <Ionicons name={icon} size={22} color={tint} />
+      </View>
       <Text style={styles.listRowText}>{label}</Text>
-      <Ionicons name="chevron-forward" size={18} color="#CBD5E1" />
+      <Ionicons name="chevron-forward" size={20} color="#CBD5E1" />
     </Pressable>
   );
 }
@@ -121,37 +145,58 @@ const styles = StyleSheet.create({
   },
 
   listRow: {
-    minHeight: 50,
+    minHeight: 64,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 14,
+    paddingVertical: 10,
     borderBottomWidth: 1,
     borderColor: "#edf3f8",
+  },
+
+  listRowLast: {
+    borderBottomWidth: 0,
+  },
+
+  listRowPressed: {
+    backgroundColor: "#F8FAFC",
+  },
+
+  rowIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   listRowText: {
     flex: 1,
     color: "#334155",
     fontWeight: "600",
-    fontSize: 14,
+    fontSize: 16,
   },
 
-  logoutButton: {
+  logoutRow: {
     marginTop: 20,
-    height: 60,
-    borderRadius: 16,
-    backgroundColor: "#062B59",
+    minHeight: 60,
+    borderRadius: 14,
+    flexDirection: "row",
+    gap: 10,
+    paddingVertical: 14,
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#062B59",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 5,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FCA5A5",
+  },
+
+  logoutRowPressed: {
+    backgroundColor: "#FEE2E2",
   },
 
   logoutText: {
-    color: "#FFFFFF",
+    color: "#DC2626",
     fontWeight: "700",
     fontSize: 17,
   },

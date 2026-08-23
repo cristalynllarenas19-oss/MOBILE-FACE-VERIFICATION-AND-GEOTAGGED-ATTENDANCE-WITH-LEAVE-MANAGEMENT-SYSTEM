@@ -35,12 +35,23 @@ function actorDisplayName(actor: ActorRef | undefined) {
 }
 
 function formatDate(value: string) {
-  return new Date(value).toLocaleDateString();
+  return new Date(value).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 }
 
-// Computes total working hours from "HH:mm" start/end strings, handling
+// Formats a "HH:mm" 24-hour string (from a <input type="time">) as 12-hour
+// clock time, e.g. "17:00" -> "5:00 PM".
+function formatTime12h(time: string): string {
+  if (!time) return "";
+  const [hours, minutes] = time.split(":").map(Number);
+  if ([hours, minutes].some((n) => Number.isNaN(n))) return time;
+  const period = hours >= 12 ? "PM" : "AM";
+  const hour12 = hours % 12 === 0 ? 12 : hours % 12;
+  return `${hour12}:${String(minutes).padStart(2, "0")} ${period}`;
+}
+
+// Shared minutes-between calculation for the two formatters below — handles
 // shifts that cross midnight (end time earlier than start time).
-function computeShiftHours(startTime: string, endTime: string): string | null {
+function computeShiftMinutes(startTime: string, endTime: string): number | null {
   if (!startTime || !endTime) return null;
   const [startH, startM] = startTime.split(":").map(Number);
   const [endH, endM] = endTime.split(":").map(Number);
@@ -48,10 +59,29 @@ function computeShiftHours(startTime: string, endTime: string): string | null {
 
   let minutes = endH * 60 + endM - (startH * 60 + startM);
   if (minutes <= 0) minutes += 24 * 60;
+  return minutes;
+}
 
+// Computes total working hours from "HH:mm" start/end strings.
+function computeShiftHours(startTime: string, endTime: string): string | null {
+  const minutes = computeShiftMinutes(startTime, endTime);
+  if (minutes === null) return null;
   const hours = Math.floor(minutes / 60);
   const remMinutes = minutes % 60;
   return remMinutes === 0 ? `${hours}h` : `${hours}h ${remMinutes}m`;
+}
+
+// Same computation as computeShiftHours, spelled out in full words for the
+// read-only Shift Details modal (e.g. "9 hours" instead of "9h").
+function formatWorkingHoursLong(startTime: string, endTime: string): string | null {
+  const minutes = computeShiftMinutes(startTime, endTime);
+  if (minutes === null) return null;
+  const hours = Math.floor(minutes / 60);
+  const remMinutes = minutes % 60;
+  const parts: string[] = [];
+  if (hours > 0) parts.push(`${hours} hour${hours === 1 ? "" : "s"}`);
+  if (remMinutes > 0) parts.push(`${remMinutes} minute${remMinutes === 1 ? "" : "s"}`);
+  return parts.length > 0 ? parts.join(" ") : "0 hours";
 }
 
 const PAGE_SIZE = 10;
@@ -279,7 +309,7 @@ export function ShiftsTab({
               pagedShifts.map((shift) => (
                 <tr key={shift.id}>
                   <td data-label="Name">{shift.name}</td>
-                  <td data-label="Time">{shift.startTime} – {shift.endTime}</td>
+                  <td data-label="Time">{formatTime12h(shift.startTime)} – {formatTime12h(shift.endTime)}</td>
                   <td data-label="Employees Assigned">{shift._count?.schedules ?? 0}</td>
                   <td data-label="Status">
                     <Badge tone={shift.isActive ? "success" : "neutral"}>{shift.isActive ? "Active" : "Inactive"}</Badge>
@@ -309,7 +339,7 @@ export function ShiftsTab({
       {/* ── Add/Edit Shift modal ── */}
       {canManageShifts && formOpen && (
         <div className="utilities-modal-backdrop" role="presentation">
-          <section className="utilities-modal utilities-modal--sm" role="dialog" aria-modal="true" aria-labelledby="shift-form-title">
+          <section className="utilities-modal utilities-modal--shift-form" role="dialog" aria-modal="true" aria-labelledby="shift-form-title">
             <div className="utilities-modal-header">
               <div>
                 <h2 id="shift-form-title">{formMode === "create" ? "Create Shift" : "Edit Shift"}</h2>
@@ -379,7 +409,7 @@ export function ShiftsTab({
                   liveHours && <span className="utilities-hint">Total working hours: {liveHours}</span>
                 )}
 
-                <div className="utilities-field-row utilities-equal-field-row">
+                <div className="utilities-field-row utilities-equal-field-row utilities-quad-field-row">
                   <label className="utilities-field">
                     <span className="utilities-field-label">Morning Break (minutes)</span>
                     <input
@@ -401,6 +431,30 @@ export function ShiftsTab({
                       step="1"
                       value={form.afternoonBreakMinutes}
                       onChange={(e) => setForm((c) => ({ ...c, afternoonBreakMinutes: e.target.value }))}
+                      placeholder="0"
+                    />
+                  </label>
+                  <label className="utilities-field">
+                    <span className="utilities-field-label">Late Threshold (minutes)</span>
+                    <input
+                      className="utilities-input"
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={form.lateThresholdMinutes}
+                      onChange={(e) => setForm((c) => ({ ...c, lateThresholdMinutes: e.target.value }))}
+                      placeholder="0"
+                    />
+                  </label>
+                  <label className="utilities-field">
+                    <span className="utilities-field-label">Undertime Threshold (minutes)</span>
+                    <input
+                      className="utilities-input"
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={form.undertimeThresholdMinutes}
+                      onChange={(e) => setForm((c) => ({ ...c, undertimeThresholdMinutes: e.target.value }))}
                       placeholder="0"
                     />
                   </label>
@@ -444,33 +498,6 @@ export function ShiftsTab({
                     />
                   </label>
                 )}
-
-                <div className="utilities-field-row utilities-equal-field-row">
-                  <label className="utilities-field">
-                    <span className="utilities-field-label">Late Threshold (minutes)</span>
-                    <input
-                      className="utilities-input"
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={form.lateThresholdMinutes}
-                      onChange={(e) => setForm((c) => ({ ...c, lateThresholdMinutes: e.target.value }))}
-                      placeholder="0"
-                    />
-                  </label>
-                  <label className="utilities-field">
-                    <span className="utilities-field-label">Undertime Threshold (minutes)</span>
-                    <input
-                      className="utilities-input"
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={form.undertimeThresholdMinutes}
-                      onChange={(e) => setForm((c) => ({ ...c, undertimeThresholdMinutes: e.target.value }))}
-                      placeholder="0"
-                    />
-                  </label>
-                </div>
 
                 <label className="utilities-checkbox">
                   <input
@@ -520,17 +547,19 @@ export function ShiftsTab({
               <div className="utilities-audit-detail-grid">
                 <div>
                   <span>Time</span>
-                  <strong>{viewShift.startTime} – {viewShift.endTime}</strong>
+                  <strong>{formatTime12h(viewShift.startTime)} – {formatTime12h(viewShift.endTime)}</strong>
                 </div>
                 <div>
                   <span>Total Working Hours</span>
-                  <strong>{computeShiftHours(viewShift.startTime, viewShift.endTime) ?? "—"}</strong>
+                  <strong>{formatWorkingHoursLong(viewShift.startTime, viewShift.endTime) ?? "—"}</strong>
                 </div>
                 <div>
                   <span>Breaks</span>
-                  <strong>
-                    Morning {viewShift.morningBreakMinutes}m · Afternoon {viewShift.afternoonBreakMinutes}m · Lunch {viewShift.lunchBreakMinutes}m
-                  </strong>
+                  <div className="utilities-shift-breaks">
+                    <strong>Morning Break — {viewShift.morningBreakMinutes} min</strong>
+                    <strong>Lunch Break — {viewShift.lunchBreakMinutes} min</strong>
+                    <strong>Afternoon Break — {viewShift.afternoonBreakMinutes} min</strong>
+                  </div>
                 </div>
                 <div>
                   <span>Rounding Rules</span>

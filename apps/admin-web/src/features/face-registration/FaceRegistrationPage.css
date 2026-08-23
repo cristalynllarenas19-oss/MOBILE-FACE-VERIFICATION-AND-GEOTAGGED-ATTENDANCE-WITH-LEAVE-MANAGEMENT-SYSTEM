@@ -480,11 +480,72 @@
   margin-bottom: 20px;
 }
 
+.list-heading-left {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
 .list-heading-right {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
+}
+
+.registered-mode-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.registered-mode-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1.5px solid #e2eaf4;
+  border-radius: 999px;
+  background: #f8fafd;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.registered-mode-tab:hover {
+  border-color: #c6d6ea;
+  background: #ffffff;
+  color: #334155;
+}
+
+.registered-mode-tab-count {
+  min-width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #475569;
+  font-size: 10.5px;
+  font-weight: 800;
+}
+
+.registered-mode-tab.is-selected {
+  border-color: #193d69;
+  background: #193d69;
+  color: #ffffff;
+}
+
+.registered-mode-tab.is-selected .registered-mode-tab-count {
+  background: rgba(255, 255, 255, 0.22);
+  color: #ffffff;
 }
 
 .list-heading-right > span {
@@ -635,8 +696,8 @@
 }
 
 .view-modal-photo {
-  width: 190px;
-  height: 190px;
+  width: 230px;
+  height: 230px;
   margin: 0 auto 20px;
   border-radius: 18px;
   overflow: hidden;
@@ -789,10 +850,10 @@
 
 .archive-button {
   align-items: center;
-  background: #dc2626;
-  border: none;
+  background: #fee2e2;
+  border: 1.5px solid #fecaca;
   border-radius: 8px;
-  color: #ffffff;
+  color: #991b1b;
   cursor: pointer;
   display: flex;
   font-size: 14px;
@@ -801,18 +862,19 @@
   height: 42px;
   justify-content: center;
   padding: 0 20px;
-  transition: background 0.18s ease, box-shadow 0.18s ease;
+  transition: background 0.18s ease, border-color 0.18s ease;
 }
 
 .archive-button:hover {
-  background: #b91c1c;
-  box-shadow: 0 4px 12px rgba(220, 38, 38, 0.3);
+  background: #fecaca;
+  border-color: #fca5a5;
 }
 
 .archive-button:disabled {
-  background: #fca5a5;
+  background: #fef2f2;
+  border-color: #fee2e2;
+  color: #fca5a5;
   cursor: not-allowed;
-  box-shadow: none;
 }
 
 @media (max-width: 900px) {
@@ -855,6 +917,10 @@
   .form-actions button {
     min-height: 48px;
     font-size: 14px;
+  }
+
+  .list-heading-left {
+    width: 100%;
   }
 
   .list-heading-right {
@@ -1052,8 +1118,8 @@
   }
 
   .view-modal-photo {
-    width: 160px;
-    height: 160px;
+    width: 190px;
+    height: 190px;
   }
 
   .view-modal-details {

@@ -334,6 +334,18 @@
   white-space: nowrap;
 }
 
+.employees-sort-th {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
 .employee-status-cell .badge {
   white-space: nowrap;
 }

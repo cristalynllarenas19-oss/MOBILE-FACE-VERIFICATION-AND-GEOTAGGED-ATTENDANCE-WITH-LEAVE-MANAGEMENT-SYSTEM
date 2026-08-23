@@ -681,7 +681,6 @@
 }
 
 
-/* ── Responsive ── */
 
 @media (max-width: 640px) {
   .leave-toolbar .filter-tabs {
@@ -708,14 +707,13 @@
   }
 }
 
-/* ── Leave balance summary card ── */
 
 .leave-summary-card {
   border: 1px solid #e3e9f0;
   border-radius: 12px;
   background: #ffffff;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-  padding: 20px 24px;
+  padding: 16px 24px 14px;
   margin-bottom: 10px;
 }
 
@@ -725,7 +723,7 @@
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 14px;
-  margin-bottom: 18px;
+  margin-bottom: 12px;
 }
 
 .leave-summary-header h2 {
@@ -749,7 +747,6 @@
   text-align: center;
 }
 
-/* ── Donut row ── */
 
 .leave-donut-row {
   display: flex;
@@ -967,78 +964,10 @@
   font-weight: 700;
 }
 
-.leave-donut-types-wrap {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-}
-
-.leave-donut-types-trigger {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  background: #f1f5f9;
-  border: 1px solid #dbe5ef;
-  border-radius: 6px;
-  padding: 3px 8px;
-  font-size: 10.5px;
-  font-weight: 700;
-  color: #475569;
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
-}
-
-.leave-donut-types-trigger:hover {
-  background: #e2e8f0;
-  border-color: #b8c7d8;
-}
-
-.leave-donut-types-chevron {
-  transition: transform 0.15s ease;
-}
-
-.leave-donut-types-chevron.open {
-  transform: rotate(180deg);
-}
-
-.leave-donut-types-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  min-width: 160px;
-  background: #fff;
-  border: 1px solid #dbe5ef;
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.1);
-  padding: 6px 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  z-index: 20;
-}
-
-.leave-donut-type-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.leave-donut-type-name {
-  color: #64748b;
-  font-size: 10.5px;
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.leave-donut-type-value {
+.leave-donut-employee-count strong {
   color: #1a3a5c;
-  font-size: 10.5px;
+  font-size: 13px;
   font-weight: 800;
-  flex-shrink: 0;
-  font-variant-numeric: tabular-nums;
 }
 
 /* ── Responsive ── */
@@ -1081,7 +1010,6 @@
   }
 }
 
-/* ── Calendar-style year picker ── */
 
 .cal-picker-shell {
   position: relative;
@@ -1216,7 +1144,6 @@
   background: #d0e8f8;
 }
 
-/* ── Day-level date picker (date filed filter) ── */
 
 .date-picker-menu {
   width: 248px;
@@ -1278,7 +1205,6 @@
   border-color: #1a3a5c;
 }
 
-/* ── Leave summary header controls (year) ── */
 
 .leave-summary-controls {
   display: flex;
@@ -1287,10 +1213,7 @@
   gap: 8px;
 }
 
-/* ── Detailed employee leave monitoring ── */
-/* Reuses the same card language as the employee self-service Leave Balance
-   tab (single blue accent, no per-type colors) so this reads as an
-   extension of that page rather than a separate module. */
+
 
 .employee-detail-back {
   display: inline-flex;
@@ -1299,7 +1222,7 @@
   border: none;
   background: none;
   padding: 0;
-  margin-bottom: 8px;
+  margin-bottom: 6px;
   color: #1680d8;
   font-size: 12.5px;
   font-weight: 700;
@@ -1316,7 +1239,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .employee-detail-context {
@@ -1326,11 +1249,10 @@
   margin: 0;
 }
 
-/* ── Classification drill-down employee list ── */
 
 .employee-list-section {
   border-top: 1px solid #edf2f7;
-  padding-top: 12px;
+  padding-top: 10px;
 }
 
 .employee-list-toolbar {
@@ -1338,11 +1260,37 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
+}
+
+.employee-list-fixed-table {
+  table-layout: fixed;
+}
+
+
+.employee-list-section .leave-table-card th,
+.employee-list-section .leave-table-card td {
+  height: var(--employee-list-row-h);
+  padding: 0 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.employee-list-table-scroll {
+  --employee-list-row-h: 60px;
+  height: calc(var(--employee-list-row-h) * 6);
+  max-height: none;
+  overflow-y: auto;
 }
 
 .employee-list-search {
   max-width: 320px;
+}
+
+.employee-list-department-filter {
+  margin-left: auto;
+  min-width: 200px;
 }
 
 .employee-list-sort-th {

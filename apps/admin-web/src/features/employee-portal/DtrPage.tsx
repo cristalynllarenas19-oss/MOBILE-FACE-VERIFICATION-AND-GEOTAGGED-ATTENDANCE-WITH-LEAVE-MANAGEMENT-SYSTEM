@@ -126,7 +126,7 @@ export function DtrPage({ user }: Props) {
               color:      activeTab === t ? "#FFFFFF"  : "#64748B",
             }}
           >
-            {t === "office" ? "Office" : "Field"}
+            {t === "office" ? "Non-field" : "Field"}
           </button>
         ))}
       </div>

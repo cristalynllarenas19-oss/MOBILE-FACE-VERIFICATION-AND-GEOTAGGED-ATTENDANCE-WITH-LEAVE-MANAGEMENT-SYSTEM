@@ -365,7 +365,7 @@ export function DepartmentsTab({
       {/* ── View Department modal ── */}
       {viewDepartment && (
         <div className="utilities-modal-backdrop" role="presentation">
-          <section className="utilities-modal utilities-modal--view" role="dialog" aria-modal="true" aria-labelledby="view-department-title">
+          <section className="utilities-modal utilities-modal--sm" role="dialog" aria-modal="true" aria-labelledby="view-department-title">
             <div className="utilities-modal-header">
               <div>
                 <h2 id="view-department-title">{viewDepartment.name}</h2>

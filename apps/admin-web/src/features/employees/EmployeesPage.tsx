@@ -1,6 +1,6 @@
 import axios from "axios";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { AlertTriangle, Archive, CheckCircle2, Eye, Pencil, Plus, Search, X } from "lucide-react";
+import { AlertTriangle, Archive, ChevronsUpDown, CheckCircle2, Eye, Pencil, Plus, Search, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { apiRequest } from "../../lib/api";
@@ -1085,6 +1085,10 @@ export function EmployeesPage({
 
   const [departmentFilter, setDepartmentFilter] = useState("ALL");
   const [modeFilter, setModeFilter] = useState<"ALL" | "FIELD" | "NON_FIELD">("ALL");
+  // Null by default so the table keeps its natural newest-first order (a
+  // just-added employee stays at the top) until the admin actively opts
+  // into an A-Z/Z-A sort by clicking the Name header.
+  const [nameSort, setNameSort] = useState<"asc" | "desc" | null>(null);
   const [showArchivedOnly, setShowArchivedOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(1);
@@ -1129,10 +1133,21 @@ export function EmployeesPage({
     return true;
   });
 
-  useEffect(() => setPage(1), [departmentFilter, modeFilter, showArchivedOnly, searchQuery]);
-  const pageCount = Math.max(1, Math.ceil(visibleEmployees.length / EMPLOYEES_PAGE_SIZE));
+  const sortedVisibleEmployees = nameSort
+    ? [...visibleEmployees].sort((a, b) => {
+        const dir = nameSort === "asc" ? 1 : -1;
+        return getEmployeeName(a).localeCompare(getEmployeeName(b)) * dir;
+      })
+    : visibleEmployees;
+
+  const toggleNameSort = () => {
+    setNameSort((current) => (current === "asc" ? "desc" : current === "desc" ? null : "asc"));
+  };
+
+  useEffect(() => setPage(1), [departmentFilter, modeFilter, showArchivedOnly, searchQuery, nameSort]);
+  const pageCount = Math.max(1, Math.ceil(sortedVisibleEmployees.length / EMPLOYEES_PAGE_SIZE));
   const pageSafe = Math.min(page, pageCount);
-  const pagedEmployees = visibleEmployees.slice(
+  const pagedEmployees = sortedVisibleEmployees.slice(
     (pageSafe - 1) * EMPLOYEES_PAGE_SIZE,
     pageSafe * EMPLOYEES_PAGE_SIZE,
   );
@@ -1272,7 +1287,12 @@ export function EmployeesPage({
         <table>
           <thead>
             <tr>
-              <th>NAME</th>
+              <th>
+                <button type="button" className="employees-sort-th" onClick={toggleNameSort}>
+                  NAME
+                  {nameSort === "asc" ? "▲" : nameSort === "desc" ? "▼" : <ChevronsUpDown size={12} />}
+                </button>
+              </th>
               <th>EMAIL</th>
               <th>DEPARTMENT</th>
               <th>POSITION</th>

@@ -204,6 +204,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
   const [lastRegisteredEmployee, setLastRegisteredEmployee] = useState<Employee | null>(null);
   const [lastActionWasEdit, setLastActionWasEdit] = useState(false);
   const [listDepartmentFilter, setListDepartmentFilter] = useState<string>("ALL");
+  const [listModeFilter, setListModeFilter] = useState<"ALL" | "FIELD" | "FIXED">("ALL");
   const [listSearch, setListSearch] = useState("");
   const [enrollmentsPage, setEnrollmentsPage] = useState(1);
   const [viewProfile, setViewProfile] = useState<FaceProfile | null>(null);
@@ -564,7 +565,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
   const { departmentNames: departmentOptions } = useActiveDepartments();
   const { forEmployees: attendanceModeOptions } = useAttendanceModeOptions();
 
-  const visibleEnrollments = enrollments
+  const enrollmentsBeforeModeFilter = enrollments
     .filter((item) => listDepartmentFilter === "ALL" || item.employee.department?.name === listDepartmentFilter)
     .filter((item) => {
       const query = listSearch.trim().toLowerCase();
@@ -575,7 +576,20 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
       );
     });
 
-  useEffect(() => setEnrollmentsPage(1), [listDepartmentFilter, listSearch]);
+  const enrollmentModeCounts = {
+    all: enrollmentsBeforeModeFilter.length,
+    field: enrollmentsBeforeModeFilter.filter((item) => item.employee.attendanceMode === "FIELD").length,
+    fixed: enrollmentsBeforeModeFilter.filter((item) => item.employee.attendanceMode !== "FIELD").length,
+  };
+
+  const visibleEnrollments =
+    listModeFilter === "ALL"
+      ? enrollmentsBeforeModeFilter
+      : enrollmentsBeforeModeFilter.filter((item) =>
+          listModeFilter === "FIELD" ? item.employee.attendanceMode === "FIELD" : item.employee.attendanceMode !== "FIELD",
+        );
+
+  useEffect(() => setEnrollmentsPage(1), [listDepartmentFilter, listModeFilter, listSearch]);
   const enrollmentsPageCount = Math.max(1, Math.ceil(visibleEnrollments.length / ENROLLMENTS_PAGE_SIZE));
   const enrollmentsPageSafe = Math.min(enrollmentsPage, enrollmentsPageCount);
   const pagedEnrollments = visibleEnrollments.slice(
@@ -722,7 +736,6 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
               <div className="new-employee-details-name">
                 <p>{editingEnrollmentId ? "Editing photo for" : "New employee"}</p>
                 <strong>{employeeLabel(selectedEmployee)}</strong>
-                <span>{selectedEmployee.employeeNo}</span>
               </div>
               <div>
                 <p>Email</p>
@@ -806,7 +819,41 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
 
       <section className="face-card enrollment-list">
         <div className="list-heading">
-          <h3>Registered Employees</h3>
+          <div className="list-heading-left">
+            <h3>Registered Employees</h3>
+            <div className="registered-mode-tabs" role="tablist" aria-label="Filter registered employees by attendance mode">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={listModeFilter === "ALL"}
+                className={`registered-mode-tab${listModeFilter === "ALL" ? " is-selected" : ""}`}
+                onClick={() => setListModeFilter("ALL")}
+              >
+                All
+                <span className="registered-mode-tab-count">{enrollmentModeCounts.all}</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={listModeFilter === "FIELD"}
+                className={`registered-mode-tab${listModeFilter === "FIELD" ? " is-selected" : ""}`}
+                onClick={() => setListModeFilter("FIELD")}
+              >
+                {formatAttendanceMode("FIELD", attendanceModeOptions)}
+                <span className="registered-mode-tab-count">{enrollmentModeCounts.field}</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={listModeFilter === "FIXED"}
+                className={`registered-mode-tab${listModeFilter === "FIXED" ? " is-selected" : ""}`}
+                onClick={() => setListModeFilter("FIXED")}
+              >
+                {formatAttendanceMode("FIXED", attendanceModeOptions)}
+                <span className="registered-mode-tab-count">{enrollmentModeCounts.fixed}</span>
+              </button>
+            </div>
+          </div>
           <div className="list-heading-right">
             <div className="registered-search">
               <Search size={14} className="registered-search-icon" />
@@ -947,7 +994,13 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
               <img src={viewProfile.referenceImageData ?? ""} alt={`Registered face for ${employeeLabel(viewProfile.employee)}`} />
             </div>
             <h3>{employeeLabel(viewProfile.employee)}</h3>
-            <p className="view-modal-sub">{viewProfile.employee.employeeNo} · {viewProfile.employee.department?.name ?? "No department"}</p>
+            <p className="view-modal-sub">
+              {viewProfile.employee.employmentStatus
+                ? EMPLOYMENT_STATUS_LABELS[viewProfile.employee.employmentStatus]
+                : "—"}
+              {" · "}
+              {viewProfile.employee.department?.name ?? "No department"}
+            </p>
             <dl className="view-modal-details">
               <div>
                 <dt>Status</dt>

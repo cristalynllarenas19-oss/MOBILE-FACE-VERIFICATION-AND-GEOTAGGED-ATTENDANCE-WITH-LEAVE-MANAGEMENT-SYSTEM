@@ -5,6 +5,7 @@ import { EmployeeProfile, getMyProfile } from "../../api";
 import { CACHE_KEYS, useCachedData } from "../../utils/dataCache";
 import ViewProfileScreen from "../ViewProfileScreen";
 import ChangePasswordScreen from "../ChangePasswordScreen";
+import AboutScreen from "../AboutScreen";
 import GeotaggedAreasScreen from "./GeotaggedAreasScreen";
 import SupervisorSchedulesScreen from "./SupervisorSchedulesScreen";
 import SupervisorReportsScreen from "./SupervisorReportsScreen";
@@ -16,7 +17,7 @@ type Props = {
   onSwitchToEmployeePortal: () => void;
 };
 
-type MoreView = "root" | "profile" | "password" | "geotagging" | "schedules" | "reports";
+type MoreView = "root" | "profile" | "password" | "geotagging" | "schedules" | "reports" | "about";
 
 export default function MoreScreen({ onLogout, canSwitchToEmployeePortal, onSwitchToEmployeePortal }: Props) {
   const [view, setView] = useState<MoreView>("root");
@@ -54,6 +55,9 @@ export default function MoreScreen({ onLogout, canSwitchToEmployeePortal, onSwit
   if (view === "reports") {
     return <SupervisorReportsScreen onClose={() => setView("root")} />;
   }
+  if (view === "about") {
+    return <AboutScreen onClose={() => setView("root")} />;
+  }
 
   const avatarSource = profile?.profilePhotoData
     ? `data:${profile.profilePhotoMimeType ?? "image/jpeg"};base64,${profile.profilePhotoData}`
@@ -86,15 +90,16 @@ export default function MoreScreen({ onLogout, canSwitchToEmployeePortal, onSwit
       <Text style={styles.sectionTitle}>Account</Text>
       <View style={styles.group}>
         <MoreRow icon="person-outline" tint="#1680D8" label="My Profile" onPress={() => setView("profile")} />
-        <MoreRow icon="key-outline" tint="#15803D" label="Change Password" onPress={() => setView("password")} last={!canSwitchToEmployeePortal} />
+        <MoreRow icon="key-outline" tint="#15803D" label="Change Password" onPress={() => setView("password")} />
         {canSwitchToEmployeePortal && (
-          <MoreRow icon="swap-horizontal-outline" tint="#DB2777" label="Switch to My Attendance" onPress={onSwitchToEmployeePortal} last />
+          <MoreRow icon="swap-horizontal-outline" tint="#DB2777" label="Switch to My Attendance" onPress={onSwitchToEmployeePortal} />
         )}
+        <MoreRow icon="information-circle-outline" tint="#64748B" label="About" onPress={() => setView("about")} last />
       </View>
 
-      <Pressable style={({ pressed }) => [styles.logoutButton, pressed && styles.logoutButtonPressed]} onPress={onLogout}>
-        <Ionicons name="log-out-outline" size={18} color="#FFFFFF" />
-        <Text style={styles.logoutText}>Logout</Text>
+      <Pressable style={({ pressed }) => [styles.logoutRow, pressed && styles.logoutRowPressed]} onPress={onLogout}>
+        <Ionicons name="log-out-outline" size={22} color="#DC2626" />
+        <Text style={styles.logoutText}>Log out</Text>
       </Pressable>
     </ScrollView>
   );
@@ -119,10 +124,10 @@ function MoreRow({
       onPress={onPress}
     >
       <View style={[styles.rowIconWrap, { backgroundColor: `${tint}17` }]}>
-        <Ionicons name={icon} size={18} color={tint} />
+        <Ionicons name={icon} size={22} color={tint} />
       </View>
       <Text style={styles.listRowText}>{label}</Text>
-      <Ionicons name="chevron-forward" size={18} color="#CBD5E1" />
+      <Ionicons name="chevron-forward" size={20} color="#CBD5E1" />
     </Pressable>
   );
 }
@@ -161,30 +166,29 @@ const styles = StyleSheet.create({
     ...cardShadow,
   },
   listRow: {
-    minHeight: 54,
+    minHeight: 64,
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: 14,
     paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   listRowDivider: { borderBottomWidth: 1, borderColor: "#F1F5F9" },
   listRowPressed: { backgroundColor: "#F8FAFC" },
-  rowIconWrap: { width: 32, height: 32, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  listRowText: { flex: 1, color: "#334155", fontWeight: "600", fontSize: 14 },
-  logoutButton: {
+  rowIconWrap: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  listRowText: { flex: 1, color: "#334155", fontWeight: "600", fontSize: 16 },
+  logoutRow: {
     flexDirection: "row",
-    gap: 8,
-    height: 54,
-    borderRadius: 16,
-    backgroundColor: "#DC2626",
+    gap: 10,
+    minHeight: 60,
+    paddingVertical: 14,
+    borderRadius: 14,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FCA5A5",
     justifyContent: "center",
     alignItems: "center",
-    shadowColor: "#DC2626",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 4,
   },
-  logoutButtonPressed: { opacity: 0.85 },
-  logoutText: { color: "#FFFFFF", fontWeight: "700", fontSize: 15 },
+  logoutRowPressed: { backgroundColor: "#FEE2E2" },
+  logoutText: { color: "#DC2626", fontWeight: "700", fontSize: 17 },
 });
