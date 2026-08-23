@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -7,9 +7,11 @@ import {
   RefreshControl,
   Modal,
   Image,
+  ImageBackground,
   Pressable,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import * as Location from "expo-location";
 import { AttendanceHistoryRecord, AttendanceLogPhoto, getAttendanceHistory } from "../api";
 import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
 
@@ -18,10 +20,40 @@ type Props = {
 };
 
 type Tab = "office" | "field";
+type PhotoStampTile = { key: string; url: string; left: number; top: number };
 
 // Stable fallback so useMemo filters don't recompute on every render while
 // the cache/network is still empty.
 const EMPTY_RECORDS: AttendanceHistoryRecord[] = [];
+const PHOTO_STAMP_TILE_SIZE = 256;
+const PHOTO_STAMP_MAP_SIZE = 56;
+const PHOTO_STAMP_MAP_ZOOM = 16;
+
+function buildPhotoStampTiles(latitude: string | number, longitude: string | number): PhotoStampTile[] {
+  const lat = Number(latitude);
+  const lng = Number(longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return [];
+
+  const worldSize = PHOTO_STAMP_TILE_SIZE * Math.pow(2, PHOTO_STAMP_MAP_ZOOM);
+  const globalX = ((lng + 180) / 360) * worldSize;
+  const latRad = (lat * Math.PI) / 180;
+  const globalY = ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * worldSize;
+  const windowLeft = globalX - PHOTO_STAMP_MAP_SIZE / 2;
+  const windowTop = globalY - PHOTO_STAMP_MAP_SIZE / 2;
+  const tileX = Math.floor(windowLeft / PHOTO_STAMP_TILE_SIZE);
+  const tileY = Math.floor(windowTop / PHOTO_STAMP_TILE_SIZE);
+
+  return [0, 1].flatMap((dx) => [0, 1].map((dy) => {
+    const x = tileX + dx;
+    const y = tileY + dy;
+    return {
+      key: `${x}-${y}`,
+      url: `https://a.basemaps.cartocdn.com/rastertiles/voyager/${PHOTO_STAMP_MAP_ZOOM}/${x}/${y}.png`,
+      left: x * PHOTO_STAMP_TILE_SIZE - windowLeft,
+      top: y * PHOTO_STAMP_TILE_SIZE - windowTop,
+    };
+  }));
+}
 
 function isMorning(value: string | null) {
   if (!value) return true;
@@ -55,9 +87,43 @@ function formatLogTime(value: string) {
   return new Date(value).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" });
 }
 
+function formatPhotoStampTime(value: string) {
+  return new Date(value).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+function formatPhotoStampCoordinates(latitude: string | number, longitude: string | number) {
+  const lat = Number(latitude);
+  const lng = Number(longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return "Location unavailable";
+  return `${Math.abs(lat).toFixed(6)}°${lat >= 0 ? "N" : "S"}, ${Math.abs(lng).toFixed(6)}°${lng >= 0 ? "E" : "W"}`;
+}
+
+// Keep the DTR stamp word-for-word consistent with CameraScanner's saved
+// capture label: first use the platform's formatted address, then assemble
+// the same practical street/city fallback, and finally show coordinates if
+// reverse geocoding is unavailable.
+function formatPhotoStampAddress(address: Location.LocationGeocodedAddress | null | undefined) {
+  if (!address) return null;
+  if (address.formattedAddress) return address.formattedAddress;
+
+  const streetLine = [address.streetNumber, address.street].filter(Boolean).join(" ");
+  const parts = [streetLine || address.name, address.city, address.subregion, address.region, address.country].filter(
+    (part): part is string => Boolean(part && part.trim()),
+  );
+  const unique = parts.filter((part, index) => parts.indexOf(part) === index);
+  return unique.length ? unique.join(", ") : null;
+}
+
 function photoTabLabel(tab: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN", isOfficeTab: boolean) {
-  if (tab === "LUNCH_OUT") return "Lunch Out";
-  if (tab === "LUNCH_IN") return "Lunch In";
+  if (tab === "LUNCH_OUT") return "Lunch Start";
+  if (tab === "LUNCH_IN") return "Lunch End";
   if (tab === "TIME_IN") return isOfficeTab ? "Time In" : "Visit Start";
   return isOfficeTab ? "Time Out" : "Visit End";
 }
@@ -90,6 +156,7 @@ export default function DTRScreen({ employeeId }: Props) {
   const [selectedRecord, setSelectedRecord] = useState<AttendanceHistoryRecord | null>(null);
   const [photoTab, setPhotoTab] = useState<"TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN">("TIME_IN");
   const [amPmFilter, setAmPmFilter] = useState<"ALL" | "AM" | "PM">("ALL");
+  const [photoStampAddress, setPhotoStampAddress] = useState<string | null>(null);
 
   const { data, isLoading, refresh } = useCachedData<AttendanceHistoryRecord[]>(
     employeeId ? CACHE_KEYS.attendanceHistory(employeeId) : null,
@@ -118,6 +185,30 @@ export default function DTRScreen({ employeeId }: Props) {
   const todayRecord = isOfficeTab ? todayOfficeRecord : todayFieldRecord;
   const todayInProgress = Boolean(todayRecord?.timeInAt) && !todayRecord?.timeOutAt;
   const listData = isOfficeTab ? officeRecords : filteredFieldRecords;
+
+  useEffect(() => {
+    const log = selectedRecord?.logs.find((item) => item.logType === photoTab);
+    if (!log) {
+      setPhotoStampAddress(null);
+      return;
+    }
+
+    let cancelled = false;
+    const fallback = formatPhotoStampCoordinates(log.latitude, log.longitude);
+    setPhotoStampAddress(null);
+
+    Location.reverseGeocodeAsync({ latitude: Number(log.latitude), longitude: Number(log.longitude) })
+      .then((addresses) => {
+        if (!cancelled) setPhotoStampAddress(formatPhotoStampAddress(addresses?.[0]) ?? fallback);
+      })
+      .catch(() => {
+        if (!cancelled) setPhotoStampAddress(fallback);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedRecord, photoTab]);
 
   return (
     <>
@@ -267,27 +358,42 @@ export default function DTRScreen({ employeeId }: Props) {
               style={[styles.photoTabButton, photoTab === "TIME_IN" && styles.photoTabButtonActive]}
               onPress={() => setPhotoTab("TIME_IN")}
             >
-              <Text style={[styles.photoTabText, photoTab === "TIME_IN" && styles.photoTabTextActive]}>
+              <Text
+                style={[styles.photoTabText, photoTab === "TIME_IN" && styles.photoTabTextActive]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.82}
+              >
                 {photoTabLabel("TIME_IN", isOfficeTab)}
               </Text>
             </Pressable>
-            {isOfficeTab && selectedRecord?.logs.some((l) => l.logType === "LUNCH_OUT") && (
+            {isOfficeTab && (
               <Pressable
                 style={[styles.photoTabButton, photoTab === "LUNCH_OUT" && styles.photoTabButtonActive]}
                 onPress={() => setPhotoTab("LUNCH_OUT")}
               >
-                <Text style={[styles.photoTabText, photoTab === "LUNCH_OUT" && styles.photoTabTextActive]}>
-                  Lunch Out
+                <Text
+                  style={[styles.photoTabText, photoTab === "LUNCH_OUT" && styles.photoTabTextActive]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.82}
+                >
+                  Lunch Start
                 </Text>
               </Pressable>
             )}
-            {isOfficeTab && selectedRecord?.logs.some((l) => l.logType === "LUNCH_IN") && (
+            {isOfficeTab && (
               <Pressable
                 style={[styles.photoTabButton, photoTab === "LUNCH_IN" && styles.photoTabButtonActive]}
                 onPress={() => setPhotoTab("LUNCH_IN")}
               >
-                <Text style={[styles.photoTabText, photoTab === "LUNCH_IN" && styles.photoTabTextActive]}>
-                  Lunch In
+                <Text
+                  style={[styles.photoTabText, photoTab === "LUNCH_IN" && styles.photoTabTextActive]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.82}
+                >
+                  Lunch End
                 </Text>
               </Pressable>
             )}
@@ -295,7 +401,12 @@ export default function DTRScreen({ employeeId }: Props) {
               style={[styles.photoTabButton, photoTab === "TIME_OUT" && styles.photoTabButtonActive]}
               onPress={() => setPhotoTab("TIME_OUT")}
             >
-              <Text style={[styles.photoTabText, photoTab === "TIME_OUT" && styles.photoTabTextActive]}>
+              <Text
+                style={[styles.photoTabText, photoTab === "TIME_OUT" && styles.photoTabTextActive]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.82}
+              >
                 {photoTabLabel("TIME_OUT", isOfficeTab)}
               </Text>
             </Pressable>
@@ -304,18 +415,36 @@ export default function DTRScreen({ employeeId }: Props) {
           {(() => {
             const log = selectedRecord?.logs.find((l) => l.logType === photoTab);
             const uri = log ? photoUri(log) : null;
+            const photoStampTiles = log ? buildPhotoStampTiles(log.latitude, log.longitude) : [];
             return (
               <View style={styles.modalPhotoBlock}>
-                {log && (
-                  <View style={styles.modalPhotoLabelRow}>
-                    <Text style={styles.modalPhotoLabel}>
-                      {photoTabLabel(photoTab, isOfficeTab)}
-                    </Text>
-                    <Text style={styles.modalPhotoTime}>{formatLogTime(log.capturedAt)}</Text>
-                  </View>
-                )}
+                <View style={styles.modalPhotoLabelRow}>
+                  <Text style={styles.modalPhotoLabel}>
+                    {photoTabLabel(photoTab, isOfficeTab)}
+                  </Text>
+                  <Text style={styles.modalPhotoTime}>{log ? formatLogTime(log.capturedAt) : "--"}</Text>
+                </View>
                 {uri ? (
-                  <Image source={{ uri }} style={styles.modalPhoto} resizeMode="contain" />
+                  <ImageBackground source={{ uri }} style={styles.modalPhoto} resizeMode="contain">
+                    <View style={styles.photoStamp}>
+                      <View style={styles.photoStampMap}>
+                        {photoStampTiles.map((tile) => (
+                          <Image key={tile.key} source={{ uri: tile.url }} style={[styles.photoStampTile, tile]} />
+                        ))}
+                        <Ionicons name="location" size={26} color="#DC2626" style={styles.photoStampPin} />
+                      </View>
+                      <View style={styles.photoStampText}>
+                        <View style={styles.photoStampTimeBadge}>
+                          <Text style={styles.photoStampTimeText}>
+                            {photoTabLabel(photoTab, isOfficeTab).toUpperCase()} · {formatPhotoStampTime(log!.capturedAt)}
+                          </Text>
+                        </View>
+                        <Text style={styles.photoStampLocationText} numberOfLines={2}>
+                          {photoStampAddress ?? "Locating..."}
+                        </Text>
+                      </View>
+                    </View>
+                  </ImageBackground>
                 ) : (
                   <View style={[styles.modalPhoto, styles.modalPhotoPlaceholder]}>
                     <Ionicons name="image-outline" size={28} color="#CBD5E1" />
@@ -541,6 +670,7 @@ const styles = StyleSheet.create({
   },
   photoTabSwitcher: {
     flexDirection: "row",
+    gap: 4,
     backgroundColor: "#F1F5F9",
     borderRadius: 12,
     padding: 4,
@@ -548,7 +678,9 @@ const styles = StyleSheet.create({
   },
   photoTabButton: {
     flex: 1,
-    paddingVertical: 9,
+    minWidth: 0,
+    paddingHorizontal: 2,
+    paddingVertical: 8,
     borderRadius: 9,
     alignItems: "center",
   },
@@ -556,9 +688,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#062B59",
   },
   photoTabText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "700",
     color: "#64748B",
+    textAlign: "center",
   },
   photoTabTextActive: {
     color: "#FFFFFF",
@@ -594,6 +727,65 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
+  },
+  photoStamp: {
+    position: "absolute",
+    left: 10,
+    right: 10,
+    bottom: 10,
+    flexDirection: "row",
+    alignItems: "flex-end",
+    gap: 8,
+  },
+  photoStampMap: {
+    width: 56,
+    height: 56,
+    borderRadius: 10,
+    backgroundColor: "rgba(255,255,255,0.94)",
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    position: "relative",
+  },
+  photoStampTile: {
+    position: "absolute",
+    width: PHOTO_STAMP_TILE_SIZE,
+    height: PHOTO_STAMP_TILE_SIZE,
+  },
+  photoStampPin: {
+    position: "absolute",
+    left: PHOTO_STAMP_MAP_SIZE / 2 - 13,
+    top: PHOTO_STAMP_MAP_SIZE / 2 - 21,
+    textShadowColor: "#FFFFFF",
+    textShadowRadius: 3,
+    textShadowOffset: { width: 0, height: 0 },
+  },
+  photoStampText: {
+    flex: 1,
+    gap: 4,
+  },
+  photoStampTimeBadge: {
+    alignSelf: "flex-start",
+    backgroundColor: "#DC2626",
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+  },
+  photoStampTimeText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  photoStampLocationText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "700",
+    lineHeight: 14,
+    textShadowColor: "rgba(0,0,0,0.9)",
+    textShadowRadius: 4,
+    textShadowOffset: { width: 0, height: 1 },
   },
   modalCloseButton: {
     height: 46,

@@ -1035,6 +1035,8 @@ export class AttendanceService {
             failureReason: true,
             faceImageData: true,
             faceImageMimeType: true,
+            latitude: true,
+            longitude: true,
           },
         },
       },

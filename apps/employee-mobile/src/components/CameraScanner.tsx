@@ -32,8 +32,8 @@ type CameraScannerProps = {
 const LOG_TYPE_LABEL: Record<CameraScannerProps["logType"], string> = {
   TIME_IN: "Time In",
   TIME_OUT: "Time Out",
-  LUNCH_OUT: "Lunch Out",
-  LUNCH_IN: "Lunch In",
+  LUNCH_OUT: "Lunch Start",
+  LUNCH_IN: "Lunch End",
 };
 
 type MapTileCell = { key: string; url: string; left: number; top: number };
@@ -346,6 +346,16 @@ export default function CameraScanner({ logType, onComplete, onCancel, onFaceMis
 
   const isFinishingRef = useRef(false);
   const faceDetectedRef = useRef(false);
+  // Whether a burst-sampling takePictureAsync is currently in flight, and
+  // when the last one finished. The blink-sampling loop fires a low-quality
+  // capture roughly every BLINK_CAPTURE_FLOOR_MS, which doesn't give the
+  // sensor's auto-exposure time to reconverge between shots — the live
+  // preview keeps its own smoothly-converged exposure the whole time, but a
+  // still capture taken mid-burst can come back visibly darker. finishScan
+  // waits on these (see waitForExposureSettle) before taking the "official"
+  // photo so it isn't snapped in the middle of that churn.
+  const captureInFlightRef = useRef(false);
+  const lastBurstCaptureEndRef = useRef(0);
   // Identity check state. Stays "idle" for the whole live-preview stage —
   // it gates nothing, and blink/liveness never waits on it. It only moves
   // to "checking" inside finishScan, once liveness has passed and the final
@@ -625,6 +635,7 @@ export default function CameraScanner({ logType, onComplete, onCancel, onFaceMis
         // below produces a far smaller base64 string instead. The capture
         // itself is already fast because the whole session runs at the
         // small fixed pictureSize (see the CameraView props).
+        captureInFlightRef.current = true;
         const photo = await cameraRef.current?.takePictureAsync({
           // Lower quality while sampling for a blink than before (was 0.5):
           // this is a detection-only frame, never shown or stored, so a
@@ -633,6 +644,8 @@ export default function CameraScanner({ logType, onComplete, onCancel, onFaceMis
           quality: samplingBlink ? 0.28 : 0.25,
           shutterSound: false,
         });
+        captureInFlightRef.current = false;
+        lastBurstCaptureEndRef.current = Date.now();
         if (cancelled) return;
         captureFailStreak = 0;
         if (photo?.width && photo.height) {
@@ -675,6 +688,7 @@ export default function CameraScanner({ logType, onComplete, onCancel, onFaceMis
           }
         }
       } catch (error) {
+        captureInFlightRef.current = false;
         if (cancelled) return;
         failed = true;
         // A frame capture can fail transiently while the native camera is
@@ -901,17 +915,44 @@ export default function CameraScanner({ logType, onComplete, onCancel, onFaceMis
     }
   }
 
+  // How long after the last burst-sampling capture to wait before taking the
+  // "official" photo, so the sensor's auto-exposure has a chance to
+  // reconverge from the rapid-fire low-quality captures used for blink
+  // sampling. See captureInFlightRef/lastBurstCaptureEndRef above.
+  const BURST_SETTLE_MS = 220;
+
+  async function waitForExposureSettle() {
+    while (captureInFlightRef.current) {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const elapsed = Date.now() - lastBurstCaptureEndRef.current;
+    if (elapsed < BURST_SETTLE_MS) {
+      await new Promise((resolve) => setTimeout(resolve, BURST_SETTLE_MS - elapsed));
+    }
+  }
+
   async function finishScan() {
     setIsScanning(true);
     setScanError(null);
     try {
       // Capture the final photo first, before anything else — liveness has
       // just passed, so the freeze has to happen right here, and this is
-      // also the photo the identity match below is run against.
+      // also the photo the identity match below is run against. Wait for
+      // the burst-sampling loop's exposure to settle first (see
+      // waitForExposureSettle) so this doesn't inherit a transient,
+      // under-converged exposure from the rapid blink-sampling captures.
+      // skipProcessing is deliberately NOT set here (it was tried and
+      // reverted): on this device it returned the raw sensor frame without
+      // a usable EXIF orientation tag, so the saved photo came out rotated
+      // instead of portrait. Without it, expo-camera still returns the
+      // sensor's own JPEG (no beautify/brightness filter exists in this
+      // library either way) — it just also fixes the orientation for us,
+      // which is required.
+      await waitForExposureSettle();
       const captureFinalPhoto = async () =>
         (await cameraRef.current?.takePictureAsync({
           base64: true,
-          quality: 0.7,
+          quality: 1,
           shutterSound: false,
         })) ?? null;
       // Captures can transiently fail (e.g. right after the custom scan
@@ -980,28 +1021,12 @@ export default function CameraScanner({ logType, onComplete, onCancel, onFaceMis
       }
 
       const location = await locationPromise;
-      const addressResults = await Location.reverseGeocodeAsync({
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-      }).catch(() => []);
-
-      const addressLabel =
-        formatAddress(addressResults?.[0]) ?? formatStampCoords(location.coords.latitude, location.coords.longitude);
-      const label = LOG_TYPE_LABEL[logType].toUpperCase();
-
-      const watermarked = await applyWatermark(photo.uri, location, label, addressLabel);
-      const finalImage = watermarked ?? (photo.base64 ? `data:image/jpeg;base64,${photo.base64}` : undefined);
-
-      // Swap in the fully GPS-stamped version once it's ready, and hold on
-      // it briefly so the snapshot actually registers as a still photo
-      // before handing off to the result screen. The live GPS overlay (see
-      // render below) stays visible on top of the frozen raw photo right up
-      // until this point, so the map/date/address are never missing from
-      // what's on screen, even during the brief gap while this composes.
-      if (watermarked) {
-        setFrozenPreviewUri(watermarked);
-        setIsFrozenStamped(true);
-      }
+      // Store the original, full-quality camera JPEG. Android's view-shot
+      // renderer changes the exposure when flattening CameraView imagery,
+      // so the timestamp and location are rendered as an overlay by the
+      // attendance viewer instead of re-encoding this photo.
+      const finalImage = photo.base64 ? `data:image/jpeg;base64,${photo.base64}` : undefined;
+      setIsFrozenStamped(true);
       await new Promise((resolve) => setTimeout(resolve, FREEZE_DISPLAY_MS));
 
       onComplete(location, finalImage);
@@ -1592,11 +1617,16 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     lineHeight: 18,
   },
+  // Off-screen host where the photo + GPS stamp are composited into one
+  // flattened jpeg (see applyWatermark/captureRef). Deliberately moved off
+  // the visible canvas rather than hidden with opacity: 0 — on Android,
+  // react-native-view-shot's capture can inherit a zero-alpha ancestor into
+  // the rendered snapshot itself, which was silently darkening every saved
+  // DTR photo even though the source camera capture was fine.
   hiddenCaptureHost: {
     position: "absolute",
     top: 0,
-    left: 0,
-    opacity: 0,
+    left: -10000,
   },
   gpsWatermarkRow: {
     position: "absolute",

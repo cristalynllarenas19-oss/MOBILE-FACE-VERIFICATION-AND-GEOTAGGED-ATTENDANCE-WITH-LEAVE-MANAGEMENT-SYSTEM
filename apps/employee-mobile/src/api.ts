@@ -152,6 +152,8 @@ export type AttendanceLogPhoto = {
   failureReason: string | null;
   faceImageData: string | null;
   faceImageMimeType: string | null;
+  latitude: string | number;
+  longitude: string | number;
 };
 
 export type AttendanceHistoryRecord = {
