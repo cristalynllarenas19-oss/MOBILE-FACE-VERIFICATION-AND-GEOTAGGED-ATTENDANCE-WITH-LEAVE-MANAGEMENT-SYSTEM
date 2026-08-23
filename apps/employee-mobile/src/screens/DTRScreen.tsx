@@ -83,10 +83,6 @@ function photoUri(log: AttendanceLogPhoto) {
   return `data:${log.faceImageMimeType ?? "image/jpeg"};base64,${log.faceImageData}`;
 }
 
-function formatLogTime(value: string) {
-  return new Date(value).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" });
-}
-
 function formatPhotoStampTime(value: string) {
   return new Date(value).toLocaleString("en-US", {
     month: "short",
@@ -418,12 +414,6 @@ export default function DTRScreen({ employeeId }: Props) {
             const photoStampTiles = log ? buildPhotoStampTiles(log.latitude, log.longitude) : [];
             return (
               <View style={styles.modalPhotoBlock}>
-                <View style={styles.modalPhotoLabelRow}>
-                  <Text style={styles.modalPhotoLabel}>
-                    {photoTabLabel(photoTab, isOfficeTab)}
-                  </Text>
-                  <Text style={styles.modalPhotoTime}>{log ? formatLogTime(log.capturedAt) : "--"}</Text>
-                </View>
                 {uri ? (
                   <ImageBackground source={{ uri }} style={styles.modalPhoto} resizeMode="contain">
                     <View style={styles.photoStamp}>
@@ -699,21 +689,6 @@ const styles = StyleSheet.create({
   modalPhotoBlock: {
     gap: 8,
     marginBottom: 14,
-  },
-  modalPhotoLabelRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  modalPhotoLabel: {
-    color: "#1E3A8A",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-  modalPhotoTime: {
-    color: "#94A3B8",
-    fontSize: 12,
-    fontWeight: "600",
   },
   // Full width, ratio-matched to the saved composite (no fixed square crop)
   // so the GPS stamp baked into the bottom of the photo is never cut off.

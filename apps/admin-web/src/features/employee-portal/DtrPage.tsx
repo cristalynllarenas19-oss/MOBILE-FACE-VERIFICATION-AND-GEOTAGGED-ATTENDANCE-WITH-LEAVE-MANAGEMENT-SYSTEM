@@ -36,9 +36,6 @@ function fmtTime(v: string | null) {
   if (!v) return "--:--";
   return new Date(v).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
-function fmtLogTime(v: string) {
-  return new Date(v).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" });
-}
 function photoTabLabel(tab: PhotoTab, isOffice: boolean) {
   if (tab === "LUNCH_OUT") return "Lunch Out";
   if (tab === "LUNCH_IN") return "Lunch In";
@@ -320,16 +317,6 @@ export function DtrPage({ user }: Props) {
               const uri = log ? photoUri(log) : null;
               return (
                 <div style={{ marginBottom: 14 }}>
-                  {log && (
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                      <span style={{ color: "#1E3A8A", fontSize: 13, fontWeight: 700 }}>
-                        {photoTabLabel(photoTab, isOffice)}
-                      </span>
-                      <span style={{ color: "#94A3B8", fontSize: 12, fontWeight: 600 }}>
-                        {fmtLogTime(log.capturedAt)}
-                      </span>
-                    </div>
-                  )}
                   {uri ? (
                     <img
                       src={uri}

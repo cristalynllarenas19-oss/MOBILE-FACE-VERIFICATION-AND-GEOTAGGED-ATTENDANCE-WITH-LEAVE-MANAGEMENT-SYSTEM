@@ -414,28 +414,10 @@ export default function App() {
       }
     }
 
-    // The geofence check must fully resolve, and pass, before the camera is
-    // ever allowed to open. Face verification (including blink/liveness) has
-    // no awareness of location on its own — if it were allowed to start in
-    // parallel with this check, it could show "Face verified" for someone
-    // standing outside their work area. Blocking here is what prevents that
-    // state from ever being reachable on this device; the backend
-    // independently re-checks and rejects regardless (see
-    // attendance.service.ts submit()), so this is a UX improvement on top of
-    // an already-enforced backend rule, not the actual security boundary.
-    setIsLoading(true);
-    const isOutsideWorkArea = await checkOutsideWorkArea();
-    setIsLoading(false);
-
-    if (isOutsideWorkArea) {
-      setResultModal({
-        status: "error",
-        title: "Outside the Allowed Area",
-        message: "You're outside your designated work area, so face verification can't start. Move within range and try again.",
-      });
-      return;
-    }
-
+    // The camera opens immediately, with no client-side geofence pre-check —
+    // the backend independently re-checks location (and identity) at
+    // submission regardless (see attendance.service.ts submit()), so this
+    // was purely a redundant round trip on top of that authoritative check.
     setScanType(type);
   }
 
@@ -448,6 +430,8 @@ export default function App() {
   // whichever visit is currently open.
   async function startFieldScan(type: "TIME_IN" | "TIME_OUT") {
     if (type === "TIME_OUT") {
+      // Ending a visit resolves its site from whichever one is currently
+      // open server-side.
       setScanType("TIME_OUT");
       return;
     }
@@ -491,73 +475,32 @@ export default function App() {
 
   async function handleSiteSelected(site: WorkLocation) {
     setSelectedWorkLocation(site);
-
-    const isOutsideSite = await checkOutsideSite(site);
-    if (isOutsideSite) {
-      // No "Continue Anyway" here: opening the camera would let blink/
-      // liveness run and locally succeed regardless of location, which is
-      // exactly the state we must never reach. The backend rejects a
-      // geofence failure outright (it isn't eligible for the flagged/
-      // pending-review path — that's reserved for face mismatches inside
-      // the geofence), so continuing anyway could never have resulted in a
-      // recorded attendance entry either.
-      setResultModal({
-        status: "error",
-        title: "Outside the Allowed Area",
-        message: "You're outside this site's geotagged area, so face verification can't start. Move within range and try again.",
-      });
-      return;
-    }
-
     setScanType("TIME_IN");
   }
 
-  async function checkOutsideWorkArea() {
-    try {
-      const [workLocation, position] = await Promise.all([
-        getMyWorkLocation(),
-        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
-      ]);
-
-      if (!workLocation) return false;
-
-      const distance = distanceInMeters(
-        position.coords.latitude,
-        position.coords.longitude,
-        Number(workLocation.latitude),
-        Number(workLocation.longitude),
-      );
-
-      return distance > Number(workLocation.radiusMeters);
-    } catch (error) {
-      console.error("Failed to check work area before scan", error);
-      return false;
-    }
-  }
-
-  async function checkOutsideSite(site: WorkLocation) {
-    try {
-      const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      const distance = distanceInMeters(
-        position.coords.latitude,
-        position.coords.longitude,
-        Number(site.latitude),
-        Number(site.longitude),
-      );
-      return distance > Number(site.radiusMeters);
-    } catch (error) {
-      console.error("Failed to check site area before scan", error);
-      return false;
-    }
-  }
-
-  async function handleScanComplete(location: Location.LocationObject, faceBase64?: string) {
+  // Called the instant CameraScanner has a captured, liveness-verified
+  // photo — before the GPS fix has even resolved, let alone identity match
+  // or submission. locationPromise is still in flight at this point; this
+  // function is what awaits it. scanType/selectedWorkLocation are captured
+  // into local consts up front because the very next line clears both —
+  // reading the state variables anywhere below this point would see null.
+  async function handleScanComplete(locationPromise: Promise<Location.LocationObject>, faceBase64?: string) {
     if (!scanType || !user?.employeeId) return;
+    const activeScanType = scanType;
+    const activeWorkLocation = selectedWorkLocation;
 
     setIsLoading(true);
+    // Back to the attendance screen right away — everything below (the GPS
+    // fix, identity match, geofence check, and submission) now happens
+    // invisibly in the background instead of being watched on screen. The
+    // result modal (see ResultModal's own auto-dismiss) pops up over
+    // whichever screen the employee is on once it's actually ready, instead
+    // of making them wait for it before they can do anything else.
     setScanType(null);
+    setSelectedWorkLocation(null);
 
     try {
+      const location = await locationPromise;
       const result = await submitAttendance({
         employeeId: user.employeeId,
         latitude: location.coords.latitude,
@@ -570,11 +513,11 @@ export default function App() {
         // Only sent when starting a new FIELD visit — ending one and every
         // FIXED-employee submission resolve their site without this.
         workLocationId:
-          user.attendanceMode === "FIELD" && scanType === "TIME_IN" ? selectedWorkLocation?.id : undefined,
+          user.attendanceMode === "FIELD" && activeScanType === "TIME_IN" ? activeWorkLocation?.id : undefined,
         // Disambiguates Time Out / Lunch Out / Lunch In, which can all be
         // legal next actions once timed in — omitted for Time In, where the
         // server always infers it from state alone.
-        action: scanType !== "TIME_IN" ? scanType : undefined,
+        action: activeScanType !== "TIME_IN" ? activeScanType : undefined,
       });
 
       // The server is the authority on whether this was a Time In or Time Out.
@@ -639,7 +582,6 @@ export default function App() {
       // result is known, not after this background refresh (which only
       // updates the DTR summary and has its own error handling) finishes.
       setIsLoading(false);
-      setSelectedWorkLocation(null);
       void refreshTodayAttendance(user.employeeId);
     } catch (error) {
       setResultModal({
@@ -651,7 +593,6 @@ export default function App() {
             : "Failed to connect to the server. Check your connection and try again.",
       });
       setIsLoading(false);
-      setSelectedWorkLocation(null);
     }
   }
 
@@ -695,22 +636,6 @@ export default function App() {
           onCancel={() => {
             setScanType(null);
             setSelectedWorkLocation(null);
-          }}
-          onFaceMismatch={() => {
-            // Liveness passed, but the identity check that runs on the
-            // captured photo right after it confidently found a different
-            // person — the scanner never showed a verified state and no
-            // attendance was submitted. Reuses the exact same title/message
-            // shown when a mismatch is instead caught at final submission,
-            // so the employee sees one consistent error regardless of when
-            // it was detected.
-            setScanType(null);
-            setSelectedWorkLocation(null);
-            setResultModal({
-              status: "rejected",
-              title: "Face Verification Failed",
-              message: getFriendlyReason("Face does not match enrolled profile", "REJECTED"),
-            });
           }}
         />
       ) : portal === "supervisor" ? (

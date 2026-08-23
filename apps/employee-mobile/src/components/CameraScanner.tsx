@@ -15,18 +15,21 @@ import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
 import { captureRef } from "react-native-view-shot";
 import { manipulateAsync, SaveFormat } from "expo-image-manipulator";
-import { detectFace, matchFace, FaceBox } from "../api";
+import { detectFace, FaceBox } from "../api";
 
 type CameraScannerProps = {
   logType: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN";
-  onComplete: (location: Location.LocationObject, faceBase64?: string) => void;
+  // Called the instant the liveness-verified photo is captured — not once
+  // identity/geofence/submission are known. locationPromise is still in
+  // flight (started right after capture, not awaited here) so the caller
+  // isn't made to wait for a GPS fix before getting control back; identity
+  // match and geofence are no longer checked client-side at all, since the
+  // backend independently re-verifies both at submission regardless (see
+  // attendance.service.ts submit()) — this used to duplicate that work with
+  // its own network round trip purely to fail fast in the UI, which only
+  // added latency once the caller stopped blocking the UI on it anyway.
+  onComplete: (locationPromise: Promise<Location.LocationObject>, faceBase64?: string) => void;
   onCancel: () => void;
-  // Called instead of onComplete when the identity check — run once, on the
-  // final captured photo, after blink/liveness has already passed —
-  // confidently finds a different person than the logged-in employee. The
-  // "verified" success state is never shown in this case, and no attendance
-  // submission is attempted.
-  onFaceMismatch: () => void;
 };
 
 const LOG_TYPE_LABEL: Record<CameraScannerProps["logType"], string> = {
@@ -63,12 +66,26 @@ const LOCKED_COLOR = "#22C55E";
 // itself rather than this extra wait.
 const DETECT_POLL_MS = 20;
 // While sampling for a blink, captures are decoupled from the network (see
-// the capture/send loops below) and re-fire almost immediately — this is
-// Native camera sessions need a small recovery window between snapshots on
-// lower-end Android devices. Without it, continuous captures can fail even
-// though the preview remains visible.
-const BLINK_CAPTURE_FLOOR_MS = 80;
-const CAMERA_RECONFIGURE_SETTLE_MS = 500;
+// the capture/send loops below) and re-fire roughly this often — this is
+// the main lever on how quickly a real blink gets caught at all, since a
+// blink's closed-eye window is only ~100-300ms and this is the gap between
+// chances to photograph it. Tried at 0ms once (no floor at all): that
+// degraded the native camera session enough that the single, separate
+// "official" capture in finishScan started failing outright ("Failed to
+// capture photo."), not just the burst captures themselves. Lower than the
+// 80ms this was reverted to back then, now that finishScan's own capture
+// retries 3x with a real gap between attempts (see captureFinalPhoto)
+// instead of just once — if capture failures come back, that's the signal
+// this needs to go back up, not the retry count going back down.
+const BLINK_CAPTURE_FLOOR_MS = 50;
+// How long captureLoop waits after the scan pictureSize is first applied
+// (see handleCameraReady) before the very first detection frame can fire —
+// some devices reject captures while the camera session is still
+// reconfiguring to a non-default size right after camera-ready. Kept short
+// rather than removed (this gate didn't exist before that failure mode was
+// found) since it only costs this once, at the very start of a scan, not on
+// every frame like BLINK_CAPTURE_FLOOR_MS above did.
+const CAMERA_RECONFIGURE_SETTLE_MS = 150;
 const CAPTURE_FAILURE_RETRY_MS = 250;
 const HOLD_TO_LOCK_MS = 450;
 const TICK_MS = 100;
@@ -105,14 +122,6 @@ const FIRST_SAMPLE_CLOSED_EAR = 0.18;
 // encode/transfer/decode latency. The fixed guide keeps enough eye detail at
 // this size while cutting frame pixels by about 79% versus the 416px path.
 const DETECTION_FRAME_WIDTH = 192;
-// The captured photo is downscaled to this width before being sent to the
-// identity match that runs after liveness passes. Wider than the detection
-// frames above on purpose: the backend's descriptor extractor runs its
-// detector at inputSize 416 (see face-verification.service.ts
-// extractDescriptor), so a frame around that size gives it real pixels to
-// work from instead of upscaled ones, while still being a fraction of the
-// full-resolution capture to encode and transfer.
-const MATCH_FRAME_WIDTH = 480;
 // Static on-screen face guide, always shown at a fixed spot/size so the
 // user lines their face up consistently — closer and more consistently
 // framed input gives the backend's landmark model a much easier time
@@ -130,29 +139,27 @@ const MAP_THUMBNAIL_DISPLAY_SIZE = 90;
 const SAVED_MAP_THUMBNAIL_DISPLAY_SIZE = 210;
 // How long the captured photo stays frozen on screen (with the GPS stamp
 // already baked in) before handing off, so the capture feels like a real
-// snapshot instead of the live preview just continuing to move. Kept just
-// long enough for the success checkmark + sound to register, not for the
-// background GPS/watermark work (which runs during this window regardless).
-const FREEZE_DISPLAY_MS = 500;
+// snapshot instead of the live preview just continuing to move. This runs
+// concurrently with the identity/geofence checks in finishScan (Promise.all),
+// not stacked on top of them, so it's just the minimum floor for the
+// checkmark + sound to register — kept short since the real wait, if any, is
+// almost always the network calls, not this.
+const FREEZE_DISPLAY_MS = 250;
 
 const SUCCESS_SOUND = require("../../assets/sounds/success.wav");
 
-type IdentityStatus = "idle" | "checking" | "matched" | "mismatch";
-
-// The identity branches come first because they only ever apply after the
-// photo is captured, at which point the live preview is frozen and
-// faceDetected is meaningless — matching happens after liveness now, never
-// before it, so nothing here can put a "verifying" message in front of the
-// blink prompt.
-function getStageText(faceDetected: boolean, progress: number, blinkCount: number, identityStatus: IdentityStatus) {
-  if (identityStatus === "checking") return "Matching your face with your registered profile...";
-  if (identityStatus === "mismatch") return "Face does not match the registered employee";
+// There is deliberately no "matching..." / "verifying with server..." text
+// here for the identity-match and submission network calls — those run
+// entirely after this component hands off (see finishScan/onComplete),
+// invisibly in the background, rather than being narrated as a processing
+// step on this screen at all.
+function getStageText(faceDetected: boolean, progress: number, blinkCount: number) {
   if (!faceDetected) return "No face detected — line your face up with the outline";
   if (blinkCount < REQUIRED_BLINKS) {
     return "Please blink to verify you're not a photo";
   }
   if (progress < 100) return "Liveness verified — hold steady...";
-  return "Captured — verifying with server...";
+  return "Captured";
 }
 
 // Maps the backend's relative (0-1) face box onto the on-screen camera
@@ -299,7 +306,7 @@ function createDeferred() {
 }
 
 
-export default function CameraScanner({ logType, onComplete, onCancel, onFaceMismatch }: CameraScannerProps) {
+export default function CameraScanner({ logType, onComplete, onCancel }: CameraScannerProps) {
   const cameraRef = useRef<CameraView | null>(null);
   const shotRef = useRef<View>(null);
   const mainImageReadyRef = useRef<(() => void) | null>(null);
@@ -356,14 +363,17 @@ export default function CameraScanner({ logType, onComplete, onCancel, onFaceMis
   // photo so it isn't snapped in the middle of that churn.
   const captureInFlightRef = useRef(false);
   const lastBurstCaptureEndRef = useRef(0);
-  // Identity check state. Stays "idle" for the whole live-preview stage —
-  // it gates nothing, and blink/liveness never waits on it. It only moves
-  // to "checking" inside finishScan, once liveness has passed and the final
-  // photo is captured, and then to "matched" (the verified success state is
-  // shown and the scan hands off) or "mismatch" (scan aborts via
-  // onFaceMismatch and no success is ever shown).
-  const identityStatusRef = useRef<IdentityStatus>("idle");
-  const [identityStatus, setIdentityStatus] = useState<IdentityStatus>("idle");
+  // The high-accuracy GPS fix finishScan needs for the actual submission —
+  // kicked off the moment permissions are ready (see the effect below),
+  // not when finishScan reaches for it. Accuracy.High is deliberately kept
+  // (not downgraded to Balanced like the live-preview fetch) because the
+  // backend rejects a submission outright if its reported accuracy exceeds
+  // the work location's allowed_accuracy_meters — but a High fix can take
+  // several seconds, and the face-detection/blink phase already takes at
+  // least that long on its own, so starting it this early usually means
+  // it's already resolved (or close to it) by the time finishScan needs it,
+  // for free, instead of adding its own wait on top.
+  const finalLocationPromiseRef = useRef<Promise<Location.LocationObject> | null>(null);
   // Blink liveness state. This runs as soon as a face is detected — before
   // the hold-to-lock step even starts — so a held-up photo (which can never
   // blink) can't get anywhere near capture. blinkCountRef mirrors the
@@ -479,6 +489,17 @@ export default function CameraScanner({ logType, onComplete, onCancel, onFaceMis
       requestLocationPermission();
     }
   }, [locationPermission]);
+
+  // Starts the high-accuracy GPS fix finishScan will eventually need (see
+  // finalLocationPromiseRef above) as soon as location permission is
+  // granted, rather than waiting for liveness to pass first — giving it the
+  // whole face-detection/blink duration to resolve in the background.
+  useEffect(() => {
+    if (!locationPermission?.granted || finalLocationPromiseRef.current) return;
+    const promise = Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+    finalLocationPromiseRef.current = promise;
+    promise.catch(() => {});
+  }, [locationPermission?.granted]);
 
   // Picks the smallest picture size the camera offers whose short side is
   // still at least WATERMARK_WIDTH — so the final stamped photo (rendered
@@ -621,9 +642,9 @@ export default function CameraScanner({ logType, onComplete, onCancel, onFaceMis
       // Start the decoupled blink stream with the very first camera frame.
       // The fast endpoint still rejects frames without a face, but no longer
       // makes a real blink wait for a separate face-tracking round trip.
-      // Identity matching does not run at this stage at all — it happens
-      // once, after liveness passes, on the final captured photo (see
-      // verifyCapturedIdentity in finishScan).
+      // Identity matching does not run on-device at all anymore — it's the
+      // backend's submission call, run entirely after this component hands
+      // off (see finishScan/onComplete), that's now the sole check.
       const samplingBlink = blinkCountRef.current < REQUIRED_BLINKS;
       try {
         // skipProcessing is intentionally NOT set here: it skips orientation
@@ -879,42 +900,6 @@ export default function CameraScanner({ logType, onComplete, onCancel, onFaceMis
     }
   }
 
-  // One-time identity check on the photo that was actually captured, run
-  // after blink/liveness has already passed and before any "verified"
-  // feedback is shown. Only a confident "this is a different person" result
-  // stops the scan — a real match, a borderline/inconclusive result, no
-  // enrolled profile to compare against, or a failed request all continue,
-  // since the backend independently re-extracts and re-compares this same
-  // photo at submission (attendance.service.ts submit()) and remains the
-  // authoritative decision regardless of what this returned.
-  async function verifyCapturedIdentity(uri: string): Promise<boolean> {
-    identityStatusRef.current = "checking";
-    setIdentityStatus("checking");
-    try {
-      const resized = await manipulateAsync(uri, [{ resize: { width: MATCH_FRAME_WIDTH } }], {
-        base64: true,
-        compress: 0.6,
-        format: SaveFormat.JPEG,
-      });
-      if (!resized.base64) throw new Error("Failed to encode the captured photo for matching.");
-
-      const match = await matchFace(`data:image/jpeg;base64,${resized.base64}`);
-      if (match.status === "REJECTED" && match.reason === "Face does not match enrolled profile") {
-        identityStatusRef.current = "mismatch";
-        setIdentityStatus("mismatch");
-        return false;
-      }
-      identityStatusRef.current = "matched";
-      setIdentityStatus("matched");
-      return true;
-    } catch (error) {
-      if (__DEV__) console.warn("[identity] post-liveness match failed, deferring to the server", error);
-      identityStatusRef.current = "matched";
-      setIdentityStatus("matched");
-      return true;
-    }
-  }
-
   // How long after the last burst-sampling capture to wait before taking the
   // "official" photo, so the sensor's auto-exposure has a chance to
   // reconverge from the rapid-fire low-quality captures used for blink
@@ -952,47 +937,59 @@ export default function CameraScanner({ logType, onComplete, onCancel, onFaceMis
       const captureFinalPhoto = async () =>
         (await cameraRef.current?.takePictureAsync({
           base64: true,
-          quality: 1,
+          // Just under max (was 1) — this is the payload submitAttendance
+          // uploads in the background, and the backend's own descriptor
+          // extractor resizes down to inputSize 416 regardless of source
+          // quality, so quality 1 was paying for JPEG bytes neither the
+          // match nor (at this resolution) the saved DTR photo actually
+          // benefit from. The cut is small enough not to be visible.
+          quality: 0.9,
           shutterSound: false,
         })) ?? null;
       // Captures can transiently fail (e.g. right after the custom scan
-      // pictureSize is applied, or under camera-session pressure); this is
-      // the one capture that must not give up on the first hiccup.
-      let photo = await captureFinalPhoto().catch(() => null);
-      if (!photo?.uri) photo = await captureFinalPhoto();
+      // pictureSize is applied, or under camera-session pressure from the
+      // blink-sampling burst that was just running); this is the one
+      // capture that must not give up on the first hiccup. A short gap
+      // before each retry gives the native camera session a beat to
+      // recover, rather than immediately re-hammering it while it's still busy.
+      let photo: Awaited<ReturnType<typeof captureFinalPhoto>> = null;
+      for (let attempt = 0; attempt < 3 && !photo?.uri; attempt++) {
+        if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 200));
+        photo = await captureFinalPhoto().catch(() => null);
+      }
       if (!photo?.uri) throw new Error("Failed to capture photo.");
 
       setIsFrozenStamped(false);
       setFrozenPreviewUri(photo.uri);
 
-      // The high-accuracy GPS fix is the slowest step in this function and
-      // doesn't depend on the identity match, so start it now and read it
-      // further below — that way it resolves alongside the match instead of
-      // stacking its wait on top. The catch here only keeps an early
-      // mismatch return from leaving this rejecting unhandled; the await
-      // below still throws for real.
-      const locationPromise = Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      // The GPS fix was already started back when permissions were granted
+      // (see finalLocationPromiseRef above) — usually already resolved, or
+      // close to it, by now — rather than started fresh here. It's handed
+      // off as a promise to onComplete below, which the caller awaits
+      // itself, in the background, after already returning to the
+      // attendance screen; the null fallback only covers the effect above
+      // somehow not having run yet, which shouldn't happen in practice
+      // since permissionsReady already requires location permission.
+      const locationPromise =
+        finalLocationPromiseRef.current ?? Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
       locationPromise.catch(() => {});
 
-      // Face matching happens here — after liveness, before anything that
-      // reads as "verified" (no checkmark, no success sound). A confident
-      // mismatch stops the scan outright and nothing is submitted.
-      const identityMatched = await verifyCapturedIdentity(photo.uri);
-      if (!identityMatched) {
-        setFrozenPreviewUri(null);
-        setIsFrozenStamped(false);
-        setFrozenStamp(null);
-        onFaceMismatch();
-        return;
-      }
-
-      // Liveness passed and the captured photo matched the enrolled
-      // profile — show the success checkmark now, for the rest of this
-      // function's freeze hold, rather than waiting for the watermark work
-      // below to finish first.
+      // Show "verified" the instant the photo is captured. Liveness has
+      // already passed, which is the one gate that has to come before
+      // anything reading as "verified" — identity match and geofence are no
+      // longer checked here at all (see the onComplete prop comment above),
+      // so there is nothing left to wait on before handing off.
       setShowSuccessCheck(true);
-      successSoundPlayer.seekTo(0);
-      successSoundPlayer.play();
+      // A chime is cosmetic, so a failure here (e.g. the native player
+      // having been released by a Fast Refresh reload mid-scan) must never
+      // bubble up into this function's try/catch and abort an
+      // otherwise-successful scan with an error screen.
+      try {
+        successSoundPlayer.seekTo(0);
+        successSoundPlayer.play();
+      } catch (error) {
+        if (__DEV__) console.warn("[capture] success sound failed to play", error);
+      }
       successScaleAnim.setValue(0);
       successOpacityAnim.setValue(0);
       Animated.parallel([
@@ -1019,24 +1016,26 @@ export default function CameraScanner({ logType, onComplete, onCancel, onFaceMis
           mapGrid: buildMapGrid(liveCoords.latitude, liveCoords.longitude, MAP_THUMBNAIL_DISPLAY_SIZE),
         });
       }
+      setIsFrozenStamped(true);
 
-      const location = await locationPromise;
+      // Just long enough for the checkmark + sound to register as a real
+      // moment on screen — not a floor for any network call anymore. The
+      // location fetch, identity match, geofence check, and submission all
+      // now happen after onComplete hands off below, in the background.
+      await new Promise((resolve) => setTimeout(resolve, FREEZE_DISPLAY_MS));
+
       // Store the original, full-quality camera JPEG. Android's view-shot
       // renderer changes the exposure when flattening CameraView imagery,
       // so the timestamp and location are rendered as an overlay by the
       // attendance viewer instead of re-encoding this photo.
       const finalImage = photo.base64 ? `data:image/jpeg;base64,${photo.base64}` : undefined;
-      setIsFrozenStamped(true);
-      await new Promise((resolve) => setTimeout(resolve, FREEZE_DISPLAY_MS));
 
-      onComplete(location, finalImage);
+      onComplete(locationPromise, finalImage);
     } catch (error) {
       setFrozenPreviewUri(null);
       setIsFrozenStamped(false);
       setFrozenStamp(null);
       setShowSuccessCheck(false);
-      identityStatusRef.current = "idle";
-      setIdentityStatus("idle");
       console.error("Scan error", error);
       setScanError(error instanceof Error ? error.message : "Failed to capture location or photo.");
       setIsScanning(false);
@@ -1050,8 +1049,6 @@ export default function CameraScanner({ logType, onComplete, onCancel, onFaceMis
     openBaselineRef.current = null;
     openSampleCountRef.current = 0;
     blinkCountRef.current = 0;
-    identityStatusRef.current = "idle";
-    setIdentityStatus("idle");
     setFaceDetected(false);
     setFaceBox(null);
     setConfidence(0);
@@ -1272,7 +1269,7 @@ export default function CameraScanner({ logType, onComplete, onCancel, onFaceMis
                         ? "Tracking"
                         : "Preparing"}
               </Text>
-              <Text style={styles.statusText}>{getStageText(faceDetected, scanProgress, blinkCount, identityStatus)}</Text>
+              <Text style={styles.statusText}>{getStageText(faceDetected, scanProgress, blinkCount)}</Text>
             </View>
           </View>
           {!showSuccessCheck && (

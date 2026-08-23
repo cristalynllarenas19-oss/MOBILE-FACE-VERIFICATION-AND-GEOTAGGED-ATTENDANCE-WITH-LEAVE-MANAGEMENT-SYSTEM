@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import { Modal, View, Text, Image, Pressable, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -24,8 +24,36 @@ const STATUS_CONFIG: Record<
   info: { icon: "information-circle", color: "#1680D8", bg: "#EFF6FF" },
 };
 
+// How long each result stays on screen before it auto-dismisses back to the
+// attendance screen — a plain approval needs the least reading time, while
+// a rejection/error gets longer since its message is the only place the
+// reason is explained. The "Done" button and backdrop tap (onRequestClose)
+// below still close it early for anyone who doesn't want to wait.
+const AUTO_CLOSE_MS: Record<ResultModalStatus, number> = {
+  approved: 1400,
+  pending: 2200,
+  rejected: 3000,
+  error: 3000,
+  info: 2200,
+};
+
 export default function ResultModal({ visible, status, title, message, photoUri, onClose }: Props) {
   const config = STATUS_CONFIG[status];
+
+  // Kept in a ref rather than the effect's own dependency array so the timer
+  // isn't restarted by every parent re-render while the modal is showing —
+  // only an actual visible/status transition (a genuinely new result) should
+  // reset it.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!visible) return;
+    const timeout = setTimeout(() => onCloseRef.current(), AUTO_CLOSE_MS[status]);
+    return () => clearTimeout(timeout);
+  }, [visible, status]);
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
