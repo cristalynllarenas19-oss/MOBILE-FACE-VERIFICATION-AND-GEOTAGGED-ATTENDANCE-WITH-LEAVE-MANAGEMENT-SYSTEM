@@ -1,5 +1,5 @@
 
-import { CSSProperties, useCallback, useEffect, useState } from "react";
+import { CSSProperties, useState } from "react";
 import {
   AlertCircle, CheckCircle, Clock, Coffee, LogIn, LogOut, MapPin,
 } from "lucide-react";
@@ -10,6 +10,7 @@ import {
 } from "./api";
 import CameraScanner, { GeoPoint } from "./components/CameraScanner";
 import type { AuthUser } from "../../lib/api";
+import { CACHE_KEYS, useCachedData } from "../../lib/dataCache";
 import "./AttendancePage.css";
 
 type Props = { user: AuthUser };
@@ -40,9 +41,34 @@ function getEligibilityMessage(eligibility: AttendanceEligibility | null) {
 }
 
 export function AttendancePage({ user }: Props) {
-  const [todayAtt,     setTodayAtt]     = useState<TodayAttendance | null>(null);
-  const [eligibility,  setEligibility]  = useState<AttendanceEligibility | null>(null);
-  const [isLoading,    setIsLoading]    = useState(true);
+  const isField = user.attendanceMode === "FIELD";
+
+  // Stale-while-revalidate: renders the last cached response instantly (if
+  // any) while a fresh copy loads silently in the background — mirrors
+  // employee-mobile's App.tsx refreshTodayAttendance/refreshEligibility.
+  const todayCache = useCachedData<TodayAttendance>(
+    user.employeeId ? CACHE_KEYS.todayAttendance(user.employeeId) : null,
+    () => getTodayAttendance(user.employeeId!),
+  );
+  const profileCache = useCachedData(CACHE_KEYS.myProfile, getMyProfile);
+  const workLocationsCache = useCachedData<WorkLocation[]>(
+    isField && user.employeeId ? CACHE_KEYS.workArea(user.employeeId, "field") : null,
+    getMyWorkLocations,
+  );
+  const workLocationCache = useCachedData<WorkLocation | null>(
+    !isField && user.employeeId ? CACHE_KEYS.workArea(user.employeeId, "fixed") : null,
+    getMyWorkLocation,
+  );
+
+  const todayAtt = todayCache.data;
+  const hasWorkLocation = isField
+    ? (workLocationsCache.data?.length ?? 0) > 0
+    : workLocationCache.data !== null && workLocationCache.data !== undefined;
+  const eligibility: AttendanceEligibility | null = profileCache.data
+    ? { faceEnrolled: Boolean(profileCache.data.hasActiveFaceEnrollment), hasWorkLocation }
+    : null;
+  const isLoading = todayCache.isLoading || profileCache.isLoading
+    || (isField ? workLocationsCache.isLoading : workLocationCache.isLoading);
   // Scanner state
   const [scanType,      setScanType]      = useState<"TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN" | null>(null);
   const [isSubmitting,  setIsSubmitting]  = useState(false);
@@ -58,37 +84,6 @@ export function AttendancePage({ user }: Props) {
     type: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN";
     proceed: () => void;
   } | null>(null);
-
-  const isField = user.attendanceMode === "FIELD";
-
-  const loadToday = useCallback(async () => {
-    if (!user.employeeId) return;
-    try {
-      const att = await getTodayAttendance(user.employeeId);
-      setTodayAtt(att);
-    } catch { /* non-blocking */ }
-  }, [user.employeeId]);
-
-  const loadEligibility = useCallback(async () => {
-    if (!user.employeeId) return;
-    try {
-      const [profile, hasWorkLocation] = await Promise.all([
-        getMyProfile(),
-        isField
-          ? getMyWorkLocations().then((sites) => sites.length > 0)
-          : getMyWorkLocation().then((location) => location !== null),
-      ]);
-      setEligibility({ faceEnrolled: Boolean(profile.hasActiveFaceEnrollment), hasWorkLocation });
-    } catch {
-      setEligibility({ faceEnrolled: false, hasWorkLocation: false });
-    }
-  }, [isField, user.employeeId]);
-
-  useEffect(() => {
-    if (!user.employeeId) return;
-    setIsLoading(true);
-    Promise.all([loadToday(), loadEligibility()]).finally(() => setIsLoading(false));
-  }, [loadEligibility, loadToday, user.employeeId]);
 
   const now = new Date();
 
@@ -300,7 +295,7 @@ export function AttendancePage({ user }: Props) {
         setResultModal({ status: "rejected", title: `${actionLabel} Not Recorded`, message: msg });
       }
 
-      await loadToday();
+      await todayCache.refresh();
     } catch (err) {
       setResultModal({
         status: "error",

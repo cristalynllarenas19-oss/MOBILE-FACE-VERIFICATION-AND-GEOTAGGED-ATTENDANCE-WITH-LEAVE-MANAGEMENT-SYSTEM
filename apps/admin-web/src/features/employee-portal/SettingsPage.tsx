@@ -1,10 +1,11 @@
-import { CSSProperties, FormEvent, ReactNode, useEffect, useRef, useState } from "react";
+import { CSSProperties, FormEvent, ReactNode, useRef, useState } from "react";
 import {
   ArrowLeft, Briefcase, Building2, Camera, ChevronRight,
   Eye, EyeOff, Lock, Mail, Phone, User,
 } from "lucide-react";
 import { EmployeeProfile, getMyProfile, changePassword, updateMyPhoto } from "./api";
 import { AuthUser, updateDefaultView } from "../../lib/api";
+import { CACHE_KEYS, useCachedData } from "../../lib/dataCache";
 import "./EmployeePortal.css";
 
 type Props   = { user: AuthUser; onDefaultViewChange: (view: "ADMIN" | "EMPLOYEE") => void };
@@ -32,8 +33,12 @@ function avatarUri(p: EmployeeProfile) {
 }
 
 export function SettingsPage({ user, onDefaultViewChange }: Props) {
-  const [profile,   setProfile]   = useState<EmployeeProfile | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  // Same cache key as AttendancePage, so a photo change here is reflected
+  // there instantly on the next visit without a refetch.
+  const { data: profile, isLoading, setData: setProfile } = useCachedData<EmployeeProfile>(
+    CACHE_KEYS.myProfile,
+    getMyProfile,
+  );
   const [section,   setSection]   = useState<Section>("menu");
 
   // default view preference (multi-role accounts only)
@@ -86,13 +91,6 @@ export function SettingsPage({ user, onDefaultViewChange }: Props) {
     };
     reader.readAsDataURL(file);
   }
-
-  useEffect(() => {
-    getMyProfile()
-      .then(setProfile)
-      .catch(() => {})
-      .finally(() => setIsLoading(false));
-  }, []);
 
   async function handleChangePassword(e: FormEvent) {
     e.preventDefault();

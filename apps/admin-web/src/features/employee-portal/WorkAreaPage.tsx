@@ -12,6 +12,7 @@ import markerShadowUrl from "leaflet/dist/images/marker-shadow.png";
 import { MapPin, Navigation } from "lucide-react";
 import { WorkLocation, getMyWorkLocation, getMyWorkLocations, distanceInMeters } from "./api";
 import type { AuthUser } from "../../lib/api";
+import { CACHE_KEYS, useCachedData } from "../../lib/dataCache";
 
 type Props = { user: AuthUser };
 
@@ -28,27 +29,31 @@ const siteMarkerIcon = L.icon({
 export function WorkAreaPage({ user }: Props) {
   const isField = user.attendanceMode === "FIELD";
 
-  const [locations,    setLocations]    = useState<WorkLocation[]>([]);
+  // Stale-while-revalidate — same cache keys AttendancePage/App.tsx prefetch
+  // warm, so this map has its site(s) ready the instant the page mounts.
+  // Keeps the same per-mode cache shape as AttendancePage/employee-mobile:
+  // "field" stores an array, "fixed" stores a single object (or null).
+  const workLocationsCache = useCachedData<WorkLocation[]>(
+    isField && user.employeeId ? CACHE_KEYS.workArea(user.employeeId, "field") : null,
+    getMyWorkLocations,
+  );
+  const workLocationCache = useCachedData<WorkLocation | null>(
+    !isField && user.employeeId ? CACHE_KEYS.workArea(user.employeeId, "fixed") : null,
+    getMyWorkLocation,
+  );
+  const locations = isField
+    ? workLocationsCache.data ?? []
+    : workLocationCache.data ? [workLocationCache.data] : [];
+  const isLoading = isField ? workLocationsCache.isLoading : workLocationCache.isLoading;
   const [activeIdx,    setActiveIdx]    = useState(0);
   const [myPosition,   setMyPosition]   = useState<GeolocationPosition | null>(null);
   const [gpsError,     setGpsError]     = useState<string | null>(null);
-  const [isLoading,    setIsLoading]    = useState(true);
 
   const mapRef      = useRef<L.Map | null>(null);
   const siteMarker  = useRef<L.Marker | null>(null);
   const siteCircle  = useRef<L.Circle | null>(null);
   const youMarker   = useRef<L.CircleMarker | null>(null);
   const watchId     = useRef<number | null>(null);
-
-  // ── Load locations ────────────────────────────────────────────────────────
-  useEffect(() => {
-    setIsLoading(true);
-    const fetch = isField ? getMyWorkLocations() : getMyWorkLocation().then((loc) => (loc ? [loc] : []));
-    fetch
-      .then((data) => setLocations(data ?? []))
-      .catch(() => {})
-      .finally(() => setIsLoading(false));
-  }, [isField]);
 
   // ── GPS watch ─────────────────────────────────────────────────────────────
   useEffect(() => {

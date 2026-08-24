@@ -12,10 +12,11 @@
  * Endpoint: GET /attendance/history/:employeeId?limit=30
  */
 
-import { CSSProperties, useCallback, useEffect, useMemo, useState } from "react";
+import { CSSProperties, useMemo, useState } from "react";
 import { ArrowRight, Camera } from "lucide-react";
 import { AttendanceHistoryRecord, AttendanceLogPhoto, getAttendanceHistory } from "./api";
 import type { AuthUser } from "../../lib/api";
+import { CACHE_KEYS, useCachedData } from "../../lib/dataCache";
 import "./DtrPage.css";
 import "./EmployeePortal.css";
 
@@ -70,30 +71,21 @@ function latestOfToday(recs: AttendanceHistoryRecord[]) {
 }
 
 export function DtrPage({ user }: Props) {
-  const [records,     setRecords]     = useState<AttendanceHistoryRecord[]>([]);
-  const [isLoading,   setIsLoading]   = useState(true);
+  const historyCache = useCachedData<AttendanceHistoryRecord[]>(
+    user.employeeId ? CACHE_KEYS.attendanceHistory(user.employeeId) : null,
+    () => getAttendanceHistory(user.employeeId!),
+  );
+  const records    = historyCache.data ?? [];
+  const isLoading  = historyCache.isLoading;
   const [isRefresh,   setIsRefresh]   = useState(false);
   const [activeTab,   setActiveTab]   = useState<Tab>("office");
   const [amPm,        setAmPm]        = useState<AmPm>("ALL");
   const [selected,    setSelected]    = useState<AttendanceHistoryRecord | null>(null);
   const [photoTab,    setPhotoTab]    = useState<PhotoTab>("TIME_IN");
 
-  const load = useCallback(async () => {
-    if (!user.employeeId) return;
-    try {
-      const data = await getAttendanceHistory(user.employeeId);
-      setRecords(data);
-    } catch { /* non-blocking */ }
-  }, [user.employeeId]);
-
-  useEffect(() => {
-    setIsLoading(true);
-    load().finally(() => setIsLoading(false));
-  }, [load]);
-
   async function handleRefresh() {
     setIsRefresh(true);
-    await load();
+    await historyCache.refresh();
     setIsRefresh(false);
   }
 

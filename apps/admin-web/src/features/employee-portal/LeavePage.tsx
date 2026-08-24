@@ -11,6 +11,7 @@ import {
 } from "./api";
 import { LeaveBalanceChart } from "./components/LeaveBalanceChart";
 import type { AuthUser } from "../../lib/api";
+import { CACHE_KEYS, useCachedData } from "../../lib/dataCache";
 
 type Props = {
   user: AuthUser;
@@ -35,10 +36,44 @@ function fmtBytes(b: number) {
 
 export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }: Props) {
   const [tab,          setTab]          = useState<Tab>("balance");
-  const [leaveTypes,   setLeaveTypes]   = useState<LeaveType[]>([]);
-  const [balances,     setBalances]     = useState<LeaveBalance[]>([]);
-  const [requests,     setRequests]     = useState<LeaveRequest[]>([]);
-  const [loadingData,  setLoadingData]  = useState(true);
+
+  // Stale-while-revalidate — same cache keys App.tsx prefetches after
+  // sign-in, so this page (and admin-web's own Leave Management page, for
+  // leaveTypes) renders instantly from cache while a fresh copy loads
+  // silently in the background.
+  const leaveTypesCache = useCachedData<LeaveType[]>(CACHE_KEYS.leaveTypes, getLeaveTypes);
+  const balancesCache = useCachedData<LeaveBalance[]>(
+    user.employeeId ? CACHE_KEYS.leaveBalances(user.employeeId) : null,
+    () => getLeaveBalances(user.employeeId!),
+  );
+  const requestsCache = useCachedData<LeaveRequest[]>(
+    user.employeeId ? CACHE_KEYS.leaveRequests(user.employeeId) : null,
+    () => getLeaveRequests(user.employeeId!),
+  );
+  const undertimeEligibilityCache = useCachedData<UndertimeEligibility>(
+    user.employeeId ? CACHE_KEYS.undertimeEligibility(user.employeeId) : null,
+    () => getUndertimeEligibility(user.employeeId!),
+  );
+  const undertimeFilingsCache = useCachedData<UndertimeFiling[]>(
+    user.employeeId ? CACHE_KEYS.undertimeFilings(user.employeeId) : null,
+    () => getUndertimeFilings(user.employeeId!),
+  );
+  const leaveTypes = leaveTypesCache.data ?? [];
+  const balances = balancesCache.data ?? [];
+  const requests = requestsCache.data ?? [];
+  const undertimeEligibility = undertimeEligibilityCache.data;
+  const undertimeFilings = undertimeFilingsCache.data ?? [];
+  const loadingData = leaveTypesCache.isLoading || balancesCache.isLoading || requestsCache.isLoading;
+
+  async function refreshAll() {
+    await Promise.all([
+      leaveTypesCache.refresh(),
+      balancesCache.refresh(),
+      requestsCache.refresh(),
+      undertimeEligibilityCache.refresh(),
+      undertimeFilingsCache.refresh(),
+    ]);
+  }
 
   // Request form
   const [leaveTypeId,   setLeaveTypeId]   = useState("");
@@ -68,8 +103,6 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
   const [isResubmitting,  setIsResubmitting]  = useState(false);
 
   // Undertime filing
-  const [undertimeEligibility, setUndertimeEligibility] = useState<UndertimeEligibility | null>(null);
-  const [undertimeFilings,     setUndertimeFilings]     = useState<UndertimeFiling[]>([]);
   const [undertimeReason,      setUndertimeReason]      = useState("");
   const [isFilingUndertime,    setIsFilingUndertime]    = useState(false);
   const [undertimeErr,         setUndertimeErr]         = useState<string | null>(null);
@@ -118,26 +151,6 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
     });
   }, [balances, leaveTypes]);
 
-  async function loadData() {
-    setLoadingData(true);
-    try {
-      const types = await getLeaveTypes();
-      setLeaveTypes(types);
-      if (user.employeeId) {
-        const [bal, reqs, eligibility, filings] = await Promise.all([
-          getLeaveBalances(user.employeeId),
-          getLeaveRequests(user.employeeId),
-          getUndertimeEligibility(user.employeeId),
-          getUndertimeFilings(user.employeeId),
-        ]);
-        setBalances(bal);
-        setRequests(reqs);
-        setUndertimeEligibility(eligibility);
-        setUndertimeFilings(filings);
-      }
-    } catch { /* non-blocking */ } finally { setLoadingData(false); }
-  }
-
   async function handleFileUndertime() {
     if (!user.employeeId) return;
     setIsFilingUndertime(true);
@@ -145,14 +158,12 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
     try {
       await fileUndertime(user.employeeId, undertimeReason.trim() || undefined);
       setUndertimeReason("");
-      await loadData();
+      await refreshAll();
       setResultModal({ ok: true, title: "Undertime Filed", msg: "Your undertime filing for today has been recorded." });
     } catch (err) {
       setUndertimeErr(err instanceof Error ? err.message : "Unable to file undertime.");
     } finally { setIsFilingUndertime(false); }
   }
-
-  useEffect(() => { loadData(); }, [user.employeeId]);
 
   useEffect(() => {
     if (!initialFocusRequestId || loadingData) return;
@@ -175,7 +186,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
     setCancellingId(requestId);
     try {
       await cancelLeaveRequest(requestId);
-      await loadData();
+      await refreshAll();
     } catch (err) {
       setResultModal({
         ok: false,
@@ -218,7 +229,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
         attachmentData: resubmitFile.base64,
       });
       setResubmittingId(null);
-      await loadData();
+      await refreshAll();
     } catch (err) {
       setResubmitErr(err instanceof Error ? err.message : "Failed to resubmit leave request.");
     } finally { setIsResubmitting(false); }
@@ -346,7 +357,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
         extensionRequested: selectedType?.kind === "MATERNITY" ? extensionRequested : undefined,
       });
       resetForm();
-      await loadData();
+      await refreshAll();
       setResultModal({ ok: true, title: "Leave Request Submitted", msg: "Your HR/Admin and supervisor have been notified. You'll be informed once it's reviewed." });
     } catch (err) {
       setResultModal({ ok: false, title: "Submission Failed", msg: err instanceof Error ? err.message : "Please try again." });

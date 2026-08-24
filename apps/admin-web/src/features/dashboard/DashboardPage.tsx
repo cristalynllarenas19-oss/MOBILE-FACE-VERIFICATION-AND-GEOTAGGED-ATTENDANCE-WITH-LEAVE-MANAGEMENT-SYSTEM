@@ -16,7 +16,7 @@ import { Card } from "../../components/ui/Card";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { StatCard } from "../../components/ui/StatCard";
 import { apiRequest } from "../../lib/api";
-import { useCachedData } from "../../lib/dataCache";
+import { prefetchCached, useCachedData } from "../../lib/dataCache";
 import { useActiveDepartments } from "../../lib/departments";
 import { AttendanceDonut } from "./AttendanceDonut";
 import { computeAttendanceRate, getRateTone, RATE_TONE_COLOR } from "./attendanceRate";
@@ -30,6 +30,14 @@ const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ];
+
+function dashboardSummaryKey(month: number, year: number) {
+  return `dashboard-summary:${month + 1}-${year}`;
+}
+
+function fetchDashboardSummary(month: number, year: number) {
+  return apiRequest<DashboardSummary>(`/dashboard/summary?month=${month + 1}&year=${year}`);
+}
 
 type CalendarDay = {
   day: number;
@@ -209,10 +217,19 @@ export function DashboardPage({
     isLoading: calendarLoading,
     error: summaryError,
   } = useCachedData<DashboardSummary>(
-    `dashboard-summary:${calendarMonth + 1}-${calendarYear}`,
-    () => apiRequest<DashboardSummary>(`/dashboard/summary?month=${calendarMonth + 1}&year=${calendarYear}`),
+    dashboardSummaryKey(calendarMonth, calendarYear),
+    () => fetchDashboardSummary(calendarMonth, calendarYear),
   );
   const loadError = summaryError ? "Could not load dashboard data. Please try refreshing." : null;
+
+  // Warm the previous/next month in the background so paging the calendar
+  // with the arrows feels instant instead of showing a spinner each click.
+  useEffect(() => {
+    const prev = calendarMonth === 0 ? { month: 11, year: calendarYear - 1 } : { month: calendarMonth - 1, year: calendarYear };
+    const next = calendarMonth === 11 ? { month: 0, year: calendarYear + 1 } : { month: calendarMonth + 1, year: calendarYear };
+    prefetchCached(dashboardSummaryKey(prev.month, prev.year), () => fetchDashboardSummary(prev.month, prev.year));
+    prefetchCached(dashboardSummaryKey(next.month, next.year), () => fetchDashboardSummary(next.month, next.year));
+  }, [calendarMonth, calendarYear]);
 
   const summary = useMemo<DashboardSummary>(() => {
     if (!summaryData) return initialSummary;
