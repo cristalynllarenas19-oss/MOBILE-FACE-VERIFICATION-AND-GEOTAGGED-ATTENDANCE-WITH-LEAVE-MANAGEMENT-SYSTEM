@@ -8,6 +8,7 @@ import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.serv
 import { NotificationsService } from "../notifications/notifications.service";
 import { SubmitAttendanceDto } from "./dto/submit-attendance.dto";
 import {
+  computeAbsenceCutoff,
   computeMinutesLate,
   computeMinutesUndertime,
   computeRenderTimeIn,
@@ -131,6 +132,49 @@ export class AttendanceService {
       singleDay,
     );
 
+    // Whichever schedule was actually active for each employee ON singleDay
+    // (not "today") — same rule the Dashboard uses, but resolved per the
+    // specific day being viewed so browsing a past date stays historically
+    // accurate even if the employee's shift has since changed.
+    const schedulesOnDay = await this.prisma.employeeSchedule.findMany({
+      where: {
+        employeeId: { in: employees.map((e) => e.id) },
+        startsOn: { lte: singleDay },
+        OR: [{ endsOn: null }, { endsOn: { gte: singleDay } }],
+      },
+      orderBy: { startsOn: "desc" },
+      select: {
+        employeeId: true,
+        workingDays: true,
+        shift: { select: { startTime: true, endTime: true, lateThresholdMinutes: true } },
+      },
+    });
+    const scheduleByEmployee = new Map<
+      string,
+      { workingDays: number[]; shift: { startTime: string; endTime: string; lateThresholdMinutes: number } }
+    >();
+    for (const schedule of schedulesOnDay) {
+      if (!scheduleByEmployee.has(schedule.employeeId)) {
+        scheduleByEmployee.set(schedule.employeeId, schedule);
+      }
+    }
+    const now = new Date();
+    // An employee with no schedule active on that day has nothing to
+    // compare arrival against, so they're never no-show-absent — same rule
+    // the Dashboard uses. For a past singleDay the cutoff has necessarily
+    // already elapsed; for a future one it hasn't started yet — both fall
+    // out of this comparison naturally since it's anchored to singleDay.
+    function isPastAbsenceCutoff(employeeId: string): boolean {
+      const schedule = scheduleByEmployee.get(employeeId);
+      if (!schedule) return false;
+      return now >= computeAbsenceCutoff(schedule.shift, singleDay!);
+    }
+    function isWorkingDay(employeeId: string): boolean {
+      const schedule = scheduleByEmployee.get(employeeId);
+      if (!schedule) return true;
+      return schedule.workingDays.includes(singleDay!.getDay());
+    }
+
     const wantsStatus = (status: "ABSENT" | "ON_LEAVE") => !filters.status || filters.status === "ALL" || filters.status === status;
     // Synthetic Absent/On-Leave rows always carry recordType OFFICE (no real
     // visit happened), so a FIELD-only filter should exclude them entirely.
@@ -171,7 +215,14 @@ export class AttendanceService {
 
       if (onLeave && wantsStatus("ON_LEAVE")) {
         syntheticRows.push({ ...base, status: "ON_LEAVE" as const, leaveTypeName: onLeave.leaveTypeName });
-      } else if (!onLeave && !isDayOff(singleDay) && employee.hireDate <= singleDay && wantsStatus("ABSENT")) {
+      } else if (
+        !onLeave &&
+        !isDayOff(singleDay) &&
+        employee.hireDate <= singleDay &&
+        wantsStatus("ABSENT") &&
+        isPastAbsenceCutoff(employee.id) &&
+        isWorkingDay(employee.id)
+      ) {
         syntheticRows.push({ ...base, status: "ABSENT" as const });
       }
     }
@@ -419,10 +470,9 @@ export class AttendanceService {
 
     // Sunday is a company-wide rest day for every role — employee, supervisor,
     // and admin/HR alike — so no attendance is taken or required from anyone.
-    // TEMPORARILY DISABLED FOR TESTING — re-enable before shipping.
-    // if (isDayOff(attendanceDate)) {
-    //   throw new BadRequestException("Today is a scheduled day off (Sunday). Attendance is not required.");
-    // }
+    if (isDayOff(attendanceDate)) {
+      throw new BadRequestException("Today is a scheduled day off (Sunday). Attendance is not required.");
+    }
 
     const isField = employee.attendanceMode === "FIELD";
 

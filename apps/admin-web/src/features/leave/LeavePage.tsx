@@ -122,6 +122,7 @@ type DirectoryEmployee = {
   employmentStatus: EmploymentStatus;
   department?: { name: string } | null;
   position?: { title: string } | null;
+  attendanceMode?: string;
 };
 
 type ClassificationBalanceRow = {
@@ -739,6 +740,7 @@ export function LeavePage({
   const [showEmployeeList, setShowEmployeeList] = useState(false);
   const [listSearch, setListSearch] = useState("");
   const [listDepartmentFilter, setListDepartmentFilter] = useState("");
+  const [listAttendanceModeFilter, setListAttendanceModeFilter] = useState<"ALL" | "FIELD" | "NON_FIELD">("ALL");
   const [listSort, setListSort] = useState<{ key: "name" | "remaining"; dir: "asc" | "desc" }>({
     key: "name",
     dir: "asc",
@@ -1007,11 +1009,14 @@ export function LeavePage({
     );
   }
 
-  const classificationListRows = useMemo(() => {
+  // Rows after department/search filtering but before the Field/Non-Field
+  // tabs are applied — shared by both the final list and the tab counts, so
+  // each tab's count reflects the current department/search filters too.
+  const classificationRowsBeforeModeFilter = useMemo(() => {
     const directoryById = new Map(directory.map((e) => [e.id, e]));
     const query = listSearch.trim().toLowerCase();
 
-    const rows = classificationBalances
+    return classificationBalances
       .map((row) => {
         const employee = directoryById.get(row.employeeId);
         return employee ? { ...row, employee } : null;
@@ -1026,6 +1031,24 @@ export function LeavePage({
         const name = `${row.employee.firstName} ${row.employee.lastName}`.toLowerCase();
         return name.includes(query) || row.employee.employeeNo.toLowerCase().includes(query);
       });
+  }, [classificationBalances, directory, listDepartmentFilter, listSearch]);
+
+  const employeeListModeCounts = useMemo(
+    () => ({
+      all: classificationRowsBeforeModeFilter.length,
+      field: classificationRowsBeforeModeFilter.filter((row) => row.employee.attendanceMode === "FIELD").length,
+      nonField: classificationRowsBeforeModeFilter.filter((row) => row.employee.attendanceMode !== "FIELD").length,
+    }),
+    [classificationRowsBeforeModeFilter],
+  );
+
+  const classificationListRows = useMemo(() => {
+    const rows = classificationRowsBeforeModeFilter.filter((row) => {
+      if (listAttendanceModeFilter === "ALL") return true;
+      return listAttendanceModeFilter === "FIELD"
+        ? row.employee.attendanceMode === "FIELD"
+        : row.employee.attendanceMode !== "FIELD";
+    });
 
     const dir = listSort.dir === "asc" ? 1 : -1;
     rows.sort((a, b) => {
@@ -1036,9 +1059,9 @@ export function LeavePage({
     });
 
     return rows;
-  }, [classificationBalances, directory, listDepartmentFilter, listSearch, listSort]);
+  }, [classificationRowsBeforeModeFilter, listAttendanceModeFilter, listSort]);
 
-  useEffect(() => setEmployeeListPage(1), [listDepartmentFilter, listSearch, listSort]);
+  useEffect(() => setEmployeeListPage(1), [listDepartmentFilter, listSearch, listSort, listAttendanceModeFilter]);
   const employeeListPageCount = Math.max(1, Math.ceil(classificationListRows.length / EMPLOYEE_LIST_PAGE_SIZE));
   const employeeListPageSafe = Math.min(employeeListPage, employeeListPageCount);
   const pagedClassificationListRows = classificationListRows.slice(
@@ -1176,16 +1199,49 @@ export function LeavePage({
                   aria-label="Search employees in the selected classification"
                 />
               </div>
-              <DropdownFilter
-                className="employee-list-department-filter"
-                value={listDepartmentFilter}
-                onChange={setListDepartmentFilter}
-                options={listDepartmentOptions.map((name) => ({ value: name, label: name }))}
-                allLabel="All Departments"
-                allValue=""
-                menuLabel="Filter by department"
-                ariaLabel="Filter employees by department"
-              />
+
+              <div className="employee-list-toolbar-right">
+                <div className="employee-list-mode-tabs filter-tabs" role="tablist" aria-label="Filter employees by attendance mode">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={listAttendanceModeFilter === "ALL"}
+                    className={listAttendanceModeFilter === "ALL" ? "active" : ""}
+                    onClick={() => setListAttendanceModeFilter("ALL")}
+                  >
+                    All ({employeeListModeCounts.all})
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={listAttendanceModeFilter === "FIELD"}
+                    className={listAttendanceModeFilter === "FIELD" ? "active" : ""}
+                    onClick={() => setListAttendanceModeFilter("FIELD")}
+                  >
+                    Field ({employeeListModeCounts.field})
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={listAttendanceModeFilter === "NON_FIELD"}
+                    className={listAttendanceModeFilter === "NON_FIELD" ? "active" : ""}
+                    onClick={() => setListAttendanceModeFilter("NON_FIELD")}
+                  >
+                    Non-Field ({employeeListModeCounts.nonField})
+                  </button>
+                </div>
+
+                <DropdownFilter
+                  className="employee-list-department-filter"
+                  value={listDepartmentFilter}
+                  onChange={setListDepartmentFilter}
+                  options={listDepartmentOptions.map((name) => ({ value: name, label: name }))}
+                  allLabel="All Departments"
+                  allValue=""
+                  menuLabel="Filter by department"
+                  ariaLabel="Filter employees by department"
+                />
+              </div>
             </div>
 
             {!classificationBalancesCache.data ? (

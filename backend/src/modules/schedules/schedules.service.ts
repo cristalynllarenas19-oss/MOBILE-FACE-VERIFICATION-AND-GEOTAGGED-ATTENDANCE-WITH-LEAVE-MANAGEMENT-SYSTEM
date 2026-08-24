@@ -6,6 +6,7 @@ type ScheduleFilters = {
   departmentId?: string;
   shiftId?: string;
   status?: string;
+  archived?: boolean;
 };
 
 const ACTOR_SELECT = {
@@ -21,13 +22,22 @@ export class SchedulesService {
 
   findAll(filters: ScheduleFilters = {}) {
     const today = new Date();
+    // A separated employee's own record is excluded from every other picker
+    // in the app (Employee Management, Geotagging's assignment panel) — a
+    // schedule assignment is no different, and without this an offboarded
+    // employee's still-open assignment lingers here indefinitely looking
+    // like an active, current schedule.
+    const employeeWhere: Record<string, unknown> = { employmentStatus: { not: "SEPARATED" } };
+    if (filters.departmentId) {
+      employeeWhere.departmentId = filters.departmentId;
+    } else if (filters.department && filters.department !== "ALL") {
+      employeeWhere.department = { name: filters.department };
+    }
+
     return this.prisma.employeeSchedule.findMany({
       where: {
-        ...(filters.departmentId
-          ? { employee: { departmentId: filters.departmentId } }
-          : filters.department && filters.department !== "ALL"
-            ? { employee: { department: { name: filters.department } } }
-            : {}),
+        employee: employeeWhere,
+        isActive: !filters.archived,
         ...(filters.shiftId && filters.shiftId !== "ALL" ? { shiftId: filters.shiftId } : {}),
         ...(filters.status === "ACTIVE" ? { OR: [{ endsOn: null }, { endsOn: { gte: today } }] } : {}),
         ...(filters.status === "ENDED" ? { endsOn: { lt: today } } : {}),
@@ -37,6 +47,27 @@ export class SchedulesService {
         shift: true,
       },
       orderBy: { startsOn: "desc" },
+    });
+  }
+
+  async setAssignmentStatus(id: string, isActive: boolean, scopeDepartmentId?: string) {
+    if (scopeDepartmentId) {
+      const assignment = await this.prisma.employeeSchedule.findUniqueOrThrow({
+        where: { id },
+        select: { employee: { select: { departmentId: true } } },
+      });
+      if (assignment.employee.departmentId !== scopeDepartmentId) {
+        throw new ForbiddenException("You can only manage schedules for employees in your own department.");
+      }
+    }
+
+    return this.prisma.employeeSchedule.update({
+      where: { id },
+      data: { isActive },
+      include: {
+        employee: { include: { department: true, position: true } },
+        shift: true,
+      },
     });
   }
 
@@ -57,7 +88,7 @@ export class SchedulesService {
   }
 
   async createAssignment(
-    dto: { employeeId: string; shiftId: string; startsOn: string; endsOn?: string },
+    dto: { employeeId: string; shiftId: string; startsOn: string; endsOn?: string; workingDays?: number[] },
     scopeDepartmentId?: string,
   ) {
     if (scopeDepartmentId) {
@@ -70,12 +101,26 @@ export class SchedulesService {
       }
     }
 
+    // Defaults to the shift template's own working days when the caller
+    // doesn't override them (e.g. for a part-timer on a shared shift).
+    let workingDays = dto.workingDays;
+    if (workingDays) {
+      this.assertValidWorkingDays(workingDays);
+    } else {
+      const shift = await this.prisma.shift.findUniqueOrThrow({
+        where: { id: dto.shiftId },
+        select: { workingDays: true },
+      });
+      workingDays = shift.workingDays;
+    }
+
     return this.prisma.employeeSchedule.create({
       data: {
         employeeId: dto.employeeId,
         shiftId: dto.shiftId,
         startsOn: new Date(dto.startsOn),
         endsOn: dto.endsOn ? new Date(dto.endsOn) : null,
+        workingDays,
       },
       include: {
         employee: { include: { department: true, position: true } },
@@ -86,7 +131,7 @@ export class SchedulesService {
 
   async updateAssignment(
     id: string,
-    dto: { shiftId?: string; startsOn?: string; endsOn?: string | null },
+    dto: { shiftId?: string; startsOn?: string; endsOn?: string | null; workingDays?: number[] },
     scopeDepartmentId?: string,
   ) {
     if (scopeDepartmentId) {
@@ -99,12 +144,15 @@ export class SchedulesService {
       }
     }
 
+    if (dto.workingDays !== undefined) this.assertValidWorkingDays(dto.workingDays);
+
     return this.prisma.employeeSchedule.update({
       where: { id },
       data: {
         ...(dto.shiftId ? { shiftId: dto.shiftId } : {}),
         ...(dto.startsOn ? { startsOn: new Date(dto.startsOn) } : {}),
         ...(dto.endsOn !== undefined ? { endsOn: dto.endsOn ? new Date(dto.endsOn) : null } : {}),
+        ...(dto.workingDays !== undefined ? { workingDays: dto.workingDays } : {}),
       },
       include: {
         employee: { include: { department: true, position: true } },
@@ -134,6 +182,17 @@ export class SchedulesService {
     return value;
   }
 
+  // Sunday (0) is deliberately excluded — it's a fixed company-wide day off
+  // (see isDayOff), not something a shift/assignment can opt back into.
+  private assertValidWorkingDays(workingDays: number[]) {
+    if (workingDays.length === 0) {
+      throw new BadRequestException("Select at least one working day.");
+    }
+    if (workingDays.some((day) => !Number.isInteger(day) || day < 1 || day > 6)) {
+      throw new BadRequestException("Working days must be between Monday and Saturday — Sunday is always a day off.");
+    }
+  }
+
   private shiftAuditValues(shift: {
     name: string;
     startTime: string;
@@ -146,6 +205,7 @@ export class SchedulesService {
     lateThresholdMinutes: number;
     undertimeThresholdMinutes: number;
     autoShiftAdjustment: boolean;
+    workingDays: number[];
   }) {
     return {
       name: shift.name,
@@ -159,6 +219,7 @@ export class SchedulesService {
       lateThresholdMinutes: shift.lateThresholdMinutes,
       undertimeThresholdMinutes: shift.undertimeThresholdMinutes,
       autoShiftAdjustment: shift.autoShiftAdjustment,
+      workingDays: shift.workingDays,
     };
   }
 
@@ -175,6 +236,7 @@ export class SchedulesService {
       lateThresholdMinutes?: number;
       undertimeThresholdMinutes?: number;
       autoShiftAdjustment?: boolean;
+      workingDays?: number[];
     },
     actorUserId?: string,
   ) {
@@ -187,6 +249,8 @@ export class SchedulesService {
     const roundingIntervalMinutes = this.optionalWholeMinutes(dto.roundingIntervalMinutes, "Rounding Interval", 1) ?? 15;
     const lateThresholdMinutes = this.optionalWholeMinutes(dto.lateThresholdMinutes, "Late Threshold") ?? 0;
     const undertimeThresholdMinutes = this.optionalWholeMinutes(dto.undertimeThresholdMinutes, "Undertime Threshold") ?? 0;
+    const workingDays = dto.workingDays ?? [1, 2, 3, 4, 5];
+    this.assertValidWorkingDays(workingDays);
 
     const created = await this.prisma.shift.create({
       data: {
@@ -201,6 +265,7 @@ export class SchedulesService {
         lateThresholdMinutes,
         undertimeThresholdMinutes,
         autoShiftAdjustment: dto.autoShiftAdjustment ?? false,
+        workingDays,
         createdBy: actorUserId,
       },
     });
@@ -232,6 +297,7 @@ export class SchedulesService {
       lateThresholdMinutes?: number;
       undertimeThresholdMinutes?: number;
       autoShiftAdjustment?: boolean;
+      workingDays?: number[];
     },
     actorUserId?: string,
   ) {
@@ -250,6 +316,7 @@ export class SchedulesService {
     const roundingIntervalMinutes = this.optionalWholeMinutes(dto.roundingIntervalMinutes, "Rounding Interval", 1);
     const lateThresholdMinutes = this.optionalWholeMinutes(dto.lateThresholdMinutes, "Late Threshold");
     const undertimeThresholdMinutes = this.optionalWholeMinutes(dto.undertimeThresholdMinutes, "Undertime Threshold");
+    if (dto.workingDays !== undefined) this.assertValidWorkingDays(dto.workingDays);
 
     const updated = await this.prisma.shift.update({
       where: { id },
@@ -265,6 +332,7 @@ export class SchedulesService {
         lateThresholdMinutes,
         undertimeThresholdMinutes,
         autoShiftAdjustment: dto.autoShiftAdjustment,
+        workingDays: dto.workingDays,
         updatedBy: actorUserId,
       },
       include: { createdByUser: ACTOR_SELECT, updatedByUser: ACTOR_SELECT },

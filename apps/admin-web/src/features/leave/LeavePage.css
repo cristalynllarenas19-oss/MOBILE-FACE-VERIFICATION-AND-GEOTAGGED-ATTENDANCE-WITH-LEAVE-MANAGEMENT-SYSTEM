@@ -579,18 +579,9 @@
 
 .leave-note {
   border: 1px solid #e6ecf2;
-  border-left: 3px solid #94a3b8;
   border-radius: 8px;
   padding: 10px 12px;
   background: #f8fafc;
-}
-
-.leave-note-rejected {
-  border-left-color: #d97706;
-}
-
-.leave-note-resubmitted {
-  border-left-color: #2979d0;
 }
 
 .leave-note-header {
@@ -1288,8 +1279,45 @@
   max-width: 320px;
 }
 
-.employee-list-department-filter {
+/* Groups the Field/Non-Field tabs with the department dropdown so they move
+   together as one unit, pushed to the right of the search box. */
+.employee-list-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   margin-left: auto;
+  flex-wrap: wrap;
+}
+
+.employee-list-mode-tabs.filter-tabs {
+  margin-bottom: 0;
+}
+
+.employee-list-mode-tabs button {
+  flex: 0 0 auto;
+  border: 1px solid transparent;
+  background: #ffffff;
+  color: #41536b;
+  padding: 9px 15px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.employee-list-mode-tabs button:hover {
+  border-color: #dbe5ef;
+}
+
+.employee-list-mode-tabs button.active {
+  background: #dbeafe;
+  border-color: #93c5fd;
+  color: #1a3a5c;
+}
+
+.employee-list-department-filter {
   min-width: 200px;
 }
 

@@ -28,8 +28,16 @@ export function roundToInterval(date: Date, intervalMinutes: number): Date {
   return new Date(Math.round(date.getTime() / intervalMs) * intervalMs);
 }
 
+// The moment an employee is considered genuinely absent for a shift: start
+// time plus the shift's own late grace period. Shared by lateness math below
+// and by the dashboard/attendance no-show checks, which shouldn't mark
+// someone Absent before this moment has actually passed.
+export function computeAbsenceCutoff(shift: ShiftTimeFields, attendanceDate: Date): Date {
+  return new Date(parseTimeOnDate(attendanceDate, shift.startTime).getTime() + shift.lateThresholdMinutes * 60000);
+}
+
 export function computeMinutesLate(shift: ShiftTimeFields, arrivalTime: Date, attendanceDate: Date): number {
-  const cutoff = new Date(parseTimeOnDate(attendanceDate, shift.startTime).getTime() + shift.lateThresholdMinutes * 60000);
+  const cutoff = computeAbsenceCutoff(shift, attendanceDate);
   return Math.max(0, Math.round((arrivalTime.getTime() - cutoff.getTime()) / 60000));
 }
 

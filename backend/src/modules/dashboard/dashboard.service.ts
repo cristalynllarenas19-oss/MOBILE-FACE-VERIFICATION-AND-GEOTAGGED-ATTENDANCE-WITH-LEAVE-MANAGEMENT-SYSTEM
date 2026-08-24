@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { dedupeToLatestVisitPerEmployeeDay } from "../attendance/attendance-dedup.util";
+import { computeAbsenceCutoff } from "../attendance/attendance-shift.util";
 import { isDateWithinLeaveRange } from "../../common/utils/on-leave.util";
 import { isDayOff } from "../../common/utils/schedule.util";
 
@@ -126,7 +127,6 @@ export class DashboardService {
     const dedupedTodayStatus = dedupeToLatestVisitPerEmployeeDay(todayAttendanceRows);
     const presentToday = dedupedTodayStatus.filter((r) => r.status === "PRESENT").length;
     const lateToday = dedupedTodayStatus.filter((r) => r.status === "LATE").length;
-    const absentToday = dedupedTodayStatus.filter((r) => r.status === "ABSENT").length;
 
     // assignedEmployeeRows and employees are already department-scoped above,
     // so these — like every other stat below — are correct as-is.
@@ -134,6 +134,50 @@ export class DashboardService {
     const monthAttendance = dedupeToLatestVisitPerEmployeeDay(monthAttendanceRaw);
     const weekAttendance = dedupeToLatestVisitPerEmployeeDay(weekAttendanceRaw);
     const realMonthAttendance = dedupeToLatestVisitPerEmployeeDay(realMonthAttendanceRaw);
+
+    // Each employee's currently-active schedule, so a no-show can be checked
+    // against their own start time + grace period (isPastAbsenceCutoff)
+    // instead of being marked Absent the instant the day begins, and against
+    // their own working days (isWorkingDayToday) instead of assuming
+    // everyone works every non-Sunday day. An employee with no active
+    // schedule assignment has nothing to compare against, so they're never
+    // no-show-absent — same rule used for today's calendar day and every
+    // department breakdown further down.
+    const activeSchedules = await this.prisma.employeeSchedule.findMany({
+      where: {
+        employeeId: { in: employees.map((e) => e.id) },
+        startsOn: { lte: today },
+        OR: [{ endsOn: null }, { endsOn: { gte: today } }],
+      },
+      orderBy: { startsOn: "desc" },
+      select: {
+        employeeId: true,
+        workingDays: true,
+        shift: { select: { startTime: true, endTime: true, lateThresholdMinutes: true } },
+      },
+    });
+    const activeScheduleByEmployee = new Map<
+      string,
+      { workingDays: number[]; shift: { startTime: string; endTime: string; lateThresholdMinutes: number } }
+    >();
+    for (const schedule of activeSchedules) {
+      if (!activeScheduleByEmployee.has(schedule.employeeId)) {
+        activeScheduleByEmployee.set(schedule.employeeId, schedule);
+      }
+    }
+    function isPastAbsenceCutoff(employeeId: string): boolean {
+      const schedule = activeScheduleByEmployee.get(employeeId);
+      if (!schedule) return false;
+      return today >= computeAbsenceCutoff(schedule.shift, attendanceDate);
+    }
+    // Sunday is still always off for everyone via isDayOff — this only
+    // narrows further, for employees whose own schedule works fewer days
+    // than the Mon-Sat default (e.g. a 4-day-a-week arrangement).
+    function isWorkingDayToday(employeeId: string): boolean {
+      const schedule = activeScheduleByEmployee.get(employeeId);
+      if (!schedule) return true;
+      return schedule.workingDays.includes(attendanceDate.getDay());
+    }
 
     const totalEmployees = employees.length;
     const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -196,7 +240,11 @@ export class DashboardService {
             if (!row) continue;
             if (onLeaveByEmployee.has(emp.id)) {
               row.onLeave += 1;
-            } else if (emp.hireDate <= scopeDate) {
+            } else if (
+              emp.hireDate <= scopeDate &&
+              (isPast || isPastAbsenceCutoff(emp.id)) &&
+              (isPast || isWorkingDayToday(emp.id))
+            ) {
               row.absent += 1;
             }
           }
@@ -211,12 +259,20 @@ export class DashboardService {
       const date = new Date(year, month, index + 1);
       const records = monthAttendance.filter((r) => r.attendanceDate.getDate() === index + 1);
       const isPastDate = date < attendanceDate;
+      const isTodayDate = date.toDateString() === attendanceDate.toDateString();
       const onLeaveMap = leaveMapForDate(date);
 
       const explicitAbsentees = records.filter((r) => r.status === "ABSENT");
       const recordedEmployeeIds = new Set(records.map((r) => r.employeeId));
-      const noShowAbsentees = isPastDate && !isDayOff(date)
-        ? employees.filter((e) => e.hireDate <= date && !recordedEmployeeIds.has(e.id) && !onLeaveMap.has(e.id))
+      const noShowAbsentees = (isPastDate || isTodayDate) && !isDayOff(date)
+        ? employees.filter(
+            (e) =>
+              e.hireDate <= date &&
+              !recordedEmployeeIds.has(e.id) &&
+              !onLeaveMap.has(e.id) &&
+              (isPastDate || isPastAbsenceCutoff(e.id)) &&
+              (isPastDate || isWorkingDayToday(e.id)),
+          )
         : [];
       const onLeaveNoRecord = isPastDate
         ? employees.filter((e) => !recordedEmployeeIds.has(e.id) && onLeaveMap.has(e.id))
@@ -281,6 +337,12 @@ export class DashboardService {
       week:  buildDeptRows(weekAttendance, "week"),
       month: buildDeptRows(realMonthAttendance, "month"),
     };
+
+    // Same cutoff-aware count that feeds departmentAttendance.today and
+    // today's calendar day, summed — keeps the top stat card, the
+    // Attendance Breakdown donut, and the department panel all in agreement
+    // instead of the stat card only counting formally-recorded ABSENT rows.
+    const absentToday = departmentAttendance.today.reduce((sum, row) => sum + row.absent, 0);
 
     return {
       stats: { totalEmployees, presentToday, lateToday, absentToday, pendingLeaves, geotaggedLogs },

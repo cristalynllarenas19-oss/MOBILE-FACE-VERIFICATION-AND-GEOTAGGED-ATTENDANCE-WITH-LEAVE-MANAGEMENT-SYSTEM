@@ -25,7 +25,13 @@
 
 .schedule-form {
   display: grid;
-  grid-template-columns: minmax(180px, 1.2fr) minmax(210px, 1.4fr) minmax(150px, 0.9fr) minmax(150px, 0.9fr) auto;
+  grid-template-columns:
+    minmax(160px, 1.1fr)
+    minmax(150px, 1fr)
+    minmax(150px, 0.9fr)
+    minmax(130px, 0.8fr)
+    minmax(130px, 0.8fr)
+    auto;
   gap: 12px;
   align-items: end;
 }
@@ -278,6 +284,69 @@
   color: #9aa9bb;
 }
 
+.wd-option {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 7px;
+  color: #2d4a65;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.wd-option:hover {
+  background: #eef4fb;
+}
+
+.wd-option input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: #1a3a5c;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.wd-menu-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px;
+  border-top: 1px solid #eef2f7;
+}
+
+.wd-clear-button {
+  border: none;
+  background: none;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 6px 8px;
+}
+
+.wd-clear-button:hover {
+  color: #1a3a5c;
+}
+
+.wd-apply-button {
+  border: none;
+  border-radius: 7px;
+  background: #1a3a5c;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px 18px;
+  cursor: pointer;
+}
+
+.wd-apply-button:hover {
+  background: #2979d0;
+}
+
 .schedule-form input[type="date"] {
   height: 38px;
   border: 1px solid #dbe5ef;
@@ -368,6 +437,11 @@
   color: #1a3a5c;
 }
 
+.schedules-toolbar .filter-tabs.schedules-mode-tabs {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
 .schedules-toolbar .schedule-field {
   flex-direction: column;
   flex: 0 0 auto;
@@ -391,10 +465,20 @@
 .schedules-table-scroll {
   overflow-x: auto;
   overflow-y: auto;
-  max-height: 540px;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
   scrollbar-color: #b8c7d8 #f4f7fb;
+  /* Row height lives in one place and both the cells (below) and this
+     container read it, so the box can never end up a few pixels shorter
+     than its own content (header + SCHEDULES_PAGE_SIZE rows) the way it
+     briefly did on the Leave Balances table. Fixed, not max-, height so a
+     page with fewer than SCHEDULES_PAGE_SIZE schedules still reserves the
+     full area and the pagination bar stays anchored at the same position
+     underneath it. */
+  --schedules-row-h: 60px;
+  /* 1 header row + SCHEDULES_PAGE_SIZE (6) body rows */
+  height: calc(var(--schedules-row-h) * 7);
+  max-height: none;
 }
 
 .schedules-table-scroll::-webkit-scrollbar {
@@ -439,6 +523,10 @@
   border-collapse: collapse;
 }
 
+.schedules-fixed-table {
+  table-layout: fixed;
+}
+
 .schedules-table-card thead tr {
   background: #f4f7fb;
 }
@@ -452,7 +540,11 @@
 .schedules-table-card th,
 .schedules-table-card td {
   text-align: center;
-  padding: 14px 16px;
+  height: var(--schedules-row-h);
+  padding: 0 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .schedules-table-card th {
@@ -527,6 +619,27 @@
   border-color: #2979d0;
 }
 
+.schedule-archive-button {
+  height: 38px;
+  border: 1.5px solid #fecaca;
+  border-radius: 8px;
+  background: #fee2e2;
+  color: #991b1b;
+  padding: 0 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.schedule-archive-button:hover {
+  background: #fecaca;
+}
+
 .schedule-edit-form {
   grid-template-columns: 1fr;
   padding: 20px 24px 4px;
@@ -587,18 +700,30 @@
 
 .schedule-modal {
   width: min(560px, 100%);
+  max-height: min(88vh, 720px);
   background: #ffffff;
   border-radius: 14px;
   box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);
-  overflow: hidden;
+  /* Was overflow: visible — with no scroll boundary, the Working Days
+     dropdown (position: absolute, so it never grows the modal's own
+     height) rendered its full checkbox list + Clear/Apply footer past the
+     bottom edge of the card, floating disconnected over the blurred page
+     behind it. auto here lets that absolutely positioned panel extend the
+     modal's scrollable area instead, so it stays visually inside the card
+     and reachable by scrolling. */
+  overflow-y: auto;
 }
 
 .schedule-modal-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
   padding: 22px 24px 18px;
+  background: #ffffff;
   border-bottom: 1px solid #edf2f7;
 }
 

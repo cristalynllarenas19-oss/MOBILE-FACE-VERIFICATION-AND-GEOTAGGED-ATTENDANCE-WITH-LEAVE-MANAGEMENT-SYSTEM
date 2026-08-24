@@ -258,21 +258,7 @@ export class EmployeesService {
     });
 
     if (created.attendanceMode === "FIXED") {
-      const standardShift = await this.prisma.shift.findFirst({
-        where: { name: "Standard Shift", isActive: true },
-        orderBy: { createdAt: "asc" },
-      });
-
-      if (standardShift) {
-        await this.prisma.employeeSchedule.create({
-          data: {
-            employeeId: created.id,
-            shiftId: standardShift.id,
-            startsOn: new Date(),
-          },
-        });
-      }
-
+      await this.assignDefaultScheduleIfMissing(created.id);
       await this.geolocation.assignDefaultOfficeLocation(created.id, created.departmentId, context);
     }
 
@@ -310,6 +296,40 @@ export class EmployeesService {
     });
 
     return created;
+  }
+
+  // Fixed/office employees need a real EmployeeSchedule to be visible to
+  // lateness/absence tracking at all (see AttendanceService.resolveActiveShift
+  // and DashboardService's no-show checks) — without one they're silently
+  // excluded from both. No-ops if the employee already has an active
+  // schedule (don't stomp on one HR assigned deliberately), or if no
+  // "Standard Shift" exists yet to fall back to. workingDays isn't set
+  // explicitly — it picks up the schema default (Mon-Fri).
+  private async assignDefaultScheduleIfMissing(employeeId: string) {
+    const today = new Date();
+    const hasActiveSchedule = await this.prisma.employeeSchedule.findFirst({
+      where: {
+        employeeId,
+        startsOn: { lte: today },
+        OR: [{ endsOn: null }, { endsOn: { gte: today } }],
+      },
+      select: { id: true },
+    });
+    if (hasActiveSchedule) return;
+
+    const standardShift = await this.prisma.shift.findFirst({
+      where: { name: "Standard Shift", isActive: true },
+      orderBy: { createdAt: "asc" },
+    });
+    if (!standardShift) return;
+
+    await this.prisma.employeeSchedule.create({
+      data: {
+        employeeId,
+        shiftId: standardShift.id,
+        startsOn: today,
+      },
+    });
   }
 
   // Male hires are auto-enrolled in the Paternity-kind leave type and female
@@ -427,6 +447,7 @@ export class EmployeesService {
     // unrelated save while already Fixed — matching how create() only ever
     // does this once, at hire.
     if (resolvedAttendanceMode === "FIXED" && employee.attendanceMode !== "FIXED") {
+      await this.assignDefaultScheduleIfMissing(id);
       await this.geolocation.assignDefaultOfficeLocation(id, updated.departmentId, context);
     }
 

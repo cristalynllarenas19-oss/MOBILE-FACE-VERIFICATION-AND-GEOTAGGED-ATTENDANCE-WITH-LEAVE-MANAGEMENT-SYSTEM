@@ -616,6 +616,9 @@ model Shift {
   lateThresholdMinutes      Int                @default(0) @map("late_threshold_minutes")
   undertimeThresholdMinutes Int                @default(0) @map("undertime_threshold_minutes")
   autoShiftAdjustment       Boolean            @default(false) @map("auto_shift_adjustment")
+  // Days this shift runs, 0=Sunday..6=Saturday (matches JS Date.getDay()).
+  // Mon-Fri by default.
+  workingDays               Int[]              @default([1, 2, 3, 4, 5]) @map("working_days")
   isActive                  Boolean            @default(true) @map("is_active")
   createdAt                 DateTime           @default(now()) @map("created_at")
   updatedAt                 DateTime           @updatedAt @map("updated_at")
@@ -635,6 +638,14 @@ model EmployeeSchedule {
   shiftId    String    @map("shift_id")
   startsOn   DateTime  @map("starts_on")
   endsOn     DateTime? @map("ends_on")
+  // This employee's actual working days for this assignment — defaults to
+  // the shift's own workingDays but can be overridden per employee (e.g. a
+  // part-timer on the same shift template who only works some of its days).
+  // Same 0=Sunday..6=Saturday encoding as Shift.workingDays.
+  workingDays Int[]    @default([1, 2, 3, 4, 5]) @map("working_days")
+  // Manual archive, independent of startsOn/endsOn — lets HR hide a mistaken
+  // or duplicate assignment without needing to backdate an end date.
+  isActive   Boolean   @default(true) @map("is_active")
   employee   Employee  @relation(fields: [employeeId], references: [id])
   shift      Shift     @relation(fields: [shiftId], references: [id])
 

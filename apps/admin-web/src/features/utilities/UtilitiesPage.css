@@ -663,6 +663,42 @@
   flex-shrink: 0;
 }
 
+.shift-working-days {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.shift-working-day-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1.5px solid #dbe5ef;
+  border-radius: 8px;
+  background: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  color: #41536b;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.shift-working-day-toggle:has(input:checked) {
+  border-color: #2979d0;
+  background: #e8f2fd;
+  color: #1a3a5c;
+}
+
+.shift-working-day-toggle input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: #2979d0;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
 .utilities-modal-actions {
   display: flex;
   flex-wrap: wrap;

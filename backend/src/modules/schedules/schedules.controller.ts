@@ -13,9 +13,10 @@ export class SchedulesController {
     @Query("department") department?: string,
     @Query("shiftId") shiftId?: string,
     @Query("status") status?: string,
+    @Query("archived") archived?: string,
   ) {
     const departmentId = getSupervisorDepartmentScope((request as any).user);
-    return this.schedulesService.findAll({ department, departmentId, shiftId, status });
+    return this.schedulesService.findAll({ department, departmentId, shiftId, status, archived: archived === "true" });
   }
 
   @Get("shifts")
@@ -32,6 +33,7 @@ export class SchedulesController {
       shiftId: string;
       startsOn: string;
       endsOn?: string;
+      workingDays?: number[];
     },
     @Req() request: Request,
   ) {
@@ -48,11 +50,23 @@ export class SchedulesController {
       shiftId?: string;
       startsOn?: string;
       endsOn?: string | null;
+      workingDays?: number[];
     },
     @Req() request: Request,
   ) {
     const departmentId = getSupervisorDepartmentScope((request as any).user);
     return this.schedulesService.updateAssignment(id, dto, departmentId);
+  }
+
+  @Patch(":id/status")
+  @RequirePermissions("schedules:write")
+  setAssignmentStatus(
+    @Param("id") id: string,
+    @Body() dto: { isActive: boolean },
+    @Req() request: Request,
+  ) {
+    const departmentId = getSupervisorDepartmentScope((request as any).user);
+    return this.schedulesService.setAssignmentStatus(id, dto.isActive, departmentId);
   }
 
   @Post("shifts")
@@ -71,6 +85,7 @@ export class SchedulesController {
       lateThresholdMinutes?: number;
       undertimeThresholdMinutes?: number;
       autoShiftAdjustment?: boolean;
+      workingDays?: number[];
     },
     @Req() request: Request,
   ) {
@@ -94,6 +109,7 @@ export class SchedulesController {
       lateThresholdMinutes?: number;
       undertimeThresholdMinutes?: number;
       autoShiftAdjustment?: boolean;
+      workingDays?: number[];
     },
     @Req() request: Request,
   ) {

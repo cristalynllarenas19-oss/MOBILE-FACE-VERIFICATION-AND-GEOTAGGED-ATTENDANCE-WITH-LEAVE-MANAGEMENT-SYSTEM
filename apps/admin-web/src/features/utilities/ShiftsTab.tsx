@@ -20,6 +20,7 @@ type Shift = {
   lateThresholdMinutes: number;
   undertimeThresholdMinutes: number;
   autoShiftAdjustment: boolean;
+  workingDays: number[];
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -86,6 +87,25 @@ function formatWorkingHoursLong(startTime: string, endTime: string): string | nu
 
 const PAGE_SIZE = 10;
 
+// value matches JS Date.getDay() (0=Sunday..6=Saturday); displayed Mon-first.
+// Sunday is excluded — it's a fixed company-wide day off, never selectable.
+const WEEKDAYS = [
+  { label: "Mon", value: 1 },
+  { label: "Tue", value: 2 },
+  { label: "Wed", value: 3 },
+  { label: "Thu", value: 4 },
+  { label: "Fri", value: 5 },
+  { label: "Sat", value: 6 },
+];
+
+function formatWorkingDays(days: number[]): string {
+  if (days.length === 6) return "Every day (except Sunday)";
+  const byValue = new Map(WEEKDAYS.map((d) => [d.value, d.label]));
+  return WEEKDAYS.filter((d) => days.includes(d.value))
+    .map((d) => byValue.get(d.value))
+    .join(", ") || "None selected";
+}
+
 const emptyForm = {
   name: "",
   startTime: "",
@@ -97,6 +117,7 @@ const emptyForm = {
   roundingIntervalMinutes: "15",
   lateThresholdMinutes: "0",
   undertimeThresholdMinutes: "0",
+  workingDays: [1, 2, 3, 4, 5] as number[],
   autoShiftAdjustment: false,
 };
 
@@ -117,6 +138,7 @@ export function ShiftsTab({
   const [form, setForm] = useState(emptyForm);
   const [nameError, setNameError] = useState<string | null>(null);
   const [timeError, setTimeError] = useState<string | null>(null);
+  const [daysError, setDaysError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   const [viewShift, setViewShift] = useState<Shift | null>(null);
@@ -145,6 +167,7 @@ export function ShiftsTab({
     setForm(emptyForm);
     setNameError(null);
     setTimeError(null);
+    setDaysError(null);
     setFormOpen(true);
   };
 
@@ -163,9 +186,11 @@ export function ShiftsTab({
       lateThresholdMinutes: String(shift.lateThresholdMinutes),
       undertimeThresholdMinutes: String(shift.undertimeThresholdMinutes),
       autoShiftAdjustment: shift.autoShiftAdjustment,
+      workingDays: shift.workingDays,
     });
     setNameError(null);
     setTimeError(null);
+    setDaysError(null);
     setViewShift(null);
     setFormOpen(true);
   };
@@ -175,13 +200,28 @@ export function ShiftsTab({
     setForm(emptyForm);
     setNameError(null);
     setTimeError(null);
+    setDaysError(null);
+  };
+
+  const toggleWorkingDay = (day: number) => {
+    setForm((c) => ({
+      ...c,
+      workingDays: c.workingDays.includes(day)
+        ? c.workingDays.filter((d) => d !== day)
+        : [...c.workingDays, day],
+    }));
   };
 
   const submitForm = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setIsSaving(true);
     setNameError(null);
     setTimeError(null);
+    setDaysError(null);
+    if (form.workingDays.length === 0) {
+      setDaysError("Select at least one working day.");
+      return;
+    }
+    setIsSaving(true);
     try {
       const payload = {
         name: form.name.trim(),
@@ -195,6 +235,7 @@ export function ShiftsTab({
         lateThresholdMinutes: Number(form.lateThresholdMinutes || 0),
         undertimeThresholdMinutes: Number(form.undertimeThresholdMinutes || 0),
         autoShiftAdjustment: form.autoShiftAdjustment,
+        workingDays: form.workingDays,
       };
 
       if (formMode === "create") {
@@ -210,6 +251,7 @@ export function ShiftsTab({
       const message = err instanceof Error ? err.message : "Unable to save shift.";
       if (/already exists/i.test(message)) setNameError(message);
       else if (/start time and end time/i.test(message)) setTimeError(message);
+      else if (/working day/i.test(message)) setDaysError(message);
       else notify({ type: "error", message });
     } finally {
       setIsSaving(false);
@@ -476,6 +518,28 @@ export function ShiftsTab({
                   For a straight schedule (no morning/afternoon breaks), set Morning and Afternoon to 0 and Lunch to 30.
                 </span>
 
+                <div className="utilities-field">
+                  <span className="utilities-field-label">
+                    Working Days <span className="utilities-required">*</span>
+                  </span>
+                  <p className="utilities-hint" style={{ marginTop: 0, marginBottom: 6 }}>
+                    Select the days this shift will be scheduled.
+                  </p>
+                  <div className="shift-working-days">
+                    {WEEKDAYS.map((day) => (
+                      <label key={day.value} className="shift-working-day-toggle">
+                        <input
+                          type="checkbox"
+                          checked={form.workingDays.includes(day.value)}
+                          onChange={() => toggleWorkingDay(day.value)}
+                        />
+                        <span>{day.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                  {daysError && <span className="utilities-field-error">{daysError}</span>}
+                </div>
+
                 <label className="utilities-checkbox">
                   <input
                     type="checkbox"
@@ -580,6 +644,10 @@ export function ShiftsTab({
                   <Badge tone={viewShift.autoShiftAdjustment ? "success" : "neutral"}>
                     {viewShift.autoShiftAdjustment ? "Enabled" : "Disabled"}
                   </Badge>
+                </div>
+                <div>
+                  <span>Working Days</span>
+                  <strong>{formatWorkingDays(viewShift.workingDays)}</strong>
                 </div>
                 <div>
                   <span>Employees Assigned</span>
