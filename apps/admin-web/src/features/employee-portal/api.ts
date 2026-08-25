@@ -80,6 +80,9 @@ export type EmployeeProfile = {
   profilePhotoData: string | null;
   profilePhotoMimeType: string | null;
   hasActiveFaceEnrollment?: boolean;
+  // Only present on the GET /employees/me response — whether this employee
+  // has an active EmployeeSchedule assignment whose workingDays include today.
+  hasScheduleToday?: boolean;
   user: { email: string };
   department: { name: string };
   position: { title: string };
@@ -88,7 +91,14 @@ export type EmployeeProfile = {
 export type AttendanceEligibility = {
   faceEnrolled: boolean;
   hasWorkLocation: boolean;
+  hasScheduleToday: boolean;
 };
+
+// Live, continuously-recomputed status of whether the employee's current GPS
+// position falls within (the radius of) any of their assigned work
+// locations — "checking" while a fix is pending, "unavailable" when location
+// permission is denied or nothing is assigned yet to compare against.
+export type GeofenceStatus = "checking" | "inside" | "outside" | "unavailable";
 
 export type LeaveType = {
   id: string;

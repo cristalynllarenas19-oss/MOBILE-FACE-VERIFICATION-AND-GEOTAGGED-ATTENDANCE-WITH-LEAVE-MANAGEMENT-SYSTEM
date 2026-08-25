@@ -113,6 +113,7 @@ export type TodayAttendance = {
 export type AttendanceEligibility = {
   faceEnrolled: boolean;
   hasWorkLocation: boolean;
+  hasScheduleToday: boolean;
 };
 
 export type AttendanceSubmitResult = {
@@ -191,6 +192,9 @@ export type EmployeeProfile = {
   // Only present on the GET /employees/me response (not on the photo-update
   // response) — whether this employee has an ACTIVE FaceProfile enrolled.
   hasActiveFaceEnrollment?: boolean;
+  // Only present on the GET /employees/me response — whether this employee
+  // has an active EmployeeSchedule assignment whose workingDays include today.
+  hasScheduleToday?: boolean;
   sex?: "MALE" | "FEMALE";
   user: { email: string };
   department: { name: string };

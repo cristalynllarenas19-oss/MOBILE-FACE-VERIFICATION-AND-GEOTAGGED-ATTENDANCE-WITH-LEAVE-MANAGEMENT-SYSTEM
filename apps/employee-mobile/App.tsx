@@ -5,6 +5,7 @@ import * as Location from "expo-location";
 
 import LoginScreen from "./src/screens/LoginScreen";
 import MainScreen from "./src/screens/MainScreen";
+import { getEligibilityMessage, getGeofenceMessage, getApplicableAction } from "./src/screens/AttendanceScreen";
 import SupervisorMainScreen from "./src/screens/SupervisorMainScreen";
 import CameraScanner from "./src/components/CameraScanner";
 import ResultModal, { ResultModalStatus } from "./src/components/ResultModal";
@@ -48,7 +49,12 @@ import {
 import { CACHE_KEYS, cacheGet, cacheSet, prefetchCached, revalidateCached } from "./src/utils/dataCache";
 import { getFriendlyReason } from "./src/utils/attendanceMessages";
 import { distanceInMeters } from "./src/utils/geofence";
-import { Portal } from "./src/types";
+import { Portal, GeofenceStatus } from "./src/types";
+
+// How often to re-check the employee's live GPS position against their
+// assigned work location(s) while signed in — frequent enough that walking
+// into range flips the button on without needing to reopen the app.
+const GEOFENCE_POLL_MS = 15000;
 
 type ResultModalState = {
   status: ResultModalStatus;
@@ -95,6 +101,14 @@ export default function App() {
   // Null while still loading — treated the same as "not eligible" so the
   // buttons never flash enabled before this resolves.
   const [eligibility, setEligibility] = useState<AttendanceEligibility | null>(null);
+
+  // The employee's assigned work location(s) (single-item for FIXED, one or
+  // more for FIELD), kept around so the live GPS position below can be
+  // compared against them — separate from `eligibility.hasWorkLocation`,
+  // which only tracks whether any are assigned at all.
+  const [assignedWorkLocations, setAssignedWorkLocations] = useState<WorkLocation[]>([]);
+  const [currentPosition, setCurrentPosition] = useState<Location.LocationObjectCoords | null>(null);
+  const [locationPermissionDenied, setLocationPermissionDenied] = useState(false);
 
   const [isLoading, setIsLoading] =
     useState(false);
@@ -157,6 +171,64 @@ export default function App() {
     }
   }, [user?.employeeId]);
 
+  // Live geofence tracking: while signed in, periodically re-fetch the
+  // device's GPS position so the Time In/Out buttons can require the
+  // employee to actually be standing inside their assigned work area,
+  // enabling/disabling as they walk in or out of range without needing to
+  // reopen the app. Mirrors WorkAreaScreen's permission/position handling.
+  useEffect(() => {
+    if (!user?.employeeId) {
+      setCurrentPosition(null);
+      setLocationPermissionDenied(false);
+      return;
+    }
+
+    let isMounted = true;
+
+    async function pollPosition() {
+      try {
+        const permission = await Location.requestForegroundPermissionsAsync();
+        if (!isMounted) return;
+        if (!permission.granted) {
+          setLocationPermissionDenied(true);
+          setCurrentPosition(null);
+          return;
+        }
+        setLocationPermissionDenied(false);
+        const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        if (isMounted) setCurrentPosition(position.coords);
+      } catch {
+        if (isMounted) setCurrentPosition(null);
+      }
+    }
+
+    pollPosition();
+    const interval = setInterval(pollPosition, GEOFENCE_POLL_MS);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [user?.employeeId]);
+
+  // "checking" until a fix comes back, "unavailable" when permission is
+  // denied or nothing is assigned to compare against, otherwise "inside"/
+  // "outside" based on distance to the nearest assigned work location.
+  const geofenceStatus: GeofenceStatus = locationPermissionDenied || assignedWorkLocations.length === 0
+    ? "unavailable"
+    : currentPosition == null
+      ? "checking"
+      : assignedWorkLocations.some(
+          (location) =>
+            distanceInMeters(
+              currentPosition.latitude,
+              currentPosition.longitude,
+              Number(location.latitude),
+              Number(location.longitude),
+            ) <= Number(location.radiusMeters),
+        )
+        ? "inside"
+        : "outside";
+
   // Warm every read-only tab after sign-in/restoration. This is deliberately
   // deferred until the landing screen is visible: the user gets there first,
   // while the remaining tabs populate their persistent cache in background.
@@ -212,18 +284,24 @@ export default function App() {
     try {
       const cached = cacheGet<AttendanceEligibility>(eligibilityCacheKey(employeeId));
       if (cached) setEligibility(cached);
-      const [profile, hasWorkLocation] = await Promise.all([
+      const [profile, workLocations] = await Promise.all([
         revalidateCached(CACHE_KEYS.myProfile, getMyProfile),
         attendanceMode === "FIELD"
-          ? revalidateCached(CACHE_KEYS.workArea(employeeId, "field"), getMyWorkLocations).then((sites) => sites.length > 0)
-          : revalidateCached(CACHE_KEYS.workArea(employeeId, "fixed"), getMyWorkLocation).then((location) => location !== null),
+          ? revalidateCached(CACHE_KEYS.workArea(employeeId, "field"), getMyWorkLocations)
+          : revalidateCached(CACHE_KEYS.workArea(employeeId, "fixed"), getMyWorkLocation).then((location) => (location ? [location] : [])),
       ]);
-      const nextEligibility = { faceEnrolled: Boolean(profile.hasActiveFaceEnrollment), hasWorkLocation };
+      setAssignedWorkLocations(workLocations);
+      const nextEligibility = {
+        faceEnrolled: Boolean(profile.hasActiveFaceEnrollment),
+        hasWorkLocation: workLocations.length > 0,
+        hasScheduleToday: Boolean(profile.hasScheduleToday),
+      };
       setEligibility(nextEligibility);
       cacheSet(eligibilityCacheKey(employeeId), nextEligibility);
     } catch (error) {
       console.error("Failed to load attendance eligibility", error);
-      setEligibility({ faceEnrolled: false, hasWorkLocation: false });
+      setAssignedWorkLocations([]);
+      setEligibility({ faceEnrolled: false, hasWorkLocation: false, hasScheduleToday: false });
     }
   }
 
@@ -318,17 +396,24 @@ export default function App() {
       return;
     }
 
-    const isEligible = Boolean(eligibility?.faceEnrolled && eligibility?.hasWorkLocation);
-    if (!isEligible) {
-      const missingBoth = !eligibility?.faceEnrolled && !eligibility?.hasWorkLocation;
+    const isFieldMode = user.attendanceMode === "FIELD";
+    const hasTimedIn = Boolean(todayAttendance?.timeInAt);
+    const hasTimedOut = Boolean(todayAttendance?.timeOutAt);
+    const hasOpenVisit = hasTimedIn && !hasTimedOut;
+    const isOnLunch = Boolean(hasOpenVisit && todayAttendance?.lunchOutAt && !todayAttendance?.lunchInAt);
+    const applicableAction = getApplicableAction({
+      isField: isFieldMode,
+      hasTimedIn,
+      hasTimedOut,
+      hasOpenVisit,
+      isOnLunch,
+    });
+    const eligibilityMessage = getEligibilityMessage(eligibility) ?? getGeofenceMessage(geofenceStatus, applicableAction);
+    if (eligibilityMessage) {
       setResultModal({
         status: "error",
         title: "Attendance Not Available",
-        message: missingBoth
-          ? "Your face is not yet registered and you haven't been assigned a work location. Contact HR to get set up before recording attendance."
-          : !eligibility?.faceEnrolled
-            ? "Your face is not yet registered for attendance verification. Contact HR to complete your face enrollment."
-            : "You haven't been assigned a work location yet. Contact HR or your supervisor.",
+        message: eligibilityMessage,
       });
       return;
     }
@@ -651,6 +736,7 @@ export default function App() {
           isLoading={isLoading}
           todayAttendance={todayAttendance}
           eligibility={eligibility}
+          geofenceStatus={geofenceStatus}
           onLogout={handleLogout}
           onTimeIn={() => startScan("TIME_IN")}
           onTimeOut={() => startScan("TIME_OUT")}

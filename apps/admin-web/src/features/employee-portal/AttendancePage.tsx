@@ -1,10 +1,10 @@
 
-import { CSSProperties, useState } from "react";
+import { CSSProperties, useEffect, useState } from "react";
 import {
   AlertCircle, CheckCircle, Clock, Coffee, LogIn, LogOut, MapPin,
 } from "lucide-react";
 import {
-  TodayAttendance, WorkLocation, AttendanceSubmitResult, AttendanceEligibility,
+  TodayAttendance, WorkLocation, AttendanceSubmitResult, AttendanceEligibility, GeofenceStatus,
   getTodayAttendance, submitAttendance, getMyWorkLocation, getMyWorkLocations,
   distanceInMeters, getFriendlyReason, getMyProfile,
 } from "./api";
@@ -37,8 +37,47 @@ function getEligibilityMessage(eligibility: AttendanceEligibility | null) {
   if (!eligibility.hasWorkLocation) {
     return "You haven't been assigned a work location yet. Contact HR or your supervisor.";
   }
+  if (!eligibility.hasScheduleToday) {
+    return "You're not scheduled to work today. Contact HR or your supervisor if this is unexpected.";
+  }
   return null;
 }
+
+type ApplicableAction = "Time In" | "Time Out" | "Start Lunch" | "End Lunch" | "Start Visit" | "End Visit";
+
+// Whichever single action the employee would currently be attempting —
+// mirrors the same state the Time In/Out/Lunch buttons themselves are
+// keyed on, so the "outside your work area" message names the right one.
+function getApplicableAction(params: {
+  isField: boolean;
+  hasTimedIn: boolean;
+  hasTimedOut: boolean;
+  hasOpenVisit: boolean;
+  isOnLunch: boolean;
+}): ApplicableAction | null {
+  const { isField, hasTimedIn, hasTimedOut, hasOpenVisit, isOnLunch } = params;
+  if (isField) return hasOpenVisit ? "End Visit" : "Start Visit";
+  if (!hasTimedIn) return "Time In";
+  if (isOnLunch) return "End Lunch";
+  if (!hasTimedOut) return "Time Out";
+  return null;
+}
+
+// Only meaningful once getEligibilityMessage returns null — the location
+// gate is checked after (not instead of) the config-level ones above.
+function getGeofenceMessage(status: GeofenceStatus, action: ApplicableAction | null) {
+  if (status === "checking") return "Confirming your location...";
+  if (status === "unavailable") return "Enable location access so we can confirm you're at your assigned work area.";
+  if (status === "outside") {
+    return `You are not in your assigned working area. Go to your assigned working area to ${action ?? "record attendance"}.`;
+  }
+  return null;
+}
+
+// How often to re-check the browser's live GPS position against the
+// employee's assigned work location(s) — frequent enough that walking into
+// range flips the buttons on without needing to reload the page.
+const GEOFENCE_POLL_MS = 15000;
 
 export function AttendancePage({ user }: Props) {
   const isField = user.attendanceMode === "FIELD";
@@ -65,7 +104,11 @@ export function AttendancePage({ user }: Props) {
     ? (workLocationsCache.data?.length ?? 0) > 0
     : workLocationCache.data !== null && workLocationCache.data !== undefined;
   const eligibility: AttendanceEligibility | null = profileCache.data
-    ? { faceEnrolled: Boolean(profileCache.data.hasActiveFaceEnrollment), hasWorkLocation }
+    ? {
+        faceEnrolled: Boolean(profileCache.data.hasActiveFaceEnrollment),
+        hasWorkLocation,
+        hasScheduleToday: Boolean(profileCache.data.hasScheduleToday),
+      }
     : null;
   const isLoading = todayCache.isLoading || profileCache.isLoading
     || (isField ? workLocationsCache.isLoading : workLocationCache.isLoading);
@@ -79,11 +122,45 @@ export function AttendancePage({ user }: Props) {
   const [sitePickerSites,   setSitePickerSites]   = useState<WorkLocation[]>([]);
   const [sitePickerVisible, setSitePickerVisible] = useState(false);
 
-  // Outside-work-area warning
-  const [outsideWarning, setOutsideWarning] = useState<{
-    type: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN";
-    proceed: () => void;
-  } | null>(null);
+  // Live geofence tracking: periodically re-fetch the browser's GPS position
+  // so the Time In/Out buttons can require the employee to actually be
+  // standing inside their assigned work area, enabling/disabling as they
+  // move in or out of range without needing to reload the page.
+  const [currentPosition, setCurrentPosition] = useState<GeolocationCoordinates | null>(null);
+  const [locationPermissionDenied, setLocationPermissionDenied] = useState(false);
+
+  useEffect(() => {
+    if (!user.employeeId) {
+      setCurrentPosition(null);
+      setLocationPermissionDenied(false);
+      return;
+    }
+
+    let isMounted = true;
+
+    function pollPosition() {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          if (!isMounted) return;
+          setLocationPermissionDenied(false);
+          setCurrentPosition(position.coords);
+        },
+        (error) => {
+          if (!isMounted) return;
+          if (error.code === error.PERMISSION_DENIED) setLocationPermissionDenied(true);
+          setCurrentPosition(null);
+        },
+        { enableHighAccuracy: false, timeout: 5000 },
+      );
+    }
+
+    pollPosition();
+    const interval = setInterval(pollPosition, GEOFENCE_POLL_MS);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [user.employeeId]);
 
   const now = new Date();
 
@@ -109,10 +186,36 @@ export function AttendancePage({ user }: Props) {
       ? hasOpenVisit ? "#1680D8" : hasTimedIn ? "#17A34A" : "#EF4444"
       : hasTimedOut  ? "#17A34A" : hasTimedIn ? "#1680D8" : "#EF4444";
 
-  const isEligible = Boolean(eligibility?.faceEnrolled && eligibility?.hasWorkLocation);
-  const eligibilityMessage = getEligibilityMessage(eligibility);
+  const geofenceLocations = isField
+    ? workLocationsCache.data ?? []
+    : workLocationCache.data
+      ? [workLocationCache.data]
+      : [];
+  const geofenceStatus: GeofenceStatus = locationPermissionDenied || geofenceLocations.length === 0
+    ? "unavailable"
+    : currentPosition == null
+      ? "checking"
+      : geofenceLocations.some(
+          (location) =>
+            distanceInMeters(
+              currentPosition.latitude,
+              currentPosition.longitude,
+              Number(location.latitude),
+              Number(location.longitude),
+            ) <= Number(location.radiusMeters),
+        )
+        ? "inside"
+        : "outside";
+
+  const isConfigEligible = Boolean(
+    eligibility?.faceEnrolled && eligibility?.hasWorkLocation && eligibility?.hasScheduleToday,
+  );
+  const isEligible = isConfigEligible && geofenceStatus === "inside";
   const hasLunchOut = Boolean(todayAtt?.lunchOutAt);
   const hasLunchIn = Boolean(todayAtt?.lunchInAt);
+  const isOnLunch = Boolean(hasOpenVisit && hasLunchOut && !hasLunchIn);
+  const applicableAction = getApplicableAction({ isField, hasTimedIn, hasTimedOut, hasOpenVisit, isOnLunch });
+  const eligibilityMessage = getEligibilityMessage(eligibility) ?? getGeofenceMessage(geofenceStatus, applicableAction);
   const showLunchSection = !isField && hasTimedIn;
   const lunchCompleted = hasLunchOut && hasLunchIn;
 
@@ -138,22 +241,11 @@ export function AttendancePage({ user }: Props) {
     if (!user.employeeId) return;
     if (!ensureEligible()) return;
     if (isField) { await startFieldTimeIn(); return; }
-    const outside = await checkOutside();
-    if (outside) {
-      setOutsideWarning({ type: "TIME_IN", proceed: () => { setOutsideWarning(null); setScanType("TIME_IN"); } });
-      return;
-    }
     setScanType("TIME_IN");
   }
 
   async function handleTimeOut() {
     if (!ensureEligible()) return;
-    if (isField) { setScanType("TIME_OUT"); return; }
-    const outside = await checkOutside();
-    if (outside) {
-      setOutsideWarning({ type: "TIME_OUT", proceed: () => { setOutsideWarning(null); setScanType("TIME_OUT"); } });
-      return;
-    }
     setScanType("TIME_OUT");
   }
 
@@ -178,11 +270,6 @@ export function AttendancePage({ user }: Props) {
       return;
     }
 
-    const outside = await checkOutside();
-    if (outside) {
-      setOutsideWarning({ type: next, proceed: () => { setOutsideWarning(null); setScanType(next); } });
-      return;
-    }
     setScanType(next);
   }
 
@@ -218,40 +305,7 @@ export function AttendancePage({ user }: Props) {
   async function handleSiteSelected(site: WorkLocation) {
     setSitePickerVisible(false);
     setSelectedSite(site);
-    const outside = await checkOutsideSite(site);
-    if (outside) {
-      setOutsideWarning({ type: "TIME_IN", proceed: () => { setOutsideWarning(null); setScanType("TIME_IN"); } });
-      return;
-    }
     setScanType("TIME_IN");
-  }
-
-  async function checkOutside(): Promise<boolean> {
-    try {
-      const [loc, pos] = await Promise.all([
-        getMyWorkLocation(),
-        new Promise<GeolocationPosition>((res, rej) =>
-          navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: false, timeout: 5000 }),
-        ),
-      ]);
-      if (!loc) return false;
-      return distanceInMeters(
-        pos.coords.latitude, pos.coords.longitude,
-        Number(loc.latitude), Number(loc.longitude),
-      ) > Number(loc.radiusMeters);
-    } catch { return false; }
-  }
-
-  async function checkOutsideSite(site: WorkLocation): Promise<boolean> {
-    try {
-      const pos = await new Promise<GeolocationPosition>((res, rej) =>
-        navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: false, timeout: 5000 }),
-      );
-      return distanceInMeters(
-        pos.coords.latitude, pos.coords.longitude,
-        Number(site.latitude), Number(site.longitude),
-      ) > Number(site.radiusMeters);
-    } catch { return false; }
   }
 
   async function handleScanComplete(location: GeoPoint, faceBase64: string) {
@@ -529,31 +583,6 @@ export function AttendancePage({ user }: Props) {
             <button
               onClick={() => setSitePickerVisible(false)}
               style={{ ...btnBase, background: "#F1F5F9", color: "#475569", marginTop: 12 }}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* ── Outside-work-area warning ──────────────────────────────────────── */}
-      {outsideWarning && (
-        <div style={overlayS}>
-          <div style={{ ...modalCard, textAlign: "center" }}>
-            <AlertCircle size={32} color="#D97706" style={{ marginBottom: 12 }} />
-            <h3 style={{ color: "#062B59", fontSize: 16, fontWeight: 800, marginBottom: 8 }}>
-              Outside Work Area
-            </h3>
-            <p style={{ color: "#475569", fontSize: 13, marginBottom: 18, lineHeight: "18px" }}>
-              You appear to be outside your designated work area. You can still continue,
-              but your attendance may be flagged for review.
-            </p>
-            <button onClick={outsideWarning.proceed} style={{ ...btnBase, marginBottom: 10 }}>
-              Continue Anyway
-            </button>
-            <button
-              onClick={() => setOutsideWarning(null)}
-              style={{ ...btnBase, background: "#F1F5F9", color: "#475569" }}
             >
               Cancel
             </button>

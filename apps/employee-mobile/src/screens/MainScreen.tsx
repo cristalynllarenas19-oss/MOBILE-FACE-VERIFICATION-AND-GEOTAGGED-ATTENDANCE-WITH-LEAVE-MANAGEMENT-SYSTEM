@@ -14,7 +14,7 @@ import NotificationsScreen from "./NotificationsScreen";
 import Header from "../components/Header";
 import BottomTab from "../components/BottomTab";
 
-import { Tab } from "../types";
+import { Tab, GeofenceStatus } from "../types";
 import { AttendanceEligibility, EmployeeProfile, TodayAttendance, getMyProfile, getUnreadNotificationCount } from "../api";
 import { CACHE_KEYS, cacheGet, cacheSet, useCachedData } from "../utils/dataCache";
 
@@ -30,6 +30,7 @@ type Props = {
   isLoading: boolean;
   todayAttendance: TodayAttendance | null;
   eligibility: AttendanceEligibility | null;
+  geofenceStatus: GeofenceStatus;
   canSwitchToSupervisorPortal?: boolean;
   onSwitchToSupervisorPortal?: () => void;
 };
@@ -44,6 +45,7 @@ export default function MainScreen({
   isLoading,
   todayAttendance,
   eligibility,
+  geofenceStatus,
   canSwitchToSupervisorPortal,
   onSwitchToSupervisorPortal,
 }: Props) {
@@ -108,6 +110,7 @@ export default function MainScreen({
           isLoading={isLoading}
           todayAttendance={todayAttendance}
           eligibility={eligibility}
+          geofenceStatus={geofenceStatus}
           onTimeIn={onTimeIn}
           onTimeOut={onTimeOut}
           onLunchOut={onLunchOut}

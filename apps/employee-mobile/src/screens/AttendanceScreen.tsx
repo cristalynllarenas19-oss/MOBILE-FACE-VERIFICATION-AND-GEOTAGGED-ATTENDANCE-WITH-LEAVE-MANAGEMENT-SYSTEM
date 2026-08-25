@@ -8,19 +8,21 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { AttendanceEligibility, TodayAttendance } from "../api";
+import { GeofenceStatus } from "../types";
 
 type Props = {
   user: any;
   isLoading: boolean;
   todayAttendance: TodayAttendance | null;
   eligibility: AttendanceEligibility | null;
+  geofenceStatus: GeofenceStatus;
   onTimeIn: () => void;
   onTimeOut: () => void;
   onLunchOut: () => void;
   onLunchIn: () => void;
 };
 
-function getEligibilityMessage(eligibility: AttendanceEligibility | null) {
+export function getEligibilityMessage(eligibility: AttendanceEligibility | null) {
   if (!eligibility) return "Checking your attendance eligibility...";
   if (!eligibility.faceEnrolled && !eligibility.hasWorkLocation) {
     return "Your face is not yet registered and you haven't been assigned a work location. Contact HR to get set up before recording attendance.";
@@ -30,6 +32,40 @@ function getEligibilityMessage(eligibility: AttendanceEligibility | null) {
   }
   if (!eligibility.hasWorkLocation) {
     return "You haven't been assigned a work location yet. Contact HR or your supervisor.";
+  }
+  if (!eligibility.hasScheduleToday) {
+    return "You're not scheduled to work today. Contact HR or your supervisor if this is unexpected.";
+  }
+  return null;
+}
+
+export type ApplicableAction = "Time In" | "Time Out" | "Start Lunch" | "End Lunch" | "Start Visit" | "End Visit";
+
+// Whichever single action the employee would currently be attempting —
+// mirrors the same state the Time In/Out/Lunch buttons themselves are
+// keyed on, so the "outside your work area" message names the right one.
+export function getApplicableAction(params: {
+  isField: boolean;
+  hasTimedIn: boolean;
+  hasTimedOut: boolean;
+  hasOpenVisit: boolean;
+  isOnLunch: boolean;
+}): ApplicableAction | null {
+  const { isField, hasTimedIn, hasTimedOut, hasOpenVisit, isOnLunch } = params;
+  if (isField) return hasOpenVisit ? "End Visit" : "Start Visit";
+  if (!hasTimedIn) return "Time In";
+  if (isOnLunch) return "End Lunch";
+  if (!hasTimedOut) return "Time Out";
+  return null;
+}
+
+// Only meaningful once getEligibilityMessage returns null — the location
+// gate is checked after (not instead of) the config-level ones above.
+export function getGeofenceMessage(status: GeofenceStatus, action: ApplicableAction | null) {
+  if (status === "checking") return "Confirming your location...";
+  if (status === "unavailable") return "Enable location access so we can confirm you're at your assigned work area.";
+  if (status === "outside") {
+    return `You are not in your assigned working area. Go to your assigned working area to ${action ?? "record attendance"}.`;
   }
   return null;
 }
@@ -76,6 +112,7 @@ export default function AttendanceScreen({
   isLoading,
   todayAttendance,
   eligibility,
+  geofenceStatus,
   onTimeIn,
   onTimeOut,
   onLunchOut,
@@ -151,10 +188,16 @@ export default function AttendanceScreen({
           : "#EF4444";
 
   // Time In/Out (and therefore Lunch, which requires having timed in) is
-  // unavailable until the employee has completed face registration and been
-  // assigned a work location — mirrors the same gate enforced server-side.
-  const isEligible = Boolean(eligibility?.faceEnrolled && eligibility?.hasWorkLocation);
-  const eligibilityMessage = getEligibilityMessage(eligibility);
+  // unavailable until the employee has completed face registration, been
+  // assigned a work location, has an active shift assignment covering today,
+  // and is currently standing inside that work location's geofence —
+  // mirrors the same gates enforced server-side.
+  const isConfigEligible = Boolean(
+    eligibility?.faceEnrolled && eligibility?.hasWorkLocation && eligibility?.hasScheduleToday,
+  );
+  const isEligible = isConfigEligible && geofenceStatus === "inside";
+  const applicableAction = getApplicableAction({ isField, hasTimedIn, hasTimedOut, hasOpenVisit, isOnLunch });
+  const eligibilityMessage = getEligibilityMessage(eligibility) ?? getGeofenceMessage(geofenceStatus, applicableAction);
 
   const timeInDisabled = isLoading || !isEligible || isTodayDayOff || (isField ? hasOpenVisit : hasTimedIn);
   const timeOutDisabled = isField

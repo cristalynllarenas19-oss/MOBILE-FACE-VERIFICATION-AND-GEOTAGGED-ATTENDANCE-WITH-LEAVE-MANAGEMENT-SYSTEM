@@ -151,10 +151,11 @@ export class EmployeesService {
     return supervisorId;
   }
 
-  // Face enrollment and work-location assignment are both prerequisites the
-  // mobile app checks before letting an employee attempt Time In/Out at all
-  // (rather than only failing after they've already gone through the camera
-  // scan) — see AttendanceScreen's eligibility gate.
+  // Face enrollment, work-location assignment, and having an active shift
+  // assignment covering today are all prerequisites the mobile/web clients
+  // check before letting an employee attempt Time In/Out at all (rather than
+  // only failing after they've already gone through the camera scan) — see
+  // AttendanceScreen's eligibility gate.
   async findMe(employeeId: string) {
     const { faceProfiles, ...employee } = await this.prisma.employee.findUniqueOrThrow({
       where: { id: employeeId },
@@ -166,7 +167,23 @@ export class EmployeesService {
       },
     });
 
-    return { ...employee, hasActiveFaceEnrollment: faceProfiles.length > 0 };
+    // Same lookup as AttendanceService.resolveActiveShift: whichever
+    // EmployeeSchedule assignment is currently active, then check today is
+    // one of its working days.
+    const now = new Date();
+    const activeSchedule = await this.prisma.employeeSchedule.findFirst({
+      where: {
+        employeeId,
+        isActive: true,
+        startsOn: { lte: now },
+        OR: [{ endsOn: null }, { endsOn: { gte: now } }],
+      },
+      orderBy: { startsOn: "desc" },
+      select: { workingDays: true },
+    });
+    const hasScheduleToday = Boolean(activeSchedule?.workingDays.includes(now.getDay()));
+
+    return { ...employee, hasActiveFaceEnrollment: faceProfiles.length > 0, hasScheduleToday };
   }
 
   updateMyPhoto(employeeId: string, profilePhotoData: string, profilePhotoMimeType: string) {
