@@ -17,6 +17,7 @@ import ResultModal, { ResultModalStatus } from "./src/components/ResultModal";
 import VerifyOtpScreen from "./src/screens/VerifyOtpScreen";
 import NewPasswordScreen from "./src/screens/NewPasswordScreen";
 import SetInitialPasswordScreen from "./src/screens/SetInitialPasswordScreen";
+import FaceConsentScreen from "./src/screens/FaceConsentScreen";
 import SplashScreen from "./src/screens/SplashScreen";
 
 import {
@@ -361,6 +362,14 @@ export default function App() {
   // must log back in with it, so this just reuses the normal logout path.
   async function handlePasswordSetupComplete() {
     await handleLogout();
+  }
+
+  // Called once the employee accepts on FaceConsentScreen. Updates the
+  // in-memory user so the app moves straight into the normal portal — no
+  // re-login required (unlike password setup, this isn't a credential
+  // change).
+  function handleFaceConsentAccepted(faceConsentAcceptedAt: string) {
+    setUser((current) => (current ? { ...current, faceConsentAcceptedAt } : current));
   }
 
   async function handleForgotPassword() {
@@ -803,6 +812,8 @@ export default function App() {
         />
       ) : user.mustChangePassword ? (
         <SetInitialPasswordScreen onDone={handlePasswordSetupComplete} />
+      ) : user.employeeId && !user.faceConsentAcceptedAt ? (
+        <FaceConsentScreen onAccepted={handleFaceConsentAccepted} />
       ) : scanType ? (
         <CameraScanner
           logType={scanType}

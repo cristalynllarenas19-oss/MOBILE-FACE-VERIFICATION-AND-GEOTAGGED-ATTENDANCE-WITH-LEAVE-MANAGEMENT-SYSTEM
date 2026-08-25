@@ -324,6 +324,11 @@ model Employee {
   // to 1 the first time a flag lands on a new day, same as faceMismatchCount.
   flaggedAttemptCount     Int                  @default(0) @map("flagged_attempt_count")
   flaggedAttemptCountDate DateTime?            @map("flagged_attempt_count_date")
+  // Null = Consent Pending, set = Consent Accepted. The employee accepts
+  // this on first mobile login (FaceConsentScreen); Face Registration on the
+  // admin side is blocked until it's set — see FaceRegistrationPage's
+  // consent-required modal and EmployeesService.acceptFaceConsent.
+  faceConsentAcceptedAt DateTime?              @map("face_consent_accepted_at")
   createdAt            DateTime               @default(now()) @map("created_at")
   sections             sections?              @relation(fields: [section_id], references: [id])
   user                 User                   @relation(fields: [userId], references: [id])

@@ -93,6 +93,9 @@ export type MobileUser = {
   // Optional so a stale cached session from before this field existed still
   // type-checks; anywhere this is read, treat undefined the same as "FIXED".
   attendanceMode?: AttendanceMode;
+  // Null/undefined = consent still pending (admin cannot face-register this
+  // employee yet); set once the employee accepts on FaceConsentScreen.
+  faceConsentAcceptedAt?: string | null;
 };
 export type TodayAttendance = {
   status: string;
@@ -420,6 +423,28 @@ export async function login(email: string, password?: string) {
   await SecureStore.setItemAsync("refreshToken", data.refreshToken);
   await SecureStore.setItemAsync("sessionUser", JSON.stringify(data.user));
   return data.user;
+}
+
+// Called when the employee taps Accept on FaceConsentScreen. Persists the
+// updated timestamp into the cached session too, so a later app reopen
+// (restoreSession, which reads the cache with no network call) doesn't
+// re-show the consent screen for an already-accepted employee.
+export async function acceptFaceConsent(): Promise<string> {
+  const result = await apiRequest<{ faceConsentAcceptedAt: string }>("/employees/me/consent", {
+    method: "POST",
+  });
+  const savedUser = await SecureStore.getItemAsync("sessionUser");
+  if (savedUser) {
+    try {
+      const parsed = JSON.parse(savedUser) as MobileUser;
+      parsed.faceConsentAcceptedAt = result.faceConsentAcceptedAt;
+      await SecureStore.setItemAsync("sessionUser", JSON.stringify(parsed));
+    } catch {
+      // Cache is best-effort here — the in-memory user update in App.tsx is
+      // what actually gates the UI for the rest of this session.
+    }
+  }
+  return result.faceConsentAcceptedAt;
 }
 
 // Restores the last logged-in user so the app opens straight to their

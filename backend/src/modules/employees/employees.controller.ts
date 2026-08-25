@@ -43,6 +43,14 @@ export class EmployeesController {
     return this.employeesService.updateMyPhoto(employeeId, body.profilePhotoData, body.profilePhotoMimeType);
   }
 
+  // Employee accepts the face-data consent from FaceConsentScreen on mobile.
+  // Unblocks Face Registration on the admin side — see FaceRegistrationPage.
+  @Post("me/consent")
+  acceptFaceConsent(@Req() request: Request) {
+    const employeeId = (request as any).user.employeeId;
+    return this.employeesService.acceptFaceConsent(employeeId);
+  }
+
   @Post()
   @RequirePermissions("employees:write")
   create(@Body() dto: CreateEmployeeDto, @Req() request: Request) {

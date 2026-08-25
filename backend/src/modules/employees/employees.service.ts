@@ -194,6 +194,26 @@ export class EmployeesService {
     });
   }
 
+  // Called once by the employee from FaceConsentScreen on mobile. Idempotent
+  // by design (re-accepting just keeps the original timestamp) so a retried
+  // request from a flaky connection can't silently move the acceptance time.
+  async acceptFaceConsent(employeeId: string) {
+    const existing = await this.prisma.employee.findUniqueOrThrow({
+      where: { id: employeeId },
+      select: { faceConsentAcceptedAt: true },
+    });
+    if (existing.faceConsentAcceptedAt) {
+      return { faceConsentAcceptedAt: existing.faceConsentAcceptedAt };
+    }
+
+    const updated = await this.prisma.employee.update({
+      where: { id: employeeId },
+      data: { faceConsentAcceptedAt: new Date() },
+      select: { faceConsentAcceptedAt: true },
+    });
+    return { faceConsentAcceptedAt: updated.faceConsentAcceptedAt };
+  }
+
   // ULPI-{YY}{NNN}, e.g. ULPI-26001 — NNN resets every calendar year (keyed
   // off the employee's hire year) and is handed out from id_sequences, a
   // one-row-per-year counter. The upsert-then-UPDATE...RETURNING runs in its

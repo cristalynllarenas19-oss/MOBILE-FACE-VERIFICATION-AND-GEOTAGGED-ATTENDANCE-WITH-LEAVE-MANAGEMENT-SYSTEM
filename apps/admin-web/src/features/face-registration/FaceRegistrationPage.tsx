@@ -46,6 +46,10 @@ export type FaceRegistrationEmployee = {
   attendanceMode?: string;
   sex?: "MALE" | "FEMALE" | null;
   soloParentStatus?: "NOT_APPLICABLE" | "ELIGIBLE" | "INELIGIBLE";
+  // Null until the employee accepts the face-data consent from the mobile
+  // app's FaceConsentScreen. Face Registration is blocked for this employee
+  // until then — see the consent-required modal below.
+  faceConsentAcceptedAt?: string | null;
 };
 
 type Employee = FaceRegistrationEmployee;
@@ -212,6 +216,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
   const captureCardRef = useRef<HTMLDivElement>(null);
   const [archiveTarget, setArchiveTarget] = useState<FaceProfile | null>(null);
   const [archiving, setArchiving] = useState(false);
+  const [consentRefreshing, setConsentRefreshing] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -250,6 +255,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
 
   async function startCamera() {
     if (!modelsReady) return;
+    if (selectedEmployee && !selectedEmployee.faceConsentAcceptedAt) return;
     try {
       stopCamera();
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -482,6 +488,10 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
       setMessage("Select an employee first.");
       return;
     }
+    if (!selectedEmployee.faceConsentAcceptedAt) {
+      setMessage("This employee must accept the face-data consent on the mobile app before registration.");
+      return;
+    }
     if (!preview || descriptors.length < CAMERA_SAMPLE_TARGET) {
       setMessage("Capture the face sample before registering.");
       return;
@@ -605,6 +615,25 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
   const selectedEnrollment = selectedEmployee
     ? enrollments.find((item) => item.employeeId === selectedEmployee.id) ?? null
     : null;
+
+  // Blocks Face Registration until the employee accepts the face-data
+  // consent on mobile — see the "Employee Consent Required" modal below.
+  const consentPending = Boolean(selectedEmployee && !selectedEmployee.faceConsentAcceptedAt);
+
+  // Lets the admin re-check without restarting the employee-creation flow:
+  // re-fetches the employee list (no single-employee GET endpoint exists)
+  // and swaps in the fresh record if the employee has since accepted.
+  async function refreshConsentStatus() {
+    if (!selectedEmployee) return;
+    setConsentRefreshing(true);
+    try {
+      const employees = await apiRequest<Employee[]>("/employees");
+      const updated = employees.find((item) => item.id === selectedEmployee.id);
+      if (updated) setSelectedEmployee(updated);
+    } finally {
+      setConsentRefreshing(false);
+    }
+  }
 
   function enrollmentStatusTone(status: FaceProfile["enrollmentStatus"]) {
     if (status === "ACTIVE") return "success" as const;
@@ -1049,6 +1078,31 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
               </button>
               <button className="outline-button" onClick={() => setArchiveTarget(null)} disabled={archiving}>Cancel</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {consentPending && selectedEmployee && (
+        <div className="consent-modal-overlay">
+          <div className="consent-modal">
+            <div className="consent-modal-icon">
+              <AlertTriangle size={26} />
+            </div>
+            <h3>Employee Consent Required</h3>
+            <p className="consent-modal-desc">
+              This employee has not yet accepted the face-data consent. Please have the employee log in to
+              the mobile app and accept the consent before proceeding with face registration.
+            </p>
+            <p className="consent-modal-sub">
+              {employeeLabel(selectedEmployee)} · {selectedEmployee.employeeNo}
+            </p>
+            <button
+              className="primary-button consent-modal-btn"
+              onClick={refreshConsentStatus}
+              disabled={consentRefreshing}
+            >
+              {consentRefreshing ? "Checking..." : "Check Again"}
+            </button>
           </div>
         </div>
       )}

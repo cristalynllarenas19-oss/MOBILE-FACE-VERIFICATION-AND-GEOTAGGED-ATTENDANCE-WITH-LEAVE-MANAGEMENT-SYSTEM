@@ -150,6 +150,7 @@ export class AuthService {
         attendanceMode: user.employee?.attendanceMode,
         defaultView: user.defaultView,
         mustChangePassword: user.mustChangePassword,
+        faceConsentAcceptedAt: user.employee?.faceConsentAcceptedAt ?? null,
       },
     };
   }
