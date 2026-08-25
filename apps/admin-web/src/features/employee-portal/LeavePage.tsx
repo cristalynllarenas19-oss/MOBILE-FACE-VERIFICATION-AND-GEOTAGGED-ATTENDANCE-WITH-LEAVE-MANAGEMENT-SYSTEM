@@ -151,6 +151,27 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
     });
   }, [balances, leaveTypes]);
 
+  // "Request" button on a balance row: jump to the Request tab with that
+  // leave type already selected, unless it can't be requested — same rules
+  // as the disabled dropdown entries in the Request form (mirrors mobile's
+  // LeaveScreen.handleRequestFromBalance).
+  function handleRequestFromBalance(id: string) {
+    const type = leaveTypes.find((t) => t.id === id);
+    if (!type || !type.isActive) return;
+    if (isLeaveTypeExhausted(type)) {
+      setResultModal({
+        ok: false,
+        title: type.requiresAdminGrant ? "Not Yet Granted" : "No Balance Left",
+        msg: type.requiresAdminGrant
+          ? `${type.name} must be granted by HR/Admin before you can request it. Please apply to HR/Admin first.`
+          : `You have no remaining ${type.name} days to request.`,
+      });
+      return;
+    }
+    setLeaveTypeId(id);
+    setTab("request");
+  }
+
   async function handleFileUndertime() {
     if (!user.employeeId) return;
     setIsFilingUndertime(true);
@@ -521,6 +542,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
           loading={loadingData}
           pendingCount={pendingRequests.length}
           onPressPending={() => setShowPending(true)}
+          onRequest={handleRequestFromBalance}
         />
       )}
 

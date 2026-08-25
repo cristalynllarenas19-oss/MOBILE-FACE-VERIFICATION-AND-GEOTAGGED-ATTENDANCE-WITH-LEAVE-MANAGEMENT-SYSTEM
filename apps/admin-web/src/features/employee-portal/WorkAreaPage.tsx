@@ -128,21 +128,19 @@ export function WorkAreaPage({ user }: Props) {
     }).addTo(map).bindTooltip("You are here");
   }, [myPosition]);
 
-  // ── Distance / inside-outside ─────────────────────────────────────────────
-  let distanceBanner: { inside: boolean; text: string } | null = null;
-  if (activeLocation && myPosition) {
+  // ── Distance / inside-outside — computed per-location so every card can
+  // show its own status, not just whichever one is active on the map ───────
+  function getDistanceStatus(loc: WorkLocation): { inside: boolean; text: string } | null {
+    if (!myPosition) return null;
     const { latitude, longitude } = myPosition.coords;
-    const dist = distanceInMeters(
-      latitude, longitude,
-      Number(activeLocation.latitude), Number(activeLocation.longitude),
-    );
-    const r = Number(activeLocation.radiusMeters);
+    const dist = distanceInMeters(latitude, longitude, Number(loc.latitude), Number(loc.longitude));
+    const r = Number(loc.radiusMeters);
     const inside = dist <= r;
-    distanceBanner = {
+    return {
       inside,
       text: inside
-        ? `You are inside ${activeLocation.name} (${Math.round(dist)}m from centre)`
-        : `You are outside ${activeLocation.name} — ${Math.round(dist - r)}m beyond the boundary`,
+        ? `Inside — ${Math.round(dist)}m from centre`
+        : `Outside — ${Math.round(dist - r)}m beyond the boundary`,
     };
   }
 
@@ -151,52 +149,50 @@ export function WorkAreaPage({ user }: Props) {
       <h2 className="emp-page-title">Work Area</h2>
 
       <div className="work-area-shell">
-        {/* ── Left: location switcher + info ── */}
+        {/* ── Top: one card per assigned location — clicking a card makes it
+            active on the map below. Each card shows its own geofence radius
+            and, once a GPS fix is available, its own inside/outside status. ── */}
         <div className="work-area-info">
-          {isField && locations.length > 1 && (
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", width: "100%" }}>
-              {locations.map((loc, i) => (
+          {locations.map((loc, i) => {
+            const status = getDistanceStatus(loc);
+            const isActive = i === activeIdx;
+            return (
+              <div key={loc.id} style={{ display: "flex", flexWrap: "wrap", gap: 12, flex: "1 1 100%" }}>
                 <button
-                  key={loc.id}
                   onClick={() => setActiveIdx(i)}
                   style={{
-                    padding: "7px 14px", borderRadius: 999, border: "none",
-                    fontSize: 12, fontWeight: 700, cursor: "pointer",
-                    background: activeIdx === i ? "#062B59" : "#F1F5F9",
-                    color:      activeIdx === i ? "#FFFFFF"  : "#64748B",
+                    ...infoCard,
+                    cursor: locations.length > 1 ? "pointer" : "default",
+                    outline: isActive && locations.length > 1 ? "2px solid #1680D8" : "none",
+                    outlineOffset: 2,
+                    textAlign: "left",
                   }}
                 >
-                  {loc.name}
+                  <MapPin size={16} color="#1680D8" style={{ flexShrink: 0 }} />
+                  <div style={{ flex: 1 }}>
+                    <p style={{ color: "#062B59", fontSize: 13, fontWeight: 700, margin: 0 }}>
+                      {loc.name}
+                    </p>
+                    <p style={{ color: "#64748B", fontSize: 12, margin: "2px 0 0" }}>
+                      Geofence radius: {loc.radiusMeters}m
+                    </p>
+                  </div>
                 </button>
-              ))}
-            </div>
-          )}
 
-          {activeLocation && (
-            <div style={infoCard}>
-              <MapPin size={16} color="#1680D8" style={{ flexShrink: 0 }} />
-              <div style={{ flex: 1 }}>
-                <p style={{ color: "#062B59", fontSize: 13, fontWeight: 700, margin: 0 }}>
-                  {activeLocation.name}
-                </p>
-                <p style={{ color: "#64748B", fontSize: 12, margin: "2px 0 0" }}>
-                  Geofence radius: {activeLocation.radiusMeters}m
-                </p>
+                {status && (
+                  <div style={{
+                    ...bannerBase,
+                    background: status.inside ? "#ECFDF3" : "#FEF2F2",
+                    borderColor: status.inside ? "#BBF7D0" : "#FECACA",
+                    color: status.inside ? "#17A34A" : "#DC2626",
+                  }}>
+                    <Navigation size={13} style={{ flexShrink: 0 }} />
+                    {loc.name}: {status.text}
+                  </div>
+                )}
               </div>
-            </div>
-          )}
-
-          {distanceBanner && (
-            <div style={{
-              ...bannerBase,
-              background: distanceBanner.inside ? "#ECFDF3" : "#FEF2F2",
-              borderColor: distanceBanner.inside ? "#BBF7D0" : "#FECACA",
-              color: distanceBanner.inside ? "#17A34A" : "#DC2626",
-            }}>
-              <Navigation size={13} style={{ flexShrink: 0 }} />
-              {distanceBanner.text}
-            </div>
-          )}
+            );
+          })}
 
           {gpsError && (
             <div style={{ ...bannerBase, background: "#FFFBEB", borderColor: "#FDE68A", color: "#D97706" }}>
@@ -236,8 +232,11 @@ export function WorkAreaPage({ user }: Props) {
 
 const infoCard: CSSProperties = {
   display: "flex", alignItems: "flex-start", gap: 10,
-  background: "#EFF6FF", borderRadius: 12, padding: "10px 14px",
+  background: "#FFFFFF", borderRadius: 12, padding: "10px 14px",
   flex: "1 1 240px",
+  border: "none",
+  boxShadow: "0 1px 3px rgba(6, 43, 89, 0.06), 0 1px 2px rgba(6, 43, 89, 0.04)",
+  font: "inherit", margin: 0,
 };
 const bannerBase: CSSProperties = {
   display: "flex", alignItems: "center", gap: 8,

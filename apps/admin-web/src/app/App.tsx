@@ -205,15 +205,17 @@ export default function App() {
   const canOpenFaceRegistration =
     !!faceRegistrationNavItem && isNavItemVisible(faceRegistrationNavItem, adminScopedPermissions, user.roles);
 
+  function handleLogout() {
+    logout();
+    setAuthUser(null);
+  }
+
   return (
     <AppLayout
       activePage={renderPage}
       activeView={activeView}
       onSwitchView={switchView}
-      onLogout={() => {
-        logout();
-        setAuthUser(null);
-      }}
+      onLogout={handleLogout}
       onNavigate={handleNavigate}
       user={user}
     >

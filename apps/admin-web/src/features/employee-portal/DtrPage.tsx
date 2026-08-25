@@ -1,19 +1,6 @@
-/**
- * DtrPage — employee self-service Daily Time Record
- *
- * Mirrors employee-mobile DTRScreen exactly:
- *  • Office / Field tab switcher
- *  • Summary card: today's hours rendered (latest visit for Field)
- *  • AM / PM filter chips (Field tab only)
- *  • List of attendance records: date, site name (Field), status badge,
- *    time in → time out, hours rendered
- *  • Tap a row → modal with Time-In / Time-Out photo sub-tabs
- *
- * Endpoint: GET /attendance/history/:employeeId?limit=30
- */
 
 import { CSSProperties, useMemo, useState } from "react";
-import { ArrowRight, Camera } from "lucide-react";
+import { ArrowRight, Camera, X } from "lucide-react";
 import { AttendanceHistoryRecord, AttendanceLogPhoto, getAttendanceHistory } from "./api";
 import type { AuthUser } from "../../lib/api";
 import { CACHE_KEYS, useCachedData } from "../../lib/dataCache";
@@ -69,6 +56,13 @@ function latestOfToday(recs: AttendanceHistoryRecord[]) {
   if (!todays.length) return null;
   return todays.reduce((best, r) => ((r.visitNumber ?? 1) > (best.visitNumber ?? 1) ? r : best));
 }
+// Local (not UTC) YYYY-MM-DD, so a "2026-08-25" input value lines up with
+// attendanceDate regardless of the browser's timezone offset.
+function toLocalDateStr(v: string | Date) {
+  const d = typeof v === "string" ? new Date(v) : v;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+const todayStr = toLocalDateStr(new Date());
 
 export function DtrPage({ user }: Props) {
   const historyCache = useCachedData<AttendanceHistoryRecord[]>(
@@ -80,6 +74,8 @@ export function DtrPage({ user }: Props) {
   const [isRefresh,   setIsRefresh]   = useState(false);
   const [activeTab,   setActiveTab]   = useState<Tab>("office");
   const [amPm,        setAmPm]        = useState<AmPm>("ALL");
+  const [dateFrom,    setDateFrom]    = useState("");
+  const [dateTo,      setDateTo]      = useState("");
   const [selected,    setSelected]    = useState<AttendanceHistoryRecord | null>(null);
   const [photoTab,    setPhotoTab]    = useState<PhotoTab>("TIME_IN");
 
@@ -89,8 +85,23 @@ export function DtrPage({ user }: Props) {
     setIsRefresh(false);
   }
 
-  const officeRecs = useMemo(() => records.filter((r) => r.recordType !== "FIELD"), [records]);
-  const fieldRecs  = useMemo(() => records.filter((r) => r.recordType === "FIELD"),  [records]);
+  const hasDateFilter = Boolean(dateFrom || dateTo);
+  const withinDateRange = (r: AttendanceHistoryRecord) => {
+    if (!hasDateFilter) return true;
+    const day = toLocalDateStr(r.attendanceDate);
+    if (dateFrom && day < dateFrom) return false;
+    if (dateTo && day > dateTo) return false;
+    return true;
+  };
+
+  const officeRecs = useMemo(
+    () => records.filter((r) => r.recordType !== "FIELD" && withinDateRange(r)),
+    [records, dateFrom, dateTo],
+  );
+  const fieldRecs = useMemo(
+    () => records.filter((r) => r.recordType === "FIELD" && withinDateRange(r)),
+    [records, dateFrom, dateTo],
+  );
   const filteredField = useMemo(() => {
     if (amPm === "ALL") return fieldRecs;
     return fieldRecs.filter((r) => isMorning(r.timeInAt) === (amPm === "AM"));
@@ -98,7 +109,11 @@ export function DtrPage({ user }: Props) {
 
   const isOffice     = activeTab === "office";
   const listData     = isOffice ? officeRecs : filteredField;
-  const todayRecord  = isOffice ? latestOfToday(officeRecs) : latestOfToday(fieldRecs);
+  // Summary card always reflects today regardless of the date-range filter —
+  // computed from the unfiltered record set, matching mobile's DTRScreen.
+  const todayRecord  = isOffice
+    ? latestOfToday(records.filter((r) => r.recordType !== "FIELD"))
+    : latestOfToday(records.filter((r) => r.recordType === "FIELD"));
   const todayInProg  = Boolean(todayRecord?.timeInAt) && !todayRecord?.timeOutAt;
 
   return (
@@ -118,9 +133,44 @@ export function DtrPage({ user }: Props) {
               color:      activeTab === t ? "#FFFFFF"  : "#64748B",
             }}
           >
-            {t === "office" ? "Non-field" : "Field"}
+            {t === "office" ? "Office" : "Field"}
           </button>
         ))}
+      </div>
+
+      {/* Date range filter (From/To, both tabs) */}
+      <div style={dateFilterCard}>
+        <label style={dateFieldLabel}>
+          From
+          <input
+            type="date"
+            value={dateFrom}
+            max={dateTo || todayStr}
+            onChange={(e) => setDateFrom(e.target.value)}
+            style={dateInput}
+          />
+        </label>
+        <label style={dateFieldLabel}>
+          To
+          <input
+            type="date"
+            value={dateTo}
+            min={dateFrom || undefined}
+            max={todayStr}
+            onChange={(e) => setDateTo(e.target.value)}
+            style={dateInput}
+          />
+        </label>
+        {hasDateFilter && (
+          <button
+            type="button"
+            onClick={() => { setDateFrom(""); setDateTo(""); }}
+            style={clearDateBtn}
+            aria-label="Clear date range"
+          >
+            <X size={13} /> Clear
+          </button>
+        )}
       </div>
 
       {/* Summary card */}
@@ -167,7 +217,9 @@ export function DtrPage({ user }: Props) {
         <div style={{ textAlign: "center", padding: 40, color: "#94A3B8" }}>
           <p style={{ fontSize: 32, margin: "0 0 8px" }}>📄</p>
           <p style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>
-            {isOffice ? "No office attendance records yet." : "No visit records yet."}
+            {hasDateFilter
+              ? "No attendance records in this date range."
+              : isOffice ? "No office attendance records yet." : "No visit records yet."}
           </p>
         </div>
       ) : (
@@ -256,8 +308,17 @@ export function DtrPage({ user }: Props) {
       {selected && (
         <div style={overlayS}>
           <div style={modalCard}>
+            <button
+              type="button"
+              onClick={() => setSelected(null)}
+              style={modalCloseBtn}
+              aria-label="Close"
+            >
+              <X size={15} color="#64748B" />
+            </button>
+
             {/* Title */}
-            <p style={{ color: "#062B59", fontSize: 15, fontWeight: 800, textAlign: "center", marginBottom: 14 }}>
+            <p style={{ color: "#062B59", fontSize: 15, fontWeight: 800, textAlign: "center", marginBottom: 14, paddingRight: 28 }}>
               {fmtDate(selected.attendanceDate)}
               {!isOffice && selected.workLocation?.name ? ` · ${selected.workLocation.name}` : ""}
             </p>
@@ -361,6 +422,27 @@ const refreshBtn: CSSProperties = {
   background: "none", border: "none", cursor: "pointer",
   fontSize: 18, color: "#1680D8", padding: "0 4px",
 };
+const dateFilterCard: CSSProperties = {
+  display: "flex", alignItems: "flex-end", gap: 10,
+  background: "#FFFFFF", border: "1px solid #DBE5EF", borderRadius: 14,
+  padding: 12, marginBottom: 14,
+};
+const dateFieldLabel: CSSProperties = {
+  display: "flex", flexDirection: "column", gap: 4,
+  fontSize: 11, fontWeight: 700, color: "#64748B",
+  textTransform: "uppercase", letterSpacing: 0.03,
+};
+const dateInput: CSSProperties = {
+  height: 34, border: "1px solid #DBE5EF", borderRadius: 8,
+  padding: "0 8px", fontSize: 12, fontWeight: 600, color: "#062B59",
+  background: "#FFFFFF", outline: "none",
+};
+const clearDateBtn: CSSProperties = {
+  display: "flex", alignItems: "center", gap: 4,
+  height: 34, padding: "0 10px", border: "1px solid #DBE5EF", borderRadius: 8,
+  background: "#F8FAFC", color: "#64748B", fontSize: 12, fontWeight: 700,
+  cursor: "pointer",
+};
 const filterChip: CSSProperties = {
   paddingLeft: 16, paddingRight: 16, paddingTop: 7, paddingBottom: 7,
   borderRadius: 999, border: "none", cursor: "pointer",
@@ -381,4 +463,12 @@ const modalCard: CSSProperties = {
   width: "100%", maxWidth: 480, maxHeight: "92%",
   overflowY: "auto",
   background: "#fff", borderRadius: 20, padding: 16,
+  position: "relative",
+};
+const modalCloseBtn: CSSProperties = {
+  position: "absolute", top: 12, right: 12,
+  width: 28, height: 28, borderRadius: "50%",
+  border: "none", background: "#F1F5F9",
+  display: "flex", alignItems: "center", justifyContent: "center",
+  cursor: "pointer", zIndex: 1,
 };

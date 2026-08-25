@@ -1,4 +1,4 @@
-import { CalendarCheck, CalendarX, Inbox, Megaphone, UserCheck, Bell as BellIcon } from "lucide-react";
+import { CalendarCheck, CalendarX, FileText, FileWarning, Inbox, Megaphone, UserCheck, Bell as BellIcon } from "lucide-react";
 import { AppNotification } from "../../lib/notifications";
 
 function timeAgo(value: string) {
@@ -13,9 +13,11 @@ function timeAgo(value: string) {
   return new Date(value).toLocaleDateString();
 }
 
-function NotificationIcon({ type }: { type: string | null }) {
+export function NotificationIcon({ type }: { type: string | null }) {
   if (type === "LEAVE_APPROVED") return <CalendarCheck size={16} />;
   if (type === "LEAVE_REJECTED") return <CalendarX size={16} />;
+  if (type === "LEAVE_NEEDS_REQUIREMENTS") return <FileWarning size={16} />;
+  if (type === "LEAVE_SUBMITTED") return <FileText size={16} />;
   if (type === "PROBATION_REGULARIZATION_DUE") return <UserCheck size={16} />;
   if (type === "ANNOUNCEMENT") return <Megaphone size={16} />;
   return <BellIcon size={16} />;

@@ -31,7 +31,11 @@
   border-radius: 14px;
   box-shadow: 0 18px 40px rgba(15, 23, 42, 0.16);
   overflow: hidden;
-  z-index: 200;
+  /* Leaflet's own panes/controls (Geotagging, Work Area) use z-index up to
+     1000 and don't sit in an isolated stacking context, so they can paint
+     over a low z-index here. 1200 matches this app's convention for
+     overlays that must stay above any map (see AttendancePage.css). */
+  z-index: 1200;
   color: #193d69;
 }
 
@@ -125,6 +129,11 @@
 .notification-item-icon.leave_rejected {
   background: #fee2e2;
   color: #991b1b;
+}
+
+.notification-item-icon.leave_needs_requirements {
+  background: #fef3c7;
+  color: #92400e;
 }
 
 .notification-item-body {

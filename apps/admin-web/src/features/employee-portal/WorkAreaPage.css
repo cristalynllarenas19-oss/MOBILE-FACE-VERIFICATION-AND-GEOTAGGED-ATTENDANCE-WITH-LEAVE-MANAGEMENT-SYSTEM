@@ -1,11 +1,8 @@
-/* Narrower than --emp-page-max, and matches the shell's width below so the
-   title's left edge lines up with the cards' left edge instead of the
-   wider page container's. */
+
 .work-area-page.work-area-page {
-  max-width: 720px;
+  max-width: 750px;
 }
 
-/* Desktop: info cards on top, map centered below */
 .work-area-shell {
   display: flex;
   flex-direction: column;
@@ -29,14 +26,14 @@
 }
 
 .work-area-map-col .work-area-map-div {
-  height: 500px;
+  height: 430px;
   border-radius: 16px;
   overflow: hidden;
   border: 1px solid #dbe5ef;
 }
 
 .work-area-map-col .work-area-map-placeholder {
-  height: 500px;
+  height: 400px;
   border-radius: 16px;
   border: 1px solid #dbe5ef;
   background: #f8fafc;
@@ -47,7 +44,6 @@
   gap: 8px;
 }
 
-/* ≤ 900 px: stack cards above the map */
 @media (max-width: 900px) {
   .work-area-info {
     flex-direction: column;
@@ -55,6 +51,6 @@
 
   .work-area-map-col .work-area-map-div,
   .work-area-map-col .work-area-map-placeholder {
-    height: 360px;
+    height: 320px;
   }
 }

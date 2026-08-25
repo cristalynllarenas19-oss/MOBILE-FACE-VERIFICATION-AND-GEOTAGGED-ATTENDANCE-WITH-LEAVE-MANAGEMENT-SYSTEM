@@ -1,15 +1,19 @@
 import { CSSProperties, FormEvent, ReactNode, useRef, useState } from "react";
 import {
   ArrowLeft, Briefcase, Building2, Camera, ChevronRight,
-  Eye, EyeOff, Lock, Mail, Phone, User,
+  Eye, EyeOff, Info, Lock, Mail, Phone, User,
 } from "lucide-react";
 import { EmployeeProfile, getMyProfile, changePassword, updateMyPhoto } from "./api";
 import { AuthUser, updateDefaultView } from "../../lib/api";
 import { CACHE_KEYS, useCachedData } from "../../lib/dataCache";
 import "./EmployeePortal.css";
 
+// Kept in sync with apps/employee-mobile/app.json's expo.version — there's no
+// shared package the web app can import this from.
+const APP_VERSION = "0.1.0";
+
 type Props   = { user: AuthUser; onDefaultViewChange: (view: "ADMIN" | "EMPLOYEE") => void };
-type Section = "menu" | "profile" | "password";
+type Section = "menu" | "profile" | "password" | "about";
 
 // ── Design tokens ────────────────────────────────────────────────────────────
 // Matched to the reference mock: deep navy headings/icons/button, soft gray
@@ -25,6 +29,10 @@ const COLORS = {
   error:        "#DC2626",
   disabled:     "#94a3b8",
   white:        "#FFFFFF",
+  // Per-row icon tints — matches employee-mobile's SettingsScreen row colors.
+  profileBlue:  "#1680D8",
+  passwordGreen:"#15803D",
+  aboutGray:    "#64748B",
 } as const;
 
 function avatarUri(p: EmployeeProfile) {
@@ -61,7 +69,7 @@ export function SettingsPage({ user, onDefaultViewChange }: Props) {
   const [photoStatus, setPhotoStatus] = useState<{ ok: boolean; msg: string } | null>(null);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
-  const [hoveredRow, setHoveredRow] = useState<"profile" | "password" | null>(null);
+  const [hoveredRow, setHoveredRow] = useState<"profile" | "password" | "about" | null>(null);
   const [backHover, setBackHover] = useState(false);
 
   async function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -103,8 +111,8 @@ export function SettingsPage({ user, onDefaultViewChange }: Props) {
       setPwdStatus({ ok: false, msg: "New password and confirmation do not match." });
       return;
     }
-    if (newPwd.length < 6) {
-      setPwdStatus({ ok: false, msg: "New password must be at least 6 characters." });
+    if (newPwd.length < 8) {
+      setPwdStatus({ ok: false, msg: "New password must be at least 8 characters." });
       return;
     }
     setIsSaving(true);
@@ -154,6 +162,7 @@ export function SettingsPage({ user, onDefaultViewChange }: Props) {
       <h2 style={pageTitle}>
         {section === "menu"     ? "Settings"         :
          section === "profile"  ? "My Profile"       :
+         section === "about"    ? "About"            :
                                   "Change Password"}
       </h2>
 
@@ -186,7 +195,8 @@ export function SettingsPage({ user, onDefaultViewChange }: Props) {
       {section === "menu" && (
         <div style={menuCard}>
           <MenuRow
-            icon={<User size={18} color={COLORS.navy} strokeWidth={1.9} />}
+            icon={<User size={18} color={COLORS.profileBlue} strokeWidth={1.9} />}
+            tint={COLORS.profileBlue}
             label="My Profile"
             hovered={hoveredRow === "profile"}
             onHover={(v) => setHoveredRow(v ? "profile" : null)}
@@ -194,11 +204,21 @@ export function SettingsPage({ user, onDefaultViewChange }: Props) {
           />
           <div style={dividerLine} />
           <MenuRow
-            icon={<Lock size={18} color={COLORS.navy} strokeWidth={1.9} />}
+            icon={<Lock size={18} color={COLORS.passwordGreen} strokeWidth={1.9} />}
+            tint={COLORS.passwordGreen}
             label="Change Password"
             hovered={hoveredRow === "password"}
             onHover={(v) => setHoveredRow(v ? "password" : null)}
             onPress={() => setSection("password")}
+          />
+          <div style={dividerLine} />
+          <MenuRow
+            icon={<Info size={18} color={COLORS.aboutGray} strokeWidth={1.9} />}
+            tint={COLORS.aboutGray}
+            label="About"
+            hovered={hoveredRow === "about"}
+            onHover={(v) => setHoveredRow(v ? "about" : null)}
+            onPress={() => setSection("about")}
           />
           {user.roles.length > 1 && (
             <>
@@ -346,16 +366,58 @@ export function SettingsPage({ user, onDefaultViewChange }: Props) {
           </button>
         </form>
       )}
+
+      {/* ── ABOUT ────────────────────────────────────────────────────────── */}
+      {section === "about" && (
+        <div>
+          <p style={aboutAppName}>Universal Leaf Attendance</p>
+          <p style={aboutVersion}>Version {APP_VERSION}</p>
+
+          <p style={aboutSectionHeading}>Data Privacy Consent</p>
+
+          <p style={aboutParagraph}>
+            In compliance with the requirements of the Data Privacy Act of 2012 (Republic Act No. 10173), Universal
+            Leaf hereby informs you that this application collects, processes, and stores your personal information
+            — including your facial biometric data, real-time location, and attendance and leave records — solely
+            for the purpose of verifying your identity, recording your attendance, and administering leave
+            management.
+          </p>
+
+          <p style={aboutParagraph}>
+            Your facial biometric data is captured during face registration and is used exclusively to verify your
+            identity when you time in, time out, or file attendance-related requests. Your geolocation is captured
+            at the time of each attendance action to confirm that it was made within an authorized work area.
+          </p>
+
+          <p style={aboutParagraph}>
+            We understand and agree that this information may be disclosed or shared with authorized personnel
+            within the company (such as your supervisor and HR administrators) for legitimate attendance
+            monitoring, payroll, and leave management purposes only. Your data will not be sold, rented, or
+            disclosed to any third party outside the company without your consent, except when required by law.
+          </p>
+
+          <p style={aboutParagraph}>
+            Your personal information will continue to be stored for as long as your employment record is active,
+            or until the retention period required by applicable law has lapsed, whichever comes later.
+          </p>
+
+          <p style={aboutParagraph}>
+            You may request access to, correction of, or withdrawal of consent to process your personal data by
+            contacting your HR department. By using this application, you confirm that you have read, understood,
+            and agree to this Data Privacy Consent.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 function MenuRow({
-  icon, label, onPress, hovered, onHover,
+  icon, label, onPress, hovered, onHover, tint,
 }: {
   icon: ReactNode; label: string; onPress: () => void;
-  hovered: boolean; onHover: (v: boolean) => void;
+  hovered: boolean; onHover: (v: boolean) => void; tint?: string;
 }) {
   return (
     <button
@@ -364,7 +426,7 @@ function MenuRow({
       onMouseLeave={() => onHover(false)}
       style={{ ...menuRow, background: hovered ? COLORS.divider : "transparent" }}
     >
-      <span style={iconChip}>{icon}</span>
+      <span style={{ ...iconChip, background: tint ? `${tint}1A` : COLORS.divider }}>{icon}</span>
       <span style={menuRowLabel}>{label}</span>
       <ChevronRight size={16} color={COLORS.labelGray} />
     </button>
@@ -535,6 +597,16 @@ const pwdInput: CSSProperties = {
 const eyeBtn: CSSProperties = {
   background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex",
 };
+
+const aboutAppName: CSSProperties = { color: COLORS.subtitleGray, fontSize: 15, fontWeight: 700, margin: "0 0 2px" };
+const aboutVersion: CSSProperties = { color: COLORS.labelGray, fontSize: 12, margin: "0 0 20px" };
+const aboutSectionHeading: CSSProperties = {
+  color: COLORS.navy, fontSize: 13, fontWeight: 700,
+  textTransform: "uppercase", letterSpacing: 0.4,
+  margin: "0 0 10px", paddingTop: 14,
+  borderTop: `1px solid ${COLORS.divider}`,
+};
+const aboutParagraph: CSSProperties = { color: "#334155", fontSize: 13, lineHeight: 1.55, margin: "0 0 14px" };
 
 function submitBtn(saving: boolean): CSSProperties {
   return {

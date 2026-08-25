@@ -1,3 +1,4 @@
+import { CirclePlus } from "lucide-react";
 import { LeaveBalance } from "../api";
 import "./LeaveBalanceChart.css";
 
@@ -16,9 +17,10 @@ type Props = {
   loading?: boolean;
   pendingCount?: number;
   onPressPending?: () => void;
+  onRequest?: (leaveTypeId: string) => void;
 };
 
-export function LeaveBalanceChart({ balances, loading, pendingCount, onPressPending }: Props) {
+export function LeaveBalanceChart({ balances, loading, pendingCount, onPressPending, onRequest }: Props) {
   const totalEarned = balances.reduce((sum, b) => sum + b.earnedDays, 0);
   const totalUsed = balances.reduce((sum, b) => sum + b.usedDays, 0);
   const totalRemaining = balances.reduce((sum, b) => sum + b.remainingDays, 0);
@@ -137,6 +139,16 @@ export function LeaveBalanceChart({ balances, loading, pendingCount, onPressPend
                 <div className="lbc-bar-fill" style={{ width: `${ratio * 100}%`, background: color }} />
               </div>
               <span className="lbc-bar-value">{balance.usedDays}/{balance.earnedDays} days used</span>
+              {onRequest && (
+                <button
+                  type="button"
+                  className="lbc-request-button"
+                  onClick={() => onRequest(balance.leaveTypeId)}
+                >
+                  <CirclePlus size={11} color="#1680D8" strokeWidth={2} />
+                  Request
+                </button>
+              )}
             </div>
           );
         })}

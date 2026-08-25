@@ -45,9 +45,7 @@ function getEligibilityMessage(eligibility: AttendanceEligibility | null) {
 
 type ApplicableAction = "Time In" | "Time Out" | "Start Lunch" | "End Lunch" | "Start Visit" | "End Visit";
 
-// Whichever single action the employee would currently be attempting —
-// mirrors the same state the Time In/Out/Lunch buttons themselves are
-// keyed on, so the "outside your work area" message names the right one.
+
 function getApplicableAction(params: {
   isField: boolean;
   hasTimedIn: boolean;
@@ -63,8 +61,6 @@ function getApplicableAction(params: {
   return null;
 }
 
-// Only meaningful once getEligibilityMessage returns null — the location
-// gate is checked after (not instead of) the config-level ones above.
 function getGeofenceMessage(status: GeofenceStatus, action: ApplicableAction | null) {
   if (status === "checking") return "Confirming your location...";
   if (status === "unavailable") return "Enable location access so we can confirm you're at your assigned work area.";
@@ -74,17 +70,12 @@ function getGeofenceMessage(status: GeofenceStatus, action: ApplicableAction | n
   return null;
 }
 
-// How often to re-check the browser's live GPS position against the
-// employee's assigned work location(s) — frequent enough that walking into
-// range flips the buttons on without needing to reload the page.
 const GEOFENCE_POLL_MS = 15000;
 
 export function AttendancePage({ user }: Props) {
   const isField = user.attendanceMode === "FIELD";
 
-  // Stale-while-revalidate: renders the last cached response instantly (if
-  // any) while a fresh copy loads silently in the background — mirrors
-  // employee-mobile's App.tsx refreshTodayAttendance/refreshEligibility.
+ 
   const todayCache = useCachedData<TodayAttendance>(
     user.employeeId ? CACHE_KEYS.todayAttendance(user.employeeId) : null,
     () => getTodayAttendance(user.employeeId!),
@@ -122,10 +113,7 @@ export function AttendancePage({ user }: Props) {
   const [sitePickerSites,   setSitePickerSites]   = useState<WorkLocation[]>([]);
   const [sitePickerVisible, setSitePickerVisible] = useState(false);
 
-  // Live geofence tracking: periodically re-fetch the browser's GPS position
-  // so the Time In/Out buttons can require the employee to actually be
-  // standing inside their assigned work area, enabling/disabling as they
-  // move in or out of range without needing to reload the page.
+  // Geolocation state
   const [currentPosition, setCurrentPosition] = useState<GeolocationCoordinates | null>(null);
   const [locationPermissionDenied, setLocationPermissionDenied] = useState(false);
 
@@ -164,9 +152,7 @@ export function AttendancePage({ user }: Props) {
 
   const now = new Date();
 
-  // Sunday is a company-wide rest day for every role — no attendance is
-  // taken or required from anyone, mirrored from the same rule enforced
-  // server-side in AttendanceService.submit().
+  
   const isTodayDayOff = now.getDay() === 0;
 
   // ── Status logic ──────────────────────────────────────────────────────────
@@ -224,7 +210,7 @@ export function AttendancePage({ user }: Props) {
     ? isSubmitting || isLoading || isTodayDayOff || !isEligible || !hasOpenVisit
     : isSubmitting || isLoading || isTodayDayOff || !isEligible || !hasTimedIn || hasTimedOut;
   const lunchButtonDisabled = isSubmitting || isLoading || isTodayDayOff || !isEligible || hasTimedOut || lunchCompleted;
-  const lunchButtonLabel = lunchCompleted ? "LUNCH COMPLETED" : hasLunchOut ? "START LUNCH" : "END LUNCH";
+  const lunchButtonLabel = lunchCompleted ? "LUNCH COMPLETED" : hasLunchOut ? "END LUNCH" : "START LUNCH";
 
   // ── Handlers ─────────────────────────────────────────────────────────────
   function ensureEligible() {

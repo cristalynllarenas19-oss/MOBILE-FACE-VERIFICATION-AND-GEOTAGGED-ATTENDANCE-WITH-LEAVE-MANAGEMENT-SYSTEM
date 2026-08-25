@@ -28,6 +28,7 @@ import {
   markNotificationRead,
 } from "../../lib/notifications";
 import { NotificationPanel } from "./NotificationPanel";
+import { NotificationDetailModal } from "./NotificationDetailModal";
 import "./AppLayout.css";
 import "./NotificationPanel.css";
 
@@ -113,6 +114,10 @@ export function AppLayout({
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifLoading, setNotifLoading] = useState(false);
+  // Employee-portal-only: clicking a notification opens this instead of
+  // navigating away, so the employee never loses their current page. Admin
+  // and Supervisor (both activeView === "admin") keep navigating as before.
+  const [detailNotification, setDetailNotification] = useState<AppNotification | null>(null);
   const notifRef = useRef<HTMLDivElement>(null);
   const switcherRef = useRef<HTMLDivElement>(null);
 
@@ -198,13 +203,36 @@ export function AppLayout({
 
   const ATTENDANCE_NOTIFICATION_TYPES = ["ATTENDANCE_FLAGGED", "FACE_MISMATCH_STREAK", "ATTENDANCE_VALIDATED", "ATTENDANCE_FAKE_ATTEMPT"];
 
+  // Supervisor-only (not a dual-role Admin+Supervisor account, which keeps
+  // Admin's existing behavior — same precedence ADMIN already takes
+  // elsewhere in this file, e.g. adminViewLabel above).
+  const isSupervisorOnly = !user.roles.includes("ADMIN") && user.roles.includes("SUPERVISOR");
+
   const handleSelectNotification = (notification: AppNotification) => {
+    // Employee Portal: show the full notification in a modal in place,
+    // instead of navigating away — the employee never loses their current
+    // page. Admin and Supervisor (both activeView === "admin") otherwise
+    // keep navigating straight to the relevant module below.
+    if (activeView === "employee") {
+      setNotifOpen(false);
+      setDetailNotification(notification);
+      return;
+    }
+
+    // Supervisor Portal exception: Announcements open the same detail modal
+    // as Employee Portal instead of doing nothing (Announcements have no
+    // module to navigate to). Every other notification type, and Admin
+    // accounts, are untouched and fall through to the existing logic below.
+    if (activeView === "admin" && isSupervisorOnly && notification.type === "ANNOUNCEMENT") {
+      setNotifOpen(false);
+      setDetailNotification(notification);
+      return;
+    }
+
     if (notification.type?.startsWith("LEAVE") && activeView === "admin" && (user.adminPermissions ?? user.permissions).includes(permissions.leaveRead)) {
       // Jumps straight to this request's review modal instead of dropping HR/
       // Supervisor onto the Leave Management list to go find and click Review.
       onNavigate("leave", notification.entityId ?? undefined);
-    } else if (notification.type?.startsWith("LEAVE") && activeView === "employee") {
-      onNavigate("employee-leave", notification.entityId ?? undefined);
     } else if (
       notification.type &&
       ATTENDANCE_NOTIFICATION_TYPES.includes(notification.type) &&
@@ -317,6 +345,21 @@ export function AppLayout({
             onConfirm: onLogout,
           }}
           onCancel={() => setShowLogoutConfirm(false)}
+        />
+      )}
+
+      {detailNotification && (
+        <NotificationDetailModal
+          notification={detailNotification}
+          onClose={() => setDetailNotification(null)}
+          onViewLeaveRequest={
+            detailNotification.type?.startsWith("LEAVE")
+              ? () => {
+                  onNavigate("employee-leave", detailNotification.entityId ?? undefined);
+                  setDetailNotification(null);
+                }
+              : undefined
+          }
         />
       )}
 

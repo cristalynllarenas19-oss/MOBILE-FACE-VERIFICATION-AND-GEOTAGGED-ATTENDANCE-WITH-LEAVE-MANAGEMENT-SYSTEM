@@ -164,6 +164,26 @@
   color: var(--emp-navy);
 }
 
+.lbc-request-button {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 3px;
+  margin-top: 2px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid #bfdbfe;
+  background: #f8faff;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--emp-blue);
+  cursor: pointer;
+}
+
+.lbc-request-button:hover {
+  background: #eef4ff;
+}
+
 .lbc-bar-track {
   height: 6px;
   border-radius: 3px;

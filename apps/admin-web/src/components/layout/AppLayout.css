@@ -233,7 +233,7 @@
 .topbar {
   background: #1a3a5c;
   padding: 0 28px;
-  min-height: 95px; 
+  min-height: 95px;
   display: flex;
   align-items: center;
   justify-content: space-between;
