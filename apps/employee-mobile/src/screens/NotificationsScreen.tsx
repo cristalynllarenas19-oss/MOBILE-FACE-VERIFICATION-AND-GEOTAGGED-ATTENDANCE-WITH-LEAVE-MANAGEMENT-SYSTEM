@@ -42,6 +42,10 @@ type Props = {
   onClose: () => void;
   onUnreadCountChange: (count: number) => void;
   employeeId?: string;
+  // Backs the "Log Attendance Now" button shown on an ATTENDANCE_LOCKED
+  // notification's detail view — optional since the supervisor portal's own
+  // NotificationsScreen usage has no personal attendance flow to jump into.
+  onLogRealAttendance?: () => void;
 };
 
 type PickedAttachment = {
@@ -69,6 +73,7 @@ function notificationIcon(type: string | null) {
   if (type === "LEAVE_NEEDS_REQUIREMENTS") return { name: "document-attach-outline" as const, color: "#B45309" };
   if (type === "LEAVE_SUBMITTED") return { name: "document-text-outline" as const, color: "#1680D8" };
   if (type === "ANNOUNCEMENT") return { name: "megaphone-outline" as const, color: "#7C3AED" };
+  if (type === "ATTENDANCE_LOCKED") return { name: "shield-half-outline" as const, color: "#B91C1C" };
   return { name: "notifications-outline" as const, color: "#244c7a" };
 }
 
@@ -151,7 +156,7 @@ function PulsingDot() {
   );
 }
 
-export default function NotificationsScreen({ visible, onClose, onUnreadCountChange, employeeId }: Props) {
+export default function NotificationsScreen({ visible, onClose, onUnreadCountChange, employeeId, onLogRealAttendance }: Props) {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Keyed on `visible` so nothing is fetched until the panel opens; while
@@ -411,6 +416,19 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                   <FormattedAnnouncementText message={detailNotification.message} textStyle={styles.detailMessage} />
                 ) : (
                   <Text style={styles.detailMessage}>{detailNotification.message}</Text>
+                )}
+
+                {detailNotification.type === "ATTENDANCE_LOCKED" && onLogRealAttendance && (
+                  <Pressable
+                    style={({ pressed }) => [styles.logAttendanceButton, pressed && styles.logAttendanceButtonPressed]}
+                    onPress={() => {
+                      handleCloseDetail();
+                      onLogRealAttendance();
+                    }}
+                  >
+                    <Ionicons name="camera-outline" size={18} color="#FFFFFF" />
+                    <Text style={styles.logAttendanceButtonText}>Log Attendance Now</Text>
+                  </Pressable>
                 )}
 
                 {detailNotification.type === "LEAVE_NEEDS_REQUIREMENTS" && expandedId === detailNotification.id && (
@@ -820,5 +838,23 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#334155",
     lineHeight: 22,
+  },
+  logAttendanceButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: "#B91C1C",
+    marginTop: 16,
+  },
+  logAttendanceButtonPressed: {
+    opacity: 0.85,
+  },
+  logAttendanceButtonText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "700",
   },
 });

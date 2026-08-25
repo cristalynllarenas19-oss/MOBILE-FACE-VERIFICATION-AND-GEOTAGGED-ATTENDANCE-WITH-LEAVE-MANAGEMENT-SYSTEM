@@ -70,6 +70,16 @@ export function getGeofenceMessage(status: GeofenceStatus, action: ApplicableAct
   return null;
 }
 
+// Only meaningful once getEligibilityMessage returns null — a supervisor
+// was already notified about an unresolved unauthorized attempt on this
+// account today (see AttendanceService.hasUnresolvedFlaggedAttempt), so
+// every attendance action stays disabled until they review it, regardless
+// of which specific action was originally flagged.
+export function getUnauthorizedAttemptMessage(hasUnresolvedFlaggedAttempt: boolean, action: ApplicableAction | null) {
+  if (!hasUnresolvedFlaggedAttempt) return null;
+  return `An unauthorized attendance attempt was detected on your account and reported to your supervisor. ${action ?? "Attendance"} is locked until they review it.`;
+}
+
 // Worked time is Time In → Time Out (or now, while still in), excluding the
 // lunch break — an open lunch (started but not ended) pauses the counter.
 function getWorkedMs(attendance: TodayAttendance, now: number) {
@@ -195,9 +205,13 @@ export default function AttendanceScreen({
   const isConfigEligible = Boolean(
     eligibility?.faceEnrolled && eligibility?.hasWorkLocation && eligibility?.hasScheduleToday,
   );
-  const isEligible = isConfigEligible && geofenceStatus === "inside";
+  const hasUnresolvedFlaggedAttempt = Boolean(todayAttendance?.hasUnresolvedFlaggedAttempt);
+  const isEligible = isConfigEligible && geofenceStatus === "inside" && !hasUnresolvedFlaggedAttempt;
   const applicableAction = getApplicableAction({ isField, hasTimedIn, hasTimedOut, hasOpenVisit, isOnLunch });
-  const eligibilityMessage = getEligibilityMessage(eligibility) ?? getGeofenceMessage(geofenceStatus, applicableAction);
+  const eligibilityMessage =
+    getEligibilityMessage(eligibility) ??
+    getUnauthorizedAttemptMessage(hasUnresolvedFlaggedAttempt, applicableAction) ??
+    getGeofenceMessage(geofenceStatus, applicableAction);
 
   const timeInDisabled = isLoading || !isEligible || isTodayDayOff || (isField ? hasOpenVisit : hasTimedIn);
   const timeOutDisabled = isField

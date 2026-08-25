@@ -389,9 +389,16 @@ export type AttendanceInitialFilter = { department?: string; status?: string; da
 export function AttendancePage({
   user,
   initialFilter,
+  initialFocusLogId,
+  onFocusHandled,
 }: {
   user?: { permissions: PermissionCode[]; roles?: string[]; departmentId?: string; department?: string };
   initialFilter?: AttendanceInitialFilter;
+  // Set when arriving here from a clicked flagged-attendance notification —
+  // opens that log's review modal directly instead of landing on the plain
+  // list.
+  initialFocusLogId?: string;
+  onFocusHandled?: () => void;
 }) {
   const canWrite = user?.permissions.includes(permissions.attendanceWrite) ?? true;
   // Mirrors the backend's getSupervisorDepartmentScope: a Supervisor who is
@@ -448,6 +455,25 @@ export function AttendancePage({
   const loadRecords = () => {
     recordsCache.refresh().catch(() => undefined);
   };
+
+  // Arrived here from a clicked flagged-attendance notification — open that
+  // log's review modal directly once it shows up in the loaded list, same
+  // as clicking its row would, then tell the parent we're done with the
+  // focus id so it doesn't reapply on a later re-render. If some other
+  // status filter is active (flagged rows are only fetched under "ALL" or
+  // "FLAGGED" — see fetchRecords), reset to "ALL" first so the log is
+  // actually there to find; the effect re-runs once that refetch lands.
+  useEffect(() => {
+    if (!initialFocusLogId) return;
+    if (statusFilter !== "ALL" && statusFilter !== "FLAGGED") {
+      setStatusFilter("ALL");
+      return;
+    }
+    const match = records.find((record) => record.flaggedLogId === initialFocusLogId);
+    if (!match) return;
+    setViewRecord(match);
+    onFocusHandled?.();
+  }, [records, statusFilter, initialFocusLogId]);
 
   useEffect(
     () => setPage(1),

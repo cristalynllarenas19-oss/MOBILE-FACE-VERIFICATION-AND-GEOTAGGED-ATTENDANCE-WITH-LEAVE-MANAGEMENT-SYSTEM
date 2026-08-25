@@ -42,6 +42,16 @@ function parseLocalDate(value: string | undefined, endOfDay = false): Date | und
     : new Date(Number(year), Number(month) - 1, Number(day));
 }
 
+// A same-day streak of borderline ("PENDING_REVIEW") flagged attempts
+// reaching this many notifies the employee's supervisor. Every flagged
+// attempt is still written to the admin/supervisor review queue
+// immediately regardless of the count — this only delays the notification,
+// so an isolated bad-lighting/angle misfire doesn't page a supervisor over
+// a single attempt, while a real, repeated buddy-punching attempt still
+// gets surfaced quickly. Mirrors FaceVerificationService's
+// MISMATCH_NOTIFY_THRESHOLD for the confident-mismatch path.
+const FLAGGED_NOTIFY_THRESHOLD = 3;
+
 @Injectable()
 export class AttendanceService {
   constructor(
@@ -295,16 +305,65 @@ export class AttendanceService {
     orderBy: { timeInAt: "desc" },
   });
 
-  return (
-    record ?? {
+  const hasUnresolvedFlaggedAttempt = await this.hasUnresolvedFlaggedAttempt(employeeId, attendanceDate);
+
+  return {
+    ...(record ?? {
       status: isDayOff(attendanceDate) ? "DAY_OFF" : "ABSENT",
       timeInAt: null,
       timeOutAt: null,
       lunchOutAt: null,
       lunchInAt: null,
-    }
-  );
+    }),
+    hasUnresolvedFlaggedAttempt,
+  };
 }
+
+  // Whether this employee's attendance buttons should still be locked, once
+  // their same-day flagged-attempt count has already reached
+  // FLAGGED_NOTIFY_THRESHOLD. The mobile client uses this to warn on the
+  // next tap of ANY attendance button (Time In, Time Out, Lunch Out/In —
+  // whichever is currently applicable) that an unauthorized attempt was
+  // detected on the account, rather than opening the camera straight away.
+  // Deliberately account-wide rather than scoped to the specific logType
+  // that was flagged: a Time Out attempt failing to match the enrolled face
+  // is just as much a reason to double-check the next Time In as it is the
+  // next Time Out.
+  //
+  // A flagged log staying PENDING_REVIEW forever (until an admin resolves
+  // it) would otherwise keep the lock up even after the employee proves
+  // it's really them with a later successful scan — e.g. three flagged Time
+  // Ins followed by the employee's own genuine Time In should free up Time
+  // Out/Lunch right away, not force them to wait on a supervisor who may
+  // not review the queue until end of day. So the lock only holds while the
+  // *most recent* flagged attempt is still more recent than the *most
+  // recent* approved one — a fresh flag after that later approved scan (say,
+  // on Time Out) re-locks things again, same as the first time.
+  private async hasUnresolvedFlaggedAttempt(employeeId: string, attendanceDate: Date): Promise<boolean> {
+    const employee = await this.prisma.employee.findUnique({
+      where: { id: employeeId },
+      select: { flaggedAttemptCount: true, flaggedAttemptCountDate: true },
+    });
+    if (!employee) return false;
+
+    const isSameDay = employee.flaggedAttemptCountDate?.getTime() === attendanceDate.getTime();
+    if (!isSameDay || employee.flaggedAttemptCount < FLAGGED_NOTIFY_THRESHOLD) return false;
+
+    const latestUnresolvedFlag = await this.prisma.attendanceLog.findFirst({
+      where: { employeeId, attendanceDate, verificationStatus: "PENDING_REVIEW", attendanceRecordId: null },
+      orderBy: { capturedAt: "desc" },
+      select: { capturedAt: true },
+    });
+    if (!latestUnresolvedFlag) return false;
+
+    const latestApproved = await this.prisma.attendanceLog.findFirst({
+      where: { employeeId, attendanceDate, verificationStatus: "APPROVED" },
+      orderBy: { capturedAt: "desc" },
+      select: { capturedAt: true },
+    });
+
+    return !latestApproved || latestUnresolvedFlag.capturedAt > latestApproved.capturedAt;
+  }
 
   // Resolves the Shift template governing an employee's attendance at a given
   // moment, via whichever EmployeeSchedule assignment is currently active
@@ -704,6 +763,12 @@ export class AttendanceService {
         })
       : existingRecord;
 
+    // Only set on the shouldFlag branch below — how many same-day flagged
+    // (PENDING_REVIEW) attempts this employee now has, so the mobile client
+    // can tell the employee whether this is their 1st/2nd/3rd unclear
+    // attempt today instead of always showing the same generic message.
+    let flaggedAttemptCount: number | null = null;
+
     if (approved) {
       await this.prisma.attendanceLog.create({
         data: {
@@ -728,7 +793,12 @@ export class AttendanceService {
         },
       });
 
-      await this.auditLogs.record({
+      // Not awaited: record() already swallows its own errors (see
+      // AuditLogsService), and the employee's result doesn't depend on
+      // whether this write has landed yet — waiting on it here just adds a
+      // DB round trip to how long they stare at a spinner before the
+      // approved/rejected modal shows.
+      void this.auditLogs.record({
         ...context,
         actorUserId: context.actorUserId,
         action: logType,
@@ -747,7 +817,7 @@ export class AttendanceService {
         },
       });
 
-      await this.auditLogs.record({
+      void this.auditLogs.record({
         ...context,
         actorUserId: context.actorUserId,
         action: "FACE_VERIFICATION",
@@ -781,9 +851,29 @@ export class AttendanceService {
         },
       });
 
-      await this.notifyFlaggedAttempt(employee, flaggedLog.id, logType!, logTypeLabel);
+      // recordFlaggedAttempt stays awaited: its return value is the
+      // flaggedAttemptCount the mobile client uses to pick its 1st/2nd/3rd
+      // modal copy, so it's part of the answer, not a side effect. Sending
+      // the notification and writing the audit log are pure side effects
+      // the employee's own result doesn't depend on, so — like the approved
+      // branch above — they're fired without awaiting to keep this response
+      // as fast as the actual verification work allows.
+      flaggedAttemptCount = await this.recordFlaggedAttempt(dto.employeeId);
+      if (flaggedAttemptCount === FLAGGED_NOTIFY_THRESHOLD) {
+        void this.notifyFlaggedAttempt(employee, flaggedLog.id, logType!, logTypeLabel).catch((error) =>
+          console.error("Failed to notify supervisor of flagged attendance attempt", error),
+        );
+        // The account owner gets their own persistent notification too, not
+        // just the in-the-moment result modal — so it's still there if they
+        // dismissed that modal without reading it, and it's what the "Log
+        // Attendance Now" button in the mobile app's notification detail
+        // (see NotificationsScreen) reacts to by opening the camera directly.
+        void this.notifyEmployeeOfLock(employee, logType!, logTypeLabel).catch((error) =>
+          console.error("Failed to notify employee of attendance lock", error),
+        );
+      }
 
-      await this.auditLogs.record({
+      void this.auditLogs.record({
         ...context,
         actorUserId: context.actorUserId,
         action: "FLAG_ATTENDANCE_MISMATCH",
@@ -805,8 +895,12 @@ export class AttendanceService {
       // app's pre-submit /face/match check — that check already stops a
       // confident mismatch before it ever reaches here in the normal flow —
       // but it still needs to count toward the same-day strike threshold so
-      // a bypassing client can't dodge the supervisor notification.
-      await this.faceVerification.recordFaceMismatch(dto.employeeId);
+      // a bypassing client can't dodge the supervisor notification. Not
+      // awaited for the same reason as above: it's bookkeeping the rejected
+      // response doesn't depend on.
+      void this.faceVerification
+        .recordFaceMismatch(dto.employeeId)
+        .catch((error) => console.error("Failed to record face mismatch strike", error));
     }
 
     return {
@@ -818,6 +912,7 @@ export class AttendanceService {
       attendanceRecordId:
         record?.id ?? null,
       similarityScore,
+      flaggedAttemptCount,
       faceImage: `data:${capturedImage.mimeType};base64,${capturedImage.data}`,
       // The exact instant this scan was recorded against — same `now` passed
       // as upsertAttendanceRecord's effectiveTime, so it equals the raw
@@ -830,10 +925,38 @@ export class AttendanceService {
     };
   }
 
+  // Tracks same-day borderline flagged-attempt streaks and returns the
+  // resulting count, so submit() can decide whether this attempt just
+  // crossed FLAGGED_NOTIFY_THRESHOLD. Resets whenever a flag lands on a day
+  // different from the one last recorded, mirroring
+  // FaceVerificationService.recordFaceMismatch().
+  private async recordFlaggedAttempt(employeeId: string): Promise<number> {
+    const employee = await this.prisma.employee.findUnique({
+      where: { id: employeeId },
+      select: { flaggedAttemptCount: true, flaggedAttemptCountDate: true },
+    });
+    if (!employee) return 0;
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const isSameDay = employee.flaggedAttemptCountDate?.getTime() === today.getTime();
+    const nextCount = isSameDay ? employee.flaggedAttemptCount + 1 : 1;
+
+    await this.prisma.employee.update({
+      where: { id: employeeId },
+      data: { flaggedAttemptCount: nextCount, flaggedAttemptCountDate: today },
+    });
+
+    return nextCount;
+  }
+
   // Mirrors leave.service.ts's notifySubmission(): a regular employee's
   // flagged attempt routes to their direct supervisor; a supervisor (or an
   // employee with no assigned supervisor) has no one above them to escalate
-  // to, so it routes to HR/Admin instead.
+  // to, so it routes to HR/Admin instead. Only called once the same-day
+  // flagged-attempt count reaches FLAGGED_NOTIFY_THRESHOLD (see submit()) —
+  // every flagged attempt is still queued for review immediately regardless,
+  // this just delays the notification itself.
   private async notifyFlaggedAttempt(
     employee: { userId: string; supervisorId: string | null; firstName: string; lastName: string },
     logId: string,
@@ -855,9 +978,28 @@ export class AttendanceService {
 
     await this.notifications.notifyUsers(recipientIds, {
       title: "Attendance Verification Flagged",
-      message: `${employee.firstName} ${employee.lastName}'s account was used for a ${logTypeLabel[logType]} attempt, but the captured face did not match the enrolled profile. Review required.`,
+      message: `${employee.firstName} ${employee.lastName}'s account has had ${FLAGGED_NOTIFY_THRESHOLD} flagged ${logTypeLabel[logType]} attempts today where the captured face did not clearly match the enrolled profile. Review required.`,
       type: "ATTENDANCE_FLAGGED",
       entityId: logId,
+    });
+  }
+
+  // The account owner's own copy of the same escalation notifyFlaggedAttempt
+  // just sent their supervisor — a persistent notification (not just the
+  // in-the-moment result modal, which they may have dismissed without
+  // reading) telling them their account is locked, to report to their
+  // supervisor, and that a genuine scan of themselves is what actually
+  // clears the lock. type "ATTENDANCE_LOCKED" is what the mobile app's
+  // NotificationsScreen keys its "Log Attendance Now" button on.
+  private async notifyEmployeeOfLock(
+    employee: { userId: string; firstName: string; lastName: string },
+    logType: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN",
+    logTypeLabel: Record<string, string>,
+  ) {
+    await this.notifications.notifyUsers([employee.userId], {
+      title: "Attendance Locked — Report to Your Supervisor",
+      message: `Repeated unauthorized ${logTypeLabel[logType]} attempts were detected on your account and your supervisor has been notified. Please report to your supervisor immediately, then log your real attendance to record your ${logTypeLabel[logType]} for today.`,
+      type: "ATTENDANCE_LOCKED",
     });
   }
 

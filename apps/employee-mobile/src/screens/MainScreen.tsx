@@ -27,6 +27,12 @@ type Props = {
   onTimeOut: () => void;
   onLunchOut: () => void;
   onLunchIn: () => void;
+  // Backs the "Log Attendance Now" button on an ATTENDANCE_LOCKED
+  // notification — deliberately bypasses the same lock that disables the
+  // Attendance screen's own buttons, since reading and acting on this
+  // specific notification is exactly how an employee is meant to clear it
+  // (a genuine scan of themselves), unlike an unprompted retap.
+  onLogRealAttendance: () => void;
   isLoading: boolean;
   todayAttendance: TodayAttendance | null;
   eligibility: AttendanceEligibility | null;
@@ -42,6 +48,7 @@ export default function MainScreen({
   onTimeOut,
   onLunchOut,
   onLunchIn,
+  onLogRealAttendance,
   isLoading,
   todayAttendance,
   eligibility,
@@ -96,6 +103,11 @@ export default function MainScreen({
         onClose={() => setNotificationsVisible(false)}
         onUnreadCountChange={setUnreadCount}
         employeeId={user?.employeeId}
+        onLogRealAttendance={() => {
+          setNotificationsVisible(false);
+          setTab("attendance");
+          onLogRealAttendance();
+        }}
       />
 
       <View

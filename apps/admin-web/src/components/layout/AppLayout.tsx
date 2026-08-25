@@ -213,8 +213,11 @@ export function AppLayout({
     ) {
       // Same as above but for Attendance — a supervisor gets this from the
       // exact same view/permission set an admin does, so no separate branch
-      // is needed for that role.
-      onNavigate("attendance");
+      // is needed for that role. entityId is the flagged AttendanceLog's id
+      // (see notifyFlaggedAttempt) — omitted for FACE_MISMATCH_STREAK, which
+      // has no single log to preview, so that case just lands on the plain
+      // Attendance page as before.
+      onNavigate("attendance", notification.entityId ?? undefined);
     }
     setNotifOpen(false);
   };

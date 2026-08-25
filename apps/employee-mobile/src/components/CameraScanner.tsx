@@ -15,7 +15,8 @@ import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
 import { captureRef } from "react-native-view-shot";
 import { manipulateAsync, SaveFormat } from "expo-image-manipulator";
-import { detectFace, FaceBox } from "../api";
+import { detectFace, FaceBox, WorkLocation } from "../api";
+import { distanceInMeters } from "../utils/geofence";
 
 type CameraScannerProps = {
   logType: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN";
@@ -23,13 +24,26 @@ type CameraScannerProps = {
   // identity/geofence/submission are known. locationPromise is still in
   // flight (started right after capture, not awaited here) so the caller
   // isn't made to wait for a GPS fix before getting control back; identity
-  // match and geofence are no longer checked client-side at all, since the
-  // backend independently re-verifies both at submission regardless (see
+  // match is no longer checked client-side at all, since the backend
+  // independently re-verifies it at submission regardless (see
   // attendance.service.ts submit()) — this used to duplicate that work with
   // its own network round trip purely to fail fast in the UI, which only
   // added latency once the caller stopped blocking the UI on it anyway.
   onComplete: (locationPromise: Promise<Location.LocationObject>, faceBase64?: string) => void;
   onCancel: () => void;
+  // Sites to check the fresh high-accuracy GPS fix against as soon as it
+  // resolves (see finalLocationPromiseRef below) — purely a local distance
+  // calculation against data already fetched, no network round trip. This
+  // is the same fix that eventually gets submitted, so it can only catch a
+  // real mismatch, not create a new one: the button that opened this screen
+  // was gated on a periodically-polled, lower-accuracy reading, so someone
+  // standing right at the edge of the radius (or indoors with a weak fix)
+  // can still turn out to be outside once this higher-accuracy fix resolves.
+  // Catching that here, in parallel with liveness/capture, means the
+  // employee finds out within a second or two instead of after going
+  // through the whole blink-and-hold flow only to be rejected at submission.
+  workLocations: WorkLocation[];
+  onOutOfRange: () => void;
 };
 
 const LOG_TYPE_LABEL: Record<CameraScannerProps["logType"], string> = {
@@ -306,7 +320,7 @@ function createDeferred() {
 }
 
 
-export default function CameraScanner({ logType, onComplete, onCancel }: CameraScannerProps) {
+export default function CameraScanner({ logType, onComplete, onCancel, workLocations, onOutOfRange }: CameraScannerProps) {
   const cameraRef = useRef<CameraView | null>(null);
   const shotRef = useRef<View>(null);
   const mainImageReadyRef = useRef<(() => void) | null>(null);
@@ -374,6 +388,12 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
   // it's already resolved (or close to it) by the time finishScan needs it,
   // for free, instead of adding its own wait on top.
   const finalLocationPromiseRef = useRef<Promise<Location.LocationObject> | null>(null);
+  // Guards the early out-of-range abort (see the effect below) so it only
+  // ever fires once, and never after finishScan has already started (at
+  // which point the same fix is on its way to the backend anyway, which
+  // remains the authoritative check regardless of what this local
+  // pre-check concludes).
+  const outOfRangeReportedRef = useRef(false);
   // Blink liveness state. This runs as soon as a face is detected — before
   // the hold-to-lock step even starts — so a held-up photo (which can never
   // blink) can't get anywhere near capture. blinkCountRef mirrors the
@@ -498,8 +518,34 @@ export default function CameraScanner({ logType, onComplete, onCancel }: CameraS
     if (!locationPermission?.granted || finalLocationPromiseRef.current) return;
     const promise = Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
     finalLocationPromiseRef.current = promise;
-    promise.catch(() => {});
-  }, [locationPermission?.granted]);
+    promise
+      .then((location) => {
+        if (outOfRangeReportedRef.current || isFinishingRef.current) return;
+        if (workLocations.length === 0) return;
+
+        // Mirrors the backend's own validateGeofence (accuracy gate, then
+        // distance-vs-radius) so this can only disagree with the eventual
+        // submission in the direction of catching something earlier, not
+        // approving something the backend would reject.
+        const isWithinAnyLocation = workLocations.some((site) => {
+          const accuracyAccepted =
+            (location.coords.accuracy ?? Infinity) <= Number(site.allowedAccuracyMeters);
+          const distance = distanceInMeters(
+            location.coords.latitude,
+            location.coords.longitude,
+            Number(site.latitude),
+            Number(site.longitude),
+          );
+          return accuracyAccepted && distance <= Number(site.radiusMeters);
+        });
+
+        if (!isWithinAnyLocation) {
+          outOfRangeReportedRef.current = true;
+          onOutOfRange();
+        }
+      })
+      .catch(() => {});
+  }, [locationPermission?.granted, workLocations, onOutOfRange]);
 
   // Picks the smallest picture size the camera offers whose short side is
   // still at least WATERMARK_WIDTH — so the final stamped photo (rendered

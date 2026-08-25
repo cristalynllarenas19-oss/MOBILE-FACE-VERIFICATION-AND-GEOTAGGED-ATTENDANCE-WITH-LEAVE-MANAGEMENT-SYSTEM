@@ -104,6 +104,14 @@ export type TodayAttendance = {
   visitNumber?: number;
   workLocationId?: string | null;
   recordType?: AttendanceRecordType;
+  // True once the same-day flagged-attempt count has already reached the
+  // backend's notify threshold AND at least one of today's flagged attempts
+  // is still unresolved. The app warns on the next tap of ANY attendance
+  // button (Time In, Time Out, Lunch Out/In) that an unauthorized attempt
+  // was detected on the account, rather than opening the camera straight
+  // away — account-wide, not scoped to whichever specific action was
+  // originally flagged.
+  hasUnresolvedFlaggedAttempt?: boolean;
 };
 
 // Both must hold before Time In (and therefore Lunch/Time Out, which all
@@ -122,6 +130,11 @@ export type AttendanceSubmitResult = {
   logType: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN";
   geoResult: { reason?: string | null };
   faceResult: { reason?: string | null };
+  // How many same-day flagged (PENDING_REVIEW — borderline face match)
+  // attempts this employee now has, including this one. Only set when this
+  // scan itself was flagged; null otherwise. Lets the modal tell the
+  // employee whether this is their 1st/2nd/3rd unclear attempt today.
+  flaggedAttemptCount?: number | null;
   faceImage?: string | null;
   // The server's own timestamp for this scan — exactly what got written to
   // the AttendanceRecord (and therefore the DTR) as timeInAt/timeOutAt/

@@ -52,6 +52,10 @@ export default function App() {
   // review modal instead of just landing on the Leave Management list.
   const [leaveFocusRequestId, setLeaveFocusRequestId] = useState<string | undefined>(undefined);
   const [employeeLeaveFocusRequestId, setEmployeeLeaveFocusRequestId] = useState<string | undefined>(undefined);
+  // Same idea for a clicked flagged-attendance notification — jumps straight
+  // into that flagged log's review modal instead of landing on the plain
+  // Attendance list.
+  const [attendanceFocusLogId, setAttendanceFocusLogId] = useState<string | undefined>(undefined);
   // Set when a new employee is created so Face Registration opens with them
   // already selected; cleared on any normal navigation so a later visit to
   // Face Registration starts from a blank picker.
@@ -66,6 +70,7 @@ export default function App() {
     if (id === "attendance") setAttendanceFilter(undefined);
     setLeaveFocusRequestId(id === "leave" ? entityId : undefined);
     setEmployeeLeaveFocusRequestId(id === "employee-leave" ? entityId : undefined);
+    setAttendanceFocusLogId(id === "attendance" ? entityId : undefined);
     setFaceRegistrationEmployee(undefined);
     setPage(id);
   };
@@ -74,6 +79,7 @@ export default function App() {
     setAttendanceFilter(undefined);
     setLeaveFocusRequestId(undefined);
     setEmployeeLeaveFocusRequestId(undefined);
+    setAttendanceFocusLogId(undefined);
     setFaceRegistrationEmployee(undefined);
     setPage(view === "employee" ? "employee-attendance" : "dashboard");
   };
@@ -227,7 +233,14 @@ export default function App() {
           }
         />
       )}
-      {renderPage === "attendance" && <AttendancePage user={user} initialFilter={attendanceFilter} />}
+      {renderPage === "attendance" && (
+        <AttendancePage
+          user={user}
+          initialFilter={attendanceFilter}
+          initialFocusLogId={attendanceFocusLogId}
+          onFocusHandled={() => setAttendanceFocusLogId(undefined)}
+        />
+      )}
       {renderPage === "geotagging" && <GeotaggingPage user={user} />}
       {renderPage === "leave" && (
         <LeavePage

@@ -316,6 +316,14 @@ model Employee {
   // strike rather than staying silently maxed out forever.
   faceMismatchCount     Int                    @default(0) @map("face_mismatch_count")
   faceMismatchCountDate DateTime?              @map("face_mismatch_count_date")
+  // Borderline ("PENDING_REVIEW") flagged attendance attempts for the
+  // current calendar day — see AttendanceService.submit()'s shouldFlag
+  // branch. Every flagged attempt is still logged to the admin/supervisor
+  // review queue immediately; this only gates the notification, so a
+  // supervisor isn't paged over a single bad-lighting/angle misfire. Resets
+  // to 1 the first time a flag lands on a new day, same as faceMismatchCount.
+  flaggedAttemptCount     Int                  @default(0) @map("flagged_attempt_count")
+  flaggedAttemptCountDate DateTime?            @map("flagged_attempt_count_date")
   createdAt            DateTime               @default(now()) @map("created_at")
   sections             sections?              @relation(fields: [section_id], references: [id])
   user                 User                   @relation(fields: [userId], references: [id])

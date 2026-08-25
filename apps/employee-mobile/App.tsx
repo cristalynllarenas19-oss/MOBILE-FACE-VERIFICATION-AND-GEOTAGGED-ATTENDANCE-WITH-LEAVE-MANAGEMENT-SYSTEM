@@ -5,7 +5,12 @@ import * as Location from "expo-location";
 
 import LoginScreen from "./src/screens/LoginScreen";
 import MainScreen from "./src/screens/MainScreen";
-import { getEligibilityMessage, getGeofenceMessage, getApplicableAction } from "./src/screens/AttendanceScreen";
+import {
+  getEligibilityMessage,
+  getGeofenceMessage,
+  getApplicableAction,
+  getUnauthorizedAttemptMessage,
+} from "./src/screens/AttendanceScreen";
 import SupervisorMainScreen from "./src/screens/SupervisorMainScreen";
 import CameraScanner from "./src/components/CameraScanner";
 import ResultModal, { ResultModalStatus } from "./src/components/ResultModal";
@@ -47,7 +52,7 @@ import {
   setUnauthorizedHandler,
 } from "./src/api";
 import { CACHE_KEYS, cacheGet, cacheSet, prefetchCached, revalidateCached } from "./src/utils/dataCache";
-import { getFriendlyReason } from "./src/utils/attendanceMessages";
+import { getFriendlyReason, getFlaggedAttemptMessage } from "./src/utils/attendanceMessages";
 import { distanceInMeters } from "./src/utils/geofence";
 import { Portal, GeofenceStatus } from "./src/types";
 
@@ -61,6 +66,25 @@ type ResultModalState = {
   title: string;
   message: string;
 };
+
+// Human-readable label for a given scan action, used wherever the employee
+// needs to be told which specific attendance action is affected (approved,
+// rejected, out-of-range, or gated behind the unauthorized-attempt warning).
+function getActionLabel(type: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN", isFieldMode: boolean) {
+  if (isFieldMode) {
+    return type === "TIME_IN" ? "Visit Start" : "Visit End";
+  }
+  switch (type) {
+    case "TIME_IN":
+      return "Time In";
+    case "TIME_OUT":
+      return "Time Out";
+    case "LUNCH_OUT":
+      return "Lunch Break Start";
+    case "LUNCH_IN":
+      return "Lunch Break End";
+  }
+}
 
 type AuthView = "login" | "forgot-otp" | "forgot-new-password";
 
@@ -386,7 +410,17 @@ export default function App() {
     setIsLoggingOut(false);
   }
 
-  async function startScan(type: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN") {
+  // bypassFlagLock is only ever passed true from the "Log Attendance Now"
+  // button on an ATTENDANCE_LOCKED notification (see handleLogRealAttendance
+  // below) — reading and acting on that specific notification is exactly
+  // how an employee is meant to clear the lock (a genuine scan of
+  // themselves), unlike an unprompted retap of the disabled button on the
+  // Attendance screen itself. Every other check (config eligibility,
+  // geofence) still applies even when bypassing this one.
+  async function startScan(
+    type: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN",
+    options: { bypassFlagLock?: boolean } = {},
+  ) {
     if (!user?.employeeId) {
       setResultModal({
         status: "error",
@@ -408,7 +442,18 @@ export default function App() {
       hasOpenVisit,
       isOnLunch,
     });
-    const eligibilityMessage = getEligibilityMessage(eligibility) ?? getGeofenceMessage(geofenceStatus, applicableAction);
+    // Mirrors AttendanceScreen's own isEligible/eligibilityMessage, which is
+    // what actually disables the Time In/Out/Lunch buttons — this is just
+    // the backstop in case startScan is ever reached some other way. A
+    // supervisor-notified unresolved attempt (see hasUnresolvedFlaggedAttempt
+    // on the backend) takes priority over the geofence message since it's an
+    // admin-side hold, not something moving closer to the work area fixes.
+    const eligibilityMessage =
+      getEligibilityMessage(eligibility) ??
+      (options.bypassFlagLock
+        ? null
+        : getUnauthorizedAttemptMessage(Boolean(todayAttendance?.hasUnresolvedFlaggedAttempt), applicableAction)) ??
+      getGeofenceMessage(geofenceStatus, applicableAction);
     if (eligibilityMessage) {
       setResultModal({
         status: "error",
@@ -606,18 +651,7 @@ export default function App() {
       });
 
       // The server is the authority on whether this was a Time In or Time Out.
-      const actionLabel =
-        user.attendanceMode === "FIELD"
-          ? result.logType === "TIME_IN"
-            ? "Visit Start"
-            : "Visit End"
-          : result.logType === "TIME_IN"
-            ? "Time In"
-            : result.logType === "TIME_OUT"
-              ? "Time Out"
-              : result.logType === "LUNCH_OUT"
-                ? "Lunch Break Start"
-                : "Lunch Break End";
+      const actionLabel = getActionLabel(result.logType, user.attendanceMode === "FIELD");
       const reason = result.faceResult.reason ?? result.geoResult.reason;
       const friendlyMessage = getFriendlyReason(reason, result.verificationStatus);
 
@@ -649,10 +683,11 @@ export default function App() {
           message: `Verified at ${timestamp}. Your Daily Time Record has been updated. ${friendlyMessage}`,
         });
       } else if (result.verificationStatus === "PENDING_REVIEW") {
+        const flagged = getFlaggedAttemptMessage(actionLabel, result.flaggedAttemptCount);
         setResultModal({
           status: "pending",
-          title: `${actionLabel} Pending Review`,
-          message: friendlyMessage,
+          title: flagged.title,
+          message: flagged.message,
         });
       } else {
         setResultModal({
@@ -682,6 +717,57 @@ export default function App() {
       });
       setIsLoading(false);
     }
+  }
+
+  // Backs the "Log Attendance Now" button on an ATTENDANCE_LOCKED
+  // notification — figures out which action is currently applicable the
+  // same way AttendanceScreen's own buttons do, then opens the camera for
+  // it directly, bypassing the account-wide lock this one notification is
+  // specifically the sanctioned way around.
+  function handleLogRealAttendance() {
+    if (!user) return;
+    const isFieldMode = user.attendanceMode === "FIELD";
+    const hasTimedIn = Boolean(todayAttendance?.timeInAt);
+    const hasTimedOut = Boolean(todayAttendance?.timeOutAt);
+    const hasOpenVisit = hasTimedIn && !hasTimedOut;
+    const isOnLunch = Boolean(hasOpenVisit && todayAttendance?.lunchOutAt && !todayAttendance?.lunchInAt);
+    const applicableAction = getApplicableAction({
+      isField: isFieldMode,
+      hasTimedIn,
+      hasTimedOut,
+      hasOpenVisit,
+      isOnLunch,
+    });
+    const type =
+      applicableAction === "Time In" || applicableAction === "Start Visit"
+        ? "TIME_IN"
+        : applicableAction === "Time Out" || applicableAction === "End Visit"
+          ? "TIME_OUT"
+          : applicableAction === "Start Lunch"
+            ? "LUNCH_OUT"
+            : applicableAction === "End Lunch"
+              ? "LUNCH_IN"
+              : null;
+    if (!type) return;
+    void startScan(type, { bypassFlagLock: true });
+  }
+
+  // Called by CameraScanner as soon as its fresh high-accuracy GPS fix
+  // resolves outside every assigned work location — before liveness/capture
+  // even finishes, let alone submission. The Time In/Out button that opened
+  // the camera was gated on a periodically-polled, lower-accuracy reading
+  // (see geofenceStatus above), so this can legitimately catch someone who
+  // was borderline when they tapped but whose precise position disagrees.
+  function handleOutOfRange() {
+    const actionLabel = scanType ? getActionLabel(scanType, user?.attendanceMode === "FIELD") : "Attendance";
+
+    setScanType(null);
+    setSelectedWorkLocation(null);
+    setResultModal({
+      status: "rejected",
+      title: `${actionLabel} Not Recorded`,
+      message: getFriendlyReason("Employee is outside the approved work location", "REJECTED"),
+    });
   }
 
   function backToLogin() {
@@ -725,6 +811,14 @@ export default function App() {
             setScanType(null);
             setSelectedWorkLocation(null);
           }}
+          workLocations={
+            user.attendanceMode === "FIELD" && scanType === "TIME_IN"
+              ? selectedWorkLocation
+                ? [selectedWorkLocation]
+                : assignedWorkLocations
+              : assignedWorkLocations
+          }
+          onOutOfRange={handleOutOfRange}
         />
       ) : portal === "supervisor" ? (
         <SupervisorMainScreen
@@ -745,6 +839,7 @@ export default function App() {
           onTimeOut={() => startScan("TIME_OUT")}
           onLunchOut={() => startScan("LUNCH_OUT")}
           onLunchIn={() => startScan("LUNCH_IN")}
+          onLogRealAttendance={handleLogRealAttendance}
           canSwitchToSupervisorPortal={(user.roles ?? [user.role]).includes("SUPERVISOR")}
           onSwitchToSupervisorPortal={() => setPortal("supervisor")}
         />
