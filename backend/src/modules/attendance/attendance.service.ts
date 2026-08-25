@@ -626,6 +626,7 @@ export class AttendanceService {
         attendanceRecordId: existingRecord?.id ?? null,
         similarityScore: 0,
         faceImage: null,
+        capturedAt: null,
       };
     }
 
@@ -818,6 +819,14 @@ export class AttendanceService {
         record?.id ?? null,
       similarityScore,
       faceImage: `data:${capturedImage.mimeType};base64,${capturedImage.data}`,
+      // The exact instant this scan was recorded against — same `now` passed
+      // as upsertAttendanceRecord's effectiveTime, so it equals the raw
+      // timeInAt/timeOutAt/lunchOutAt/lunchInAt that ends up on the
+      // AttendanceRecord (and therefore the DTR). Only meaningful when
+      // approved; a client should never derive a displayed timestamp from
+      // its own clock, since that drifts from the DTR by however long face
+      // verification took plus network latency.
+      capturedAt: approved ? now.toISOString() : null,
     };
   }
 

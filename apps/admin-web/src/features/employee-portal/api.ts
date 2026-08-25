@@ -46,6 +46,12 @@ export type AttendanceSubmitResult = {
   geoResult: { reason?: string | null };
   faceResult: { reason?: string | null };
   faceImage?: string | null;
+  // The server's own timestamp for this scan — exactly what got written to
+  // the AttendanceRecord (and therefore the DTR) as timeInAt/timeOutAt/
+  // lunchOutAt/lunchInAt. Only present when approved; always prefer this
+  // over the browser's own clock when displaying "recorded at" times, since
+  // it can otherwise drift from the DTR by however long verification took.
+  capturedAt: string | null;
 };
 
 export type SubmitAttendanceInput = {

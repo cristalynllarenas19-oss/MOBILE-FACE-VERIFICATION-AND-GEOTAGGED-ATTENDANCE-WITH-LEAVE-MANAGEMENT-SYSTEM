@@ -335,7 +335,10 @@ export function AttendancePage({ user }: Props) {
             : result.logType === "TIME_OUT" ? "Time Out"
               : result.logType === "LUNCH_OUT" ? "Lunch Break Start"
                 : "Lunch Break End";
-      const ts  = new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+      // Same instant the server wrote to the AttendanceRecord — never the
+      // browser's own clock, which would drift from the DTR by however long
+      // verification took plus network latency.
+      const ts  = new Date(result.capturedAt ?? Date.now()).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
       const msg = getFriendlyReason(
         result.faceResult.reason ?? result.geoResult.reason,
         result.verificationStatus,

@@ -620,26 +620,29 @@ export default function App() {
                 : "Lunch Break End";
       const reason = result.faceResult.reason ?? result.geoResult.reason;
       const friendlyMessage = getFriendlyReason(reason, result.verificationStatus);
-      const timestamp = new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 
       if (result.verificationStatus === "APPROVED") {
+        // Same instant the server wrote to the AttendanceRecord — falls back
+        // to the device clock only if the server somehow omitted it, so the
+        // modal and the Attendance screen never disagree with the DTR.
+        const recordedAt = result.capturedAt ?? new Date().toISOString();
         setTodayAttendance((current) => {
           if (!current) return current;
-          const nowIso = new Date().toISOString();
           if (result.logType === "LUNCH_OUT") {
-            return { ...current, lunchOutAt: current.lunchOutAt ?? nowIso };
+            return { ...current, lunchOutAt: current.lunchOutAt ?? recordedAt };
           }
           if (result.logType === "LUNCH_IN") {
-            return { ...current, lunchInAt: current.lunchInAt ?? nowIso };
+            return { ...current, lunchInAt: current.lunchInAt ?? recordedAt };
           }
           if (result.logType === "TIME_IN") {
-            return { ...current, timeInAt: current.timeInAt ?? nowIso };
+            return { ...current, timeInAt: current.timeInAt ?? recordedAt };
           }
           if (result.logType === "TIME_OUT") {
-            return { ...current, timeOutAt: current.timeOutAt ?? nowIso };
+            return { ...current, timeOutAt: current.timeOutAt ?? recordedAt };
           }
           return current;
         });
+        const timestamp = new Date(recordedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
         setResultModal({
           status: "approved",
           title: `${actionLabel} Recorded`,
