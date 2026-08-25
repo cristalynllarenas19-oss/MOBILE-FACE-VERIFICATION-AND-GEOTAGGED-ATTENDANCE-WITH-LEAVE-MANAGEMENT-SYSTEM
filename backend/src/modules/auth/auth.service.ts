@@ -174,7 +174,12 @@ export class AuthService {
       throw new UnauthorizedException("Session is no longer valid.");
     }
 
-    return this.issueTokenPair(payload);
+    // verifyAsync returns the full decoded JWT, including the exp/iat claims
+    // stamped on the old refresh token — signAsync refuses to issue a new
+    // token when the payload already carries an exp, so those must be
+    // dropped before reusing this payload to sign the new token pair.
+    const { exp, iat, ...freshPayload } = payload as AuthTokenPayload & { exp?: number; iat?: number };
+    return this.issueTokenPair(freshPayload);
   }
 
   private async issueTokenPair(payload: AuthTokenPayload) {
