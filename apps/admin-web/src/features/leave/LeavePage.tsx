@@ -771,7 +771,7 @@ export function LeavePage({
   // Polling this often while the page is mounted is the pragmatic way to
   // make that feel near-instant without adding real-time transport.
   useEffect(() => {
-    const interval = setInterval(() => { requestsCache.refresh().catch(() => undefined); }, 10000);
+    const interval = setInterval(() => { requestsCache.refresh().catch(() => undefined); }, 3000);
     // Browsers throttle setInterval in a background tab, so a status change
     // that landed while this tab wasn't focused could sit unnoticed well
     // past the poll interval — catch up the moment the tab is looked at

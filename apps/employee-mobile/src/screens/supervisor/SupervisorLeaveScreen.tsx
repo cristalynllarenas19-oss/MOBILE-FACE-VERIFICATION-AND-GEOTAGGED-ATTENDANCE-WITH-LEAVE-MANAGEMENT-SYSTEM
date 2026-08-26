@@ -32,7 +32,7 @@ import { useCachedData } from "../../utils/dataCache";
 // is mounted (it unmounts when the tab is switched away, since navigation
 // swaps tabs via plain state rather than routing) is the pragmatic way to
 // make that feel near-instant without adding real-time transport.
-const LEAVE_POLL_MS = 10000;
+const LEAVE_POLL_MS = 3000;
 
 type Props = {
   currentEmployeeId?: string;

@@ -15,7 +15,7 @@ import { SupervisorTab } from "../types";
 import { EmployeeProfile, MobileUser, getMyProfile, getUnreadNotificationCount, getTeamLeaveRequests } from "../api";
 import { CACHE_KEYS, cacheGet, cacheSet, revalidateCached, useCachedData } from "../utils/dataCache";
 
-const NOTIFICATION_POLL_MS = 15000;
+const NOTIFICATION_POLL_MS = 5000;
 
 type Props = {
   user: MobileUser;
@@ -79,6 +79,7 @@ export default function SupervisorMainScreen({ user, onLogout, canSwitchToEmploy
         onClose={() => setNotificationsVisible(false)}
         onUnreadCountChange={setUnreadCount}
         employeeId={user?.employeeId}
+        canReviewTeamRequests
       />
 
       <View style={{ flex: 1, padding: 16 }}>

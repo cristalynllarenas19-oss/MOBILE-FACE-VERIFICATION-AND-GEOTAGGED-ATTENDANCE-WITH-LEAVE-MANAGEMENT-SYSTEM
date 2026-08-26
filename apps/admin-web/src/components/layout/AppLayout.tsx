@@ -35,7 +35,7 @@ import { NotificationDetailModal } from "./NotificationDetailModal";
 import "./AppLayout.css";
 import "./NotificationPanel.css";
 
-const NOTIFICATION_POLL_MS = 30000;
+const NOTIFICATION_POLL_MS = 5000;
 // Stable fallback so downstream filters don't recompute on every render
 // while the cache/network is still empty.
 const EMPTY_NOTIFICATIONS: AppNotification[] = [];
@@ -165,7 +165,7 @@ export function AppLayout({
           // A new notification (e.g. "your leave was approved") is exactly
           // when leave data most needs to be fresh — nudge it to refetch
           // right away instead of waiting for the Leave page's own poll.
-          // Only fires on a genuine increase, not every 30s tick, and this
+          // Only fires on a genuine increase, not every poll tick, and this
           // is a no-op if no Leave page happens to be mounted right now
           // (revalidateCached still updates the shared cache for whenever
           // it's next opened).

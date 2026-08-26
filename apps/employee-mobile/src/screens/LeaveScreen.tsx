@@ -46,7 +46,7 @@ const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 // MainScreen swaps tabs via plain state rather than routing) is the
 // pragmatic way to make that feel near-instant without adding real-time
 // transport.
-const LEAVE_POLL_MS = 10000;
+const LEAVE_POLL_MS = 3000;
 
 // Stable fallbacks so useMemo filters don't recompute on every render while
 // the cache/network is still empty.
@@ -691,10 +691,10 @@ export default function LeaveScreen({ employeeId }: Props) {
     });
 
     createLeaveRequest(payload)
-      // Only `requests` actually changed (the new request itself) — balances
-      // don't move until this is approved, and leave types are untouched by
-      // filing a request, so this doesn't refetch them via loadData().
-      .then(() => requestsCache.refresh())
+      // The POST already returns the created record — write it straight into
+      // the cache instead of following up with a second GET round-trip, so
+      // it appears on "My Leave Requests" the moment submission succeeds.
+      .then((created) => requestsCache.setData([created, ...requests]))
       .catch((error) => {
         // The "Submitted" modal above has likely already been dismissed by
         // now, so a transient modal here isn't enough — this sticks around
@@ -1189,8 +1189,13 @@ export default function LeaveScreen({ employeeId }: Props) {
                           }}
                         >
                           <View style={styles.summaryTopRow}>
-                            <Text style={styles.requestTitle}>{request.leaveType.name}</Text>
-                            <Text style={[styles.pendingText, { marginTop: 0, color: tone.color, backgroundColor: tone.bg }]} numberOfLines={1}>
+                            <Text style={[styles.requestTitle, { flex: 1 }]} numberOfLines={1}>
+                              {request.leaveType.name}
+                            </Text>
+                            <Text
+                              style={[styles.pendingText, { marginTop: 0, fontSize: 10, color: tone.color, backgroundColor: tone.bg }]}
+                              numberOfLines={1}
+                            >
                               {statusLabel(request.status)}
                             </Text>
                           </View>
@@ -1552,7 +1557,7 @@ const styles = StyleSheet.create({
   backRow: { flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 10 },
   backText: { color: "#1680D8", fontWeight: "700", fontSize: 13 },
   summaryCard: { backgroundColor: "#F8FAFC", borderRadius: 12, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: "#E2E8F0" },
-  summaryTopRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", rowGap: 6, columnGap: 8 },
+  summaryTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
   confirmOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", alignItems: "center" },
   confirmCard: { width: "80%", backgroundColor: "#FFFFFF", borderRadius: 18, padding: 20 },
   confirmActions: { flexDirection: "row", gap: 10, marginTop: 18 },

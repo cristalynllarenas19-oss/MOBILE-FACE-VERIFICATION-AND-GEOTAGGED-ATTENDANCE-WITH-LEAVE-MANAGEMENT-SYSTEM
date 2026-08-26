@@ -21,19 +21,27 @@ import { File } from "expo-file-system";
 import {
   AppNotification,
   LeaveRequest,
+  TeamLeaveRequest,
   getNotifications,
   getLeaveRequests,
+  getTeamLeaveRequests,
+  approveLeaveRequest,
+  rejectLeaveRequest,
+  approveLeaveCancellation,
+  denyLeaveCancellation,
   markAllNotificationsRead,
   markNotificationRead,
   resubmitLeaveRequest,
 } from "../api";
 import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
 import { FormattedAnnouncementText, stripFormattingTokens } from "../utils/richText";
+import ResultModal, { ResultModalStatus } from "../components/ResultModal";
 
 // Stable fallbacks so downstream filters don't recompute on every render
 // while the cache/network is still empty.
 const EMPTY_NOTIFICATIONS: AppNotification[] = [];
 const EMPTY_LEAVE_REQUESTS: LeaveRequest[] = [];
+const EMPTY_TEAM_LEAVE_REQUESTS: TeamLeaveRequest[] = [];
 
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 
@@ -46,6 +54,10 @@ type Props = {
   // notification's detail view — optional since the supervisor portal's own
   // NotificationsScreen usage has no personal attendance flow to jump into.
   onLogRealAttendance?: () => void;
+  // Supervisor mode — shows Approve/Reject/Approve-Cancellation/Deny-Cancellation
+  // actions right on a team member's leave notification instead of making the
+  // supervisor also open the Leave tab to act on it.
+  canReviewTeamRequests?: boolean;
 };
 
 type PickedAttachment = {
@@ -156,7 +168,7 @@ function PulsingDot() {
   );
 }
 
-export default function NotificationsScreen({ visible, onClose, onUnreadCountChange, employeeId, onLogRealAttendance }: Props) {
+export default function NotificationsScreen({ visible, onClose, onUnreadCountChange, employeeId, onLogRealAttendance, canReviewTeamRequests }: Props) {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Keyed on `visible` so nothing is fetched until the panel opens; while
@@ -169,13 +181,30 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
     visible && employeeId ? CACHE_KEYS.leaveRequests(employeeId) : null,
     () => getLeaveRequests(employeeId!),
   );
+  // Same cache key/instance the Leave tab's SupervisorLeaveScreen reads from
+  // — acting on a request here (approve/reject/cancellation decision) writes
+  // straight into that shared cache, so the Leave tab already shows the
+  // outcome the moment the supervisor gets back to it. Nothing to redo there.
+  const teamLeaveRequestsCache = useCachedData<TeamLeaveRequest[]>(
+    visible && canReviewTeamRequests ? CACHE_KEYS.teamLeaveRequests : null,
+    getTeamLeaveRequests,
+  );
   const notifications = notificationsCache.data ?? EMPTY_NOTIFICATIONS;
   const setNotifications = notificationsCache.setData;
   const leaveRequests = leaveRequestsCache.data ?? EMPTY_LEAVE_REQUESTS;
+  const teamLeaveRequests = teamLeaveRequestsCache.data ?? EMPTY_TEAM_LEAVE_REQUESTS;
   const isLoading = notificationsCache.isLoading;
 
   // Which notification's full details are currently popped up.
   const [detailNotification, setDetailNotification] = useState<AppNotification | null>(null);
+
+  // Inline review state for a supervisor acting on a team member's request
+  // straight from the notification detail. `reviewAction` is null while just
+  // the primary buttons show, and switches to "reject"/"deny-cancellation"
+  // once the supervisor picks the option that needs a remarks field.
+  const [reviewAction, setReviewAction] = useState<"reject" | "deny-cancellation" | null>(null);
+  const [reviewRemarks, setReviewRemarks] = useState("");
+  const [reviewResult, setReviewResult] = useState<{ status: ResultModalStatus; title: string; message: string } | null>(null);
 
   // Only one notification's resubmit form is open at a time.
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -230,6 +259,58 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
   function handleCloseDetail() {
     setDetailNotification(null);
     collapseResubmitForm();
+    setReviewAction(null);
+    setReviewRemarks("");
+  }
+
+  function handleApprove() {
+    if (!detailTeamRequest) return;
+    const targetId = detailTeamRequest.id;
+    teamLeaveRequestsCache.setData(teamLeaveRequests.map((r) => (r.id === targetId ? { ...r, status: "APPROVED" } : r)));
+    handleCloseDetail();
+    setReviewResult({ status: "approved", title: "Approved", message: "This leave request has been approved." });
+    approveLeaveRequest(targetId).catch((error) => {
+      teamLeaveRequestsCache.refresh().catch(() => undefined);
+      setReviewResult({ status: "error", title: "Action Failed", message: error instanceof Error ? error.message : "Unable to approve this leave request." });
+    });
+  }
+
+  function handleSubmitReject() {
+    if (!detailTeamRequest) return;
+    const targetId = detailTeamRequest.id;
+    const remarksTrimmed = reviewRemarks.trim();
+    teamLeaveRequestsCache.setData(teamLeaveRequests.map((r) => (r.id === targetId ? { ...r, status: "REJECTED" } : r)));
+    handleCloseDetail();
+    setReviewResult({ status: "approved", title: "Rejected", message: "Leave request was rejected." });
+    rejectLeaveRequest(targetId, { remarks: remarksTrimmed }).catch((error) => {
+      teamLeaveRequestsCache.refresh().catch(() => undefined);
+      setReviewResult({ status: "error", title: "Action Failed", message: error instanceof Error ? error.message : "Unable to reject this leave request." });
+    });
+  }
+
+  function handleApproveCancellation() {
+    if (!detailTeamRequest) return;
+    const targetId = detailTeamRequest.id;
+    teamLeaveRequestsCache.setData(teamLeaveRequests.map((r) => (r.id === targetId ? { ...r, status: "CANCELLED" } : r)));
+    handleCloseDetail();
+    setReviewResult({ status: "approved", title: "Cancellation Approved", message: "The leave request has been cancelled." });
+    approveLeaveCancellation(targetId).catch((error) => {
+      teamLeaveRequestsCache.refresh().catch(() => undefined);
+      setReviewResult({ status: "error", title: "Action Failed", message: error instanceof Error ? error.message : "Unable to approve this cancellation." });
+    });
+  }
+
+  function handleSubmitDenyCancellation() {
+    if (!detailTeamRequest) return;
+    const targetId = detailTeamRequest.id;
+    const remarksTrimmed = reviewRemarks.trim();
+    teamLeaveRequestsCache.setData(teamLeaveRequests.map((r) => (r.id === targetId ? { ...r, status: "APPROVED" } : r)));
+    handleCloseDetail();
+    setReviewResult({ status: "approved", title: "Cancellation Denied", message: "The leave remains approved." });
+    denyLeaveCancellation(targetId, remarksTrimmed).catch((error) => {
+      teamLeaveRequestsCache.refresh().catch(() => undefined);
+      setReviewResult({ status: "error", title: "Action Failed", message: error instanceof Error ? error.message : "Unable to deny this cancellation." });
+    });
   }
 
   async function handleMarkAllRead() {
@@ -312,6 +393,13 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
     ? [...(detailLeaveRequest.notes ?? [])].reverse().find((n) => n.type === "REJECTED")
     : undefined;
   const detailStillNeedsRevision = detailLeaveRequest?.status === "NEEDS_REVISION";
+
+  const detailTeamRequest = canReviewTeamRequests && detailNotification?.entityId
+    ? teamLeaveRequests.find((r) => r.id === detailNotification.entityId)
+    : undefined;
+  const detailIsOwnRequest = detailTeamRequest?.employee.id === employeeId;
+  const detailCanReview = !!detailTeamRequest && !detailIsOwnRequest && detailTeamRequest.status === "PENDING";
+  const detailCanDecideCancellation = !!detailTeamRequest && !detailIsOwnRequest && detailTeamRequest.status === "CANCELLATION_PENDING";
 
   return (
     <>
@@ -416,6 +504,61 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                   <FormattedAnnouncementText message={detailNotification.message} textStyle={styles.detailMessage} />
                 ) : (
                   <Text style={styles.detailMessage}>{detailNotification.message}</Text>
+                )}
+
+                {detailTeamRequest && !detailIsOwnRequest && (detailCanReview || detailCanDecideCancellation) && (
+                  <View style={styles.reviewPanel}>
+                    {reviewAction === null ? (
+                      <View style={styles.reviewButtonRow}>
+                        {detailCanDecideCancellation ? (
+                          <>
+                            <Pressable style={styles.reviewRejectButton} onPress={() => setReviewAction("deny-cancellation")}>
+                              <Text style={styles.reviewRejectButtonText}>Deny Cancellation</Text>
+                            </Pressable>
+                            <Pressable style={styles.reviewApproveButton} onPress={handleApproveCancellation}>
+                              <Text style={styles.reviewApproveButtonText}>Approve Cancellation</Text>
+                            </Pressable>
+                          </>
+                        ) : (
+                          <>
+                            <Pressable style={styles.reviewRejectButton} onPress={() => setReviewAction("reject")}>
+                              <Text style={styles.reviewRejectButtonText}>Reject</Text>
+                            </Pressable>
+                            <Pressable style={styles.reviewApproveButton} onPress={handleApprove}>
+                              <Text style={styles.reviewApproveButtonText}>Approve</Text>
+                            </Pressable>
+                          </>
+                        )}
+                      </View>
+                    ) : (
+                      <>
+                        <TextInput
+                          placeholder="Optional remarks"
+                          multiline
+                          value={reviewRemarks}
+                          onChangeText={setReviewRemarks}
+                          style={styles.noteInput}
+                          autoFocus
+                        />
+                        <View style={styles.reviewButtonRow}>
+                          <Pressable style={styles.reviewCancelButton} onPress={() => { setReviewAction(null); setReviewRemarks(""); }}>
+                            <Text style={styles.reviewCancelButtonText}>Back</Text>
+                          </Pressable>
+                          <Pressable
+                            style={styles.reviewRejectButton}
+                            onPress={reviewAction === "reject" ? handleSubmitReject : handleSubmitDenyCancellation}
+                          >
+                            <Text style={styles.reviewRejectButtonText}>
+                              {reviewAction === "reject" ? "Confirm Reject" : "Confirm Deny"}
+                            </Text>
+                          </Pressable>
+                        </View>
+                      </>
+                    )}
+                  </View>
+                )}
+                {detailTeamRequest && !detailIsOwnRequest && !detailCanReview && !detailCanDecideCancellation && (
+                  <Text style={styles.reviewAlreadyDecidedText}>This request has already been reviewed.</Text>
                 )}
 
                 {detailNotification.type === "ATTENDANCE_LOCKED" && onLogRealAttendance && (
@@ -523,6 +666,14 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
         </Pressable>
       </Pressable>
     </Modal>
+
+    <ResultModal
+      visible={!!reviewResult}
+      status={reviewResult?.status ?? "info"}
+      title={reviewResult?.title ?? ""}
+      message={reviewResult?.message ?? ""}
+      onClose={() => setReviewResult(null)}
+    />
     </>
   );
 }
@@ -784,6 +935,63 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
     color: "#15803D",
+  },
+  reviewPanel: {
+    marginTop: 16,
+    padding: 14,
+    backgroundColor: "#F8FAFC",
+    borderRadius: 14,
+    gap: 10,
+  },
+  reviewButtonRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  reviewApproveButton: {
+    flex: 1,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: "#17A34A",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  reviewApproveButtonText: {
+    color: "#FFFFFF",
+    fontWeight: "700",
+    fontSize: 13,
+  },
+  reviewRejectButton: {
+    flex: 1,
+    height: 42,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#DC2626",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  reviewRejectButtonText: {
+    color: "#DC2626",
+    fontWeight: "700",
+    fontSize: 13,
+  },
+  reviewCancelButton: {
+    flex: 1,
+    height: 42,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  reviewCancelButtonText: {
+    color: "#64748B",
+    fontWeight: "700",
+    fontSize: 13,
+  },
+  reviewAlreadyDecidedText: {
+    marginTop: 12,
+    fontSize: 12.5,
+    color: "#64748B",
   },
   detailBackdrop: {
     flex: 1,

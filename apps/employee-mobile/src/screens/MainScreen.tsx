@@ -19,7 +19,7 @@ import { Tab, GeofenceStatus } from "../types";
 import { AttendanceEligibility, EmployeeProfile, TodayAttendance, getMyProfile, getUnreadNotificationCount, getLeaveRequests, getLeaveBalances } from "../api";
 import { CACHE_KEYS, cacheGet, cacheSet, revalidateCached, useCachedData } from "../utils/dataCache";
 
-const NOTIFICATION_POLL_MS = 15000;
+const NOTIFICATION_POLL_MS = 5000;
 
 type Props = {
   user: any;
@@ -86,7 +86,7 @@ export default function MainScreen({
           // A new notification (e.g. "your leave was approved") is exactly
           // when leave data most needs to be fresh — nudge it to refetch
           // right away instead of waiting for LeaveScreen's own poll. Only
-          // fires on a genuine increase, not every 30s tick, and this is a
+          // fires on a genuine increase, not every poll tick, and this is a
           // no-op if LeaveScreen isn't mounted (revalidateCached still
           // updates the shared cache for whenever it next opens).
           if (lastKnownCount !== null && data.count > lastKnownCount && user?.employeeId) {

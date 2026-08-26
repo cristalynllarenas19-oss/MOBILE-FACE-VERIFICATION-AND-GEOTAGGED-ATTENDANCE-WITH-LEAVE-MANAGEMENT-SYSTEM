@@ -97,7 +97,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
   const refreshAllRef = useRef(refreshAll);
   refreshAllRef.current = refreshAll;
   useEffect(() => {
-    const interval = setInterval(() => { refreshAllRef.current().catch(() => undefined); }, 10000);
+    const interval = setInterval(() => { refreshAllRef.current().catch(() => undefined); }, 3000);
     // Browsers throttle setInterval in a background tab, so a status change
     // that landed while this tab wasn't focused could sit unnoticed well
     // past the poll interval — catch up the moment the tab is looked at
@@ -648,13 +648,18 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
           padding: 14, marginBottom: 10, cursor: "pointer",
         }}
       >
-        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", rowGap: 6, columnGap: 8 }}>
-          <p style={{ fontWeight: 700, margin: 0, minWidth: 0 }}>{r.leaveType.name}</p>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <p style={{
+            fontWeight: 700, margin: 0, flex: 1, minWidth: 0,
+            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+          }}>
+            {r.leaveType.name}
+          </p>
           <span style={{
             display: "inline-block", flexShrink: 0, whiteSpace: "nowrap",
             background: tone.bg, color: tone.color,
-            fontWeight: 700, fontSize: 11,
-            borderRadius: 999, padding: "3px 8px",
+            fontWeight: 700, fontSize: 10,
+            borderRadius: 999, padding: "3px 7px",
           }}>
             {statusLabel(r.status)}
           </span>
