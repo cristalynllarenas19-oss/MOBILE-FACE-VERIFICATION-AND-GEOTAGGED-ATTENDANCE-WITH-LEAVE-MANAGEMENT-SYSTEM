@@ -289,6 +289,11 @@ export class EmployeesService {
         attendanceMode,
         sex: dto.sex,
         soloParentStatus: dto.soloParentStatus ?? "NOT_APPLICABLE",
+        // Explicit even though it matches the schema default — every
+        // employee created through this flow must go through face-data
+        // consent; only pre-existing employees are grandfathered out (see
+        // requiresFaceConsent's schema comment).
+        requiresFaceConsent: true,
         ...(resolvedSupervisorId !== undefined ? { supervisorId: resolvedSupervisorId } : {}),
       },
       include: { user: true, department: true, position: true, supervisor: true },

@@ -341,8 +341,15 @@ model Employee {
   // Null = Consent Pending, set = Consent Accepted. The employee accepts
   // this on first mobile login (FaceConsentScreen); Face Registration on the
   // admin side is blocked until it's set — see FaceRegistrationPage's
-  // consent-required modal and EmployeesService.acceptFaceConsent.
+  // consent-required modal and EmployeesService.acceptFaceConsent. Only
+  // meaningful when requiresFaceConsent is true (see below).
   faceConsentAcceptedAt DateTime?              @map("face_consent_accepted_at")
+  // True only for employees added after the face-consent feature shipped —
+  // set explicitly in EmployeesService.create(). Employees that already
+  // existed at that point were backfilled to false (one-time migration) so
+  // they're grandfathered in: never blocked from Face Registration and never
+  // shown the mobile consent screen, regardless of faceConsentAcceptedAt.
+  requiresFaceConsent   Boolean                @default(true) @map("requires_face_consent")
   createdAt            DateTime               @default(now()) @map("created_at")
   sections             sections?              @relation(fields: [section_id], references: [id])
   user                 User                   @relation(fields: [userId], references: [id])

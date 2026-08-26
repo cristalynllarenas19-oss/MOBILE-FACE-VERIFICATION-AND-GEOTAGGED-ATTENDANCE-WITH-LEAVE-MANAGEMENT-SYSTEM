@@ -47,9 +47,14 @@ export type FaceRegistrationEmployee = {
   sex?: "MALE" | "FEMALE" | null;
   soloParentStatus?: "NOT_APPLICABLE" | "ELIGIBLE" | "INELIGIBLE";
   // Null until the employee accepts the face-data consent from the mobile
-  // app's FaceConsentScreen. Face Registration is blocked for this employee
-  // until then — see the consent-required modal below.
+  // app's FaceConsentScreen. Only meaningful when requiresFaceConsent is
+  // true — see the consent-required modal below.
   faceConsentAcceptedAt?: string | null;
+  // False for employees that already existed before the face-consent
+  // feature shipped (grandfathered in via a one-time backfill) — only
+  // employees added afterward are blocked from Face Registration pending
+  // consent.
+  requiresFaceConsent?: boolean;
 };
 
 type Employee = FaceRegistrationEmployee;
@@ -255,7 +260,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
 
   async function startCamera() {
     if (!modelsReady) return;
-    if (selectedEmployee && !selectedEmployee.faceConsentAcceptedAt) return;
+    if (selectedEmployee?.requiresFaceConsent && !selectedEmployee.faceConsentAcceptedAt) return;
     try {
       stopCamera();
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -488,7 +493,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
       setMessage("Select an employee first.");
       return;
     }
-    if (!selectedEmployee.faceConsentAcceptedAt) {
+    if (selectedEmployee.requiresFaceConsent && !selectedEmployee.faceConsentAcceptedAt) {
       setMessage("This employee must accept the face-data consent on the mobile app before registration.");
       return;
     }
@@ -618,7 +623,10 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
 
   // Blocks Face Registration until the employee accepts the face-data
   // consent on mobile — see the "Employee Consent Required" modal below.
-  const consentPending = Boolean(selectedEmployee && !selectedEmployee.faceConsentAcceptedAt);
+  // Pre-existing employees (requiresFaceConsent === false) are exempt.
+  const consentPending = Boolean(
+    selectedEmployee?.requiresFaceConsent && !selectedEmployee.faceConsentAcceptedAt,
+  );
 
   // Lets the admin re-check without restarting the employee-creation flow:
   // re-fetches the employee list (no single-employee GET endpoint exists)
@@ -634,6 +642,26 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
       setConsentRefreshing(false);
     }
   }
+
+  // Auto-closes the consent modal the moment the employee accepts on mobile
+  // — polls silently (no "Checking..." button state) only while the modal
+  // is actually showing, so the admin never has to click "Check Again" or
+  // reload the page. Re-fetching swaps in the fresh employee record, which
+  // recomputes consentPending to false and the modal unmounts on its own.
+  useEffect(() => {
+    if (!consentPending || !selectedEmployee) return;
+    const employeeId = selectedEmployee.id;
+    const interval = window.setInterval(async () => {
+      try {
+        const employees = await apiRequest<Employee[]>("/employees");
+        const updated = employees.find((item) => item.id === employeeId);
+        if (updated) setSelectedEmployee(updated);
+      } catch {
+        // Silent — the next tick retries.
+      }
+    }, 5000);
+    return () => window.clearInterval(interval);
+  }, [consentPending, selectedEmployee?.id]);
 
   function enrollmentStatusTone(status: FaceProfile["enrollmentStatus"]) {
     if (status === "ACTIVE") return "success" as const;

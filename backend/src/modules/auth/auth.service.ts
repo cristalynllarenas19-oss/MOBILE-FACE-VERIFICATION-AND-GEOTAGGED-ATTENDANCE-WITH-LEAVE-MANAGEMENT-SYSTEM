@@ -151,6 +151,7 @@ export class AuthService {
         defaultView: user.defaultView,
         mustChangePassword: user.mustChangePassword,
         faceConsentAcceptedAt: user.employee?.faceConsentAcceptedAt ?? null,
+        requiresFaceConsent: user.employee?.requiresFaceConsent ?? false,
       },
     };
   }

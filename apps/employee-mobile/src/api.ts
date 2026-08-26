@@ -94,8 +94,11 @@ export type MobileUser = {
   // type-checks; anywhere this is read, treat undefined the same as "FIXED".
   attendanceMode?: AttendanceMode;
   // Null/undefined = consent still pending (admin cannot face-register this
-  // employee yet); set once the employee accepts on FaceConsentScreen.
+  // employee yet); set once the employee accepts on FaceConsentScreen. Only
+  // meaningful when requiresFaceConsent is true — pre-existing employees are
+  // grandfathered out and never show this screen regardless of this value.
   faceConsentAcceptedAt?: string | null;
+  requiresFaceConsent?: boolean;
 };
 export type TodayAttendance = {
   status: string;

@@ -821,7 +821,7 @@ export default function App() {
         />
       ) : user.mustChangePassword ? (
         <SetInitialPasswordScreen onDone={handlePasswordSetupComplete} />
-      ) : user.employeeId && !user.faceConsentAcceptedAt ? (
+      ) : user.employeeId && user.requiresFaceConsent && !user.faceConsentAcceptedAt ? (
         <FaceConsentScreen onAccepted={handleFaceConsentAccepted} />
       ) : scanType ? (
         <CameraScanner
