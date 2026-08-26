@@ -80,11 +80,14 @@ export function getUnauthorizedAttemptMessage(hasUnresolvedFlaggedAttempt: boole
   return `An unauthorized attendance attempt was detected on your account and reported to your supervisor. ${action ?? "Attendance"} is locked until they review it.`;
 }
 
-// Worked time is Time In → Time Out (or now, while still in), excluding the
-// lunch break — an open lunch (started but not ended) pauses the counter.
+// Worked time is Official Start Time → Time Out (or now, while still in),
+// excluding the lunch break — an open lunch (started but not ended) pauses
+// the counter. Uses the shift-rounded renderTimeInAt (falling back to the
+// raw timeInAt when absent), same as the server's totalMinutes math, so the
+// live counter doesn't run ahead of the DTR's own total once timed out.
 function getWorkedMs(attendance: TodayAttendance, now: number) {
   if (!attendance.timeInAt) return 0;
-  const start = new Date(attendance.timeInAt).getTime();
+  const start = new Date(attendance.renderTimeInAt ?? attendance.timeInAt).getTime();
   const end = attendance.timeOutAt
     ? new Date(attendance.timeOutAt).getTime()
     : now;
@@ -350,6 +353,48 @@ export default function AttendanceScreen({
             </Text>
           </View>
         </View>
+
+        {!isField && hasTimedIn && (
+          <View style={styles.timeStatsRow}>
+            <View style={styles.timeStatCard}>
+              <View style={[styles.timeStatIcon, { backgroundColor: "#EFF6FF" }]}>
+                <Ionicons
+                  name="time-outline"
+                  size={18}
+                  color="#1680D8"
+                />
+              </View>
+
+              <Text style={styles.timeLabel}>
+                Official Start Time
+              </Text>
+
+              <Text style={styles.timeValue}>
+                {formatTime(todayAttendance?.renderTimeInAt ?? todayAttendance?.timeInAt)}
+              </Text>
+            </View>
+
+            <View style={styles.timeStatDivider} />
+
+            <View style={styles.timeStatCard}>
+              <View style={[styles.timeStatIcon, { backgroundColor: "#F0FDF4" }]}>
+                <Ionicons
+                  name="flag-outline"
+                  size={18}
+                  color="#17A34A"
+                />
+              </View>
+
+              <Text style={styles.timeLabel}>
+                Expected Time Out
+              </Text>
+
+              <Text style={styles.timeValue}>
+                {hasTimedOut ? "--:--" : formatTime(todayAttendance?.expectedTimeOutAt)}
+              </Text>
+            </View>
+          </View>
+        )}
 
         {showLunchSection && (
           <View style={styles.timeStatsRow}>

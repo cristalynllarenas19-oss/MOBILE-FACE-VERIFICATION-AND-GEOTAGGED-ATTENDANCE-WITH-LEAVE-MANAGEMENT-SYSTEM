@@ -418,6 +418,32 @@ export function AttendancePage({ user }: Props) {
             </div>
           </div>
 
+          {!isField && hasTimedIn && (
+            <div className="att-stats-row" style={{ display: "flex", alignItems: "center", paddingTop: 18, marginTop: 18, borderTop: "1px solid #EDF1F6" }}>
+              <div className="att-stat-col" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                <div style={{ width: 36, height: 36, borderRadius: 18, background: "#EFF6FF", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 8 }}>
+                  <Clock size={18} color="#1680D8" />
+                </div>
+                <p style={{ color: "#64748B", fontSize: 13, marginBottom: 4 }}>Official Start Time</p>
+                <p className="att-time-val" style={{ color: "#062B59", fontWeight: 700, fontSize: 16, margin: 0 }}>
+                  {fmtTime(todayAtt?.renderTimeInAt ?? todayAtt?.timeInAt)}
+                </p>
+              </div>
+
+              <div className="att-stat-divider" style={{ width: 1, height: 52, background: "#E2E8F0", margin: "0 8px" }} />
+
+              <div className="att-stat-col" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                <div style={{ width: 36, height: 36, borderRadius: 18, background: "#F0FDF4", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 8 }}>
+                  <LogOut size={18} color="#17A34A" />
+                </div>
+                <p style={{ color: "#64748B", fontSize: 13, marginBottom: 4 }}>Expected Time Out</p>
+                <p className="att-time-val" style={{ color: "#062B59", fontWeight: 700, fontSize: 16, margin: 0 }}>
+                  {hasTimedOut ? "--:--" : fmtTime(todayAtt?.expectedTimeOutAt)}
+                </p>
+              </div>
+            </div>
+          )}
+
           {showLunchSection && (
             <div className="att-stats-row" style={{ display: "flex", alignItems: "center", paddingTop: 18, marginTop: 18, borderTop: "1px solid #EDF1F6" }}>
               <div className="att-stat-col" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>

@@ -43,23 +43,30 @@ export function computeMinutesLate(shift: ShiftTimeFields, arrivalTime: Date, at
 
 const RENDER_INTERVAL_MS = 30 * 60000;
 
-// The effective time-in used for totalMinutes math: within the shift's grace
-// window (start .. start+lateThresholdMinutes), an arrival is bumped up to
-// the next 30-minute mark past shift start, so e.g. a 7:01 arrival renders
-// as 7:30 and a 7:31 arrival renders as 8:00. Arriving exactly on a
-// half-hour mark (or at/before shift start) needs no bump. Past the grace
-// window the employee is late, and the render time is just the raw arrival
-// — no rounding benefit applies once you're late.
+// The effective time-in used for totalMinutes math: any arrival after shift
+// start is bumped up to the next 30-minute mark past shift start, so e.g. a
+// 7:01 arrival renders as 7:30, a 7:31 arrival renders as 8:00, and (no
+// matter how late) a 13:38 arrival renders as 14:00. Arriving exactly on a
+// half-hour mark (or at/before shift start) needs no bump. This applies
+// unconditionally — being past the shift's late-threshold grace period
+// still marks the employee LATE (see computeMinutesLate), it just doesn't
+// change how the render/official start time itself is rounded.
 export function computeRenderTimeIn(shift: ShiftTimeFields, arrivalTime: Date, attendanceDate: Date): Date {
   const shiftStart = parseTimeOnDate(attendanceDate, shift.startTime);
   if (arrivalTime.getTime() <= shiftStart.getTime()) return shiftStart;
 
-  const cutoff = new Date(shiftStart.getTime() + shift.lateThresholdMinutes * 60000);
-  if (arrivalTime.getTime() > cutoff.getTime()) return arrivalTime;
-
   const elapsedMs = arrivalTime.getTime() - shiftStart.getTime();
   const roundedMs = Math.ceil(elapsedMs / RENDER_INTERVAL_MS) * RENDER_INTERVAL_MS;
   return new Date(shiftStart.getTime() + roundedMs);
+}
+
+const EXPECTED_WORK_MS = 9 * 60 * 60000; // 8 hours of work plus the 1-hour lunch break
+
+// The time an employee should time out to complete a full 8-hour workday,
+// given their effective (rounded) start time — 9 hours later so the 1-hour
+// lunch break doesn't eat into the 8 hours actually worked.
+export function computeExpectedTimeOut(renderTimeIn: Date): Date {
+  return new Date(renderTimeIn.getTime() + EXPECTED_WORK_MS);
 }
 
 export function computeMinutesUndertime(

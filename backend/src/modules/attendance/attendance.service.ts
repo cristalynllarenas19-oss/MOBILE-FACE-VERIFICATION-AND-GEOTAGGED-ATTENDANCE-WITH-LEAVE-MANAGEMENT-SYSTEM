@@ -9,6 +9,7 @@ import { NotificationsService } from "../notifications/notifications.service";
 import { SubmitAttendanceDto } from "./dto/submit-attendance.dto";
 import {
   computeAbsenceCutoff,
+  computeExpectedTimeOut,
   computeMinutesLate,
   computeMinutesUndertime,
   computeRenderTimeIn,
@@ -307,6 +308,11 @@ export class AttendanceService {
 
   const hasUnresolvedFlaggedAttempt = await this.hasUnresolvedFlaggedAttempt(employeeId, attendanceDate);
 
+  // The effective start time (rounded to shift rules where applicable) drives
+  // the "expected time out" shown to the employee, same as it drives
+  // totalMinutes math in upsertAttendanceRecord.
+  const effectiveStart = record?.renderTimeInAt ?? record?.timeInAt ?? null;
+
   return {
     ...(record ?? {
       status: isDayOff(attendanceDate) ? "DAY_OFF" : "ABSENT",
@@ -315,6 +321,7 @@ export class AttendanceService {
       lunchOutAt: null,
       lunchInAt: null,
     }),
+    expectedTimeOutAt: effectiveStart ? computeExpectedTimeOut(effectiveStart) : null,
     hasUnresolvedFlaggedAttempt,
   };
 }

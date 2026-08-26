@@ -104,6 +104,13 @@ export type TodayAttendance = {
   // Optional, OFFICE-only lunch break window — always null for FIELD visits.
   lunchOutAt?: string | null;
   lunchInAt?: string | null;
+  // Shift-rounded official start time — a same-day arrival within the grace
+  // window is bumped up to the next 30-minute mark past shift start (e.g. a
+  // 7:01 arrival renders as 7:30). Falls back to timeInAt when absent.
+  renderTimeInAt?: string | null;
+  // renderTimeInAt (or timeInAt) plus 9 hours, so the 1-hour lunch break
+  // doesn't eat into the 8 hours actually worked.
+  expectedTimeOutAt?: string | null;
   visitNumber?: number;
   workLocationId?: string | null;
   recordType?: AttendanceRecordType;
