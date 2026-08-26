@@ -715,6 +715,15 @@ export default function App() {
       // updates the DTR summary and has its own error handling) finishes.
       setIsLoading(false);
       void refreshTodayAttendance(user.employeeId);
+      // The DTR screen has its own cache, keyed separately from
+      // todayAttendance — without this, a DTR tab left mounted since before
+      // this scan keeps showing whatever it last fetched (a stale time in/
+      // out) until the employee manually pulls to refresh.
+      const employeeId = user.employeeId;
+      void revalidateCached(
+        CACHE_KEYS.attendanceHistory(employeeId),
+        () => getAttendanceHistory(employeeId),
+      );
     } catch (error) {
       setResultModal({
         status: "error",

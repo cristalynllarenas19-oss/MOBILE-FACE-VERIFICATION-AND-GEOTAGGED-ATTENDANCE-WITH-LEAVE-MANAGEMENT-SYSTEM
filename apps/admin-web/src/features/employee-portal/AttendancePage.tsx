@@ -6,11 +6,11 @@ import {
 import {
   TodayAttendance, WorkLocation, AttendanceSubmitResult, AttendanceEligibility, GeofenceStatus,
   getTodayAttendance, submitAttendance, getMyWorkLocation, getMyWorkLocations,
-  distanceInMeters, getFriendlyReason, getMyProfile,
+  distanceInMeters, getFriendlyReason, getMyProfile, getAttendanceHistory,
 } from "./api";
 import CameraScanner, { GeoPoint } from "./components/CameraScanner";
 import type { AuthUser } from "../../lib/api";
-import { CACHE_KEYS, useCachedData } from "../../lib/dataCache";
+import { CACHE_KEYS, useCachedData, revalidateCached } from "../../lib/dataCache";
 import "./AttendancePage.css";
 
 type Props = { user: AuthUser };
@@ -339,6 +339,16 @@ export function AttendancePage({ user }: Props) {
       }
 
       await todayCache.refresh();
+      // The DTR page has its own cache, keyed separately from
+      // todayAttendance — without this, a DTR tab left open since before this
+      // scan keeps showing whatever it last fetched (a stale time in/out)
+      // until it's manually refreshed or remounted.
+      if (user.employeeId) {
+        void revalidateCached(
+          CACHE_KEYS.attendanceHistory(user.employeeId),
+          () => getAttendanceHistory(user.employeeId!),
+        );
+      }
     } catch (err) {
       setResultModal({
         status: "error",
