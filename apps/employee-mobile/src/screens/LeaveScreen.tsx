@@ -31,6 +31,7 @@ import {
   getLeaveRequests,
   createLeaveRequest,
   cancelLeaveRequest,
+  resubmitLeaveRequest,
   getUndertimeEligibility,
   getUndertimeFilings,
   fileUndertime,
@@ -160,6 +161,14 @@ export default function LeaveScreen({ employeeId }: Props) {
   // reason (see leave.service.ts's cancel()), so it's collected right here.
   const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
   const [cancelReasonText, setCancelReasonText] = useState("");
+  // Resubmitting a NEEDS_REVISION request straight from its detail view here
+  // — the same action already available from the LEAVE_NEEDS_REQUIREMENTS
+  // notification (NotificationsScreen.tsx), so an employee who dismissed
+  // that notification isn't stuck without a way back in.
+  const [resubmitAttachment, setResubmitAttachment] = useState<PickedAttachment | null>(null);
+  const [resubmitAttachmentError, setResubmitAttachmentError] = useState<string | null>(null);
+  const [isPickingResubmitFile, setIsPickingResubmitFile] = useState(false);
+  const [resubmitNote, setResubmitNote] = useState("");
   const [activeTab, setActiveTab] = useState<"balance" | "request" | "undertime">("balance");
   const [resultModal, setResultModal] = useState<{ status: ResultModalStatus; title: string; message: string } | null>(null);
   // Sticks around (independent of resultModal, which the user may have
@@ -340,6 +349,15 @@ export default function LeaveScreen({ employeeId }: Props) {
     () => requests.find((r) => r.id === expandedRequestId),
     [requests, expandedRequestId],
   );
+
+  // Clears any in-progress resubmission draft whenever the detail view
+  // navigates to a different request (or back to the list) — otherwise a
+  // half-attached file for one request could get submitted against another.
+  useEffect(() => {
+    setResubmitAttachment(null);
+    setResubmitAttachmentError(null);
+    setResubmitNote("");
+  }, [expandedRequestId]);
 
   // Mirrors the backend's same-type check (leave.service.ts) — a leave type
   // with an active request can't be selected again until that one is
@@ -563,6 +581,77 @@ export default function LeaveScreen({ employeeId }: Props) {
     } finally {
       setIsPickingFile(false);
     }
+  }
+
+  async function pickResubmitAttachment() {
+    setResubmitAttachmentError(null);
+    setIsPickingResubmitFile(true);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ["image/*", "application/pdf"],
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled || !result.assets?.[0]) return;
+      const asset = result.assets[0];
+
+      if (asset.size && asset.size > MAX_ATTACHMENT_BYTES) {
+        setResubmitAttachmentError("File is too large. Please attach a file under 5MB.");
+        return;
+      }
+
+      const base64 = asset.base64 ?? (await new File(asset.uri).base64());
+      const sizeBytes = asset.size ?? Math.ceil((base64.length * 3) / 4);
+
+      if (sizeBytes > MAX_ATTACHMENT_BYTES) {
+        setResubmitAttachmentError("File is too large. Please attach a file under 5MB.");
+        return;
+      }
+
+      setResubmitAttachment({
+        name: asset.name,
+        mimeType: asset.mimeType ?? "application/octet-stream",
+        sizeBytes,
+        base64,
+      });
+    } catch (error) {
+      setResubmitAttachmentError(error instanceof Error ? error.message : "Failed to attach file.");
+    } finally {
+      setIsPickingResubmitFile(false);
+    }
+  }
+
+  function handleResubmitRequest(requestId: string) {
+    if (!resubmitAttachment) {
+      setResubmitAttachmentError("Please attach the requested requirement before resubmitting.");
+      return;
+    }
+    const payload = {
+      note: resubmitNote.trim() || undefined,
+      attachmentName: resubmitAttachment.name,
+      attachmentMimeType: resubmitAttachment.mimeType,
+      attachmentData: resubmitAttachment.base64,
+    };
+
+    // Optimistic — resubmit() always succeeds straight from NEEDS_REVISION to
+    // PENDING (see leave.service.ts), so the request shows back in the
+    // supervisor's queue immediately instead of the employee waiting on the
+    // round trip. The attachment/note controls disappear the instant this
+    // fires since they're only ever shown for a NEEDS_REVISION request.
+    requestsCache.setData(requests.map((r) => (r.id === requestId ? { ...r, status: "PENDING" } : r)));
+    setResubmitAttachment(null);
+    setResubmitAttachmentError(null);
+    setResubmitNote("");
+    setResultModal({ status: "approved", title: "Resubmitted", message: "Your reviewer has been notified." });
+
+    resubmitLeaveRequest(requestId, payload).catch((error) => {
+      requestsCache.refresh().catch(() => undefined);
+      setResultModal({
+        status: "error",
+        title: "Resubmission Failed",
+        message: error instanceof Error ? error.message : "Please try again.",
+      });
+    });
   }
 
   function resetForm() {
@@ -970,7 +1059,12 @@ export default function LeaveScreen({ employeeId }: Props) {
               visible={isStartPickerVisible}
               title="Select Start Date"
               selectedDate={startDateSelected ? startDate : undefined}
-              minimumDate={lockedToToday && isSingleDayLeave ? todayStart : undefined}
+              // A same-day-only type must be picked as exactly today, but a
+              // multi-day "can't file in advance" type (e.g. a multi-day
+              // sick/emergency leave, if configured that way) is deliberately
+              // left open below today — that's the only way to file it after
+              // it already happened. Every other type is present/future only.
+              minimumDate={lockedToToday ? (isSingleDayLeave ? todayStart : undefined) : todayStart}
               maximumDate={lockedToToday ? todayStart : undefined}
               isDateDisabled={isDateAlreadyFiledForType}
               onSelect={handleStartDateConfirm}
@@ -981,7 +1075,7 @@ export default function LeaveScreen({ employeeId }: Props) {
               visible={isEndPickerVisible}
               title="Select End Date"
               selectedDate={endDateSelected ? endDate : undefined}
-              minimumDate={startDateSelected ? startDate : undefined}
+              minimumDate={startDateSelected ? startDate : todayStart}
               maximumDate={maxEndDate}
               isDateDisabled={isDateAlreadyFiledForType}
               onSelect={handleEndDateConfirm}
@@ -1088,6 +1182,64 @@ export default function LeaveScreen({ employeeId }: Props) {
                         <Text style={[styles.pendingText, { color: tone.color, backgroundColor: tone.bg }]} numberOfLines={1}>
                           {statusLabel(request.status)}
                         </Text>
+                        {request.status === "NEEDS_REVISION" && (() => {
+                          const requirementNote = [...(request.notes ?? [])].reverse().find((n) => n.type === "REJECTED");
+                          return (
+                            <View style={styles.resubmitSection}>
+                              {requirementNote?.requirementDetails && (
+                                <Text style={styles.requirementNoteText}>
+                                  Requirement needed: {requirementNote.requirementDetails}
+                                </Text>
+                              )}
+
+                              {resubmitAttachment ? (
+                                <View style={styles.attachmentChip}>
+                                  <Ionicons
+                                    name={resubmitAttachment.mimeType.startsWith("image/") ? "image-outline" : "document-outline"}
+                                    size={18}
+                                    color="#1680D8"
+                                  />
+                                  <View style={{ flex: 1 }}>
+                                    <Text style={styles.attachmentName} numberOfLines={1}>{resubmitAttachment.name}</Text>
+                                    <Text style={styles.attachmentSize}>{formatBytes(resubmitAttachment.sizeBytes)}</Text>
+                                  </View>
+                                  <Pressable onPress={() => setResubmitAttachment(null)} style={styles.attachmentRemove}>
+                                    <Ionicons name="close" size={16} color="#64748B" />
+                                  </Pressable>
+                                </View>
+                              ) : (
+                                <Pressable style={styles.attachmentPicker} onPress={pickResubmitAttachment} disabled={isPickingResubmitFile}>
+                                  {isPickingResubmitFile ? (
+                                    <ActivityIndicator size="small" color="#1680D8" />
+                                  ) : (
+                                    <Ionicons name="attach-outline" size={20} color="#1680D8" />
+                                  )}
+                                  <Text style={styles.attachmentPickerText}>
+                                    {isPickingResubmitFile ? "Opening…" : "Tap to attach the requirement"}
+                                  </Text>
+                                </Pressable>
+                              )}
+                              {resubmitAttachmentError && <Text style={styles.attachmentErrorText}>{resubmitAttachmentError}</Text>}
+
+                              <View style={styles.textAreaContainer}>
+                                <TextInput
+                                  placeholder="Optional note to the reviewer"
+                                  multiline
+                                  value={resubmitNote}
+                                  onChangeText={setResubmitNote}
+                                  style={styles.textAreaInput}
+                                />
+                              </View>
+
+                              <Pressable
+                                style={styles.button}
+                                onPress={() => handleResubmitRequest(request.id)}
+                              >
+                                <Text style={styles.buttonText}>Resubmit Request</Text>
+                              </Pressable>
+                            </View>
+                          );
+                        })()}
                         {cancellationDenied && (
                           <View style={styles.cancellationDeniedNote}>
                             <Text style={styles.cancellationDeniedTitle}>
@@ -1623,6 +1775,21 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFBEB", borderWidth: 1, borderColor: "#FEF3C7", borderRadius: 8, padding: 9,
   },
   cancelNoteText: { flex: 1, color: "#92400E", fontSize: 11.5, lineHeight: 16 },
+  resubmitSection: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#E2E8F0",
+    gap: 8,
+  },
+  requirementNoteText: {
+    fontSize: 12.5,
+    fontWeight: "700",
+    color: "#92400E",
+    backgroundColor: "#FEF3C7",
+    borderRadius: 8,
+    padding: 9,
+  },
   cancellationDeniedNote: {
     marginTop: 8,
     backgroundColor: "#FEF2F2",

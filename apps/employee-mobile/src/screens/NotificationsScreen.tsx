@@ -83,7 +83,9 @@ function notificationIcon(type: string | null) {
   if (type === "LEAVE_APPROVED") return { name: "checkmark-circle-outline" as const, color: "#15803D" };
   if (type === "LEAVE_REJECTED") return { name: "close-circle-outline" as const, color: "#B91C1C" };
   if (type === "LEAVE_NEEDS_REQUIREMENTS") return { name: "document-attach-outline" as const, color: "#B45309" };
-  if (type === "LEAVE_SUBMITTED") return { name: "document-text-outline" as const, color: "#1680D8" };
+  if (type === "LEAVE_SUBMITTED" || type === "LEAVE_RESUBMITTED") return { name: "document-text-outline" as const, color: "#1680D8" };
+  if (type === "LEAVE_CANCELLATION_REQUESTED") return { name: "close-circle-outline" as const, color: "#B45309" };
+  if (type === "LEAVE_CANCELLED") return { name: "checkmark-circle-outline" as const, color: "#15803D" };
   if (type === "ANNOUNCEMENT") return { name: "megaphone-outline" as const, color: "#7C3AED" };
   if (type === "ATTENDANCE_LOCKED") return { name: "shield-half-outline" as const, color: "#B91C1C" };
   return { name: "notifications-outline" as const, color: "#244c7a" };
@@ -212,7 +214,6 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [isPickingFile, setIsPickingFile] = useState(false);
   const [note, setNote] = useState("");
-  const [isResubmitting, setIsResubmitting] = useState(false);
   const [justResubmittedId, setJustResubmittedId] = useState<string | null>(null);
 
   // Re-fetches after a mutation (e.g. resubmitting a leave request);
@@ -358,29 +359,38 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
     }
   }
 
-  async function handleResubmit(leaveRequestId: string) {
+  function handleResubmit(leaveRequestId: string) {
     if (!attachment) {
       setAttachmentError("Please attach the requested requirement before resubmitting.");
       return;
     }
-    setIsResubmitting(true);
-    try {
-      await resubmitLeaveRequest(leaveRequestId, {
-        note: note.trim() || undefined,
-        attachmentName: attachment.name,
-        attachmentMimeType: attachment.mimeType,
-        attachmentData: attachment.base64,
+    const payload = {
+      note: note.trim() || undefined,
+      attachmentName: attachment.name,
+      attachmentMimeType: attachment.mimeType,
+      attachmentData: attachment.base64,
+    };
+    const resubmittedNotificationId = expandedId;
+
+    // Optimistic — resubmit() always succeeds straight from NEEDS_REVISION to
+    // PENDING (see leave.service.ts), so the panel closes and the request
+    // shows back in the supervisor's queue immediately instead of the
+    // employee waiting on the round trip; the resubmit/note/attachment
+    // controls are gone the instant this fires since they're only ever
+    // shown for a NEEDS_REVISION request.
+    leaveRequestsCache.setData(leaveRequests.map((r) => (r.id === leaveRequestId ? { ...r, status: "PENDING" } : r)));
+    collapseResubmitForm();
+    setDetailNotification(null);
+    setJustResubmittedId(resubmittedNotificationId);
+
+    resubmitLeaveRequest(leaveRequestId, payload).catch((error) => {
+      leaveRequestsCache.refresh().catch(() => undefined);
+      setReviewResult({
+        status: "error",
+        title: "Resubmission Failed",
+        message: error instanceof Error ? error.message : "Please try again.",
       });
-      const resubmittedNotificationId = expandedId;
-      collapseResubmitForm();
-      setDetailNotification(null);
-      setJustResubmittedId(resubmittedNotificationId);
-      await load();
-    } catch (error) {
-      setAttachmentError(error instanceof Error ? error.message : "Failed to resubmit leave request.");
-    } finally {
-      setIsResubmitting(false);
-    }
+    });
   }
 
   const hasUnread = notifications.some((item) => !item.readAt);
@@ -644,17 +654,11 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                         <Pressable
                           style={({ pressed }) => [
                             styles.resubmitButton,
-                            isResubmitting && styles.resubmitButtonDisabled,
-                            pressed && !isResubmitting && styles.resubmitButtonPressed,
+                            pressed && styles.resubmitButtonPressed,
                           ]}
                           onPress={() => handleResubmit(detailLeaveRequest.id)}
-                          disabled={isResubmitting}
                         >
-                          {isResubmitting ? (
-                            <ActivityIndicator color="#FFFFFF" />
-                          ) : (
-                            <Text style={styles.resubmitButtonText}>Resubmit Request</Text>
-                          )}
+                          <Text style={styles.resubmitButtonText}>Resubmit Request</Text>
                         </Pressable>
                       </>
                     )}
@@ -912,9 +916,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#062B59",
     justifyContent: "center",
     alignItems: "center",
-  },
-  resubmitButtonDisabled: {
-    opacity: 0.7,
   },
   resubmitButtonPressed: {
     opacity: 0.85,

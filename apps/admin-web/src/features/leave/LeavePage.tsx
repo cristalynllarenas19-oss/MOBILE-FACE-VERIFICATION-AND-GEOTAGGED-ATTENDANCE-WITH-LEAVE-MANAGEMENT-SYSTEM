@@ -1926,9 +1926,11 @@ export function LeavePage({
                   <button className="leave-reject-button" onClick={() => reviewLeave("reject")} disabled={isSaving}>
                     {requiresAdditionalRequirements ? "Reject & Request Resubmission" : "Reject"}
                   </button>
-                  <button className="primary-button" onClick={() => reviewLeave("approve")} disabled={isSaving}>
-                    Approve
-                  </button>
+                  {!requiresAdditionalRequirements && (
+                    <button className="primary-button" onClick={() => reviewLeave("approve")} disabled={isSaving}>
+                      Approve
+                    </button>
+                  )}
                 </>
               )}
               {!historyViewOnly && canCancelRequest && (

@@ -471,10 +471,13 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
   // Same-day types (Sick/Emergency/Adverse Weather Leave) pin the start date
   // to exactly today — min and max both equal today, so it can't be backfiled
   // to a past date either. A multi-day !advanceFilingAllowed type only gets
-  // the max (today-or-earlier is fine for those).
+  // the max (today-or-earlier is fine for those, so it can still be filed
+  // after the fact). Every other type is present/future only — no past dates.
   const minStartDate = useMemo(() => {
-    if (selectedType?.advanceFilingAllowed === false && selectedType.isSingleDayOnly) return maxStartDate;
-    return undefined;
+    if (selectedType?.advanceFilingAllowed === false) {
+      return selectedType.isSingleDayOnly ? maxStartDate : undefined;
+    }
+    return new Date().toISOString().slice(0, 10);
   }, [selectedType, maxStartDate]);
 
   // Single-day-only types (Sick Leave, Emergency Leave) always mirror the end
@@ -1002,7 +1005,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                 <CalendarPicker
                   value={endDate}
                   onChange={setEndDate}
-                  min={startDate}
+                  min={startDate || minStartDate}
                   max={maxEndDate}
                   isDateDisabled={isDateAlreadyFiledForType}
                   placeholder="End date"
