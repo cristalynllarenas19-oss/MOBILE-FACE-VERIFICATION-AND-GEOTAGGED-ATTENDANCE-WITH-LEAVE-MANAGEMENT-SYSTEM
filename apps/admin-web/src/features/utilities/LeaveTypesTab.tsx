@@ -22,6 +22,7 @@ import {
 import type { Notification } from "./UtilitiesPage";
 
 type LeaveTypeKind = "GENERAL" | "MATERNITY" | "PATERNITY";
+type CancellationCutoffUnit = "WORKING_DAYS_BEFORE_START" | "HOURS_BEFORE_SHIFT_START";
 
 type ActorRef = { email: string; employee?: { firstName: string; lastName: string } | null } | null;
 
@@ -43,6 +44,9 @@ type LeaveType = {
   requiresAdminGrant: boolean;
   isSingleDayOnly: boolean;
   advanceFilingAllowed: boolean;
+  cancellationAllowed: boolean;
+  cancellationCutoffValue: number | null;
+  cancellationCutoffUnit: CancellationCutoffUnit | null;
   kind: LeaveTypeKind;
   createdAt: string;
   updatedAt: string;
@@ -56,6 +60,11 @@ const LEAVE_TYPE_KIND_OPTIONS: { value: LeaveTypeKind; label: string }[] = [
   { value: "PATERNITY", label: "Paternity" },
 ];
 
+const CANCELLATION_CUTOFF_UNIT_OPTIONS: { value: CancellationCutoffUnit; label: string }[] = [
+  { value: "WORKING_DAYS_BEFORE_START", label: "Working days before start" },
+  { value: "HOURS_BEFORE_SHIFT_START", label: "Hours before shift start" },
+];
+
 // Every leave type always includes Regular - admins only choose which of these
 // additional classifications also get it.
 const OPTIONAL_STATUS_OPTIONS = EMPLOYMENT_STATUS_OPTIONS.filter((o) => o.value !== "REGULAR");
@@ -65,6 +74,16 @@ const PAGE_SIZE = 10;
 function formatDefaultDays(type: LeaveType) {
   if (type.isUnlimitedDays) return "As needed";
   return type.name.trim().toLowerCase() === "sick leave" ? "As needed" : type.defaultDays;
+}
+
+function formatCancellationCutoff(type: Pick<LeaveType, "cancellationAllowed" | "cancellationCutoffValue" | "cancellationCutoffUnit">) {
+  if (!type.cancellationAllowed) return "Not applicable";
+  if (type.cancellationCutoffValue == null || !type.cancellationCutoffUnit) return "Not configured";
+  const value = type.cancellationCutoffValue;
+  if (type.cancellationCutoffUnit === "HOURS_BEFORE_SHIFT_START") {
+    return value === 0 ? "Before shift starts" : `${value} hour(s) before shift start`;
+  }
+  return `${value} working day(s) before start`;
 }
 
 function formatDate(value: string) {
@@ -90,6 +109,9 @@ const emptyForm = {
   requiresAdminGrant: false,
   isSingleDayOnly: false,
   advanceFilingAllowed: true,
+  cancellationAllowed: false,
+  cancellationCutoffValue: "",
+  cancellationCutoffUnit: "WORKING_DAYS_BEFORE_START" as CancellationCutoffUnit,
   isAutoCredited: false,
   isTransferable: false,
   kind: "GENERAL" as LeaveTypeKind,
@@ -167,6 +189,9 @@ export function LeaveTypesTab({
       requiresAdminGrant: type.requiresAdminGrant,
       isSingleDayOnly: type.isSingleDayOnly,
       advanceFilingAllowed: type.advanceFilingAllowed,
+      cancellationAllowed: type.cancellationAllowed,
+      cancellationCutoffValue: type.cancellationCutoffValue != null ? String(type.cancellationCutoffValue) : "",
+      cancellationCutoffUnit: type.cancellationCutoffUnit ?? "WORKING_DAYS_BEFORE_START",
       isAutoCredited: type.isAutoCredited,
       isTransferable: type.isTransferable,
       kind: type.kind,
@@ -184,7 +209,7 @@ export function LeaveTypesTab({
 
   const submitForm = async () => {
     const name = form.name.trim();
-    if (!name || (!form.isUnlimitedDays && !form.defaultDays)) return;
+    if (!name || (!form.isUnlimitedDays && !form.defaultDays) || (form.cancellationAllowed && form.cancellationCutoffValue === "")) return;
     setIsSaving(true);
     setNameError(null);
     try {
@@ -202,6 +227,9 @@ export function LeaveTypesTab({
         requiresAdminGrant: form.requiresAdminGrant,
         isSingleDayOnly: form.isSingleDayOnly,
         advanceFilingAllowed: form.advanceFilingAllowed,
+        cancellationAllowed: form.cancellationAllowed,
+        cancellationCutoffValue: form.cancellationAllowed ? Number(form.cancellationCutoffValue) : undefined,
+        cancellationCutoffUnit: form.cancellationAllowed ? form.cancellationCutoffUnit : undefined,
         isAutoCredited: form.isAutoCredited,
         isTransferable: form.isTransferable,
         kind: form.kind,
@@ -326,6 +354,7 @@ export function LeaveTypesTab({
             <tr>
               <th>NAME</th>
               <th>DEFAULT DAYS/YEAR</th>
+              <th>CANCELLATION CUTOFF</th>
               <th>STATUS</th>
               <th>ACTIONS</th>
             </tr>
@@ -333,7 +362,7 @@ export function LeaveTypesTab({
           <tbody>
             {pagedLeaveTypes.length === 0 ? (
               <tr>
-                <td colSpan={4} className="utilities-empty-state">
+                <td colSpan={5} className="utilities-empty-state">
                   {leaveTypes.length === 0 ? (
                     <div className="utilities-empty-block">
                       <ClipboardList size={28} />
@@ -349,6 +378,7 @@ export function LeaveTypesTab({
                 <tr key={type.id}>
                   <td data-label="Name">{type.name}</td>
                   <td data-label="Default Days/Year">{formatDefaultDays(type)}</td>
+                  <td data-label="Cancellation Cutoff">{formatCancellationCutoff(type)}</td>
                   <td data-label="Status">
                     <Badge tone={type.isActive ? "success" : "neutral"}>
                       {type.isActive ? "Active" : "Inactive"}
@@ -379,7 +409,7 @@ export function LeaveTypesTab({
       {/* Add/Edit Leave Type modal */}
       {formOpen && (
         <div className="utilities-modal-backdrop" role="presentation">
-          <section className="utilities-modal utilities-modal--sm" role="dialog" aria-modal="true" aria-labelledby="leave-type-form-title">
+          <section className="utilities-modal utilities-modal--leave-type-form" role="dialog" aria-modal="true" aria-labelledby="leave-type-form-title">
             <div className="utilities-modal-header">
               <div>
                 <h2 id="leave-type-form-title">{formMode === "create" ? "Add Leave Type" : "Edit Leave Type"}</h2>
@@ -559,6 +589,50 @@ export function LeaveTypesTab({
               <label className="utilities-checkbox">
                 <input
                   type="checkbox"
+                  checked={form.cancellationAllowed}
+                  onChange={(e) => setForm((c) => ({ ...c, cancellationAllowed: e.target.checked }))}
+                />
+                <span>Allow employee cancellation after approval</span>
+              </label>
+
+              {form.cancellationAllowed && (
+                <div className="utilities-field-row utilities-cancellation-cutoff-row">
+                  <label className="utilities-field">
+                    <span className="utilities-field-label">Cancellation Cutoff</span>
+                    <input
+                      className="utilities-input"
+                      type="number"
+                      min={0}
+                      value={form.cancellationCutoffValue}
+                      onChange={(e) => setForm((c) => ({ ...c, cancellationCutoffValue: e.target.value }))}
+                    />
+                  </label>
+                  <label className="utilities-field">
+                    <span className="utilities-field-label">Unit</span>
+                    <select
+                      className="utilities-input"
+                      value={form.cancellationCutoffUnit}
+                      onChange={(e) =>
+                        setForm((c) => ({
+                          ...c,
+                          cancellationCutoffUnit: e.target.value as CancellationCutoffUnit,
+                        }))
+                      }
+                    >
+                      {CANCELLATION_CUTOFF_UNIT_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="utilities-field-hint">Use 0 hours for before shift starts.</span>
+                  </label>
+                </div>
+              )}
+
+              <label className="utilities-checkbox">
+                <input
+                  type="checkbox"
                   checked={form.isAutoCredited}
                   onChange={(e) => setForm((c) => ({ ...c, isAutoCredited: e.target.checked }))}
                 />
@@ -579,7 +653,12 @@ export function LeaveTypesTab({
               <button
                 className="primary-button"
                 onClick={submitForm}
-                disabled={isSaving || !form.name.trim() || (!form.isUnlimitedDays && !form.defaultDays)}
+                disabled={
+                  isSaving ||
+                  !form.name.trim() ||
+                  (!form.isUnlimitedDays && !form.defaultDays) ||
+                  (form.cancellationAllowed && form.cancellationCutoffValue === "")
+                }
               >
                 {isSaving ? "Saving..." : formMode === "create" ? "Add Leave Type" : "Save Changes"}
               </button>
@@ -674,6 +753,10 @@ export function LeaveTypesTab({
                   <Badge tone={viewLeaveType.advanceFilingAllowed ? "neutral" : "warning"}>
                     {viewLeaveType.advanceFilingAllowed ? "Allowed" : "Today only — no future dates"}
                   </Badge>
+                </div>
+                <div>
+                  <span>Cancellation Cutoff</span>
+                  <strong>{formatCancellationCutoff(viewLeaveType)}</strong>
                 </div>
                 <div>
                   <span>Status</span>

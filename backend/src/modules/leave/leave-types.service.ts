@@ -1,4 +1,4 @@
-import { Injectable, ConflictException } from "@nestjs/common";
+import { BadRequestException, Injectable, ConflictException } from "@nestjs/common";
 import { EmploymentStatus, LeaveTypeKind } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 
@@ -40,6 +40,9 @@ export class LeaveTypesService {
       isSingleDayOnly?: boolean;
       advanceFilingAllowed?: boolean;
       kind?: LeaveTypeKind;
+      cancellationAllowed?: boolean;
+      cancellationCutoffValue?: number;
+      cancellationCutoffUnit?: string;
     },
     actorUserId?: string,
   ) {
@@ -51,6 +54,10 @@ export class LeaveTypesService {
     const applicableStatuses = Array.from(
       new Set<EmploymentStatus>(["REGULAR", ...(dto.applicableStatuses ?? [])]),
     );
+
+    if (dto.cancellationAllowed && (dto.cancellationCutoffValue == null || !dto.cancellationCutoffUnit)) {
+      throw new BadRequestException("Cancellation cutoff period is required when employee cancellation is allowed.");
+    }
 
     const created = await this.prisma.leaveType.create({
       data: {
@@ -69,6 +76,9 @@ export class LeaveTypesService {
         isSingleDayOnly: dto.isSingleDayOnly ?? false,
         advanceFilingAllowed: dto.advanceFilingAllowed ?? true,
         kind: dto.kind ?? "GENERAL",
+        cancellationAllowed: dto.cancellationAllowed ?? false,
+        cancellationCutoffValue: dto.cancellationAllowed ? dto.cancellationCutoffValue : null,
+        cancellationCutoffUnit: dto.cancellationAllowed ? dto.cancellationCutoffUnit : null,
         createdBy: actorUserId,
       },
     });
@@ -95,6 +105,9 @@ export class LeaveTypesService {
           isSingleDayOnly: created.isSingleDayOnly,
           advanceFilingAllowed: created.advanceFilingAllowed,
           kind: created.kind,
+          cancellationAllowed: created.cancellationAllowed,
+          cancellationCutoffValue: created.cancellationCutoffValue,
+          cancellationCutoffUnit: created.cancellationCutoffUnit,
         },
       },
     });
@@ -120,6 +133,9 @@ export class LeaveTypesService {
       isSingleDayOnly?: boolean;
       advanceFilingAllowed?: boolean;
       kind?: LeaveTypeKind;
+      cancellationAllowed?: boolean;
+      cancellationCutoffValue?: number;
+      cancellationCutoffUnit?: string;
     },
     actorUserId?: string,
   ) {
@@ -128,6 +144,10 @@ export class LeaveTypesService {
     if (dto.name && dto.name !== existing.name) {
       const duplicate = await this.prisma.leaveType.findUnique({ where: { name: dto.name } });
       if (duplicate) throw new ConflictException(`Leave type "${dto.name}" already exists.`);
+    }
+
+    if (dto.cancellationAllowed && (dto.cancellationCutoffValue == null || !dto.cancellationCutoffUnit)) {
+      throw new BadRequestException("Cancellation cutoff period is required when employee cancellation is allowed.");
     }
 
     const applicableStatuses = dto.applicableStatuses
@@ -152,6 +172,15 @@ export class LeaveTypesService {
         isSingleDayOnly: dto.isSingleDayOnly,
         advanceFilingAllowed: dto.advanceFilingAllowed,
         kind: dto.kind,
+        cancellationAllowed: dto.cancellationAllowed,
+        cancellationCutoffValue:
+          dto.cancellationAllowed === false
+            ? null
+            : dto.cancellationCutoffValue,
+        cancellationCutoffUnit:
+          dto.cancellationAllowed === false
+            ? null
+            : dto.cancellationCutoffUnit,
         updatedBy: actorUserId,
       },
       include: {
@@ -182,6 +211,9 @@ export class LeaveTypesService {
           isSingleDayOnly: existing.isSingleDayOnly,
           advanceFilingAllowed: existing.advanceFilingAllowed,
           kind: existing.kind,
+          cancellationAllowed: existing.cancellationAllowed,
+          cancellationCutoffValue: existing.cancellationCutoffValue,
+          cancellationCutoffUnit: existing.cancellationCutoffUnit,
         },
         newValues: {
           name: updated.name,
@@ -199,6 +231,9 @@ export class LeaveTypesService {
           isSingleDayOnly: updated.isSingleDayOnly,
           advanceFilingAllowed: updated.advanceFilingAllowed,
           kind: updated.kind,
+          cancellationAllowed: updated.cancellationAllowed,
+          cancellationCutoffValue: updated.cancellationCutoffValue,
+          cancellationCutoffUnit: updated.cancellationCutoffUnit,
         },
       },
     });

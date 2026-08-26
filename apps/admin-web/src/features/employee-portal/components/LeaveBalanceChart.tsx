@@ -17,10 +17,11 @@ type Props = {
   loading?: boolean;
   pendingCount?: number;
   onPressPending?: () => void;
+  onPressViewAll?: () => void;
   onRequest?: (leaveTypeId: string) => void;
 };
 
-export function LeaveBalanceChart({ balances, loading, pendingCount, onPressPending, onRequest }: Props) {
+export function LeaveBalanceChart({ balances, loading, pendingCount, onPressPending, onPressViewAll, onRequest }: Props) {
   const totalEarned = balances.reduce((sum, b) => sum + b.earnedDays, 0);
   const totalUsed = balances.reduce((sum, b) => sum + b.usedDays, 0);
   const totalRemaining = balances.reduce((sum, b) => sum + b.remainingDays, 0);
@@ -49,6 +50,12 @@ export function LeaveBalanceChart({ balances, loading, pendingCount, onPressPend
     </div>
   );
 
+  const viewAllButton = onPressViewAll && (
+    <button type="button" className="lbc-view-all-button" onClick={onPressViewAll}>
+      View ongoing and future filed leave
+    </button>
+  );
+
   if (loading) {
     return (
       <div className="lbc-card">
@@ -70,6 +77,7 @@ export function LeaveBalanceChart({ balances, loading, pendingCount, onPressPend
   return (
     <div className="lbc-card">
       {header}
+      {viewAllButton}
 
       <div className="lbc-summary-row">
         <div className="lbc-ring-wrap">

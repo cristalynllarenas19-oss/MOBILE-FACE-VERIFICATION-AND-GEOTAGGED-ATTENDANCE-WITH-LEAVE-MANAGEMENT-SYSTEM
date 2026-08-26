@@ -237,6 +237,9 @@ export type LeaveType = {
   requiresAdminGrant: boolean;
   isSingleDayOnly: boolean;
   advanceFilingAllowed: boolean;
+  cancellationAllowed: boolean;
+  cancellationCutoffValue: number | null;
+  cancellationCutoffUnit: "WORKING_DAYS_BEFORE_START" | "HOURS_BEFORE_SHIFT_START" | null;
   kind?: "GENERAL" | "MATERNITY" | "PATERNITY";
 };
 
@@ -251,7 +254,7 @@ export type LeaveBalance = {
 
 export type LeaveRequestNote = {
   id: string;
-  type: "REJECTED" | "RESUBMITTED";
+  type: "REJECTED" | "RESUBMITTED" | "CANCELLED" | "CANCELLATION_DENIED";
   message?: string | null;
   requiresAdditionalRequirements?: boolean;
   requirementDetails?: string | null;
@@ -266,10 +269,21 @@ export type LeaveRequest = {
   totalDays: string;
   status: string;
   reason: string;
+  createdAt: string;
   attachmentName?: string | null;
   adminRemarks?: { remarks?: string } | null;
   notes?: LeaveRequestNote[];
-  leaveType: { id: string; name: string };
+  leaveType: {
+    id: string;
+    name: string;
+    cancellationAllowed?: boolean;
+    cancellationCutoffValue?: number | null;
+    cancellationCutoffUnit?: "WORKING_DAYS_BEFORE_START" | "HOURS_BEFORE_SHIFT_START" | null;
+  };
+  // Server-computed — whether an employee (not an admin override) could
+  // cancel this request right now, and why not if not. Only meaningful for
+  // an APPROVED request; PENDING/SUPERVISOR_APPROVED are always allowed.
+  cancellation?: { allowed: boolean; reason?: string; deadline?: string };
 };
 
 export type CreateLeaveRequestInput = {
@@ -594,8 +608,11 @@ export async function resubmitLeaveRequest(id: string, input: ResubmitLeaveReque
   });
 }
 
-export async function cancelLeaveRequest(id: string) {
-  return apiRequest<LeaveRequest>(`/leave-requests/${id}/cancel`, { method: "PATCH" });
+export async function cancelLeaveRequest(id: string, note: string) {
+  return apiRequest<LeaveRequest>(`/leave-requests/${id}/cancel`, {
+    method: "PATCH",
+    body: JSON.stringify({ note }),
+  });
 }
 
 export type UndertimeEligibility = {
@@ -815,6 +832,21 @@ export async function rejectLeaveRequest(
   input: { remarks: string; requiresAdditionalRequirements?: boolean; requirementDetails?: string },
 ) {
   return apiRequest<TeamLeaveRequest>(`/leave-requests/${id}/reject`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+// Decides an employee's request to cancel their own already-APPROVED leave
+// (see leave.service.ts's approveCancellation/denyCancellation) — approving
+// finalizes it to CANCELLED, denying reverts it to APPROVED as if nothing
+// happened.
+export async function approveLeaveCancellation(id: string) {
+  return apiRequest<TeamLeaveRequest>(`/leave-requests/${id}/approve-cancellation`, { method: "PATCH" });
+}
+
+export async function denyLeaveCancellation(id: string, remarks?: string) {
+  return apiRequest<TeamLeaveRequest>(`/leave-requests/${id}/deny-cancellation`, {
+    method: "PATCH",
+    body: JSON.stringify({ remarks: remarks?.trim() || undefined }),
+  });
 }
 
 export type ScheduleAssignment = {

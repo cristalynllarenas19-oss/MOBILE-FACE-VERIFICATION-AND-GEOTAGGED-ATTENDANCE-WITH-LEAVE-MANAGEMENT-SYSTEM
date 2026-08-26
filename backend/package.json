@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "prestart": "node scripts/free-port.js",
     "start": "nest start",
+    "prestart:dev": "node scripts/free-port.js",
     "start:dev": "nest start --watch",
     "build": "nest build",
     "prisma:generate": "prisma generate",

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  AppState,
   View,
   Text,
   TextInput,
@@ -12,11 +13,12 @@ import {
   ScrollView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import DateTimePickerModal from "react-native-modal-datetime-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { File } from "expo-file-system";
+import DateTimePickerModal from "react-native-modal-datetime-picker";
 import ResultModal, { ResultModalStatus } from "../components/ResultModal";
 import LeaveBalanceChart from "../components/LeaveBalanceChart";
+import CalendarPickerModal from "../components/CalendarPickerModal";
 import {
   LeaveType,
   LeaveBalance,
@@ -38,6 +40,13 @@ import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+// There's no push/WebSocket infra in this app — a supervisor's approve/
+// reject only lands here on the next fetch. Polling this often while the
+// screen is mounted (it unmounts when the tab is switched away, since
+// MainScreen swaps tabs via plain state rather than routing) is the
+// pragmatic way to make that feel near-instant without adding real-time
+// transport.
+const LEAVE_POLL_MS = 10000;
 
 // Stable fallbacks so useMemo filters don't recompute on every render while
 // the cache/network is still empty.
@@ -86,9 +95,13 @@ function statusTone(status: string) {
   return { color: "#B45309", bg: "#FEF3C7" };
 }
 
+// Same wording as admin-web's employee portal and Leave Management page, so
+// an employee and their supervisor/HR always read the same status for the
+// same request regardless of which app they're on.
 function statusLabel(status: string) {
-  if (status === "SUPERVISOR_APPROVED") return "APPROVED — FINALIZING";
-  return status.replace("_", " ");
+  if (status === "SUPERVISOR_APPROVED") return "APPROVED";
+  if (status === "CANCELLATION_PENDING") return "PENDING CANCELLATION";
+  return status.replace(/_/g, " ");
 }
 
 export default function LeaveScreen({ employeeId }: Props) {
@@ -130,10 +143,30 @@ export default function LeaveScreen({ employeeId }: Props) {
   const [isPickingFile, setIsPickingFile] = useState(false);
 
   const [showPending, setShowPending] = useState(false);
+  // "My Leave Requests" modal — Current (anything still awaiting a decision,
+  // or approved and not yet finished) vs Past (cancelled, rejected, or an
+  // approved leave whose dates are already over). Defaults to Current since
+  // that's what an employee opens this for most of the time — including
+  // right after requesting a cancellation, so that request stays visible
+  // instead of appearing to vanish.
+  const [requestsListTab, setRequestsListTab] = useState<"current" | "past">("current");
+  const [requestsDateFilter, setRequestsDateFilter] = useState<Date | null>(null);
+  const [isRequestsDatePickerVisible, setRequestsDatePickerVisibility] = useState(false);
+  // Tapping a summary row in the "My Leave Requests" list opens its detail
+  // (with the Cancel button) in place of the list, inside the same modal.
+  const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null);
+  // Cancel is a destructive, irreversible action — tapping Cancel opens this
+  // confirm step instead of cancelling immediately. The backend requires a
+  // reason (see leave.service.ts's cancel()), so it's collected right here.
+  const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
+  const [cancelReasonText, setCancelReasonText] = useState("");
   const [activeTab, setActiveTab] = useState<"balance" | "request" | "undertime">("balance");
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [resultModal, setResultModal] = useState<{ status: ResultModalStatus; title: string; message: string } | null>(null);
-  const [cancellingId, setCancellingId] = useState<string | null>(null);
+  // Sticks around (independent of resultModal, which the user may have
+  // already dismissed by the time a background submission actually fails)
+  // until explicitly closed, and shows on every tab so a failed leave
+  // request filed optimistically is never silently missed.
+  const [submissionAlert, setSubmissionAlert] = useState<{ title: string; message: string } | null>(null);
 
   // Undertime filing
   const undertimeEligibilityCache = useCachedData<UndertimeEligibility>(
@@ -226,6 +259,14 @@ export default function LeaveScreen({ employeeId }: Props) {
       });
       return;
     }
+    if (isLeaveTypeAlreadyPending(type)) {
+      setResultModal({
+        status: "info",
+        title: "Already Pending",
+        message: `You already have a ${type.name} request awaiting review. Please wait until it is approved, rejected, or cancelled before filing another for this leave type.`,
+      });
+      return;
+    }
     setLeaveTypeId(id);
     if (type.isSingleDayOnly) {
       setStartDate(todayStart);
@@ -248,6 +289,64 @@ export default function LeaveScreen({ employeeId }: Props) {
     () => requests.filter((r) => r.status === "PENDING" || r.status === "SUPERVISOR_APPROVED" || r.status === "NEEDS_REVISION"),
     [requests],
   );
+  // A request is "current" if it's still awaiting a decision (including a
+  // pending self-cancellation — CANCELLATION_PENDING — so requesting a
+  // cancellation never makes the request appear to vanish from this list) or
+  // it's APPROVED and its leave period hasn't finished yet. Everything else
+  // (CANCELLED, REJECTED, or an APPROVED leave whose dates are already over)
+  // is "past". Together these two are every request the employee has ever
+  // filed — the split is purely by date/finality, not a separate filter.
+  // Each card's own Cancel button still only shows when that specific
+  // request is actually cancellable (see canShowCancelSection below), never
+  // assumed here.
+  function isCurrentLeaveRequest(r: LeaveRequest) {
+    if (
+      r.status === "PENDING" ||
+      r.status === "SUPERVISOR_APPROVED" ||
+      r.status === "NEEDS_REVISION" ||
+      r.status === "CANCELLATION_PENDING"
+    ) {
+      return true;
+    }
+    return r.status === "APPROVED" && new Date(r.endDate) >= todayStart;
+  }
+
+  function matchesDateFilter(r: LeaveRequest) {
+    if (!requestsDateFilter) return true;
+    const filed = new Date(r.createdAt);
+    return (
+      filed.getFullYear() === requestsDateFilter.getFullYear() &&
+      filed.getMonth() === requestsDateFilter.getMonth() &&
+      filed.getDate() === requestsDateFilter.getDate()
+    );
+  }
+
+  const currentRequests = useMemo(
+    () =>
+      requests
+        .filter((r) => isCurrentLeaveRequest(r) && matchesDateFilter(r))
+        .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()),
+    [requests, todayStart, requestsDateFilter],
+  );
+  // History — everything not currently active, most-recently-filed first.
+  const pastRequests = useMemo(
+    () =>
+      requests
+        .filter((r) => !isCurrentLeaveRequest(r) && matchesDateFilter(r))
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    [requests, todayStart, requestsDateFilter],
+  );
+  const expandedRequest = useMemo(
+    () => requests.find((r) => r.id === expandedRequestId),
+    [requests, expandedRequestId],
+  );
+
+  // Mirrors the backend's same-type check (leave.service.ts) — a leave type
+  // with an active request can't be selected again until that one is
+  // resolved, but other types remain requestable.
+  function isLeaveTypeAlreadyPending(item: LeaveType) {
+    return pendingRequests.some((r) => r.leaveType.id === item.id);
+  }
 
   // Re-fetches everything after a mutation (e.g. submitting a request);
   // initial loads happen inside each useCachedData hook.
@@ -259,20 +358,78 @@ export default function LeaveScreen({ employeeId }: Props) {
     }
   }
 
-  async function handleCancel(requestId: string) {
-    setCancellingId(requestId);
-    try {
-      await cancelLeaveRequest(requestId);
-      await requestsCache.refresh();
-    } catch (err) {
-      setResultModal({
-        status: "error",
-        title: "Cancellation Failed",
-        message: err instanceof Error ? err.message : "Unable to cancel this leave request.",
+  // Keeps status changes (a supervisor's approve/reject, balance deducted,
+  // etc.) showing up here without the employee having to leave and reopen
+  // the tab. Stopped automatically on unmount, i.e. whenever they switch
+  // away from the Leave tab.
+  const loadDataRef = useRef(loadData);
+  loadDataRef.current = loadData;
+  useEffect(() => {
+    const interval = setInterval(() => loadDataRef.current(), LEAVE_POLL_MS);
+    // setInterval doesn't reliably keep firing while the app is backgrounded
+    // — refetch immediately on returning to the foreground so a decision
+    // made while the employee's phone was locked shows up the moment they
+    // look at it again, instead of waiting out whatever's left of the poll.
+    const appStateSub = AppState.addEventListener("change", (state) => {
+      if (state === "active") loadDataRef.current();
+    });
+    return () => {
+      clearInterval(interval);
+      appStateSub.remove();
+    };
+  }, []);
+
+  // Opening the requests list is exactly when a stale status is most
+  // visible and most annoying — force a fresh fetch right away instead of
+  // waiting for the next poll tick (up to LEAVE_POLL_MS late). Only
+  // `requests` is shown in this modal, so only that cache needs refetching.
+  function openPendingModal() {
+    setShowPending(true);
+    setRequestsListTab("current");
+    setRequestsDateFilter(null);
+    requestsCache.refresh().catch(() => undefined);
+  }
+
+  // Optimistic — the app already knows the outcome (mirrors
+  // leave.service.ts's cancel(): an APPROVED request can't cancel outright,
+  // it drops to CANCELLATION_PENDING until a Supervisor/Admin decides;
+  // anything else not yet committed goes straight to CANCELLED) — so the
+  // confirmation modal closes and the new status shows immediately instead
+  // of the employee waiting on the round trip, and the request to the
+  // supervisor goes out in the background. Balance is untouched either way
+  // (see cancel()'s comments), so only the requests cache needs refreshing.
+  //
+  // Deliberately does NOT clear expandedRequestId — the employee stays right
+  // where they were and sees the request's own status flip to "Pending
+  // Cancellation"/"Cancelled" in place, instead of being bounced back out to
+  // the list.
+  function handleCancel(requestId: string, note: string) {
+    const target = requests.find((r) => r.id === requestId);
+    if (!target) return;
+    const newStatus = target.status === "APPROVED" ? "CANCELLATION_PENDING" : "CANCELLED";
+
+    requestsCache.setData(requests.map((r) => (r.id === requestId ? { ...r, status: newStatus } : r)));
+    setResultModal({
+      status: "approved",
+      title: newStatus === "CANCELLATION_PENDING" ? "Cancellation Requested" : "Leave Request Cancelled",
+      message:
+        newStatus === "CANCELLATION_PENDING"
+          ? "Your supervisor has been notified and will need to approve this cancellation."
+          : "This leave request has been cancelled.",
+    });
+
+    cancelLeaveRequest(requestId, note)
+      .then(() => requestsCache.refresh())
+      .catch((err) => {
+        // The optimistic status above was wrong — re-sync with the real
+        // server state instead of leaving a false status showing.
+        requestsCache.refresh().catch(() => undefined);
+        setResultModal({
+          status: "error",
+          title: "Cancellation Failed",
+          message: err instanceof Error ? err.message : "Unable to cancel this leave request.",
+        });
       });
-    } finally {
-      setCancellingId(null);
-    }
   }
 
   const handleStartDateConfirm = (selectedDate = new Date()) => {
@@ -318,6 +475,33 @@ export default function LeaveScreen({ employeeId }: Props) {
     max.setDate(max.getDate() + Math.max(0, remaining - 1));
     return max;
   }, [selectedLeaveType, startDate, startDateSelected, remainingByLeaveType]);
+
+  // Date ranges already filed (any non-cancelled/rejected status) for the
+  // currently selected leave type — the calendar disables every individual
+  // day within them, and handleSubmit's overlap check (mirroring the
+  // backend) is the authoritative backstop regardless of what the UI shows.
+  const blockedRangesForSelectedType = useMemo(() => {
+    if (!leaveTypeId) return [];
+    return requests
+      .filter(
+        (r) =>
+          r.leaveType.id === leaveTypeId &&
+          (r.status === "PENDING" ||
+            r.status === "SUPERVISOR_APPROVED" ||
+            r.status === "NEEDS_REVISION" ||
+            r.status === "APPROVED"),
+      )
+      .map((r) => ({
+        start: new Date(new Date(r.startDate).getFullYear(), new Date(r.startDate).getMonth(), new Date(r.startDate).getDate()),
+        end: new Date(new Date(r.endDate).getFullYear(), new Date(r.endDate).getMonth(), new Date(r.endDate).getDate()),
+      }));
+  }, [requests, leaveTypeId]);
+
+  function isDateAlreadyFiledForType(date: Date) {
+    const day = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const hit = blockedRangesForSelectedType.some((range) => day >= range.start && day <= range.end);
+    return hit ? "Already filed for this leave type" : undefined;
+  }
 
   // Single-day-only types (Sick Leave, Emergency Leave) always mirror the end
   // date to the start date the moment either one is known.
@@ -414,6 +598,38 @@ export default function LeaveScreen({ employeeId }: Props) {
     const leaveEndDate = isSingleDayLeave ? startDate : endDate;
     const leaveTotalDays = isSingleDayLeave ? 1 : totalDays;
 
+    // Mirrors the backend's check (leave.service.ts) so the error shows up
+    // immediately instead of after a round trip — same type is blocked
+    // regardless of dates, a different type is always fine.
+    const pendingOfSameType = pendingRequests.find((r) => r.leaveType.id === leaveTypeId);
+    if (pendingOfSameType) {
+      setResultModal({
+        status: "error",
+        title: "Already Pending",
+        message: `You already have a ${selectedLeaveType?.name} request awaiting review. Please wait until it is approved, rejected, or cancelled before filing another for this leave type.`,
+      });
+      return;
+    }
+
+    // Any date already covered by an APPROVED request of this *same* leave
+    // type is off-limits until that request is cancelled. Mirrors the
+    // backend's check in leave.service.ts.
+    const overlappingApproved = requests.find(
+      (r) =>
+        r.leaveType.id === leaveTypeId &&
+        r.status === "APPROVED" &&
+        new Date(r.startDate) <= leaveEndDate &&
+        new Date(r.endDate) >= leaveStartDate,
+    );
+    if (overlappingApproved) {
+      setResultModal({
+        status: "error",
+        title: "Dates Unavailable",
+        message: `These dates overlap your approved ${selectedLeaveType?.name} (${new Date(overlappingApproved.startDate).toLocaleDateString()} - ${new Date(overlappingApproved.endDate).toLocaleDateString()}). Cancel that request first if you need to change it.`,
+      });
+      return;
+    }
+
     if (selectedLeaveType?.requiresDocument && !attachment) {
       setResultModal({
         status: "info",
@@ -450,40 +666,64 @@ export default function LeaveScreen({ employeeId }: Props) {
       }
     }
 
-    setIsSubmitting(true);
-    try {
-      await createLeaveRequest({
-        employeeId,
-        leaveTypeId,
-        startDate: leaveStartDate.toISOString(),
-        endDate: leaveEndDate.toISOString(),
-        totalDays: leaveTotalDays,
-        reason: reason.trim(),
-        attachmentName: attachment?.name,
-        attachmentMimeType: attachment?.mimeType,
-        attachmentData: attachment?.base64,
-      });
+    // All the validation above (including the same-type-pending check)
+    // already mirrors what the backend will enforce, so the request is
+    // effectively guaranteed to succeed — confirm immediately and let the
+    // actual submission finish in the background instead of making the
+    // employee wait on the round trip.
+    const payload = {
+      employeeId,
+      leaveTypeId,
+      startDate: leaveStartDate.toISOString(),
+      endDate: leaveEndDate.toISOString(),
+      totalDays: leaveTotalDays,
+      reason: reason.trim(),
+      attachmentName: attachment?.name,
+      attachmentMimeType: attachment?.mimeType,
+      attachmentData: attachment?.base64,
+    };
 
-      resetForm();
-      await loadData();
-      setResultModal({
-        status: "approved",
-        title: "Leave Request Submitted",
-        message: "Your HR/Admin and supervisor have been notified. You'll be notified once it's reviewed.",
+    resetForm();
+    setResultModal({
+      status: "approved",
+      title: "Leave Request Submitted",
+      message: "Your HR/Admin and supervisor have been notified. You'll be notified once it's reviewed.",
+    });
+
+    createLeaveRequest(payload)
+      // Only `requests` actually changed (the new request itself) — balances
+      // don't move until this is approved, and leave types are untouched by
+      // filing a request, so this doesn't refetch them via loadData().
+      .then(() => requestsCache.refresh())
+      .catch((error) => {
+        // The "Submitted" modal above has likely already been dismissed by
+        // now, so a transient modal here isn't enough — this sticks around
+        // (see submissionAlert) until the employee explicitly closes it.
+        setSubmissionAlert({
+          title: "Leave Request Failed",
+          message: `Your ${selectedLeaveType?.name ?? "leave"} request did not go through: ${error instanceof Error ? error.message : "please try again."}`,
+        });
+        // Best-effort — if this also fails (e.g. still offline), the cached
+        // pending list simply stays as it was; the alert above is what
+        // actually informs the employee either way.
+        requestsCache.refresh().catch(() => undefined);
       });
-    } catch (error) {
-      setResultModal({
-        status: "error",
-        title: "Submission Failed",
-        message: error instanceof Error ? error.message : "Failed to submit leave request.",
-      });
-    } finally {
-      setIsSubmitting(false);
-    }
   }
 
   return (
     <SafeAreaView style={styles.safeArea}>
+      {submissionAlert && (
+        <View style={styles.submissionAlertBanner}>
+          <Ionicons name="warning-outline" size={18} color="#B91C1C" />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.submissionAlertTitle}>{submissionAlert.title}</Text>
+            <Text style={styles.submissionAlertMessage}>{submissionAlert.message}</Text>
+          </View>
+          <Pressable onPress={() => setSubmissionAlert(null)} hitSlop={8}>
+            <Ionicons name="close" size={18} color="#B91C1C" />
+          </Pressable>
+        </View>
+      )}
       <View style={styles.tabSwitcher}>
         <Pressable
           style={[styles.tabButton, activeTab === "balance" && styles.tabButtonActive]}
@@ -506,15 +746,16 @@ export default function LeaveScreen({ employeeId }: Props) {
       </View>
 
       {activeTab === "balance" ? (
-        <View style={[styles.tabContentPad, { flex: 1 }]}>
+        <ScrollView contentContainerStyle={[styles.tabContentPad, { flexGrow: 1 }]}>
           <LeaveBalanceChart
             balances={visibleBalances}
             loading={isLoadingData}
             pendingCount={pendingRequests.length}
-            onPressPending={() => setShowPending(true)}
+            onPressPending={openPendingModal}
+            onPressViewAll={openPendingModal}
             onRequestLeave={handleRequestFromBalance}
           />
-        </View>
+        </ScrollView>
       ) : activeTab === "undertime" ? (
         <ScrollView
           contentContainerStyle={[styles.tabContentPad, { flexGrow: 1 }]}
@@ -578,54 +819,6 @@ export default function LeaveScreen({ employeeId }: Props) {
             )}
           </View>
         </ScrollView>
-      ) : pendingRequests.length > 0 ? (
-        <ScrollView
-          contentContainerStyle={[styles.tabContentPad, { flexGrow: 1 }]}
-          keyboardShouldPersistTaps="handled"
-        >
-          <View style={styles.card}>
-            <View style={styles.formHeader}>
-              <Ionicons color="#DC2777" name="document-text-outline" size={32} />
-              <Text style={styles.cardTitle}>Leave Request</Text>
-            </View>
-
-            <Text style={styles.pendingNoticeText}>
-              You have a leave request awaiting review. You can submit a new request once it's approved, rejected, or cancelled.
-            </Text>
-
-            {pendingRequests.map((request) => {
-              const tone = statusTone(request.status);
-              return (
-                <View key={request.id} style={styles.requestCard}>
-                  <Text style={styles.requestTitle}>{request.leaveType.name}</Text>
-                  <Text>
-                    {new Date(request.startDate).toLocaleDateString()} - {new Date(request.endDate).toLocaleDateString()}
-                  </Text>
-                  {request.attachmentName && (
-                    <View style={styles.requestAttachmentRow}>
-                      <Ionicons name="attach-outline" size={13} color="#64748B" />
-                      <Text style={styles.requestAttachmentText}>{request.attachmentName}</Text>
-                    </View>
-                  )}
-                  <Text style={[styles.pendingText, { color: tone.color, backgroundColor: tone.bg }]}>
-                    {statusLabel(request.status)}
-                  </Text>
-                  {(request.status === "PENDING" || request.status === "SUPERVISOR_APPROVED") && (
-                    <Pressable
-                      style={styles.cancelRequestButton}
-                      onPress={() => handleCancel(request.id)}
-                      disabled={cancellingId === request.id}
-                    >
-                      <Text style={styles.cancelRequestButtonText}>
-                        {cancellingId === request.id ? "Cancelling…" : "Cancel"}
-                      </Text>
-                    </Pressable>
-                  )}
-                </View>
-              );
-            })}
-          </View>
-        </ScrollView>
       ) : (
         <ScrollView
           contentContainerStyle={[styles.tabContentPad, { flexGrow: 1 }]}
@@ -636,6 +829,14 @@ export default function LeaveScreen({ employeeId }: Props) {
               <Ionicons color="#DC2777" name="document-text-outline" size={32} />
               <Text style={styles.cardTitle}>Leave Request</Text>
             </View>
+
+            {pendingRequests.length > 0 && (
+              <Pressable onPress={openPendingModal}>
+                <Text style={styles.pendingNoticeText}>
+                  You have {pendingRequests.length} leave request{pendingRequests.length === 1 ? "" : "s"} awaiting review (tap to view). You can still file for a different leave type.
+                </Text>
+              </Pressable>
+            )}
 
             <Text style={styles.label}>Leave Type</Text>
             <View style={styles.dropdownWrapper}>
@@ -679,11 +880,13 @@ export default function LeaveScreen({ employeeId }: Props) {
                   {filteredLeaveTypes.length > 0 ? (
                     filteredLeaveTypes.map((item) => {
                       const exhausted = isLeaveTypeExhausted(item);
+                      const alreadyPending = isLeaveTypeAlreadyPending(item);
+                      const disabled = exhausted || alreadyPending;
                       return (
                         <Pressable
                           key={item.id}
-                          style={[styles.inlineItem, exhausted && styles.inlineItemDisabled]}
-                          disabled={exhausted}
+                          style={[styles.inlineItem, disabled && styles.inlineItemDisabled]}
+                          disabled={disabled}
                           onPress={() => {
                             setLeaveTypeId(item.id);
                             if (isOneDayLeaveType(item.name, item.isSingleDayOnly)) {
@@ -700,7 +903,7 @@ export default function LeaveScreen({ employeeId }: Props) {
                             style={[
                               styles.inlineItemText,
                               leaveTypeId === item.id && styles.selectedItemText,
-                              exhausted && styles.disabledItemText,
+                              disabled && styles.disabledItemText,
                             ]}
                           >
                             {item.name}
@@ -709,7 +912,9 @@ export default function LeaveScreen({ employeeId }: Props) {
                               ? item.requiresAdminGrant
                                 ? " (apply to HR/Admin first)"
                                 : " (no balance left)"
-                              : ""}
+                              : alreadyPending
+                                ? " (already pending)"
+                                : ""}
                           </Text>
                         </Pressable>
                       );
@@ -761,21 +966,26 @@ export default function LeaveScreen({ employeeId }: Props) {
               </Text>
             )}
 
-            <DateTimePickerModal
-              isVisible={isStartPickerVisible}
-              mode="date"
+            <CalendarPickerModal
+              visible={isStartPickerVisible}
+              title="Select Start Date"
+              selectedDate={startDateSelected ? startDate : undefined}
+              minimumDate={lockedToToday && isSingleDayLeave ? todayStart : undefined}
               maximumDate={lockedToToday ? todayStart : undefined}
-              onConfirm={handleStartDateConfirm}
-              onCancel={() => setStartPickerVisibility(false)}
+              isDateDisabled={isDateAlreadyFiledForType}
+              onSelect={handleStartDateConfirm}
+              onClose={() => setStartPickerVisibility(false)}
             />
 
-            <DateTimePickerModal
-              isVisible={isEndPickerVisible}
-              mode="date"
+            <CalendarPickerModal
+              visible={isEndPickerVisible}
+              title="Select End Date"
+              selectedDate={endDateSelected ? endDate : undefined}
               minimumDate={startDateSelected ? startDate : undefined}
               maximumDate={maxEndDate}
-              onConfirm={handleEndDateConfirm}
-              onCancel={() => setEndPickerVisibility(false)}
+              isDateDisabled={isDateAlreadyFiledForType}
+              onSelect={handleEndDateConfirm}
+              onClose={() => setEndPickerVisibility(false)}
             />
 
             <Text style={styles.label}>
@@ -821,12 +1031,8 @@ export default function LeaveScreen({ employeeId }: Props) {
               />
             </View>
 
-            <Pressable style={[styles.button, isSubmitting && styles.buttonDisabled]} onPress={handleSubmit} disabled={isSubmitting}>
-              {isSubmitting ? (
-                <ActivityIndicator color="#FFFFFF" />
-              ) : (
-                <Text style={styles.buttonText}>Submit Leave Request</Text>
-              )}
+            <Pressable style={styles.button} onPress={handleSubmit}>
+              <Text style={styles.buttonText}>Submit Leave Request</Text>
             </Pressable>
           </View>
         </ScrollView>
@@ -835,47 +1041,224 @@ export default function LeaveScreen({ employeeId }: Props) {
       <Modal visible={showPending} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Pending Leave Requests</Text>
-            <ScrollView style={{ maxHeight: 320 }}>
-              {pendingRequests.length === 0 ? (
-                <Text style={styles.modalEmptyText}>No pending leave requests.</Text>
-              ) : (
-                pendingRequests.map((request) => {
-                  const tone = statusTone(request.status);
-                  return (
-                    <View key={request.id} style={styles.requestCard}>
-                      <Text style={styles.requestTitle}>{request.leaveType.name}</Text>
-                      <Text>
-                        {new Date(request.startDate).toLocaleDateString()} - {new Date(request.endDate).toLocaleDateString()}
-                      </Text>
-                      {request.attachmentName && (
-                        <View style={styles.requestAttachmentRow}>
-                          <Ionicons name="attach-outline" size={13} color="#64748B" />
-                          <Text style={styles.requestAttachmentText}>{request.attachmentName}</Text>
-                        </View>
-                      )}
-                      <Text style={[styles.pendingText, { color: tone.color, backgroundColor: tone.bg }]}>
-                        {statusLabel(request.status)}
-                      </Text>
-                      {(request.status === "PENDING" || request.status === "SUPERVISOR_APPROVED") && (
+            {expandedRequest ? (
+              <>
+                <Pressable style={styles.backRow} onPress={() => setExpandedRequestId(null)}>
+                  <Ionicons name="chevron-back" size={16} color="#1680D8" />
+                  <Text style={styles.backText}>All requests</Text>
+                </Pressable>
+                <Text style={styles.modalTitle}>Leave Request Details</Text>
+                <ScrollView style={{ maxHeight: 320 }}>
+                  {(() => {
+                    const request = expandedRequest;
+                    const tone = statusTone(request.status);
+                    const canShowCancelSection =
+                      request.status === "PENDING" ||
+                      request.status === "SUPERVISOR_APPROVED" ||
+                      request.status === "APPROVED";
+                    // Server-computed (see getCancellationEligibility in
+                    // leave.service.ts) — covers the cutoff window and the
+                    // leave type's cancellationAllowed flag so the button
+                    // here is disabled with a real reason instead of just
+                    // failing after the fact.
+                    const cancellation = request.cancellation ?? { allowed: true };
+                    // Once a supervisor denies a cancellation request, the
+                    // leave reverts to plain APPROVED — this note is the
+                    // only trace it ever had a cancellation attempt, so it's
+                    // what makes that outcome visible here instead of the
+                    // request silently looking untouched. Cancel stays
+                    // disabled from here on (cancellation.allowed already
+                    // reflects this — see getCancellationEligibility).
+                    const cancellationDenied =
+                      request.status === "APPROVED"
+                        ? [...(request.notes ?? [])].reverse().find((n) => n.type === "CANCELLATION_DENIED")
+                        : undefined;
+                    return (
+                      <View style={styles.requestCard}>
+                        <Text style={styles.requestTitle}>{request.leaveType.name}</Text>
+                        <Text>
+                          {new Date(request.startDate).toLocaleDateString()} - {new Date(request.endDate).toLocaleDateString()}
+                        </Text>
+                        {request.attachmentName && (
+                          <View style={styles.requestAttachmentRow}>
+                            <Ionicons name="attach-outline" size={13} color="#64748B" />
+                            <Text style={styles.requestAttachmentText}>{request.attachmentName}</Text>
+                          </View>
+                        )}
+                        <Text style={[styles.pendingText, { color: tone.color, backgroundColor: tone.bg }]} numberOfLines={1}>
+                          {statusLabel(request.status)}
+                        </Text>
+                        {cancellationDenied && (
+                          <View style={styles.cancellationDeniedNote}>
+                            <Text style={styles.cancellationDeniedTitle}>
+                              Cancellation denied by your supervisor — this leave remains approved.
+                            </Text>
+                            {cancellationDenied.message && (
+                              <Text style={styles.cancellationDeniedText}>{cancellationDenied.message}</Text>
+                            )}
+                          </View>
+                        )}
+                        {canShowCancelSection && (
+                          <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: "#E2E8F0" }}>
+                            <Pressable
+                              style={[styles.cancelLeaveButton, !cancellation.allowed && styles.cancelLeaveButtonDisabled]}
+                              onPress={() => { setConfirmCancelId(request.id); setCancelReasonText(""); }}
+                              disabled={!cancellation.allowed}
+                            >
+                              <Ionicons
+                                name="close-circle-outline"
+                                size={16}
+                                color={cancellation.allowed ? "#DC2626" : "#94A3B8"}
+                              />
+                              <Text style={[styles.cancelLeaveButtonText, !cancellation.allowed && styles.cancelLeaveButtonTextDisabled]}>
+                                Cancel Leave
+                              </Text>
+                            </Pressable>
+                            {!cancellation.allowed && cancellation.reason && (
+                              <View style={styles.cancelNote}>
+                                <Ionicons name="alert-circle-outline" size={14} color="#92400E" />
+                                <Text style={styles.cancelNoteText}>{cancellation.reason}</Text>
+                              </View>
+                            )}
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })()}
+                </ScrollView>
+              </>
+            ) : (
+              <>
+                <Text style={styles.modalTitle}>My Leave Requests</Text>
+
+                <View style={styles.requestsTabSwitcher}>
+                  <Pressable
+                    style={[styles.requestsTabButton, requestsListTab === "current" && styles.requestsTabButtonActive]}
+                    onPress={() => setRequestsListTab("current")}
+                  >
+                    <Text style={[styles.requestsTabButtonText, requestsListTab === "current" && styles.requestsTabButtonTextActive]}>
+                      Current ({currentRequests.length})
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.requestsTabButton, requestsListTab === "past" && styles.requestsTabButtonActive]}
+                    onPress={() => setRequestsListTab("past")}
+                  >
+                    <Text style={[styles.requestsTabButtonText, requestsListTab === "past" && styles.requestsTabButtonTextActive]}>
+                      Past ({pastRequests.length})
+                    </Text>
+                  </Pressable>
+                </View>
+
+                <View style={styles.filterRow}>
+                  <Pressable
+                    style={[styles.dateFilterChip, requestsDateFilter && styles.dateFilterChipActive]}
+                    onPress={() => setRequestsDatePickerVisibility(true)}
+                  >
+                    <Ionicons name="calendar-outline" size={13} color={requestsDateFilter ? "#FFFFFF" : "#1680D8"} />
+                    <Text style={[styles.dateFilterChipText, requestsDateFilter && styles.dateFilterChipTextActive]} numberOfLines={1}>
+                      {requestsDateFilter ? requestsDateFilter.toLocaleDateString() : "Filed on..."}
+                    </Text>
+                  </Pressable>
+                  {requestsDateFilter && (
+                    <Pressable style={styles.dateFilterClear} onPress={() => setRequestsDateFilter(null)}>
+                      <Ionicons name="close" size={16} color="#94A3B8" />
+                    </Pressable>
+                  )}
+                </View>
+
+                <ScrollView style={{ maxHeight: 280 }}>
+                  {(requestsListTab === "current" ? currentRequests : pastRequests).length === 0 ? (
+                    <Text style={styles.modalEmptyText}>
+                      {requestsDateFilter
+                        ? "No requests filed on this date."
+                        : requestsListTab === "current"
+                          ? "No ongoing or upcoming filed leave."
+                          : "No past leave requests."}
+                    </Text>
+                  ) : (
+                    (requestsListTab === "current" ? currentRequests : pastRequests).map((request) => {
+                      const tone = statusTone(request.status);
+                      return (
                         <Pressable
-                          style={styles.cancelRequestButton}
-                          onPress={() => handleCancel(request.id)}
-                          disabled={cancellingId === request.id}
+                          key={request.id}
+                          style={styles.summaryCard}
+                          onPress={() => {
+                            setExpandedRequestId(request.id);
+                            requestsCache.refresh().catch(() => undefined);
+                          }}
                         >
-                          <Text style={styles.cancelRequestButtonText}>
-                            {cancellingId === request.id ? "Cancelling…" : "Cancel"}
+                          <View style={styles.summaryTopRow}>
+                            <Text style={styles.requestTitle}>{request.leaveType.name}</Text>
+                            <Text style={[styles.pendingText, { marginTop: 0, color: tone.color, backgroundColor: tone.bg }]} numberOfLines={1}>
+                              {statusLabel(request.status)}
+                            </Text>
+                          </View>
+                          <Text>
+                            {new Date(request.startDate).toLocaleDateString()} - {new Date(request.endDate).toLocaleDateString()}
                           </Text>
                         </Pressable>
-                      )}
-                    </View>
-                  );
-                })
-              )}
-            </ScrollView>
-            <Pressable style={styles.closeButton} onPress={() => setShowPending(false)}>
+                      );
+                    })
+                  )}
+                </ScrollView>
+              </>
+            )}
+            <Pressable
+              style={styles.closeButton}
+              onPress={() => {
+                setShowPending(false);
+                setExpandedRequestId(null);
+              }}
+            >
               <Text style={styles.closeText}>Close</Text>
             </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <DateTimePickerModal
+        isVisible={isRequestsDatePickerVisible}
+        mode="date"
+        date={requestsDateFilter ?? new Date()}
+        accentColor="#1680D8"
+        themeVariant="light"
+        onConfirm={(value) => {
+          setRequestsDateFilter(value);
+          setRequestsDatePickerVisibility(false);
+        }}
+        onCancel={() => setRequestsDatePickerVisibility(false)}
+      />
+
+      <Modal visible={!!confirmCancelId} transparent animationType="fade">
+        <View style={styles.confirmOverlay}>
+          <View style={styles.confirmCard}>
+            <Text style={styles.modalTitle}>Cancel this leave request?</Text>
+            <Text style={{ color: "#475569", fontSize: 14 }}>
+              This action cannot be undone. Your supervisor will need to approve the cancellation.
+            </Text>
+            <TextInput
+              value={cancelReasonText}
+              onChangeText={setCancelReasonText}
+              placeholder="Why are you cancelling this leave?"
+              multiline
+              style={styles.cancelReasonInput}
+            />
+            <View style={styles.confirmActions}>
+              <Pressable style={styles.confirmKeepButton} onPress={() => setConfirmCancelId(null)}>
+                <Text style={styles.confirmKeepText}>No, Keep It</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.confirmCancelButton, !cancelReasonText.trim() && styles.confirmCancelButtonDisabled]}
+                disabled={!cancelReasonText.trim()}
+                onPress={() => {
+                  if (confirmCancelId) handleCancel(confirmCancelId, cancelReasonText.trim());
+                  setConfirmCancelId(null);
+                }}
+              >
+                <Text style={styles.confirmCancelText}>Yes, Cancel</Text>
+              </Pressable>
+            </View>
           </View>
         </View>
       </Modal>
@@ -896,19 +1279,41 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#FFFFFF"
   },
+  submissionAlertBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    marginHorizontal: 16,
+    marginTop: 8,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FCA5A5",
+    borderRadius: 12,
+    padding: 12,
+  },
+  submissionAlertTitle: {
+    color: "#B91C1C",
+    fontWeight: "700",
+    fontSize: 13,
+  },
+  submissionAlertMessage: {
+    color: "#991B1B",
+    fontSize: 12,
+    marginTop: 2,
+  },
   tabSwitcher: {
     flexDirection: "row",
     marginHorizontal: 16,
-    marginTop: 12,
+    marginTop: 4,
     marginBottom: 4,
     backgroundColor: "#F1F5F9",
-    borderRadius: 14,
-    padding: 4,
+    borderRadius: 12,
+    padding: 3,
   },
   tabButton: {
     flex: 1,
-    paddingVertical: 10,
-    borderRadius: 11,
+    paddingVertical: 7,
+    borderRadius: 9,
     alignItems: "center",
   },
   tabButtonActive: {
@@ -1136,17 +1541,93 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontWeight: "700"
   },
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", alignItems: "center" },
-  modalCard: { width: "88%", maxHeight: "80%", backgroundColor: "#FFFFFF", borderRadius: 18, padding: 20 },
+  // No dimmed backdrop — just the floating card. The shadow/border below is
+  // what gives it definition against the page instead of a dim overlay.
+  modalOverlay: { flex: 1, backgroundColor: "transparent", justifyContent: "center", alignItems: "center" },
+  modalCard: {
+    width: "88%", maxHeight: "80%", backgroundColor: "#FFFFFF", borderRadius: 18, padding: 20,
+    borderWidth: 1, borderColor: "#E2E8F0",
+    shadowColor: "#062B59", shadowOpacity: 0.18, shadowRadius: 24, shadowOffset: { width: 0, height: 12 }, elevation: 12,
+  },
+  backRow: { flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 10 },
+  backText: { color: "#1680D8", fontWeight: "700", fontSize: 13 },
+  summaryCard: { backgroundColor: "#F8FAFC", borderRadius: 12, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: "#E2E8F0" },
+  summaryTopRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", rowGap: 6, columnGap: 8 },
+  confirmOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", alignItems: "center" },
+  confirmCard: { width: "80%", backgroundColor: "#FFFFFF", borderRadius: 18, padding: 20 },
+  confirmActions: { flexDirection: "row", gap: 10, marginTop: 18 },
+  confirmKeepButton: { flex: 1, backgroundColor: "#F1F5F9", borderRadius: 12, padding: 12 },
+  confirmKeepText: { color: "#334155", textAlign: "center", fontWeight: "700" },
+  confirmCancelButton: { flex: 1, backgroundColor: "#DC2626", borderRadius: 12, padding: 12 },
+  confirmCancelButtonDisabled: { backgroundColor: "#FCA5A5" },
+  confirmCancelText: { color: "#FFFFFF", textAlign: "center", fontWeight: "700" },
+  cancelReasonInput: {
+    borderWidth: 1, borderColor: "#E2E8F0", borderRadius: 10,
+    padding: 10, fontSize: 13, minHeight: 70, textAlignVertical: "top",
+    marginTop: 12, color: "#0F172A",
+  },
   modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 16, color: "#062B59" },
   modalEmptyText: { color: "#94A3B8", fontSize: 13, textAlign: "center", paddingVertical: 12 },
+  requestsTabSwitcher: {
+    flexDirection: "row",
+    backgroundColor: "#F1F5F9",
+    borderRadius: 12,
+    padding: 3,
+    marginBottom: 10,
+  },
+  requestsTabButton: { flex: 1, paddingVertical: 8, borderRadius: 9, alignItems: "center" },
+  requestsTabButtonActive: { backgroundColor: "#062B59" },
+  requestsTabButtonText: { fontSize: 13, fontWeight: "700", color: "#64748B" },
+  requestsTabButtonTextActive: { color: "#FFFFFF" },
+  filterRow: { flexDirection: "row", gap: 8, marginBottom: 12 },
+  dateFilterChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 999,
+    backgroundColor: "#EFF6FF",
+  },
+  dateFilterChipActive: { backgroundColor: "#1680D8" },
+  dateFilterChipText: { color: "#1680D8", fontSize: 12, fontWeight: "700" },
+  dateFilterChipTextActive: { color: "#FFFFFF" },
+  dateFilterClear: {
+    alignItems: "center",
+    justifyContent: "center",
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: "#F1F5F9",
+  },
   requestCard: { backgroundColor: "#F8FAFC", borderRadius: 12, padding: 14, marginBottom: 12 },
-  requestTitle: { fontWeight: "700", marginBottom: 4 },
+  requestTitle: { fontWeight: "700", marginBottom: 4, flexShrink: 1 },
   requestAttachmentRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
   requestAttachmentText: { fontSize: 12, color: "#64748B" },
   pendingText: { fontWeight: "700", marginTop: 8, alignSelf: "flex-start", fontSize: 11, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, overflow: "hidden" },
-  cancelRequestButton: { alignSelf: "flex-start", marginTop: 10, borderWidth: 1.5, borderColor: "#FCA5A5", backgroundColor: "#FEF2F2", borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5 },
-  cancelRequestButtonText: { color: "#DC2626", fontWeight: "700", fontSize: 11 },
+  cancelLeaveButton: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7,
+    borderWidth: 1, borderColor: "#FCA5A5", backgroundColor: "#FEF2F2",
+    borderRadius: 10, paddingVertical: 10,
+  },
+  cancelLeaveButtonDisabled: { borderColor: "#E2E8F0", backgroundColor: "#F8FAFC" },
+  cancelLeaveButtonText: { color: "#DC2626", fontWeight: "700", fontSize: 13 },
+  cancelLeaveButtonTextDisabled: { color: "#94A3B8" },
+  cancelNote: {
+    flexDirection: "row", alignItems: "flex-start", gap: 6, marginTop: 8,
+    backgroundColor: "#FFFBEB", borderWidth: 1, borderColor: "#FEF3C7", borderRadius: 8, padding: 9,
+  },
+  cancelNoteText: { flex: 1, color: "#92400E", fontSize: 11.5, lineHeight: 16 },
+  cancellationDeniedNote: {
+    marginTop: 8,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FCA5A5",
+    borderRadius: 8,
+    padding: 9,
+  },
+  cancellationDeniedTitle: { color: "#B91C1C", fontSize: 12, fontWeight: "700" },
+  cancellationDeniedText: { color: "#B91C1C", fontSize: 12, marginTop: 3 },
   closeButton: { backgroundColor: "#062B59", borderRadius: 12, padding: 12, marginTop: 12 },
   closeText: { color: "#FFFFFF", textAlign: "center", fontWeight: "700" },
 });

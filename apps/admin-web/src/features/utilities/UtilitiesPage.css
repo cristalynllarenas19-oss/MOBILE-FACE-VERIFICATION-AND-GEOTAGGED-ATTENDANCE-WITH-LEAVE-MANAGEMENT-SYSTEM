@@ -517,6 +517,10 @@
   width: min(400px, 100%);
 }
 
+.utilities-modal--leave-type-form {
+  width: min(560px, 100%);
+}
+
 .utilities-modal--shift-form {
   width: min(620px, 100%);
 }
@@ -583,6 +587,11 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+}
+
+.utilities-cancellation-cutoff-row {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
 }
 
 .utilities-equal-field-row {

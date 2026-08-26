@@ -47,6 +47,22 @@
   cursor: pointer;
 }
 
+.lbc-view-all-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  background: #f8faff;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  padding: 8px;
+  margin-bottom: 18px;
+  color: #1680d8;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
 .lbc-summary-row {
   display: flex;
   align-items: center;

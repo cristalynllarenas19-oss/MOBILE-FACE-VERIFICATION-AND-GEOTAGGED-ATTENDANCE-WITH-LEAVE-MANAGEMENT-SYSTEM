@@ -21,6 +21,7 @@ import { AppLayout, getVisibleNavItems, isNavItemVisible, navItems } from "../co
 import { PermissionCode } from "../types/rbac";
 import { apiRequest, AuthUser, getStoredUser, logout, setOnSessionExpired } from "../lib/api";
 import { CACHE_KEYS, prefetchCached } from "../lib/dataCache";
+import { fetchNotifications, fetchUnreadCount } from "../lib/notifications";
 import {
   getMyProfile, getTodayAttendance, getAttendanceHistory, getMyWorkLocations, getMyWorkLocation,
   getLeaveTypes, getLeaveBalances, getLeaveRequests, getUndertimeEligibility, getUndertimeFilings,
@@ -107,6 +108,12 @@ export default function App() {
     const now = new Date();
     const dashboardKey = `dashboard-summary:${now.getMonth() + 1}-${now.getFullYear()}`;
     const fetchDashboard = () => apiRequest(`/dashboard/summary?month=${now.getMonth() + 1}&year=${now.getFullYear()}`);
+
+    // Every logged-in user has a notification bell, regardless of role or
+    // landing page — prefetch immediately so opening it is never a cold,
+    // spinner-first fetch.
+    prefetchCached(CACHE_KEYS.notifications, fetchNotifications);
+    prefetchCached(CACHE_KEYS.notificationsUnreadCount, fetchUnreadCount);
 
     // Wave 1 — fires immediately, same tick as the landing page's own mount.
     if (landingIsEmployeePortal && employeeId) {

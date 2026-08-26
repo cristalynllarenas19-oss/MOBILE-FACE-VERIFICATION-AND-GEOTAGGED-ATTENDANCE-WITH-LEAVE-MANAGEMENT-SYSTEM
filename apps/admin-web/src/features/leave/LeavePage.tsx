@@ -39,7 +39,7 @@ type LeaveType = {
 
 type LeaveRequestNote = {
   id: string;
-  type: "REJECTED" | "RESUBMITTED";
+  type: "REJECTED" | "RESUBMITTED" | "CANCELLED" | "CANCELLATION_DENIED";
   message?: string | null;
   requiresAdditionalRequirements?: boolean;
   requirementDetails?: string | null;
@@ -64,6 +64,9 @@ type LeaveRequest = {
   attachmentData?: string | null;
   extensionRequested?: boolean;
   extensionApproved?: boolean | null;
+  // Only set while status is CANCELLATION_PENDING — the status to revert to
+  // if this cancellation request is denied.
+  preCancellationStatus?: string | null;
   employee: {
     id: string;
     firstName: string;
@@ -174,6 +177,9 @@ function getLeaveStatusLabel(status: string, _isAdmin: boolean) {
   // SUPERVISOR_APPROVED only exists on legacy rows from the old two-step
   // flow — approval is single-step now, so it reads as plain "Approved".
   if (status === "SUPERVISOR_APPROVED") return "Approved";
+  // Reordered from a plain title-case ("Cancellation Pending") to match the
+  // wording used on the employee portal and the mobile app.
+  if (status === "CANCELLATION_PENDING") return "Pending Cancellation";
   return titleCaseStatus(status);
 }
 
@@ -726,6 +732,7 @@ export function LeavePage({
   const [remarks, setRemarks]                   = useState("");
   const [requiresAdditionalRequirements, setRequiresAdditionalRequirements] = useState(false);
   const [requirementDetails, setRequirementDetails] = useState("");
+  const [cancelNote, setCancelNote]             = useState("");
   const [isSaving, setIsSaving]                 = useState(false);
   const [notification, setNotification]         = useState<Notification>(null);
   const [reviewBalances, setReviewBalances]     = useState<LeaveBalance[] | null>(null);
@@ -758,6 +765,28 @@ export function LeavePage({
   const loadRequests = () => {
     requestsCache.refresh().catch(() => undefined);
   };
+
+  // There's no push/WebSocket infra in this app — a newly filed request, or
+  // an employee's self-cancellation, only lands here on the next fetch.
+  // Polling this often while the page is mounted is the pragmatic way to
+  // make that feel near-instant without adding real-time transport.
+  useEffect(() => {
+    const interval = setInterval(() => { requestsCache.refresh().catch(() => undefined); }, 10000);
+    // Browsers throttle setInterval in a background tab, so a status change
+    // that landed while this tab wasn't focused could sit unnoticed well
+    // past the poll interval — catch up the moment the tab is looked at
+    // again instead of waiting out whatever's left of a throttled timer.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") requestsCache.refresh().catch(() => undefined);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [requestsCache.refresh]);
 
   const leaveTypesCache = useCachedData<LeaveType[]>("leave-types", () => apiRequest<LeaveType[]>("/leave-types"));
   const leaveTypes = leaveTypesCache.data ?? [];
@@ -803,10 +832,21 @@ export function LeavePage({
   // review modal directly once it shows up in the loaded list, same as
   // clicking its Review button would, then tell the parent we're done with
   // the focus id so it doesn't reapply on a later re-render.
+  const focusRefreshAttempted = useRef<string | undefined>(undefined);
   useEffect(() => {
     if (!initialFocusRequestId) return;
     const match = requests.find((r) => r.id === initialFocusRequestId);
-    if (!match) return;
+    if (!match) {
+      // The request may be too new for whatever's currently cached (e.g. a
+      // just-filed/just-cancelled leave that triggered this very
+      // notification) — force one immediate refetch instead of silently
+      // waiting on the next unrelated poll to happen to pick it up.
+      if (focusRefreshAttempted.current !== initialFocusRequestId) {
+        focusRefreshAttempted.current = initialFocusRequestId;
+        loadRequests();
+      }
+      return;
+    }
     setReviewRequest(match);
     setRemarks("");
     setRequiresAdditionalRequirements(false);
@@ -860,7 +900,7 @@ export function LeavePage({
   const statusCounts = useMemo(() => {
     const counts = { ALL: requests.length, PENDING: 0, APPROVED: 0, REJECTED: 0 };
     for (const r of requests) {
-      if (r.status === "PENDING") counts.PENDING += 1;
+      if (r.status === "PENDING" || r.status === "CANCELLATION_PENDING") counts.PENDING += 1;
       else if (r.status === "APPROVED" || r.status === "SUPERVISOR_APPROVED") counts.APPROVED += 1;
       else if (r.status === "REJECTED" || r.status === "NEEDS_REVISION") counts.REJECTED += 1;
     }
@@ -873,6 +913,7 @@ export function LeavePage({
         const matchesStatus =
           statusFilter === "ALL" ||
           r.status === statusFilter ||
+          (statusFilter === "PENDING" && r.status === "CANCELLATION_PENDING") ||
           (statusFilter === "REJECTED" && r.status === "NEEDS_REVISION");
         const matchesType =
           typeFilter === "ALL" || r.leaveType.id === typeFilter;
@@ -966,13 +1007,21 @@ export function LeavePage({
       (reviewRequest.status === "PENDING" || reviewRequest.status === "SUPERVISOR_APPROVED"),
   );
 
-  // Mirrors the employee self-service Cancel action, available to HR/Admin
-  // (and a Supervisor acting within their department) on any request that
-  // hasn't already reached a terminal REJECTED/CANCELLED state.
+  // Cancelling a filed leave request is reserved for the employee who filed
+  // it (self-service, elsewhere) or HR/Admin as a manual-correction override
+  // — a Supervisor never cancels, even for their own department, only
+  // approves/rejects/requests resubmission (mirrors the backend guard in
+  // leave.controller.ts / leave.service.ts).
   const canCancelRequest = Boolean(
-    reviewRequest &&
-      !(isOwnRequest && !isAdmin) &&
-      ["PENDING", "SUPERVISOR_APPROVED", "APPROVED"].includes(reviewRequest.status),
+    reviewRequest && isAdmin && ["PENDING", "SUPERVISOR_APPROVED", "APPROVED"].includes(reviewRequest.status),
+  );
+
+  // An employee's request to cancel their own already-approved leave sits
+  // here until a Supervisor/Admin decides on it (mirrors leave.service.ts's
+  // approveCancellation/denyCancellation) — same self-review guard as the
+  // normal review actions above.
+  const canDecideCancellation = Boolean(
+    reviewRequest && !(isOwnRequest && !isAdmin) && reviewRequest.status === "CANCELLATION_PENDING",
   );
 
   const matchingBalance =
@@ -1069,64 +1118,133 @@ export function LeavePage({
     employeeListPageSafe * EMPLOYEE_LIST_PAGE_SIZE,
   );
 
-  const reviewLeave = async (action: "approve" | "reject") => {
+  // Optimistic — the click already told us what the outcome will be (there's
+  // nothing left for the server to decide that the UI doesn't already know),
+  // so reflect the new status everywhere this cache is read from immediately
+  // instead of waiting on the round trip, and only correct course if the
+  // background call actually fails.
+  const reviewLeave = (action: "approve" | "reject") => {
     if (!reviewRequest) return;
-    setIsSaving(true);
-    try {
-      await apiRequest(`/leave-requests/${reviewRequest.id}/${action}`, {
-        method: "PATCH",
-        body: JSON.stringify(
-          action === "reject"
-            ? { remarks: remarks.trim(), requiresAdditionalRequirements, requirementDetails: requirementDetails.trim() }
-            : { remarks: remarks.trim() }
-        ),
+    const targetId = reviewRequest.id;
+    const newStatus = action === "approve" ? "APPROVED" : requiresAdditionalRequirements ? "NEEDS_REVISION" : "REJECTED";
+    const remarksTrimmed = remarks.trim();
+    const requirementDetailsTrimmed = requirementDetails.trim();
+    const requiresAdditionalRequirementsSnapshot = requiresAdditionalRequirements;
+
+    requestsCache.setData(requests.map((r) => (r.id === targetId ? { ...r, status: newStatus } : r)));
+    setReviewRequest(null);
+    setRemarks("");
+    setRequiresAdditionalRequirements(false);
+    setRequirementDetails("");
+    setNotification({
+      type: "success",
+      message:
+        action === "approve"
+          ? "Leave request was approved."
+          : requiresAdditionalRequirementsSnapshot
+            ? "Leave request was returned to the employee for additional requirements."
+            : "Leave request was rejected.",
+    });
+
+    apiRequest(`/leave-requests/${targetId}/${action}`, {
+      method: "PATCH",
+      body: JSON.stringify(
+        action === "reject"
+          ? { remarks: remarksTrimmed, requiresAdditionalRequirements: requiresAdditionalRequirementsSnapshot, requirementDetails: requirementDetailsTrimmed }
+          : { remarks: remarksTrimmed }
+      ),
+    })
+      .then(() => {
+        loadRequests();
+        loadSummary();
+      })
+      .catch((err) => {
+        // The optimistic status above was wrong — re-sync with the real
+        // server state instead of leaving a false "Approved"/"Rejected"
+        // showing.
+        loadRequests();
+        setNotification({
+          type: "error",
+          message:
+            err instanceof Error
+              ? `${action === "approve" ? "Approval" : "Rejection"} failed: ${err.message}`
+              : "Unable to review leave.",
+        });
       });
-      setReviewRequest(null);
-      setRemarks("");
-      setRequiresAdditionalRequirements(false);
-      setRequirementDetails("");
-      setNotification({
-        type: "success",
-        message:
-          action === "approve"
-            ? "Leave request was approved."
-            : requiresAdditionalRequirements
-              ? "Leave request was returned to the employee for additional requirements."
-              : "Leave request was rejected.",
-      });
-      loadRequests();
-      loadSummary();
-    } catch (err) {
-      setNotification({
-        type: "error",
-        message: err instanceof Error ? err.message : "Unable to review leave.",
-      });
-    } finally {
-      setIsSaving(false);
-    }
   };
 
   // Admin/Supervisor cancellation is not bound by the 24-hour post-approval
   // grace window employee self-cancel is (see leave.service.ts's cancel()) —
   // an elevated actor cancelling on the employee's behalf is treated as an
   // override, same as the self-review bypass already used elsewhere here.
-  const cancelRequest = async () => {
+  // Optimistic, same as reviewLeave above — this is an ADMIN override (see
+  // canCancelRequest), which the backend always finalizes to CANCELLED
+  // immediately rather than routing through CANCELLATION_PENDING.
+  const cancelRequest = () => {
     if (!reviewRequest) return;
-    setIsSaving(true);
-    try {
-      await apiRequest(`/leave-requests/${reviewRequest.id}/cancel`, { method: "PATCH" });
-      setReviewRequest(null);
-      setNotification({ type: "success", message: "Leave request was cancelled." });
-      loadRequests();
-      loadSummary();
-    } catch (err) {
-      setNotification({
-        type: "error",
-        message: err instanceof Error ? err.message : "Unable to cancel leave request.",
-      });
-    } finally {
-      setIsSaving(false);
+    if (!cancelNote.trim()) {
+      setNotification({ type: "error", message: "Please provide a reason for cancelling this leave request." });
+      return;
     }
+    const targetId = reviewRequest.id;
+    const noteTrimmed = cancelNote.trim();
+
+    requestsCache.setData(requests.map((r) => (r.id === targetId ? { ...r, status: "CANCELLED" } : r)));
+    setReviewRequest(null);
+    setCancelNote("");
+    setNotification({ type: "success", message: "Leave request was cancelled." });
+
+    apiRequest(`/leave-requests/${targetId}/cancel`, {
+      method: "PATCH",
+      body: JSON.stringify({ note: noteTrimmed }),
+    })
+      .then(() => {
+        loadRequests();
+        loadSummary();
+      })
+      .catch((err) => {
+        loadRequests();
+        setNotification({
+          type: "error",
+          message: err instanceof Error ? `Cancellation failed: ${err.message}` : "Unable to cancel leave request.",
+        });
+      });
+  };
+
+  // The employee's own cancellation request for their already-approved
+  // leave — finalizes to CANCELLED (approve) or reverts to APPROVED as if
+  // nothing happened (deny). Mirrors leave.service.ts's
+  // approveCancellation/denyCancellation. Optimistic, same as reviewLeave.
+  const decideCancellation = (decision: "approve" | "deny") => {
+    if (!reviewRequest) return;
+    const targetId = reviewRequest.id;
+    const remarksTrimmed = remarks.trim();
+    const revertStatus = reviewRequest.preCancellationStatus ?? "APPROVED";
+    const newStatus = decision === "approve" ? "CANCELLED" : revertStatus;
+
+    requestsCache.setData(requests.map((r) => (r.id === targetId ? { ...r, status: newStatus } : r)));
+    setReviewRequest(null);
+    setRemarks("");
+    setNotification({
+      type: "success",
+      message: decision === "approve" ? "Leave cancellation was approved." : "Leave cancellation was denied — the leave remains approved.",
+    });
+
+    apiRequest(`/leave-requests/${targetId}/${decision}-cancellation`, {
+      method: "PATCH",
+      ...(decision === "deny" ? { body: JSON.stringify({ remarks: remarksTrimmed || undefined }) } : {}),
+    })
+      .then(() => {
+        loadRequests();
+        loadSummary();
+      })
+      .catch((err) => {
+        loadRequests();
+        setNotification({
+          type: "error",
+          message: err instanceof Error ? `Decision failed: ${err.message}` : "Unable to decide on this cancellation request.",
+        });
+      });
   };
 
   const decideExtension = async (extensionApproved: boolean) => {
@@ -1416,7 +1534,7 @@ export function LeavePage({
                       <td data-label="Action">
                         <button
                           className="leave-view-button"
-                          onClick={() => { setReviewRequest(r); setRemarks(""); setRequiresAdditionalRequirements(false); setRequirementDetails(""); setHistoryViewOnly(false); }}
+                          onClick={() => { setReviewRequest(r); setRemarks(""); setRequiresAdditionalRequirements(false); setRequirementDetails(""); setCancelNote(""); setHistoryViewOnly(false); }}
                         >
                           <Eye size={14} /> Review
                         </button>
@@ -1513,7 +1631,7 @@ export function LeavePage({
                       <td data-label="Action">
                         <button
                           className="leave-view-button"
-                          onClick={() => { setReviewRequest(r); setRemarks(""); setRequiresAdditionalRequirements(false); setRequirementDetails(""); setHistoryViewOnly(true); }}
+                          onClick={() => { setReviewRequest(r); setRemarks(""); setRequiresAdditionalRequirements(false); setRequirementDetails(""); setCancelNote(""); setHistoryViewOnly(true); }}
                         >
                           <Eye size={14} /> View
                         </button>
@@ -1697,7 +1815,9 @@ export function LeavePage({
                           ? note.requiresAdditionalRequirements
                             ? "Additional requirements requested"
                             : "Rejected"
-                          : "Employee resubmitted"}
+                          : note.type === "CANCELLED"
+                            ? "Cancellation requested"
+                            : "Employee resubmitted"}
                       </strong>
                       <time>{new Date(note.createdAt).toLocaleString()}</time>
                     </div>
@@ -1779,7 +1899,28 @@ export function LeavePage({
               </>
             )}
 
+            {!historyViewOnly && canCancelRequest && (
+              <label className="leave-remarks-field">
+                Cancellation Reason
+                <textarea
+                  value={cancelNote}
+                  onChange={(e) => setCancelNote(e.target.value)}
+                  placeholder="Why is this leave request being cancelled?"
+                />
+              </label>
+            )}
+
             <div className="leave-detail-actions">
+              {!historyViewOnly && canDecideCancellation && (
+                <>
+                  <button className="leave-reject-button" onClick={() => decideCancellation("deny")} disabled={isSaving}>
+                    Deny Cancellation
+                  </button>
+                  <button className="primary-button" onClick={() => decideCancellation("approve")} disabled={isSaving}>
+                    Approve Cancellation
+                  </button>
+                </>
+              )}
               {!historyViewOnly && canReviewRequest && (
                 <>
                   <button className="leave-reject-button" onClick={() => reviewLeave("reject")} disabled={isSaving}>
@@ -1791,7 +1932,7 @@ export function LeavePage({
                 </>
               )}
               {!historyViewOnly && canCancelRequest && (
-                <button className="leave-reject-button" onClick={cancelRequest} disabled={isSaving}>
+                <button className="leave-reject-button" onClick={cancelRequest} disabled={isSaving || !cancelNote.trim()}>
                   Cancel Leave
                 </button>
               )}

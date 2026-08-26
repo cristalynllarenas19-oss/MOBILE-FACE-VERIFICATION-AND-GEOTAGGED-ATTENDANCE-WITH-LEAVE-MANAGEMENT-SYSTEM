@@ -19,6 +19,7 @@ import {
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { PermissionCode, permissions } from "../../types/rbac";
+import { apiRequest } from "../../lib/api";
 import logo from "../../assets/unileaf-logo.png"; // ← add this
 import {
   AppNotification,
@@ -27,12 +28,17 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
 } from "../../lib/notifications";
+import { CACHE_KEYS, revalidateCached, useCachedData } from "../../lib/dataCache";
+import { getLeaveRequests, getLeaveBalances } from "../../features/employee-portal/api";
 import { NotificationPanel } from "./NotificationPanel";
 import { NotificationDetailModal } from "./NotificationDetailModal";
 import "./AppLayout.css";
 import "./NotificationPanel.css";
 
 const NOTIFICATION_POLL_MS = 30000;
+// Stable fallback so downstream filters don't recompute on every render
+// while the cache/network is still empty.
+const EMPTY_NOTIFICATIONS: AppNotification[] = [];
 
 function getInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -47,6 +53,7 @@ type User = {
   roles: string[];
   permissions: PermissionCode[];
   adminPermissions?: PermissionCode[];
+  employeeId?: string;
 };
 
 export const navItems = [
@@ -111,9 +118,14 @@ export function AppLayout({
   const [notifOpen, setNotifOpen] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
-  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  // Cache-first (mirrors employee-mobile's NotificationsScreen) — the panel
+  // shows the last-fetched list instantly on open and revalidates silently,
+  // instead of a cold fetch-and-spinner every single time it's toggled.
+  const notificationsCache = useCachedData<AppNotification[]>(CACHE_KEYS.notifications, fetchNotifications);
+  const notifications = notificationsCache.data ?? EMPTY_NOTIFICATIONS;
+  const setNotifications = notificationsCache.setData;
+  const notifLoading = notificationsCache.isLoading;
   const [unreadCount, setUnreadCount] = useState(0);
-  const [notifLoading, setNotifLoading] = useState(false);
   // Employee-portal-only: clicking a notification opens this instead of
   // navigating away, so the employee never loses their current page. Admin
   // and Supervisor (both activeView === "admin") keep navigating as before.
@@ -145,15 +157,39 @@ export function AppLayout({
           : user.role;
 
   useEffect(() => {
+    let lastKnownCount: number | null = null;
     const refreshUnreadCount = () => {
       fetchUnreadCount()
-        .then((data) => setUnreadCount(data.count))
+        .then((data) => {
+          setUnreadCount(data.count);
+          // A new notification (e.g. "your leave was approved") is exactly
+          // when leave data most needs to be fresh — nudge it to refetch
+          // right away instead of waiting for the Leave page's own poll.
+          // Only fires on a genuine increase, not every 30s tick, and this
+          // is a no-op if no Leave page happens to be mounted right now
+          // (revalidateCached still updates the shared cache for whenever
+          // it's next opened).
+          if (lastKnownCount !== null && data.count > lastKnownCount) {
+            if (user.employeeId) {
+              revalidateCached(CACHE_KEYS.leaveRequests(user.employeeId), () => getLeaveRequests(user.employeeId!)).catch(() => undefined);
+              revalidateCached(CACHE_KEYS.leaveBalances(user.employeeId), () => getLeaveBalances(user.employeeId!)).catch(() => undefined);
+            }
+            // Same nudge for an Admin/Supervisor's org-wide Leave Management
+            // list — a new notification (e.g. "leave request filed") is
+            // exactly when it most needs to be fresh.
+            const roles = user.roles?.length ? user.roles : [user.role];
+            if (roles.some((role) => role !== "EMPLOYEE")) {
+              revalidateCached("admin-leave-requests", () => apiRequest("/leave-requests")).catch(() => undefined);
+            }
+          }
+          lastKnownCount = data.count;
+        })
         .catch(() => undefined);
     };
     refreshUnreadCount();
     const interval = window.setInterval(refreshUnreadCount, NOTIFICATION_POLL_MS);
     return () => window.clearInterval(interval);
-  }, []);
+  }, [user.employeeId]);
 
   useEffect(() => {
     if (!notifOpen) return;
@@ -180,23 +216,22 @@ export function AppLayout({
   const toggleNotifications = () => {
     const next = !notifOpen;
     setNotifOpen(next);
+    // Cache-first: whatever's already cached renders instantly (see
+    // notificationsCache above); this just kicks off a silent revalidation
+    // rather than blocking the panel behind a fresh fetch every time.
     if (next) {
-      setNotifLoading(true);
-      fetchNotifications()
-        .then(setNotifications)
-        .catch(() => undefined)
-        .finally(() => setNotifLoading(false));
+      notificationsCache.refresh().catch(() => undefined);
     }
   };
 
   const handleMarkRead = (id: string) => {
-    setNotifications((items) => items.map((item) => (item.id === id ? { ...item, readAt: new Date().toISOString() } : item)));
+    setNotifications(notifications.map((item) => (item.id === id ? { ...item, readAt: new Date().toISOString() } : item)));
     setUnreadCount((count) => Math.max(0, count - 1));
     markNotificationRead(id).catch(() => undefined);
   };
 
   const handleMarkAllRead = () => {
-    setNotifications((items) => items.map((item) => ({ ...item, readAt: item.readAt ?? new Date().toISOString() })));
+    setNotifications(notifications.map((item) => ({ ...item, readAt: item.readAt ?? new Date().toISOString() })));
     setUnreadCount(0);
     markAllNotificationsRead().catch(() => undefined);
   };

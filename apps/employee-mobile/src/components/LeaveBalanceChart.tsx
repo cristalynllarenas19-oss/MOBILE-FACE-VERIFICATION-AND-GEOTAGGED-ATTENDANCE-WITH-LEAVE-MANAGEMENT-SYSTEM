@@ -16,10 +16,11 @@ type Props = {
   loading?: boolean;
   pendingCount?: number;
   onPressPending?: () => void;
+  onPressViewAll?: () => void;
   onRequestLeave?: (leaveTypeId: string) => void;
 };
 
-export default function LeaveBalanceChart({ balances, loading, pendingCount, onPressPending, onRequestLeave }: Props) {
+export default function LeaveBalanceChart({ balances, loading, pendingCount, onPressPending, onPressViewAll, onRequestLeave }: Props) {
   const totalEarned = balances.reduce((sum, b) => sum + b.earnedDays, 0);
   const totalUsed = balances.reduce((sum, b) => sum + b.usedDays, 0);
   const totalRemaining = balances.reduce((sum, b) => sum + b.remainingDays, 0);
@@ -49,6 +50,13 @@ export default function LeaveBalanceChart({ balances, loading, pendingCount, onP
     </View>
   );
 
+  const viewAllButton = onPressViewAll && (
+    <Pressable style={styles.viewAllButton} onPress={onPressViewAll}>
+      <Ionicons name="calendar-outline" size={14} color="#1680D8" />
+      <Text style={styles.viewAllButtonText}>View ongoing and future filed leave</Text>
+    </Pressable>
+  );
+
   if (loading) {
     return (
       <View style={styles.card}>
@@ -74,6 +82,7 @@ export default function LeaveBalanceChart({ balances, loading, pendingCount, onP
   return (
     <View style={styles.card}>
       {header}
+      {viewAllButton}
 
       <View style={styles.summaryRow}>
         <View style={styles.ringWrap}>
@@ -164,7 +173,7 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: "#FFFFFF",
     borderRadius: 18,
-    padding: 16,
+    padding: 14,
     borderWidth: 1,
     borderColor: "#E2E8F0",
     marginBottom: 12,
@@ -203,6 +212,23 @@ const styles = StyleSheet.create({
   pendingPillText: {
     color: "#92400E",
     fontSize: 11,
+    fontWeight: "700",
+  },
+  viewAllButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: "#F8FAFF",
+    borderWidth: 1,
+    borderColor: "#BFDBFE",
+    borderRadius: 10,
+    paddingVertical: 8,
+    marginBottom: 12,
+  },
+  viewAllButtonText: {
+    color: "#1680D8",
+    fontSize: 12,
     fontWeight: "700",
   },
   summaryRow: {
@@ -263,21 +289,22 @@ const styles = StyleSheet.create({
   divider: {
     height: 1,
     backgroundColor: "#F1F5F9",
-    marginVertical: 12,
+    marginVertical: 10,
   },
   barsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
+    columnGap: 10,
   },
   barCell: {
     width: "47%",
-    gap: 4,
+    marginBottom: 14,
   },
   barLabelRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
+    marginBottom: 6,
   },
   barLabel: {
     flex: 1,
@@ -289,6 +316,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "700",
     color: "#062B59",
+    marginTop: 6,
   },
   barTrack: {
     height: 5,
@@ -305,7 +333,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     alignSelf: "flex-start",
     gap: 3,
-    marginTop: 2,
+    marginTop: 4,
     paddingVertical: 3,
     paddingHorizontal: 8,
     borderRadius: 999,

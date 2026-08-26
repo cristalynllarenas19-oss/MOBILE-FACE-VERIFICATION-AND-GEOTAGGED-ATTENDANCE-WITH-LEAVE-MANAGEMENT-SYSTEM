@@ -110,11 +110,25 @@ enum LeaveStatus {
   REJECTED
   NEEDS_REVISION
   CANCELLED
+  // An employee's self-cancellation of an already-APPROVED leave sits here
+  // until a Supervisor/Admin approves or denies it — the leave stays
+  // APPROVED (balance still deducted, schedule still shows it) the whole
+  // time. Denying it reverts to preCancellationStatus; approving moves to
+  // CANCELLED. Cancelling a PENDING/SUPERVISOR_APPROVED request (nothing
+  // committed yet) or an ADMIN override skips this state entirely.
+  CANCELLATION_PENDING
 }
 
 enum LeaveRequestNoteType {
   REJECTED
   RESUBMITTED
+  CANCELLED
+  // Written by denyCancellation() — records that a Supervisor/Admin denied
+  // this employee's request to cancel their (already-APPROVED) leave, so
+  // the request permanently loses its ability to be cancelled again (see
+  // getCancellationEligibility) instead of silently looking like a normal
+  // approved leave that never had a cancellation attempt.
+  CANCELLATION_DENIED
 }
 
 // Identifies a leave type's statutory role (sex-eligibility, auto-enrollment
@@ -519,6 +533,9 @@ model LeaveType {
   // including for a doctor's appointment (a reason under this type, not a
   // separate leave type).
   advanceFilingAllowed         Boolean            @default(true) @map("advance_filing_allowed")
+  cancellationAllowed          Boolean            @default(false) @map("cancellation_allowed")
+  cancellationCutoffValue      Int?               @map("cancellation_cutoff_value")
+  cancellationCutoffUnit       String?            @map("cancellation_cutoff_unit")
   createdAt                   DateTime           @default(now()) @map("created_at")
   updatedAt                   DateTime           @updatedAt @map("updated_at")
   createdBy                   String?            @map("created_by")
@@ -549,6 +566,9 @@ model LeaveRequest {
   attachmentData     String?            @map("attachment_data")
   extensionRequested Boolean            @default(false) @map("extension_requested")
   extensionApproved  Boolean?           @map("extension_approved")
+  // Only set while status is CANCELLATION_PENDING — the status to revert to
+  // if a Supervisor/Admin denies the employee's cancellation request.
+  preCancellationStatus LeaveStatus?    @map("pre_cancellation_status")
   employee           Employee           @relation(fields: [employeeId], references: [id])
   leaveType          LeaveType          @relation(fields: [leaveTypeId], references: [id])
   reviewer           User?              @relation(fields: [reviewedBy], references: [id])

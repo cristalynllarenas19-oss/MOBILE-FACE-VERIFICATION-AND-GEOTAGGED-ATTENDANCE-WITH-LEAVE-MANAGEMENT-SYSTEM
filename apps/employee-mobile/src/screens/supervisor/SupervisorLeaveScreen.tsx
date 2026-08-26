@@ -1,5 +1,6 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
+  AppState,
   View,
   Text,
   TextInput,
@@ -21,8 +22,17 @@ import {
   getTeamLeaveRequests,
   approveLeaveRequest,
   rejectLeaveRequest,
+  approveLeaveCancellation,
+  denyLeaveCancellation,
 } from "../../api";
 import { useCachedData } from "../../utils/dataCache";
+
+// There's no push/WebSocket infra in this app — a newly filed leave request
+// only shows up here on the next fetch. Polling this often while the screen
+// is mounted (it unmounts when the tab is switched away, since navigation
+// swaps tabs via plain state rather than routing) is the pragmatic way to
+// make that feel near-instant without adding real-time transport.
+const LEAVE_POLL_MS = 10000;
 
 type Props = {
   currentEmployeeId?: string;
@@ -36,11 +46,10 @@ export default function SupervisorLeaveScreen({ currentEmployeeId }: Props) {
   const [remarks, setRemarks] = useState("");
   const [reviewMode, setReviewMode] = useState<"reject" | "resubmit">("reject");
   const [requirementDetails, setRequirementDetails] = useState("");
-  const [isSaving, setIsSaving] = useState(false);
 
   const [resultModal, setResultModal] = useState<{ status: ResultModalStatus; title: string; message: string } | null>(null);
 
-  const { data, isLoading, refresh } = useCachedData<TeamLeaveRequest[]>(
+  const { data, isLoading, refresh, setData } = useCachedData<TeamLeaveRequest[]>(
     "team-leave-requests",
     getTeamLeaveRequests,
   );
@@ -60,7 +69,22 @@ export default function SupervisorLeaveScreen({ currentEmployeeId }: Props) {
     [refresh],
   );
 
-  const visibleRequests = requests.filter((r) => (filter === "PENDING" ? r.status === "PENDING" : true));
+  // Keeps newly filed / updated team requests showing up here without the
+  // supervisor having to leave and reopen the tab.
+  useEffect(() => {
+    const interval = setInterval(() => { refresh().catch(() => undefined); }, LEAVE_POLL_MS);
+    const appStateSub = AppState.addEventListener("change", (state) => {
+      if (state === "active") refresh().catch(() => undefined);
+    });
+    return () => {
+      clearInterval(interval);
+      appStateSub.remove();
+    };
+  }, [refresh]);
+
+  const visibleRequests = requests.filter((r) =>
+    filter === "PENDING" ? r.status === "PENDING" || r.status === "CANCELLATION_PENDING" : true,
+  );
 
   function openReview(request: TeamLeaveRequest) {
     setReviewRequest(request);
@@ -70,12 +94,50 @@ export default function SupervisorLeaveScreen({ currentEmployeeId }: Props) {
   }
 
   const isOwnRequest = reviewRequest?.employee.id === currentEmployeeId;
-  // A Supervisor's "Approve" only pre-approves — mirrors LeavePage.tsx's
-  // canReviewRequest, which only lets a non-admin act on PENDING requests.
+  // Approval is single-step and final (see leave.controller.ts's /approve) —
+  // this only gates *which* requests a Supervisor can act on (PENDING, not
+  // already reviewed, and never their own), mirrors LeavePage.tsx's
+  // canReviewRequest.
   const canReview = reviewRequest?.status === "PENDING" && !isOwnRequest;
+  // An employee's request to cancel their own already-approved leave sits
+  // here until a Supervisor/Admin decides on it (mirrors leave.service.ts's
+  // approveCancellation/denyCancellation).
+  const canDecideCancellation = reviewRequest?.status === "CANCELLATION_PENDING" && !isOwnRequest;
   const isRequestResubmission = reviewMode === "resubmit";
 
-  async function handleReview(action: "approve" | "reject") {
+  // Optimistic, same pattern as admin-web's Leave Management page and this
+  // app's own LeaveScreen.tsx cancel flow — the outcome is already known
+  // (approve-cancellation always finalizes to CANCELLED; deny always reverts
+  // to APPROVED, since CANCELLATION_PENDING is only ever entered from an
+  // APPROVED request — see leave.service.ts's cancel()), so the modal closes
+  // and the result shows immediately instead of the supervisor waiting on
+  // the round trip, and only reverts if the background call actually fails.
+  function handleCancellationDecision(decision: "approve" | "deny") {
+    if (!reviewRequest) return;
+    const targetId = reviewRequest.id;
+    const newStatus = decision === "approve" ? "CANCELLED" : "APPROVED";
+    const remarksTrimmed = remarks.trim();
+
+    setData(requests.map((r) => (r.id === targetId ? { ...r, status: newStatus } : r)));
+    setReviewRequest(null);
+    setResultModal({
+      status: "approved",
+      title: decision === "approve" ? "Cancellation Approved" : "Cancellation Denied",
+      message:
+        decision === "approve"
+          ? "The leave request has been cancelled."
+          : "The leave remains approved.",
+    });
+
+    (decision === "approve" ? approveLeaveCancellation(targetId) : denyLeaveCancellation(targetId, remarksTrimmed))
+      .then(() => refresh())
+      .catch((error) => {
+        refresh().catch(() => undefined);
+        setResultModal({ status: "error", title: "Action Failed", message: error instanceof Error ? error.message : "Unable to decide on this cancellation request." });
+      });
+  }
+
+  function handleReview(action: "approve" | "reject") {
     if (!reviewRequest) return;
 
     if (action === "reject" && isRequestResubmission && !requirementDetails.trim()) {
@@ -83,34 +145,41 @@ export default function SupervisorLeaveScreen({ currentEmployeeId }: Props) {
       return;
     }
 
-    setIsSaving(true);
-    try {
-      if (action === "approve") {
-        await approveLeaveRequest(reviewRequest.id, remarks.trim());
-      } else {
-        await rejectLeaveRequest(reviewRequest.id, {
-          remarks: remarks.trim(),
-          requiresAdditionalRequirements: isRequestResubmission,
-          requirementDetails: requirementDetails.trim(),
-        });
-      }
-      setReviewRequest(null);
-      await load();
-      setResultModal({
-        status: "approved",
-        title: action === "approve" ? "Pre-Approved" : isRequestResubmission ? "Sent Back to Employee" : "Rejected",
-        message:
-          action === "approve"
-            ? "Request moved to Supervisor Approved — HR/Admin will give the final approval."
-            : isRequestResubmission
-              ? "The employee has been asked for additional requirements."
-              : "Leave request was rejected.",
+    const targetId = reviewRequest.id;
+    // Approval is single-step now (see leave.controller.ts's /approve — a
+    // Supervisor's approval is final, same as an Admin's), so this always
+    // resolves straight to APPROVED, never a "pending HR" tier.
+    const newStatus = action === "approve" ? "APPROVED" : isRequestResubmission ? "NEEDS_REVISION" : "REJECTED";
+    const remarksTrimmed = remarks.trim();
+    const requirementDetailsTrimmed = requirementDetails.trim();
+    const requestedResubmission = isRequestResubmission;
+
+    setData(requests.map((r) => (r.id === targetId ? { ...r, status: newStatus } : r)));
+    setReviewRequest(null);
+    setResultModal({
+      status: "approved",
+      title: action === "approve" ? "Approved" : requestedResubmission ? "Sent Back to Employee" : "Rejected",
+      message:
+        action === "approve"
+          ? "This leave request has been approved."
+          : requestedResubmission
+            ? "The employee has been asked for additional requirements."
+            : "Leave request was rejected.",
+    });
+
+    (action === "approve"
+      ? approveLeaveRequest(targetId, remarksTrimmed)
+      : rejectLeaveRequest(targetId, {
+          remarks: remarksTrimmed,
+          requiresAdditionalRequirements: requestedResubmission,
+          requirementDetails: requirementDetailsTrimmed,
+        })
+    )
+      .then(() => refresh())
+      .catch((error) => {
+        refresh().catch(() => undefined);
+        setResultModal({ status: "error", title: "Action Failed", message: error instanceof Error ? error.message : "Unable to review leave." });
       });
-    } catch (error) {
-      setResultModal({ status: "error", title: "Action Failed", message: error instanceof Error ? error.message : "Unable to review leave." });
-    } finally {
-      setIsSaving(false);
-    }
   }
 
   function closeReview() {
@@ -200,8 +269,19 @@ export default function SupervisorLeaveScreen({ currentEmployeeId }: Props) {
                   {isOwnRequest && (
                     <Text style={styles.warningText}>This is your own leave request — you cannot approve or reject it.</Text>
                   )}
-                  {!isOwnRequest && reviewRequest.status !== "PENDING" && (
+                  {!isOwnRequest && reviewRequest.status !== "PENDING" && reviewRequest.status !== "CANCELLATION_PENDING" && (
                     <Text style={styles.warningText}>This request has already been reviewed.</Text>
+                  )}
+
+                  {canDecideCancellation && (
+                    <View style={styles.modalActions}>
+                      <Pressable style={styles.rejectButton} onPress={() => handleCancellationDecision("deny")}>
+                        <Text style={styles.rejectText}>Deny Cancellation</Text>
+                      </Pressable>
+                      <Pressable style={styles.approveButton} onPress={() => handleCancellationDecision("approve")}>
+                        <Text style={styles.approveText}>Approve Cancellation</Text>
+                      </Pressable>
+                    </View>
                   )}
 
                   {canReview && (
@@ -250,38 +330,25 @@ export default function SupervisorLeaveScreen({ currentEmployeeId }: Props) {
                       {isRequestResubmission ? (
                         <View style={styles.modalActions}>
                           <Pressable
-                            style={[styles.cancelButton, isSaving && styles.buttonDisabled]}
+                            style={styles.cancelButton}
                             onPress={() => {
                               setReviewMode("reject");
                               setRequirementDetails("");
                             }}
-                            disabled={isSaving}
                           >
                             <Text style={styles.cancelText}>Cancel</Text>
                           </Pressable>
-                          <Pressable
-                            style={[styles.sendButton, isSaving && styles.buttonDisabled]}
-                            onPress={() => handleReview("reject")}
-                            disabled={isSaving}
-                          >
-                            {isSaving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.sendText}>Send Back</Text>}
+                          <Pressable style={styles.sendButton} onPress={() => handleReview("reject")}>
+                            <Text style={styles.sendText}>Send Back</Text>
                           </Pressable>
                         </View>
                       ) : (
                         <View style={styles.modalActions}>
-                          <Pressable
-                            style={[styles.rejectButton, isSaving && styles.buttonDisabled]}
-                            onPress={() => handleReview("reject")}
-                            disabled={isSaving}
-                          >
+                          <Pressable style={styles.rejectButton} onPress={() => handleReview("reject")}>
                             <Text style={styles.rejectText}>Reject</Text>
                           </Pressable>
-                          <Pressable
-                            style={[styles.approveButton, isSaving && styles.buttonDisabled]}
-                            onPress={() => handleReview("approve")}
-                            disabled={isSaving}
-                          >
-                            {isSaving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.approveText}>Approve</Text>}
+                          <Pressable style={styles.approveButton} onPress={() => handleReview("approve")}>
+                            <Text style={styles.approveText}>Approve</Text>
                           </Pressable>
                         </View>
                       )}
@@ -401,5 +468,4 @@ const styles = StyleSheet.create({
   cancelText: { color: "#475569", fontWeight: "700" },
   sendButton: { flex: 1, height: 48, borderRadius: 12, backgroundColor: "#B45309", alignItems: "center", justifyContent: "center" },
   sendText: { color: "#FFFFFF", fontWeight: "700" },
-  buttonDisabled: { opacity: 0.7 },
 });

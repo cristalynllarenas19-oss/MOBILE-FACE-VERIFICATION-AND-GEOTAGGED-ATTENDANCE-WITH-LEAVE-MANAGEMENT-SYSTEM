@@ -12,6 +12,18 @@ import { Directory, File, Paths } from "expo-file-system";
 const memory = new Map<string, unknown>();
 const inFlight = new Map<string, Promise<unknown>>();
 const cacheDir = new Directory(Paths.cache, "data-cache");
+// Every mounted useCachedData(key) instance subscribes here. A cacheSet for
+// that key — whether triggered by that same hook's own refresh(), another
+// component's hook for the same key, or a direct revalidateCached() call
+// from unrelated code (e.g. the notification poll nudging leave data to
+// refetch the moment a status-change notification arrives) — notifies all
+// of them, so a screen that's just sitting open updates without the viewer
+// having to do anything.
+const subscribers = new Map<string, Set<(value: unknown) => void>>();
+
+function notifySubscribers(key: string, value: unknown) {
+  subscribers.get(key)?.forEach((listener) => listener(value));
+}
 
 export const CACHE_KEYS = {
   myProfile: "my-profile",
@@ -61,6 +73,7 @@ export function cacheSet(key: string, value: unknown) {
   } catch {
     // Persisting is best-effort — the memory copy still works this session.
   }
+  notifySubscribers(key, value);
 }
 
 // Wipe everything on login/logout so one account can never see another
@@ -125,6 +138,17 @@ export function useCachedData<T>(key: string | null, fetcher: () => Promise<T>) 
       .catch((error) => console.error(`Failed to fetch ${key}`, error))
       .finally(() => setIsLoading(false));
   }, [key, refresh]);
+
+  useEffect(() => {
+    if (!key) return;
+    const listener = (value: unknown) => setDataState(value as T);
+    if (!subscribers.has(key)) subscribers.set(key, new Set());
+    subscribers.get(key)!.add(listener);
+    return () => {
+      subscribers.get(key)?.delete(listener);
+      if (subscribers.get(key)?.size === 0) subscribers.delete(key);
+    };
+  }, [key]);
 
   // For optimistic local updates (e.g. marking a notification read) — keeps
   // the cached copy in sync so the change survives closing the screen.

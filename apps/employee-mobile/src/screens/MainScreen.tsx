@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import {
+  AppState,
   SafeAreaView,
   View,
 } from "react-native";
@@ -15,10 +16,10 @@ import Header from "../components/Header";
 import BottomTab from "../components/BottomTab";
 
 import { Tab, GeofenceStatus } from "../types";
-import { AttendanceEligibility, EmployeeProfile, TodayAttendance, getMyProfile, getUnreadNotificationCount } from "../api";
-import { CACHE_KEYS, cacheGet, cacheSet, useCachedData } from "../utils/dataCache";
+import { AttendanceEligibility, EmployeeProfile, TodayAttendance, getMyProfile, getUnreadNotificationCount, getLeaveRequests, getLeaveBalances } from "../api";
+import { CACHE_KEYS, cacheGet, cacheSet, revalidateCached, useCachedData } from "../utils/dataCache";
 
-const NOTIFICATION_POLL_MS = 30000;
+const NOTIFICATION_POLL_MS = 15000;
 
 type Props = {
   user: any;
@@ -74,6 +75,7 @@ export default function MainScreen({
   }, [refreshProfile]);
 
   useEffect(() => {
+    let lastKnownCount: number | null = cacheGet<{ count: number }>(CACHE_KEYS.notificationsUnreadCount)?.count ?? null;
     const refreshUnreadCount = () => {
       const cached = cacheGet<{ count: number }>(CACHE_KEYS.notificationsUnreadCount);
       if (cached) setUnreadCount(cached.count);
@@ -81,13 +83,45 @@ export default function MainScreen({
         .then((data) => {
           setUnreadCount(data.count);
           cacheSet(CACHE_KEYS.notificationsUnreadCount, data);
+          // A new notification (e.g. "your leave was approved") is exactly
+          // when leave data most needs to be fresh — nudge it to refetch
+          // right away instead of waiting for LeaveScreen's own poll. Only
+          // fires on a genuine increase, not every 30s tick, and this is a
+          // no-op if LeaveScreen isn't mounted (revalidateCached still
+          // updates the shared cache for whenever it next opens).
+          if (lastKnownCount !== null && data.count > lastKnownCount && user?.employeeId) {
+            revalidateCached(CACHE_KEYS.leaveRequests(user.employeeId), () => getLeaveRequests(user.employeeId)).catch(() => undefined);
+            revalidateCached(CACHE_KEYS.leaveBalances(user.employeeId), () => getLeaveBalances(user.employeeId)).catch(() => undefined);
+          }
+          lastKnownCount = data.count;
         })
         .catch(() => undefined);
     };
     refreshUnreadCount();
     const interval = setInterval(refreshUnreadCount, NOTIFICATION_POLL_MS);
-    return () => clearInterval(interval);
-  }, []);
+    // A poll's setInterval doesn't reliably keep firing while the app is
+    // backgrounded (the OS suspends JS timers), so re-checking on the app
+    // coming back to the foreground — e.g. the employee glanced away while
+    // waiting for a supervisor's decision, then reopened the app — is the
+    // difference between "instant" and "waits out the rest of a suspended
+    // interval" for the exact moment a status change is most likely.
+    const appStateSub = AppState.addEventListener("change", (state) => {
+      if (state !== "active") return;
+      refreshUnreadCount();
+      // Don't gate this on the unread-count comparison above — that count
+      // can miss edge cases (e.g. the notification was already read
+      // elsewhere). Foregrounding is cheap and rare enough to always
+      // refetch leave data directly instead of trusting a proxy signal.
+      if (user?.employeeId) {
+        revalidateCached(CACHE_KEYS.leaveRequests(user.employeeId), () => getLeaveRequests(user.employeeId)).catch(() => undefined);
+        revalidateCached(CACHE_KEYS.leaveBalances(user.employeeId), () => getLeaveBalances(user.employeeId)).catch(() => undefined);
+      }
+    });
+    return () => {
+      clearInterval(interval);
+      appStateSub.remove();
+    };
+  }, [user?.employeeId]);
 
   return (
     <SafeAreaView style={{ flex: 1 }}>

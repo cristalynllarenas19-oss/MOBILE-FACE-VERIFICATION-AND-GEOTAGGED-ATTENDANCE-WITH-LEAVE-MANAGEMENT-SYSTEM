@@ -1,8 +1,10 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Req } from "@nestjs/common";
 import { EmploymentStatus, LeaveTypeKind } from "@prisma/client";
-import { IsArray, IsBoolean, IsEnum, IsNumber, IsOptional, IsString } from "class-validator";
+import { IsArray, IsBoolean, IsEnum, IsIn, IsNumber, IsOptional, IsString, Min } from "class-validator";
 import { LeaveTypesService } from "./leave-types.service";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
+
+const CANCELLATION_CUTOFF_UNITS = ["WORKING_DAYS_BEFORE_START", "HOURS_BEFORE_SHIFT_START"] as const;
 
 export class CreateLeaveTypeDto {
   @IsString()
@@ -63,6 +65,20 @@ export class CreateLeaveTypeDto {
   @IsOptional()
   @IsEnum(LeaveTypeKind)
   kind?: LeaveTypeKind;
+
+  @IsOptional()
+  @IsBoolean()
+  cancellationAllowed?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  cancellationCutoffValue?: number;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(CANCELLATION_CUTOFF_UNITS)
+  cancellationCutoffUnit?: string;
 }
 
 export class UpdateLeaveTypeDto {
@@ -126,6 +142,20 @@ export class UpdateLeaveTypeDto {
   @IsOptional()
   @IsEnum(LeaveTypeKind)
   kind?: LeaveTypeKind;
+
+  @IsOptional()
+  @IsBoolean()
+  cancellationAllowed?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  cancellationCutoffValue?: number;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(CANCELLATION_CUTOFF_UNITS)
+  cancellationCutoffUnit?: string;
 }
 
 export class SetLeaveTypeStatusDto {

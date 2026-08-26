@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { SafeAreaView, View } from "react-native";
+import { AppState, SafeAreaView, View } from "react-native";
 
 import SupervisorDashboardScreen from "./supervisor/SupervisorDashboardScreen";
 import TeamScreen from "./supervisor/TeamScreen";
@@ -12,10 +12,10 @@ import Header from "../components/Header";
 import BottomTab, { SUPERVISOR_TABS } from "../components/BottomTab";
 
 import { SupervisorTab } from "../types";
-import { EmployeeProfile, MobileUser, getMyProfile, getUnreadNotificationCount } from "../api";
-import { CACHE_KEYS, cacheGet, cacheSet, useCachedData } from "../utils/dataCache";
+import { EmployeeProfile, MobileUser, getMyProfile, getUnreadNotificationCount, getTeamLeaveRequests } from "../api";
+import { CACHE_KEYS, cacheGet, cacheSet, revalidateCached, useCachedData } from "../utils/dataCache";
 
-const NOTIFICATION_POLL_MS = 30000;
+const NOTIFICATION_POLL_MS = 15000;
 
 type Props = {
   user: MobileUser;
@@ -32,6 +32,7 @@ export default function SupervisorMainScreen({ user, onLogout, canSwitchToEmploy
   const { data: profile } = useCachedData<EmployeeProfile>(CACHE_KEYS.myProfile, getMyProfile);
 
   useEffect(() => {
+    let lastKnownCount: number | null = cacheGet<{ count: number }>(CACHE_KEYS.notificationsUnreadCount)?.count ?? null;
     const refreshUnreadCount = () => {
       const cached = cacheGet<{ count: number }>(CACHE_KEYS.notificationsUnreadCount);
       if (cached) setUnreadCount(cached.count);
@@ -39,12 +40,28 @@ export default function SupervisorMainScreen({ user, onLogout, canSwitchToEmploy
         .then((data) => {
           setUnreadCount(data.count);
           cacheSet(CACHE_KEYS.notificationsUnreadCount, data);
+          // A new notification (e.g. "leave cancellation requested") is
+          // exactly when the team's leave list most needs to be fresh —
+          // nudge it to refetch right away instead of waiting for the Leave
+          // tab's own poll.
+          if (lastKnownCount !== null && data.count > lastKnownCount) {
+            revalidateCached(CACHE_KEYS.teamLeaveRequests, getTeamLeaveRequests).catch(() => undefined);
+          }
+          lastKnownCount = data.count;
         })
         .catch(() => undefined);
     };
     refreshUnreadCount();
     const interval = setInterval(refreshUnreadCount, NOTIFICATION_POLL_MS);
-    return () => clearInterval(interval);
+    const appStateSub = AppState.addEventListener("change", (state) => {
+      if (state !== "active") return;
+      refreshUnreadCount();
+      revalidateCached(CACHE_KEYS.teamLeaveRequests, getTeamLeaveRequests).catch(() => undefined);
+    });
+    return () => {
+      clearInterval(interval);
+      appStateSub.remove();
+    };
   }, []);
 
   return (

@@ -62,11 +62,39 @@ export class LeaveController {
 
   @Patch(":id/cancel")
   @RequirePermissions("leave:write")
-  cancel(@Param("id") id: string, @Req() request: Request) {
+  cancel(@Param("id") id: string, @Body() body: { note?: string }, @Req() request: Request) {
     const user = (request as any).user;
     const roles: string[] = user.roles ?? [user.role];
-    const hasElevatedRole = roles.includes("ADMIN") || roles.includes("SUPERVISOR");
-    return this.leaveService.cancel(id, getAuditContext(request), hasElevatedRole ? undefined : user?.employeeId);
+    // Cancelling is reserved for the employee who filed the request or an
+    // ADMIN override — a SUPERVISOR is never treated as elevated here, so
+    // they can only cancel a request that's their own (via user.employeeId),
+    // never a subordinate's.
+    const isAdmin = roles.includes("ADMIN");
+    return this.leaveService.cancel(id, getAuditContext(request), isAdmin ? undefined : user?.employeeId, body?.note);
+  }
+
+  @Patch(":id/approve-cancellation")
+  @RequirePermissions("leave:approve")
+  approveCancellation(@Param("id") id: string, @Req() request: Request) {
+    const user = (request as any).user;
+    const roles: string[] = user.roles ?? [user.role];
+    const isAdmin = roles.includes("ADMIN");
+    const departmentId = getSupervisorDepartmentScope(user);
+    // Same self-review guard as approve/reject — a Supervisor can never
+    // decide on their own leave, including their own cancellation request.
+    const selfReviewEmployeeId = isAdmin ? undefined : user.employeeId;
+    return this.leaveService.approveCancellation(id, getAuditContext(request), departmentId, selfReviewEmployeeId);
+  }
+
+  @Patch(":id/deny-cancellation")
+  @RequirePermissions("leave:approve")
+  denyCancellation(@Param("id") id: string, @Body() body: { remarks?: string }, @Req() request: Request) {
+    const user = (request as any).user;
+    const roles: string[] = user.roles ?? [user.role];
+    const isAdmin = roles.includes("ADMIN");
+    const departmentId = getSupervisorDepartmentScope(user);
+    const selfReviewEmployeeId = isAdmin ? undefined : user.employeeId;
+    return this.leaveService.denyCancellation(id, body?.remarks, getAuditContext(request), departmentId, selfReviewEmployeeId);
   }
 
   @Patch(":id/resubmit")

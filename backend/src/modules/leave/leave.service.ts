@@ -6,14 +6,24 @@ import { CreateLeaveRequestDto } from "./dto/create-leave-request.dto";
 import { RejectLeaveRequestDto } from "./dto/reject-leave-request.dto";
 import { ResubmitLeaveRequestDto } from "./dto/resubmit-leave-request.dto";
 import { isEligibleForLeaveType } from "./leave-balances.service";
+import { isDayOff } from "../../common/utils/schedule.util";
 
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
-type LeaveRequestStatus = "PENDING" | "SUPERVISOR_APPROVED" | "APPROVED" | "REJECTED" | "NEEDS_REVISION" | "CANCELLED";
+type LeaveRequestStatus =
+  | "PENDING"
+  | "SUPERVISOR_APPROVED"
+  | "APPROVED"
+  | "REJECTED"
+  | "NEEDS_REVISION"
+  | "CANCELLED"
+  | "CANCELLATION_PENDING";
 
-// How long after HR/Admin approval an employee may still self-cancel an
-// approved leave request. An elevated actor (Admin/Supervisor) cancelling on
-// an employee's behalf is not bound by this window — see cancel() below.
-const CANCELLATION_GRACE_HOURS = 24;
+// Leave-type cutoff modes for approved self-cancellation. An ADMIN override
+// cancelling on an employee's behalf is not bound by these windows.
+const CANCELLATION_CUTOFF_UNITS = {
+  WORKING_DAYS_BEFORE_START: "WORKING_DAYS_BEFORE_START",
+  HOURS_BEFORE_SHIFT_START: "HOURS_BEFORE_SHIFT_START",
+} as const;
 
 // Local-midnight truncation, matching the same toDateString()-based same-day
 // comparisons already used elsewhere in this file (see isSingleDayOnly check
@@ -21,6 +31,23 @@ const CANCELLATION_GRACE_HOURS = 24;
 // time-of-day.
 function toDateOnly(value: Date): Date {
   return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+}
+
+function dateAtTime(date: Date, time: string | null | undefined) {
+  const [hours = 0, minutes = 0] = (time ?? "00:00").split(":").map((part) => Number(part));
+  const result = new Date(date);
+  result.setHours(Number.isFinite(hours) ? hours : 0, Number.isFinite(minutes) ? minutes : 0, 0, 0);
+  return result;
+}
+
+function subtractWorkingDays(date: Date, days: number) {
+  const result = new Date(date);
+  let remaining = Math.max(0, days);
+  while (remaining > 0) {
+    result.setDate(result.getDate() - 1);
+    if (!isDayOff(result)) remaining -= 1;
+  }
+  return result;
 }
 
 @Injectable()
@@ -54,10 +81,111 @@ export class LeaveService {
       orderBy: { createdAt: "desc" },
     });
 
+    // The cutoff math below only ever runs for APPROVED requests (see the
+    // early-return in getCancellationEligibility), so the schedule/shift join
+    // — the heaviest part of this query — is only worth fetching for the
+    // employees who actually have one. On a poll-heavy screen with mostly
+    // non-APPROVED history, this keeps most calls to a two-table query.
+    const employeeIdsNeedingSchedule = Array.from(
+      new Set(requests.filter((request) => request.status === "APPROVED").map((request) => request.employeeId)),
+    );
+    const schedulesByEmployeeId = new Map<string, Array<{ startsOn: Date; endsOn: Date | null; shift: { startTime: string } }>>();
+    if (employeeIdsNeedingSchedule.length > 0) {
+      const schedules = await this.prisma.employeeSchedule.findMany({
+        where: { employeeId: { in: employeeIdsNeedingSchedule }, isActive: true },
+        select: { employeeId: true, startsOn: true, endsOn: true, shift: { select: { startTime: true } } },
+        orderBy: { startsOn: "desc" },
+      });
+      for (const schedule of schedules) {
+        const list = schedulesByEmployeeId.get(schedule.employeeId) ?? [];
+        list.push(schedule);
+        schedulesByEmployeeId.set(schedule.employeeId, list);
+      }
+    }
+
     return requests.map((request) => ({
       ...request,
       adminRemarks: remarks.find((remark) => remark.entityId === request.id)?.newValues,
+      // Lets the employee self-service UI disable Cancel and explain why
+      // instead of only finding out after a failed attempt — same rule the
+      // cancel() endpoint enforces, computed here so the client never has to
+      // duplicate the cutoff math (which needs the employee's shift).
+      cancellation: this.getCancellationEligibility(request, schedulesByEmployeeId.get(request.employeeId) ?? [], request.notes),
     }));
+  }
+
+  // Whether an EMPLOYEE (not an ADMIN override) could cancel this request
+  // right now, and why not if not. PENDING/SUPERVISOR_APPROVED never have a
+  // cutoff; APPROVED is gated by the leave type's configured cutoff window.
+  private getCancellationEligibility(
+    request: {
+      status: string;
+      startDate: Date;
+      leaveType: {
+        name: string;
+        cancellationAllowed: boolean;
+        cancellationCutoffValue: number | null;
+        cancellationCutoffUnit: string | null;
+      };
+    },
+    schedules: Array<{ startsOn: Date; endsOn: Date | null; shift: { startTime: string } }>,
+    // Once a Supervisor/Admin denies a cancellation request (see
+    // denyCancellation), the request permanently loses the ability to
+    // request another one — this is what a CANCELLATION_DENIED note means.
+    // The request itself is untouched otherwise (still plain APPROVED), so
+    // without this check it would look exactly like a leave that never had
+    // a cancellation attempt at all.
+    notes: Array<{ type: string }> = [],
+  ): { allowed: boolean; reason?: string; deadline?: Date } {
+    const cancellableStatuses: LeaveRequestStatus[] = ["PENDING", "SUPERVISOR_APPROVED", "APPROVED"];
+    if (!cancellableStatuses.includes(request.status as LeaveRequestStatus)) {
+      return { allowed: false };
+    }
+    if (request.status !== "APPROVED") {
+      return { allowed: true };
+    }
+    if (notes.some((note) => note.type === "CANCELLATION_DENIED")) {
+      return {
+        allowed: false,
+        reason: "Your supervisor already denied a request to cancel this leave. Please contact HR/Admin if you still need to cancel it.",
+      };
+    }
+
+    if (!request.leaveType.cancellationAllowed) {
+      return {
+        allowed: false,
+        reason: `${request.leaveType.name} is not available for employee cancellation. Please contact HR/Admin.`,
+      };
+    }
+    if (request.leaveType.cancellationCutoffValue == null || !request.leaveType.cancellationCutoffUnit) {
+      return {
+        allowed: false,
+        reason: `${request.leaveType.name} has no cancellation cutoff period configured. Please contact HR/Admin.`,
+      };
+    }
+
+    const requestStart = toDateOnly(request.startDate);
+    const schedule = schedules.find((assignment) => {
+      const startsOn = toDateOnly(assignment.startsOn);
+      const endsOn = assignment.endsOn ? toDateOnly(assignment.endsOn) : null;
+      return startsOn <= requestStart && (!endsOn || endsOn >= requestStart);
+    });
+    const leaveStartAtShiftTime = dateAtTime(request.startDate, schedule?.shift.startTime);
+    const cutoffValue = request.leaveType.cancellationCutoffValue;
+    const cutoffUnit = request.leaveType.cancellationCutoffUnit;
+    const cutoffDeadline =
+      cutoffUnit === CANCELLATION_CUTOFF_UNITS.HOURS_BEFORE_SHIFT_START
+        ? new Date(leaveStartAtShiftTime.getTime() - cutoffValue * 60 * 60 * 1000)
+        : subtractWorkingDays(leaveStartAtShiftTime, cutoffValue);
+
+    if (new Date() > cutoffDeadline) {
+      return {
+        allowed: false,
+        reason: `The cutoff to cancel this approved ${request.leaveType.name} was ${cutoffDeadline.toLocaleString()}. Please contact HR/Admin.`,
+        deadline: cutoffDeadline,
+      };
+    }
+    return { allowed: true, deadline: cutoffDeadline };
   }
 
   async create(dto: CreateLeaveRequestDto, context: AuditLogContext = {}) {
@@ -65,22 +193,48 @@ export class LeaveService {
       throw new BadRequestException("Attachment must be 5MB or smaller.");
     }
 
-    // An employee can only have one request in flight at a time — they must wait for it
-    // to be fully APPROVED (or REJECTED/CANCELLED) before filing another.
-    const activeRequest = await this.prisma.leaveRequest.findFirst({
+    const leaveType = await this.prisma.leaveType.findUniqueOrThrow({ where: { id: dto.leaveTypeId } });
+
+    // An employee can have multiple leave types in flight at once, but not two
+    // requests of the *same* type — they must wait for the existing one to be
+    // fully APPROVED (or REJECTED/CANCELLED) before filing another of that
+    // type. A different type is always allowed.
+    const activeRequestOfType = await this.prisma.leaveRequest.findFirst({
       where: {
         employeeId: dto.employeeId,
+        leaveTypeId: dto.leaveTypeId,
         status: { in: ["PENDING", "SUPERVISOR_APPROVED", "NEEDS_REVISION"] },
       },
     });
 
-    if (activeRequest) {
+    if (activeRequestOfType) {
       throw new BadRequestException(
-        "You already have a leave request awaiting review. Please wait until it is approved, rejected, or cancelled before filing another.",
+        `You already have a ${leaveType.name} request awaiting review. Please wait until it is approved, rejected, or cancelled before filing another for this leave type.`,
       );
     }
 
-    const leaveType = await this.prisma.leaveType.findUniqueOrThrow({ where: { id: dto.leaveTypeId } });
+    // Any date already covered by an APPROVED request of this *same* leave
+    // type is off-limits for a new one of that type — until the approved
+    // request is cancelled. Scoped to the same type only (not any type);
+    // a different type filed over the same dates is a separate business
+    // call this check doesn't make.
+    const overlappingApproved = await this.prisma.leaveRequest.findFirst({
+      where: {
+        employeeId: dto.employeeId,
+        leaveTypeId: dto.leaveTypeId,
+        status: "APPROVED",
+        startDate: { lte: new Date(dto.endDate) },
+        endDate: { gte: new Date(dto.startDate) },
+      },
+    });
+
+    if (overlappingApproved) {
+      throw new BadRequestException(
+        `These dates overlap your approved ${leaveType.name} ` +
+          `(${overlappingApproved.startDate.toLocaleDateString()} – ${overlappingApproved.endDate.toLocaleDateString()}). ` +
+          `Cancel that request first if you need to change it.`,
+      );
+    }
 
     // Only checked server-side here — the balances endpoint already filters
     // the dropdown to applicable types, but a crafted request could otherwise
@@ -110,16 +264,27 @@ export class LeaveService {
       }
     }
 
-    // Leave types flagged !advanceFilingAllowed (Sick Leave) cannot be filed
-    // for a future date — driven by the leave type's own config, not the
-    // type's name, so HR can retune which types this applies to without a
-    // code change. Compassionate Leave (advanceFilingAllowed = true) is
-    // unaffected, including when the reason given is a doctor's appointment —
-    // that's a reason under Compassionate Leave, not a separate leave type.
+    // Leave types flagged !advanceFilingAllowed (Sick Leave, Emergency Leave,
+    // Adverse Weather Leave) cannot be filed for a future date — driven by
+    // the leave type's own config, not the type's name, so HR can retune
+    // which types this applies to without a code change. Compassionate Leave
+    // (advanceFilingAllowed = true) is unaffected, including when the reason
+    // given is a doctor's appointment — that's a reason under Compassionate
+    // Leave, not a separate leave type.
+    //
+    // When it's *also* isSingleDayOnly (same-day emergency-style leave), the
+    // date must be exactly today — not a past date either — since these are
+    // meant to be filed the day the employee is actually out, not backfiled
+    // days later. A multi-day !advanceFilingAllowed type (if HR ever
+    // configures one) keeps the more lenient "today or earlier" rule.
     if (!leaveType.advanceFilingAllowed) {
       const requestedStart = toDateOnly(new Date(dto.startDate));
       const today = toDateOnly(new Date());
-      if (requestedStart > today) {
+      if (leaveType.isSingleDayOnly) {
+        if (requestedStart.getTime() !== today.getTime()) {
+          throw new BadRequestException(`${leaveType.name} must be filed for today's date only.`);
+        }
+      } else if (requestedStart > today) {
         throw new BadRequestException(`${leaveType.name} cannot be filed in advance — the date must be today or earlier.`);
       }
     }
@@ -287,6 +452,10 @@ export class LeaveService {
       REJECTED: "rejected",
       NEEDS_REVISION: "returned for additional requirements",
       CANCELLED: "cancelled",
+      // Not actually routed through this generic transition (see cancel(),
+      // approveCancellation(), denyCancellation()) — present only so this
+      // Record stays exhaustive over LeaveRequestStatus.
+      CANCELLATION_PENDING: "awaiting approval to cancel",
     };
 
     if (request.employee.userId && status !== "PENDING") {
@@ -438,42 +607,240 @@ export class LeaveService {
     };
   }
 
-  async cancel(id: string, context: AuditLogContext = {}, requestingEmployeeId?: string) {
-    const existing = await this.prisma.leaveRequest.findUniqueOrThrow({ where: { id } });
+  async cancel(id: string, context: AuditLogContext = {}, requestingEmployeeId?: string, note?: string) {
+    const trimmedNote = note?.trim();
+    if (!trimmedNote) {
+      throw new BadRequestException("Please provide a reason for cancelling this leave request.");
+    }
+
+    const existing = await this.prisma.leaveRequest.findUniqueOrThrow({
+      where: { id },
+      include: {
+        leaveType: true,
+        notes: true,
+        employee: {
+          include: {
+            schedules: {
+              where: { isActive: true },
+              include: { shift: true },
+              orderBy: { startsOn: "desc" },
+            },
+          },
+        },
+      },
+    });
 
     const cancellableStatuses: LeaveRequestStatus[] = ["PENDING", "SUPERVISOR_APPROVED", "APPROVED"];
     if (!cancellableStatuses.includes(existing.status as LeaveRequestStatus)) {
       throw new BadRequestException("Only a pending, supervisor-approved, or approved request can be cancelled.");
     }
 
-    // requestingEmployeeId is undefined for an elevated (ADMIN/SUPERVISOR) actor
-    // cancelling on an employee's behalf; a plain employee must only cancel their own.
+    // requestingEmployeeId is undefined for an ADMIN override cancelling on an
+    // employee's behalf; anyone else (including a SUPERVISOR) must only
+    // cancel their own request — a Supervisor never cancels a subordinate's.
     if (requestingEmployeeId && existing.employeeId !== requestingEmployeeId) {
       throw new BadRequestException("You can only cancel your own leave request.");
     }
 
-    // An already-approved leave can only be self-cancelled within the grace
-    // window after approval — past that, the employee must go through HR/Admin,
-    // who cancel with requestingEmployeeId unset and so aren't bound by this
-    // check (an elevated override, same pattern as the self-review guards above).
+    // Approved leave self-cancellation follows the leave type's configured
+    // cutoff (and is permanently blocked once a prior cancellation request
+    // was denied — see getCancellationEligibility). HR/Admin cancellation
+    // remains an override for manual correction, unaffected by either rule.
     if (existing.status === "APPROVED" && requestingEmployeeId) {
-      const hoursSinceApproval = existing.reviewedAt
-        ? (Date.now() - existing.reviewedAt.getTime()) / 3_600_000
-        : Infinity;
-      if (hoursSinceApproval > CANCELLATION_GRACE_HOURS) {
-        throw new BadRequestException(
-          `Approved leave can only be cancelled within ${CANCELLATION_GRACE_HOURS} hours of approval. Please contact HR/Admin.`,
-        );
+      const eligibility = this.getCancellationEligibility(existing, existing.employee.schedules, existing.notes);
+      if (!eligibility.allowed) {
+        throw new BadRequestException(eligibility.reason ?? "This request can no longer be cancelled.");
       }
+    }
+
+    // An employee cancelling an already-APPROVED leave doesn't take effect
+    // immediately — the leave was already granted (balance deducted,
+    // schedule/coverage planned around it), so it sits at
+    // CANCELLATION_PENDING until a Supervisor/Admin approves or denies the
+    // cancellation. Cancelling a PENDING/SUPERVISOR_APPROVED request (nothing
+    // committed yet) or an ADMIN override still takes effect immediately.
+    if (existing.status === "APPROVED" && requestingEmployeeId) {
+      const request = await this.prisma.leaveRequest.update({
+        where: { id },
+        data: { status: "CANCELLATION_PENDING", preCancellationStatus: "APPROVED" },
+        include: { employee: { include: { supervisor: { select: { userId: true } } } }, leaveType: true },
+      });
+
+      await this.prisma.leaveRequestNote.create({
+        data: { leaveRequestId: id, type: "CANCELLED", message: trimmedNote, authorUserId: context.actorUserId },
+      });
+
+      // Same recipient routing as a fresh submission (notifySubmission) — a
+      // regular employee's request goes to their supervisor only; a
+      // supervisor cancelling their own approved leave routes to HR/Admin
+      // instead, since they have no supervisor above them.
+      const filerIsSupervisor = await this.notifications.userHasRole(request.employee.userId, "SUPERVISOR");
+      const candidateIds = filerIsSupervisor
+        ? await this.notifications.adminUserIds()
+        : [request.employee.supervisor?.userId];
+      const recipientIds = candidateIds.filter((rid): rid is string => Boolean(rid) && rid !== request.employee.userId);
+
+      await this.notifications.notifyUsers(recipientIds, {
+        title: "Leave Cancellation Requested",
+        message: `${request.employee.firstName} ${request.employee.lastName} wants to cancel their approved ${request.leaveType.name} (${request.startDate.toLocaleDateString()} - ${request.endDate.toLocaleDateString()}). Reason: ${trimmedNote}`,
+        type: "LEAVE_CANCELLATION_REQUESTED",
+        entityId: request.id,
+      });
+
+      await this.auditLogs.record({
+        ...context,
+        action: "REQUEST_CANCEL_LEAVE",
+        module: "Leave",
+        entityType: "LeaveRequest",
+        entityId: id,
+        description: `${request.employee.firstName} ${request.employee.lastName} requested to cancel their ${request.leaveType.name} leave request.`,
+        oldValues: { status: existing.status },
+        newValues: { note: trimmedNote, status: "CANCELLATION_PENDING" },
+      });
+
+      return request;
     }
 
     // The leave period has already started (or passed) — the days were
     // already taken, so cancelling now must not hand the balance back.
     const alreadyUsed = existing.status === "APPROVED" && toDateOnly(existing.startDate) <= toDateOnly(new Date());
 
-    return this.updateStatus(id, "CANCELLED", undefined, context, undefined, undefined, {
+    const result = await this.updateStatus(id, "CANCELLED", undefined, context, undefined, undefined, {
       skipBalanceRestore: alreadyUsed,
     });
+
+    await this.prisma.leaveRequestNote.create({
+      data: {
+        leaveRequestId: id,
+        type: "CANCELLED",
+        message: trimmedNote,
+        authorUserId: context.actorUserId,
+      },
+    });
+
+    return result;
+  }
+
+  // Approves an employee's pending request to cancel an already-APPROVED
+  // leave — finalizes it to CANCELLED and restores the balance (unless the
+  // leave period already started, same rule as an immediate cancel).
+  async approveCancellation(id: string, context: AuditLogContext = {}, scopeDepartmentId?: string, selfReviewEmployeeId?: string) {
+    const existing = await this.prisma.leaveRequest.findUniqueOrThrow({
+      where: { id },
+      include: { employee: { select: { departmentId: true } } },
+    });
+    if (existing.status !== "CANCELLATION_PENDING") {
+      throw new BadRequestException("This request does not have a pending cancellation.");
+    }
+    if (scopeDepartmentId && existing.employee.departmentId !== scopeDepartmentId) {
+      throw new ForbiddenException("You can only manage leave requests from your own department.");
+    }
+    if (selfReviewEmployeeId && existing.employeeId === selfReviewEmployeeId) {
+      throw new ForbiddenException("You cannot approve or deny your own leave cancellation — HR must review it.");
+    }
+
+    const alreadyUsed = toDateOnly(existing.startDate) <= toDateOnly(new Date());
+    if (!alreadyUsed) {
+      await this.adjustLeaveBalance(existing.employeeId, existing.leaveTypeId, existing.startDate, -Number(existing.totalDays));
+    }
+
+    const request = await this.prisma.leaveRequest.update({
+      where: { id },
+      data: { status: "CANCELLED", preCancellationStatus: null, reviewedAt: new Date(), reviewedBy: context.actorUserId },
+      include: { employee: true, leaveType: true },
+    });
+
+    if (request.employee.userId) {
+      await this.notifications.notifyUsers([request.employee.userId], {
+        title: "Leave Cancellation Approved",
+        message: `Your request to cancel ${request.leaveType.name} (${request.startDate.toLocaleDateString()} - ${request.endDate.toLocaleDateString()}) was approved. This leave is now cancelled.`,
+        type: "LEAVE_CANCELLED",
+        entityId: request.id,
+      });
+    }
+
+    await this.auditLogs.record({
+      ...context,
+      action: "APPROVE_CANCEL_LEAVE",
+      module: "Leave",
+      entityType: "LeaveRequest",
+      entityId: id,
+      description: `Approved ${request.employee.firstName} ${request.employee.lastName}'s request to cancel their ${request.leaveType.name} leave request.`,
+      oldValues: { status: "CANCELLATION_PENDING" },
+      newValues: { status: "CANCELLED" },
+    });
+
+    return request;
+  }
+
+  // Denies an employee's pending request to cancel an already-APPROVED
+  // leave — the leave simply stays APPROVED, exactly as it was before the
+  // cancellation was requested. Balance was never touched, so there's
+  // nothing to reverse.
+  async denyCancellation(
+    id: string,
+    remarks: string | undefined,
+    context: AuditLogContext = {},
+    scopeDepartmentId?: string,
+    selfReviewEmployeeId?: string,
+  ) {
+    const existing = await this.prisma.leaveRequest.findUniqueOrThrow({
+      where: { id },
+      include: { employee: { select: { departmentId: true } } },
+    });
+    if (existing.status !== "CANCELLATION_PENDING") {
+      throw new BadRequestException("This request does not have a pending cancellation.");
+    }
+    if (scopeDepartmentId && existing.employee.departmentId !== scopeDepartmentId) {
+      throw new ForbiddenException("You can only manage leave requests from your own department.");
+    }
+    if (selfReviewEmployeeId && existing.employeeId === selfReviewEmployeeId) {
+      throw new ForbiddenException("You cannot approve or deny your own leave cancellation — HR must review it.");
+    }
+
+    const revertTo = (existing.preCancellationStatus ?? "APPROVED") as LeaveRequestStatus;
+
+    const request = await this.prisma.leaveRequest.update({
+      where: { id },
+      data: { status: revertTo, preCancellationStatus: null, reviewedAt: new Date(), reviewedBy: context.actorUserId },
+      include: { employee: true, leaveType: true },
+    });
+
+    // Marks this request as permanently ineligible for another cancellation
+    // request (see getCancellationEligibility) and is what the employee's
+    // detail view reads to show "Cancellation denied by your supervisor"
+    // instead of the request just quietly reverting to a plain APPROVED
+    // leave with no record of the attempt.
+    await this.prisma.leaveRequestNote.create({
+      data: {
+        leaveRequestId: id,
+        type: "CANCELLATION_DENIED",
+        message: remarks?.trim(),
+        authorUserId: context.actorUserId,
+      },
+    });
+
+    if (request.employee.userId) {
+      await this.notifications.notifyUsers([request.employee.userId], {
+        title: "Leave Cancellation Denied",
+        message: `Your request to cancel ${request.leaveType.name} (${request.startDate.toLocaleDateString()} - ${request.endDate.toLocaleDateString()}) was denied — it remains approved.${remarks?.trim() ? ` Remarks: ${remarks.trim()}` : ""}`,
+        type: "LEAVE_APPROVED",
+        entityId: request.id,
+      });
+    }
+
+    await this.auditLogs.record({
+      ...context,
+      action: "DENY_CANCEL_LEAVE",
+      module: "Leave",
+      entityType: "LeaveRequest",
+      entityId: id,
+      description: `Denied ${request.employee.firstName} ${request.employee.lastName}'s request to cancel their ${request.leaveType.name} leave request.`,
+      oldValues: { status: "CANCELLATION_PENDING" },
+      newValues: { remarks: remarks?.trim(), status: revertTo },
+    });
+
+    return request;
   }
 
   // The employee's side of the reject <-> resubmit loop: only valid while the

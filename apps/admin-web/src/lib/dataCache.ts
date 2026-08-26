@@ -25,6 +25,18 @@ import { SessionExpiredError } from "./api";
 const memory = new Map<string, unknown>();
 const inFlight = new Map<string, Promise<unknown>>();
 const STORAGE_PREFIX = "dataCache:";
+// Every mounted useCachedData(key) instance subscribes here. A cacheSet for
+// that key — whether triggered by that same hook's own refresh(), another
+// component's hook for the same key, or a direct revalidateCached() call
+// from unrelated code (e.g. the notification poll nudging leave data to
+// refetch the moment a status-change notification arrives) — notifies all
+// of them, so a page that's just sitting open updates without the viewer
+// having to do anything.
+const subscribers = new Map<string, Set<(value: unknown) => void>>();
+
+function notifySubscribers(key: string, value: unknown) {
+  subscribers.get(key)?.forEach((listener) => listener(value));
+}
 
 const DB_NAME = "adminWebDataCache";
 const STORE_NAME = "kv";
@@ -35,6 +47,8 @@ const STORE_NAME = "kv";
 // resource.
 export const CACHE_KEYS = {
   myProfile: "my-profile",
+  notifications: "notifications",
+  notificationsUnreadCount: "notifications:unread-count",
   leaveTypes: "leave-types",
   todayAttendance: (employeeId: string) => `today-attendance:${employeeId}`,
   attendanceHistory: (employeeId: string) => `attendance-history:${employeeId}`,
@@ -145,6 +159,7 @@ export function cacheSet(key: string, value: unknown) {
     // Quota exceeded — IndexedDB below is the backstop for this key.
   }
   idbSet(key, value);
+  notifySubscribers(key, value);
 }
 
 // Wipe everything on login/logout so one account can never see another
@@ -244,6 +259,17 @@ export function useCachedData<T>(key: string | null, fetcher: () => Promise<T>) 
       cancelled = true;
     };
   }, [key, refresh]);
+
+  useEffect(() => {
+    if (!key) return;
+    const listener = (value: unknown) => setDataState(value as T);
+    if (!subscribers.has(key)) subscribers.set(key, new Set());
+    subscribers.get(key)!.add(listener);
+    return () => {
+      subscribers.get(key)?.delete(listener);
+      if (subscribers.get(key)?.size === 0) subscribers.delete(key);
+    };
+  }, [key]);
 
   // For optimistic local updates — keeps the cached copy in sync so the
   // change survives navigating away and back.
