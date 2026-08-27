@@ -274,7 +274,7 @@ export class DashboardService {
               (isPastDate || isWorkingDayToday(e.id)),
           )
         : [];
-      const onLeaveNoRecord = isPastDate
+      const onLeaveNoRecord = isPastDate || isTodayDate
         ? employees.filter((e) => !recordedEmployeeIds.has(e.id) && onLeaveMap.has(e.id))
         : [];
 

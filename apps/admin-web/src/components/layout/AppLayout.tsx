@@ -281,6 +281,16 @@ export function AppLayout({
       // has no single log to preview, so that case just lands on the plain
       // Attendance page as before.
       onNavigate("attendance", notification.entityId ?? undefined);
+    } else if (
+      notification.type === "PROBATION_REGULARIZATION_DUE" &&
+      activeView === "admin" &&
+      (user.adminPermissions ?? user.permissions).includes(permissions.employeesRead)
+    ) {
+      // entityId is the employee's id — lands on Employee Management with
+      // their View Employee modal already open (see EmployeesPage's
+      // initialFocusEmployeeId), instead of dropping HR on the plain list to
+      // go find and click them.
+      onNavigate("employees", notification.entityId ?? undefined);
     }
     setNotifOpen(false);
   };

@@ -1,6 +1,6 @@
 import axios from "axios";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { AlertTriangle, Archive, ChevronsUpDown, CheckCircle2, Eye, Pencil, Plus, Search, X } from "lucide-react";
+import { AlertTriangle, Archive, ChevronsUpDown, CheckCircle2, Eye, Pencil, Plus, ScanFace, Search, UserCheck, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { apiRequest } from "../../lib/api";
@@ -36,11 +36,11 @@ type Employee = {
   department: { name: string };
   position: { title: string };
   supervisor?: { id: string; firstName: string; lastName: string } | null;
+  faceConsentAcceptedAt?: string | null;
+  requiresFaceConsent?: boolean;
 };
 
-// The legal set of attendance mode codes is DB-driven (GET
-// /departments/attendance-modes), not a compiled union — any string the API
-// returns is valid here.
+
 type AttendanceMode = string;
 type DepartmentAttendanceMode = string;
 
@@ -59,9 +59,6 @@ type EmployeeForm = {
   lastName: string;
   email: string;
   department: string;
-  // Kept here (rather than split into two types) because EditEmployeeForm
-  // reuses this shape and Edit still collects a position — only the Add
-  // form no longer asks for or sends it.
   position: string;
   hireDate: string;
   employmentStatus: "REGULAR" | "PROBATIONARY" | "CONTRACTUAL_SEASONAL" | "PIECE_RATE";
@@ -136,9 +133,7 @@ function getAttendanceModeTone(mode: Employee["attendanceMode"]) {
 
 const PROBATION_MILESTONE_MONTHS = 6;
 
-// Whole months elapsed since hireDate, plus the remainder in days — e.g.
-// "3 months, 12 days". Mirrors the 6-month cutoff EmployeesService uses
-// server-side for the regularization-review notification.
+
 function getTenure(hireDate?: string) {
   if (!hireDate) return null;
   const hired = new Date(hireDate);
@@ -250,14 +245,12 @@ function AddEmployeeModal({
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
 
-  // Supervisor is auto-assigned from the chosen department (first supervisor
-  // registered for it); the Add form no longer exposes a supervisor picker.
+  
   const autoSupervisor = supervisors.find(
     (supervisor) => supervisor.department.name === form.department.trim(),
   );
 
-  // A department restricted to Fixed or Field forces every new hire into
-  // that same mode; "Both" leaves the picker open.
+  
   const departmentMode = departments.find((department) => department.name === form.department.trim())?.attendanceMode;
   const isModeLocked = !!departmentMode && departmentMode !== "BOTH";
 
@@ -471,9 +464,7 @@ function EditEmployeeModal({
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
 
-  // A department restricted to Fixed or Field forces this employee into that
-  // same mode when reassigned; "Both" (or an archived department not in the
-  // active list) leaves the picker open.
+ 
   const departmentMode = departments.find((department) => department.name === form.department.trim())?.attendanceMode;
   const isModeLocked = !!departmentMode && departmentMode !== "BOTH";
 
@@ -484,15 +475,10 @@ function EditEmployeeModal({
   }, [isModeLocked, departmentMode]);
   const [leaveAllocation, setLeaveAllocation] = useState("");
   const [isAllocationLoading, setIsAllocationLoading] = useState(false);
-  // id of whichever leave type is Maternity/Paternity-kind for this
-  // employee's sex — null until HR has created one (Utilities -> Leave
-  // Types), in which case the allocation field stays hidden.
+ 
   const [genderLeaveTypeId, setGenderLeaveTypeId] = useState<string | null>(null);
 
-  // Admin-grant-only leave types (Solo Parent, Study Leave, Added Paternity
-  // Leave) — checking one here grants that type's default day allotment to
-  // this employee; unchecking revokes it. Until granted, employees can't
-  // select these when applying for leave.
+  
   const [adminGrantTypes, setAdminGrantTypes] = useState<{ id: string; name: string; defaultDays: string }[]>([]);
   const [grantedTypeIds, setGrantedTypeIds] = useState<Set<string>>(new Set());
   const [initialGrantedTypeIds, setInitialGrantedTypeIds] = useState<Set<string>>(new Set());
@@ -537,10 +523,7 @@ function EditEmployeeModal({
       apiRequest<{ leaveTypeId: string; earnedDays: number }[]>(`/leave-balances/${employee.id}`),
     ])
       .then(([types, balances]) => {
-        // A transferable admin-grant type (e.g. Added Paternity Leave — the
-        // extra days a mother transfers from her own Maternity Leave) only
-        // ever applies to a male employee — hide the checkbox for anyone
-        // else so it can't be granted where it doesn't make sense.
+        
         const grantTypes = types.filter((t) => {
           if (!t.requiresAdminGrant || !t.isActive) return false;
           if (t.isTransferable && employee.sex !== "MALE") return false;
@@ -620,10 +603,6 @@ function EditEmployeeModal({
         },
       );
 
-      // Grant/revoke access to the admin-grant-only leave types whose
-      // checkbox state changed — checking grants that type's default day
-      // allotment, unchecking zeroes it back out (findForEmployee treats a
-      // 0-day admin-grant balance as "not granted").
       const changedTypeIds = adminGrantTypes
         .filter((t) => grantedTypeIds.has(t.id) !== initialGrantedTypeIds.has(t.id))
         .map((t) => t.id);
@@ -828,6 +807,8 @@ function ViewEmployeeModal({
   onEdit,
   onArchive,
   canWrite,
+  canRegisterFace,
+  onRegisterFace,
 }: {
   employee: Employee;
   attendanceModeOptions: AttendanceModeOption[];
@@ -835,9 +816,25 @@ function ViewEmployeeModal({
   onEdit: () => void;
   onArchive: () => void;
   canWrite: boolean;
+  canRegisterFace: boolean;
+  onRegisterFace?: () => void;
 }) {
   return (
     <EmployeeModal title="Employee Details" description={getEmployeeName(employee)} onClose={onClose}>
+      {isDueForRegularizationReview(employee) && (
+        <div className="employee-regularization-banner" role="alert">
+          <UserCheck size={22} className="employee-regularization-banner-icon" />
+          <div>
+            <strong>Regularization review recommended</strong>
+            <p>
+              This employee has completed six (6) months of probationary employment and is eligible for
+              regularization review. Please review their performance and qualifications before converting their
+              status to Regular.
+            </p>
+          </div>
+        </div>
+      )}
+
       <div className="employee-detail-grid">
         <div>
           <span>Email</span>
@@ -892,26 +889,6 @@ function ViewEmployeeModal({
         )}
       </div>
 
-      {isDueForRegularizationReview(employee) && (
-        <div
-          style={{
-            background: "#eff6ff",
-            border: "1px solid #bfdbfe",
-            borderRadius: 10,
-            padding: "12px 14px",
-            margin: "0 0 16px",
-            fontSize: 13,
-            color: "#1e3a8a",
-            lineHeight: 1.5,
-          }}
-        >
-          <strong>Regularization review recommended.</strong> This employee has completed six (6)
-          months of probationary employment and may be ready for evaluation and conversion to
-          Regular status. This is a recommendation only — review their performance and use
-          "Edit Employee" to convert them if appropriate.
-        </div>
-      )}
-
       {employee.employmentStatus === "SEPARATED" && (
         <div className="employee-archive-details">
           <h3>Archive Details</h3>
@@ -944,6 +921,12 @@ function ViewEmployeeModal({
           <button type="button" className="employee-archive-action" onClick={onArchive}>
             <Archive size={14} />
             Archive Employee
+          </button>
+        )}
+        {canRegisterFace && onRegisterFace && (
+          <button type="button" className="primary-button" onClick={onRegisterFace}>
+            <ScanFace size={14} />
+            Register Face
           </button>
         )}
         {canWrite && (
@@ -1069,25 +1052,25 @@ function ArchiveEmployeeModal({
 export function EmployeesPage({
   user,
   onEmployeeCreated,
+  onRegisterFace,
+  initialFocusEmployeeId,
+  onFocusHandled,
 }: {
   user?: { permissions: PermissionCode[]; roles?: string[]; departmentId?: string; department?: string };
-  // When provided, a successful Add Employee hands the new employee to the
-  // parent (which redirects straight into Face Registration) instead of
-  // showing the local success toast.
+  
   onEmployeeCreated?: (employee: Employee) => void;
+  onRegisterFace?: (employee: Employee) => void;
+  
+  initialFocusEmployeeId?: string;
+  onFocusHandled?: () => void;
 }) {
   const canWrite = user?.permissions.includes(permissions.employeesWrite) ?? true;
-  // Mirrors the backend's getSupervisorDepartmentScope: a Supervisor who is
-  // also an Admin (or not a Supervisor at all) gets full, unscoped access.
   const roles = user?.roles ?? [];
   const isDepartmentLocked = roles.includes("SUPERVISOR") && !roles.includes("ADMIN");
   const lockedDepartmentName = isDepartmentLocked ? user?.department : undefined;
 
   const [departmentFilter, setDepartmentFilter] = useState("ALL");
   const [modeFilter, setModeFilter] = useState<"ALL" | "FIELD" | "NON_FIELD">("ALL");
-  // Null by default so the table keeps its natural newest-first order (a
-  // just-added employee stays at the top) until the admin actively opts
-  // into an A-Z/Z-A sort by clicking the Name header.
   const [nameSort, setNameSort] = useState<"asc" | "desc" | null>(null);
   const [showArchivedOnly, setShowArchivedOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -1098,8 +1081,7 @@ export function EmployeesPage({
   const [archiveEmployee, setArchiveEmployee] = useState<Employee | null>(null);
   const [notification, setNotification] = useState<Notification>(null);
 
-  // Same "employees" cache key as AttendancePage — both read GET /employees,
-  // so one fetched copy serves both pages.
+
   const employeesCache = useCachedData<Employee[]>("employees", () => apiRequest<Employee[]>("/employees"));
   const employees = employeesCache.data ?? [];
 
@@ -1107,6 +1089,13 @@ export function EmployeesPage({
     apiRequest<SupervisorOption[]>("/employees/supervisors"),
   );
   const supervisors = supervisorsCache.data ?? [];
+
+  
+  const faceProfilesCache = useCachedData<{ employeeId: string }[]>(
+    onRegisterFace ? "face-profiles" : null,
+    () => apiRequest<{ employeeId: string }[]>("/face-profiles"),
+  );
+  const registeredFaceEmployeeIds = new Set((faceProfilesCache.data ?? []).map((p) => p.employeeId));
 
   const { departments: activeDepartments, departmentNames: departments } = useActiveDepartments();
   const { forEmployees: attendanceModeOptions } = useAttendanceModeOptions();
@@ -1116,6 +1105,15 @@ export function EmployeesPage({
     const timeoutId = window.setTimeout(() => setNotification(null), 3500);
     return () => window.clearTimeout(timeoutId);
   }, [notification]);
+
+  useEffect(() => {
+    if (!initialFocusEmployeeId) return;
+    const match = employees.find((employee) => employee.id === initialFocusEmployeeId);
+    if (match) {
+      setViewEmployee(match);
+      onFocusHandled?.();
+    }
+  }, [initialFocusEmployeeId, employees, onFocusHandled]);
 
   const positions = Array.from(new Set(employees.map((employee) => employee.position.title))).sort();
   const activeEmployeeCount = employees.filter((employee) => employee.employmentStatus !== "SEPARATED").length;
@@ -1153,7 +1151,6 @@ export function EmployeesPage({
   );
 
   const handleEmployeeCreated = (employee: Employee) => {
-    // Newest employee goes to the top (LIFO), matching the backend's createdAt-desc order.
     employeesCache.setData([employee, ...employees]);
     setIsAddOpen(false);
     if (onEmployeeCreated) {
@@ -1366,6 +1363,13 @@ export function EmployeesPage({
             setViewEmployee(null);
           }}
           canWrite={canWrite}
+          canRegisterFace={Boolean(
+            onRegisterFace &&
+              !(viewEmployee.requiresFaceConsent && !viewEmployee.faceConsentAcceptedAt) &&
+              !registeredFaceEmployeeIds.has(viewEmployee.id) &&
+              viewEmployee.employmentStatus !== "SEPARATED",
+          )}
+          onRegisterFace={onRegisterFace ? () => onRegisterFace(viewEmployee) : undefined}
         />
       )}
 

@@ -749,7 +749,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
                   </div>
                   <h3>{lastActionWasEdit ? "Face Photo Updated" : "Face Registered Successfully"}</h3>
                   <p className="success-modal-name">{employeeLabel(lastRegisteredEmployee)}</p>
-                  <p className="success-modal-sub">{lastRegisteredEmployee.employeeNo} · {lastRegisteredEmployee.department?.name ?? "No department"}</p>
+                  <p className="success-modal-sub">{lastRegisteredEmployee.department?.name ?? "No department"}</p>
                   <p className="success-modal-desc">
                     {lastActionWasEdit
                       ? "The reference photo for face recognition has been updated."

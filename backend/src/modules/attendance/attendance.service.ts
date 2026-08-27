@@ -107,14 +107,32 @@ export class AttendanceService {
       adminRemarks: remarks.find((remark) => remark.entityId === record.id)?.newValues,
     }));
 
-    // A specific single day (either `date`, or `from`/`to` narrowed to the
-    // same calendar day — exactly what happens landing here from the
-    // Dashboard's "View in Attendance" button) is the only case where
-    // Absent/On-Leave employees can be reconstructed: neither ever gets a
-    // real AttendanceRecord row, so without this they'd be invisible here
-    // even though the Dashboard already counts them.
-    const singleDay = attendanceDate ?? (fromDate && toDate && fromDate.toDateString() === toDate.toDateString() ? fromDate : undefined);
-    if (!singleDay) return withRemarks;
+    // A specific single day — `date`, `from`/`to` narrowed to the same
+    // calendar day (e.g. landing here from the Dashboard's "View in
+    // Attendance" button), or only one of `from`/`to` set (the admin filters
+    // the Attendance Management list by a single date using just one of the
+    // two date inputs) — is the only case where Absent/On-Leave employees
+    // can be reconstructed: neither ever gets a real AttendanceRecord row,
+    // so without this they'd be invisible here even though the Dashboard
+    // already counts them. A genuine multi-day range (both set, and
+    // different) still can't be reconstructed per-day this way.
+    const singleDay =
+      attendanceDate ??
+      (fromDate && toDate
+        ? (fromDate.toDateString() === toDate.toDateString() ? fromDate : undefined)
+        : (fromDate ?? toDate));
+
+    // When the admin applies no date filter at all (the default Attendance
+    // Management view), today still needs a complete reconstruction so it
+    // can anchor the top of the newest-first list — same rationale as an
+    // explicit singleDay filter, just anchored to "today" instead of a
+    // chosen date. A genuine multi-day range keeps the pre-existing
+    // limitation above (no reconstruction) and returns as before.
+    const hasDateFilter = Boolean(filters.date || filters.from || filters.to);
+    const today = new Date();
+    const todayLocalMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const syntheticDay = singleDay ?? (hasDateFilter ? undefined : todayLocalMidnight);
+    if (!syntheticDay) return withRemarks;
 
     const employees = await this.prisma.employee.findMany({
       where: {
@@ -136,22 +154,30 @@ export class AttendanceService {
       },
     });
 
-    const recordedEmployeeIds = new Set(withRemarks.map((record) => record.employeeId));
+    // Scoped to syntheticDay specifically, not "has any record at all" —
+    // when there's no date filter, withRemarks spans many dates, so an
+    // employee last recorded days ago must still get today's reconstruction.
+    const recordedEmployeeIds = new Set(
+      withRemarks
+        .filter((record) => record.attendanceDate.toDateString() === syntheticDay.toDateString())
+        .map((record) => record.employeeId),
+    );
     const onLeaveByEmployee = await getApprovedLeaveByEmployee(
       this.prisma,
       employees.map((e) => e.id),
-      singleDay,
+      syntheticDay,
     );
 
-    // Whichever schedule was actually active for each employee ON singleDay
-    // (not "today") — same rule the Dashboard uses, but resolved per the
-    // specific day being viewed so browsing a past date stays historically
-    // accurate even if the employee's shift has since changed.
+    // Whichever schedule was actually active for each employee ON
+    // syntheticDay (not "today", unless that's what syntheticDay is) — same
+    // rule the Dashboard uses, but resolved per the specific day being
+    // reconstructed so browsing a past date stays historically accurate even
+    // if the employee's shift has since changed.
     const schedulesOnDay = await this.prisma.employeeSchedule.findMany({
       where: {
         employeeId: { in: employees.map((e) => e.id) },
-        startsOn: { lte: singleDay },
-        OR: [{ endsOn: null }, { endsOn: { gte: singleDay } }],
+        startsOn: { lte: syntheticDay },
+        OR: [{ endsOn: null }, { endsOn: { gte: syntheticDay } }],
       },
       orderBy: { startsOn: "desc" },
       select: {
@@ -172,18 +198,18 @@ export class AttendanceService {
     const now = new Date();
     // An employee with no schedule active on that day has nothing to
     // compare arrival against, so they're never no-show-absent — same rule
-    // the Dashboard uses. For a past singleDay the cutoff has necessarily
-    // already elapsed; for a future one it hasn't started yet — both fall
-    // out of this comparison naturally since it's anchored to singleDay.
+    // the Dashboard uses. For a past syntheticDay the cutoff has necessarily
+    // already elapsed; for today it may not have (both fall out of this
+    // comparison naturally since it's anchored to syntheticDay).
     function isPastAbsenceCutoff(employeeId: string): boolean {
       const schedule = scheduleByEmployee.get(employeeId);
       if (!schedule) return false;
-      return now >= computeAbsenceCutoff(schedule.shift, singleDay!);
+      return now >= computeAbsenceCutoff(schedule.shift, syntheticDay!);
     }
     function isWorkingDay(employeeId: string): boolean {
       const schedule = scheduleByEmployee.get(employeeId);
       if (!schedule) return true;
-      return schedule.workingDays.includes(singleDay!.getDay());
+      return schedule.workingDays.includes(syntheticDay!.getDay());
     }
 
     const wantsStatus = (status: "ABSENT" | "ON_LEAVE") => !filters.status || filters.status === "ALL" || filters.status === status;
@@ -191,13 +217,18 @@ export class AttendanceService {
     // visit happened), so a FIELD-only filter should exclude them entirely.
     const wantsSyntheticRecordType = !filters.recordType || filters.recordType === "ALL" || filters.recordType === "OFFICE";
 
+    const dayKey =
+      filters.date ??
+      filters.from ??
+      `${syntheticDay.getFullYear()}-${String(syntheticDay.getMonth() + 1).padStart(2, "0")}-${String(syntheticDay.getDate()).padStart(2, "0")}`;
+
     const syntheticRows = [];
     for (const employee of wantsSyntheticRecordType ? employees : []) {
       if (recordedEmployeeIds.has(employee.id)) continue;
       const onLeave = onLeaveByEmployee.get(employee.id);
       const base = {
-        id: `${onLeave ? "leave" : "absent"}-${employee.id}-${filters.date ?? filters.from}`,
-        attendanceDate: singleDay,
+        id: `${onLeave ? "leave" : "absent"}-${employee.id}-${dayKey}`,
+        attendanceDate: syntheticDay,
         recordType: "OFFICE" as const,
         visitNumber: 1,
         workLocationId: null,
@@ -228,8 +259,8 @@ export class AttendanceService {
         syntheticRows.push({ ...base, status: "ON_LEAVE" as const, leaveTypeName: onLeave.leaveTypeName });
       } else if (
         !onLeave &&
-        !isDayOff(singleDay) &&
-        employee.hireDate <= singleDay &&
+        !isDayOff(syntheticDay) &&
+        employee.hireDate <= syntheticDay &&
         wantsStatus("ABSENT") &&
         isPastAbsenceCutoff(employee.id) &&
         isWorkingDay(employee.id)
@@ -238,7 +269,13 @@ export class AttendanceService {
       }
     }
 
-    return [...withRemarks, ...syntheticRows];
+    // Final newest-first sort across real + synthetic rows together — a
+    // stable sort, so same-date ties keep their existing relative order
+    // (Prisma's attendanceDate desc/visitNumber asc for real rows; synthetic
+    // rows trailing after real rows on the same date).
+    return [...withRemarks, ...syntheticRows].sort(
+      (a, b) => b.attendanceDate.getTime() - a.attendanceDate.getTime(),
+    );
   }
 
   async updateStatus(

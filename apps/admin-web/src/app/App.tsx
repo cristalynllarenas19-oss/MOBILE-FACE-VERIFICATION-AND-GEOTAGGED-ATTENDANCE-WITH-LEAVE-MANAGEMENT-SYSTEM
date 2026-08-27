@@ -57,6 +57,10 @@ export default function App() {
   // into that flagged log's review modal instead of landing on the plain
   // Attendance list.
   const [attendanceFocusLogId, setAttendanceFocusLogId] = useState<string | undefined>(undefined);
+  // Same idea for a clicked probation-regularization notification — jumps
+  // straight into that employee's View Employee modal instead of landing on
+  // the plain Employee Management list.
+  const [employeeFocusId, setEmployeeFocusId] = useState<string | undefined>(undefined);
   // Set when a new employee is created so Face Registration opens with them
   // already selected; cleared on any normal navigation so a later visit to
   // Face Registration starts from a blank picker.
@@ -72,6 +76,7 @@ export default function App() {
     setLeaveFocusRequestId(id === "leave" ? entityId : undefined);
     setEmployeeLeaveFocusRequestId(id === "employee-leave" ? entityId : undefined);
     setAttendanceFocusLogId(id === "attendance" ? entityId : undefined);
+    setEmployeeFocusId(id === "employees" ? entityId : undefined);
     setFaceRegistrationEmployee(undefined);
     setPage(id);
   };
@@ -81,6 +86,7 @@ export default function App() {
     setLeaveFocusRequestId(undefined);
     setEmployeeLeaveFocusRequestId(undefined);
     setAttendanceFocusLogId(undefined);
+    setEmployeeFocusId(undefined);
     setFaceRegistrationEmployee(undefined);
     setPage(view === "employee" ? "employee-attendance" : "dashboard");
   };
@@ -205,12 +211,21 @@ export default function App() {
     : !activeNavItem || isNavItemVisible(activeNavItem, adminScopedPermissions, user.roles);
   const renderPage = hasAccess ? page : (visibleItems[0]?.id ?? "employee-attendance");
 
-  // The post-create redirect into Face Registration only happens when the
-  // account can actually see that page; otherwise adding an employee behaves
-  // as before (stay on Employee Management with the success toast).
+  // The post-create redirect into Face Registration, and the Employee
+  // Details modal's "Register Face" action, only happen when the account can
+  // actually see that page; otherwise both behave as before (stay on
+  // Employee Management).
   const faceRegistrationNavItem = navItems.find((item) => item.id === "face-registration");
   const canOpenFaceRegistration =
     !!faceRegistrationNavItem && isNavItemVisible(faceRegistrationNavItem, adminScopedPermissions, user.roles);
+
+  // Hands the given employee to Face Registration pre-selected, so the admin
+  // never has to search for/re-select them — used both right after Add
+  // Employee and from the Employee Details modal's Register Face button.
+  function goToFaceRegistration(employee: FaceRegistrationEmployee) {
+    setFaceRegistrationEmployee(employee);
+    setPage("face-registration");
+  }
 
   function handleLogout() {
     logout();
@@ -232,14 +247,10 @@ export default function App() {
       {renderPage === "employees" && (
         <EmployeesPage
           user={user}
-          onEmployeeCreated={
-            canOpenFaceRegistration
-              ? (employee) => {
-                  setFaceRegistrationEmployee(employee);
-                  setPage("face-registration");
-                }
-              : undefined
-          }
+          onEmployeeCreated={canOpenFaceRegistration ? goToFaceRegistration : undefined}
+          onRegisterFace={canOpenFaceRegistration ? goToFaceRegistration : undefined}
+          initialFocusEmployeeId={employeeFocusId}
+          onFocusHandled={() => setEmployeeFocusId(undefined)}
         />
       )}
       {renderPage === "attendance" && (

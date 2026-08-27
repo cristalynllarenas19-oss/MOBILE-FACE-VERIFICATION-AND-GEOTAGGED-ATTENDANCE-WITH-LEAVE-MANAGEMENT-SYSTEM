@@ -187,6 +187,35 @@ function formatDate(value: string) {
   return new Date(value).toLocaleDateString();
 }
 
+function formatLongDate(value: string) {
+  return new Date(value).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
+}
+
+// "August 5–7, 2026" for a same-month range, widening to include the month
+// (and year, if needed) on either side only when the range actually crosses
+// that boundary — a single-day request just reads as one date.
+function formatUsedDateRange(startIso: string, endIso: string) {
+  const start = new Date(startIso);
+  const end = new Date(endIso);
+  if (start.toDateString() === end.toDateString()) return formatLongDate(startIso);
+
+  if (start.getFullYear() === end.getFullYear()) {
+    if (start.getMonth() === end.getMonth()) {
+      const month = start.toLocaleDateString(undefined, { month: "long" });
+      return `${month} ${start.getDate()}–${end.getDate()}, ${start.getFullYear()}`;
+    }
+    const startLabel = start.toLocaleDateString(undefined, { month: "long", day: "numeric" });
+    const endLabel = end.toLocaleDateString(undefined, { month: "long", day: "numeric" });
+    return `${startLabel} – ${endLabel}, ${start.getFullYear()}`;
+  }
+
+  return `${formatLongDate(startIso)} – ${formatLongDate(endIso)}`;
+}
+
+function formatDayCount(days: number) {
+  return `${days} day${days === 1 ? "" : "s"}`;
+}
+
 function dateKey(value: string | Date) {
   const d = typeof value === "string" ? new Date(value) : value;
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -370,6 +399,15 @@ function LeaveTablePagination({ page, pageCount, onChange }: {
   );
 }
 
+// A request currently CANCELLATION_PENDING still counts toward usedDays —
+// LeaveService.cancel() only flips the status; the balance deduction is only
+// reversed once the cancellation itself is approved (LeaveService.
+// approveCancellation calls adjustLeaveBalance there, not in cancel()). So
+// "still contributes to Used" is APPROVED or CANCELLATION_PENDING, never
+// PENDING/REJECTED/CANCELLED — matching adjustLeaveBalance's own rule exactly
+// rather than inventing a separate one.
+const USED_BALANCE_STATUSES = new Set(["APPROVED", "CANCELLATION_PENDING"]);
+
 // ─── Leave-type balance row (for the detailed lookup view) ──────────────────
 // Mirrors the employee self-service "Leave Balance" card content, laid out as
 // a wide row so it reads as an extension of the same page.
@@ -379,13 +417,37 @@ function EmployeeLeaveTypeRow({
   earnedDays,
   usedDays,
   remainingDays,
+  employeeId,
+  leaveTypeId,
+  year,
+  allRequests,
 }: {
   label: string;
   earnedDays: number;
   usedDays: number;
   remainingDays: number;
+  // Identify exactly which approved LeaveRequest rows fed this row's usedDays
+  // (via LeaveService.adjustLeaveBalance), so "View Used Dates" always agrees
+  // with the Used figure right next to it — same underlying data, not a
+  // separate calculation.
+  employeeId: string;
+  leaveTypeId: string;
+  year: number;
+  allRequests: LeaveRequest[];
 }) {
+  const [showUsedDates, setShowUsedDates] = useState(false);
   const pct = earnedDays > 0 ? Math.min(100, Math.round((remainingDays / earnedDays) * 100)) : 0;
+
+  const usedEntries = allRequests
+    .filter(
+      (r) =>
+        r.employee.id === employeeId &&
+        r.leaveType.id === leaveTypeId &&
+        USED_BALANCE_STATUSES.has(r.status) &&
+        new Date(r.startDate).getFullYear() === year,
+    )
+    .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+
   return (
     <div className="employee-leave-row-card">
       <span className="employee-leave-row-label">{label}</span>
@@ -401,6 +463,71 @@ function EmployeeLeaveTypeRow({
       <div className="employee-leave-row-remaining">
         <strong>{remainingDays.toFixed(0)}</strong> remaining
       </div>
+      <button
+        type="button"
+        className="employee-leave-row-usedbtn"
+        onClick={() => setShowUsedDates(true)}
+      >
+        View Used Dates
+      </button>
+
+      {showUsedDates &&
+        createPortal(
+          <div className="leave-modal-backdrop" role="presentation" onClick={() => setShowUsedDates(false)}>
+            <section
+              className="leave-modal leave-modal--sm"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="used-dates-modal-title"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="leave-modal-header">
+                <div>
+                  <h2 id="used-dates-modal-title">{label} — Used Dates</h2>
+                </div>
+                <button className="icon-button" onClick={() => setShowUsedDates(false)} aria-label="Close">
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="used-dates-body">
+                {usedEntries.length === 0 ? (
+                  <p className="leave-empty-state">No used dates yet.</p>
+                ) : (
+                  <>
+                    <table className="used-dates-table">
+                      <thead>
+                        <tr>
+                          <th>Date(s)</th>
+                          <th>Duration</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {usedEntries.map((entry) => (
+                          <tr key={entry.id}>
+                            <td>{formatUsedDateRange(entry.startDate, entry.endDate)}</td>
+                            <td>{formatDayCount(Number(entry.totalDays))}</td>
+                            <td>
+                              <Badge tone={getLeaveTone(entry.status)}>{getLeaveStatusLabel(entry.status, true)}</Badge>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    <div className="used-dates-total">
+                      {/* Same usedDays value as the "Used" figure on the row this
+                          button sits in — not re-derived from usedEntries — so the
+                          two can never disagree. */}
+                      Total Used: <strong>{formatDayCount(Math.round(usedDays))}</strong>
+                    </div>
+                  </>
+                )}
+              </div>
+            </section>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
@@ -419,6 +546,7 @@ function EmployeeListViewButton({
   totalRemainingDays,
   balances,
   year,
+  allRequests,
 }: {
   employee: DirectoryEmployee;
   totalEarnedDays: number;
@@ -426,6 +554,10 @@ function EmployeeListViewButton({
   totalRemainingDays: number;
   balances: { leaveTypeId: string; leaveTypeName: string; earnedDays: number; usedDays: number; remainingDays: number }[];
   year: number;
+  // Passed straight through to each EmployeeLeaveTypeRow's "View Used Dates"
+  // — the same org-wide list LeavePage's own request table already loaded,
+  // so this needs no extra fetch of its own.
+  allRequests: LeaveRequest[];
 }) {
   const [open, setOpen] = useState(false);
 
@@ -438,7 +570,7 @@ function EmployeeListViewButton({
         createPortal(
           <div className="leave-modal-backdrop" role="presentation">
             <section
-              className="leave-modal"
+              className="leave-modal leave-modal--balance"
               role="dialog"
               aria-modal="true"
               aria-labelledby="employee-balance-modal-title"
@@ -493,6 +625,10 @@ function EmployeeListViewButton({
                           earnedDays={b.earnedDays}
                           usedDays={b.usedDays}
                           remainingDays={b.remainingDays}
+                          employeeId={employee.id}
+                          leaveTypeId={b.leaveTypeId}
+                          year={year}
+                          allRequests={allRequests}
                         />
                       ))}
                     </div>
@@ -1409,6 +1545,7 @@ export function LeavePage({
                             totalRemainingDays={row.totalRemainingDays}
                             balances={row.balances}
                             year={summaryYear}
+                            allRequests={requests}
                           />
                         </td>
                       </tr>

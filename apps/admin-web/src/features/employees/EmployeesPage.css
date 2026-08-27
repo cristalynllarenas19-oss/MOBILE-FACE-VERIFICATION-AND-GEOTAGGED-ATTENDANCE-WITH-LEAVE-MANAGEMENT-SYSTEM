@@ -682,6 +682,37 @@
   font-size: 12px;
 }
 
+.employee-regularization-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 16px 20px 0;
+  padding: 14px 16px;
+  background: #f8fafc;
+  border: 1px solid #dbe5ef;
+  border-radius: 10px;
+}
+
+.employee-regularization-banner-icon {
+  flex-shrink: 0;
+  color: #445569;
+  margin-top: 1px;
+}
+
+.employee-regularization-banner strong {
+  display: block;
+  color: #1a3a5c;
+  font-size: 14px;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+
+.employee-regularization-banner p {
+  color: #445569;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .employee-detail-grid {
   display: grid;
   gap: 0;

@@ -126,8 +126,19 @@ function formatDate(value: string) {
   return new Date(value).toLocaleDateString();
 }
 
-function formatTime(value?: string | null) {
-  return value ? new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Pending";
+// "Pending" implies attendance is still expected but hasn't happened yet —
+// only true while a record is genuinely awaiting review (FLAGGED, the
+// synthetic status for an unresolved AttendanceLog; PENDING_REVIEW is kept
+// here too even though no real AttendanceRecord ever persists that value —
+// see AttendancePage's status-filter comment). An approved leave or a
+// genuine no-show (ON_LEAVE/ABSENT) means no attendance was ever expected to
+// be recorded here, so it reads as "—" instead. A real PRESENT/LATE/
+// OFFICIAL_BUSINESS record with a timestamp still missing (e.g. not yet
+// timed out) also reads as "—", not "Pending".
+function formatTime(value: string | null | undefined, status?: AttendanceStatus) {
+  if (status === "ON_LEAVE" || status === "ABSENT") return "—";
+  if (value) return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return status === "FLAGGED" || status === "PENDING_REVIEW" ? "Pending" : "—";
 }
 
 function getName(record: AttendanceRecord) {
@@ -314,10 +325,10 @@ function AttendanceDetailsModal({
           <div><span>Department</span><strong>{record.employee.department.name}</strong></div>
           <div><span>Site</span><strong>{record.workLocation?.name ?? "—"}</strong></div>
           <div><span>Date</span><strong>{formatDate(record.attendanceDate)}</strong></div>
-          <div><span>Time In</span><strong>{formatTime(record.timeInAt)}</strong></div>
-          <div><span>Time Out</span><strong>{formatTime(record.timeOutAt)}</strong></div>
-          <div><span>Lunch Out</span><strong>{formatTime(record.lunchOutAt)}</strong></div>
-          <div><span>Lunch In</span><strong>{formatTime(record.lunchInAt)}</strong></div>
+          <div><span>Time In</span><strong>{formatTime(record.timeInAt, record.status)}</strong></div>
+          <div><span>Time Out</span><strong>{formatTime(record.timeOutAt, record.status)}</strong></div>
+          <div><span>Lunch Out</span><strong>{formatTime(record.lunchOutAt, record.status)}</strong></div>
+          <div><span>Lunch In</span><strong>{formatTime(record.lunchInAt, record.status)}</strong></div>
           <div><span>Status</span><Badge tone={getStatusTone(record.status)}>{getStatusLabel(record.status)}</Badge></div>
           {record.status === "ON_LEAVE" && (
             <div><span>Leave Type</span><strong>{record.leaveTypeName ?? "—"}</strong></div>
@@ -419,7 +430,9 @@ export function AttendancePage({
   const fetchRecords = async () => {
     const params = new URLSearchParams();
     if (departmentFilter !== "ALL") params.set("department", departmentFilter);
-    if (statusFilter !== "ALL" && statusFilter !== "FLAGGED") params.set("status", statusFilter);
+    if (statusFilter !== "ALL" && statusFilter !== "FLAGGED" && statusFilter !== "PENDING_REVIEW") {
+      params.set("status", statusFilter);
+    }
     if (recordTypeFilter !== "ALL") params.set("recordType", recordTypeFilter);
     if (dateFrom) params.set("from", dateFrom);
     if (dateTo) params.set("to", dateTo);
@@ -428,8 +441,13 @@ export function AttendancePage({
     // Flagged attempts (face mismatch, geofence passed) live on
     // AttendanceLog with no AttendanceRecord yet, so they're fetched
     // separately and merged in as synthetic rows — see flaggedLogToRecord().
-    const wantsRecords = statusFilter !== "FLAGGED";
-    const wantsFlagged = statusFilter === "ALL" || statusFilter === "FLAGGED";
+    // AttendanceRecord.status is never actually persisted as PENDING_REVIEW
+    // (every real record is written as PRESENT/LATE/OFFICIAL_BUSINESS — see
+    // AttendanceService.submit/updateStatus), so "Pending Review" in this
+    // dropdown is the same underlying data as "Flagged": an AttendanceLog
+    // still awaiting an admin decision.
+    const wantsRecords = statusFilter !== "FLAGGED" && statusFilter !== "PENDING_REVIEW";
+    const wantsFlagged = statusFilter === "ALL" || statusFilter === "FLAGGED" || statusFilter === "PENDING_REVIEW";
 
     const [fetchedRecords, flaggedLogs] = await Promise.all([
       wantsRecords
@@ -442,7 +460,13 @@ export function AttendancePage({
     const flaggedRecords = flaggedLogs
       .filter((log) => departmentFilter === "ALL" || log.employee.department.name === departmentFilter)
       .map(flaggedLogToRecord);
-    return [...flaggedRecords, ...fetchedRecords];
+    // Newest date first across both sources (a stable sort, so same-date
+    // ties keep flaggedRecords ahead of fetchedRecords, and fetchedRecords
+    // keep the backend's own ordering) — otherwise flagged rows from any
+    // past date would always float above today's other records.
+    return [...flaggedRecords, ...fetchedRecords].sort(
+      (a, b) => new Date(b.attendanceDate).getTime() - new Date(a.attendanceDate).getTime(),
+    );
   };
 
   // Cached per filter combination — revisiting a filter shows its last
@@ -610,8 +634,8 @@ export function AttendancePage({
                     <Badge tone="neutral">{getRecordTypeLabel(record.recordType ?? "OFFICE")}</Badge>
                   </td>
                   <td data-label="Date">{formatDate(record.attendanceDate)}</td>
-                  <td data-label="Time In">{formatTime(record.timeInAt)}</td>
-                  <td data-label="Time Out">{formatTime(record.timeOutAt)}</td>
+                  <td data-label="Time In">{formatTime(record.timeInAt, record.status)}</td>
+                  <td data-label="Time Out">{formatTime(record.timeOutAt, record.status)}</td>
                   <td data-label="Lunch Break">
                     {record.lunchOutAt ? `${formatTime(record.lunchOutAt)} – ${formatTime(record.lunchInAt)}` : "—"}
                   </td>

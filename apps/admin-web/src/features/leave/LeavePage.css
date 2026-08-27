@@ -288,9 +288,17 @@
   width: min(560px, 100%);
   max-height: min(88vh, 720px);
   overflow-y: auto;
+  overflow-x: hidden;
   background: #ffffff;
   border-radius: 14px;
   box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);
+}
+
+/* A bit more room than the default .leave-modal width so a long leave-type
+   name and its "View Used Dates" button have space to sit on one line more
+   often before wrapping — still capped and still fully responsive below it. */
+.leave-modal--balance {
+  width: min(680px, 100%);
 }
 
 .leave-modal-header {
@@ -1341,9 +1349,9 @@
 .employee-summary-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding-bottom: 6px;
-  margin-bottom: 6px;
+  gap: 16px;
+  padding-bottom: 14px;
+  margin-bottom: 14px;
   border-bottom: 1px solid #edf2f7;
 }
 
@@ -1468,32 +1476,40 @@
 .employee-leave-row-list {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 8px;
 }
 
+/* A single-row grid, not a flex line with fixed pixel columns — every
+   column but the label sizes to its own content ("auto"), and the label
+   column is the only one allowed to shrink/wrap (long names like "Adverse
+   Weather Leave" wrap to a second line instead of pushing the row wider).
+   Because no column has a fixed width, the row can never force the modal
+   itself wider than its max-width — that's what caused the horizontal
+   scrollbar before. */
 .employee-leave-row-card {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(110px, 1.3fr) auto auto minmax(40px, 0.7fr) auto auto;
   align-items: center;
-  gap: 12px;
+  column-gap: 14px;
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
-  padding: 4px 12px;
+  padding: 10px 14px;
+  min-width: 0;
 }
 
 .employee-leave-row-label {
-  width: 120px;
-  flex-shrink: 0;
+  min-width: 0;
   color: #062b59;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 700;
+  overflow-wrap: break-word;
 }
 
 .employee-leave-row-meta {
-  width: 74px;
-  flex-shrink: 0;
   color: #64748b;
   font-size: 10.5px;
+  white-space: nowrap;
 }
 
 .employee-leave-row-meta b {
@@ -1501,7 +1517,7 @@
 }
 
 .employee-leave-row-track {
-  flex: 1 1 auto;
+  min-width: 40px;
   height: 4px;
   background: #e2e8f0;
   border-radius: 999px;
@@ -1516,8 +1532,6 @@
 }
 
 .employee-leave-row-remaining {
-  width: 86px;
-  flex-shrink: 0;
   text-align: right;
   color: #94a3b8;
   font-size: 10.5px;
@@ -1528,6 +1542,80 @@
   color: #062b59;
   font-size: 12px;
   font-weight: 800;
+}
+
+.employee-leave-row-usedbtn {
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #1680d8;
+  padding: 6px 10px;
+  font-size: 10.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.employee-leave-row-usedbtn:hover {
+  background: #eef4fb;
+  border-color: #2979d0;
+}
+
+/* ── "View Used Dates" secondary modal ── */
+
+.leave-modal--sm {
+  width: min(420px, 100%);
+}
+
+.used-dates-body {
+  padding: 18px 24px 24px;
+}
+
+.used-dates-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.used-dates-table th {
+  text-align: left;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #94a3b8;
+  padding: 0 8px 8px 0;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.used-dates-table td {
+  font-size: 12.5px;
+  color: #1a3a5c;
+  padding: 10px 8px 10px 0;
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+
+.used-dates-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.used-dates-table th:last-child,
+.used-dates-table td:last-child {
+  text-align: right;
+  padding-right: 0;
+}
+
+.used-dates-total {
+  margin-top: 14px;
+  text-align: right;
+  font-size: 12.5px;
+  color: #64748b;
+}
+
+.used-dates-total strong {
+  color: #062b59;
+  font-size: 13px;
 }
 
 @media (max-width: 640px) {
@@ -1553,22 +1641,21 @@
     align-items: flex-start;
   }
 
+  /* Below this width even a wrapping label can't keep the row's other
+     (single-line, auto-sized) columns from crowding each other — so the
+     whole row gives up on one grid line and stacks every piece full-width
+     instead, same idea as everywhere else in this modal at this breakpoint. */
   .employee-leave-row-card {
-    flex-wrap: wrap;
-  }
-
-  .employee-leave-row-label {
-    width: 100%;
-  }
-
-  .employee-leave-row-track {
-    order: 1;
-    width: 100%;
-    flex-basis: 100%;
+    grid-template-columns: 1fr;
+    row-gap: 6px;
   }
 
   .employee-leave-row-remaining {
     text-align: left;
+  }
+
+  .employee-leave-row-usedbtn {
+    justify-self: start;
   }
 }
 
