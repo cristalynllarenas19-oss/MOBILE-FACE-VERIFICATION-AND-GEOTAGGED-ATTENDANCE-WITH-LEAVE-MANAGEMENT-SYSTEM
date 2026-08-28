@@ -5,6 +5,7 @@ import SupervisorDashboardScreen from "./supervisor/SupervisorDashboardScreen";
 import TeamScreen from "./supervisor/TeamScreen";
 import SupervisorLeaveScreen from "./supervisor/SupervisorLeaveScreen";
 import SupervisorAttendanceScreen from "./supervisor/SupervisorAttendanceScreen";
+import EvaluationFormScreen from "./supervisor/EvaluationFormScreen";
 import MoreScreen from "./supervisor/MoreScreen";
 import NotificationsScreen from "./NotificationsScreen";
 
@@ -12,7 +13,7 @@ import Header from "../components/Header";
 import BottomTab, { SUPERVISOR_TABS } from "../components/BottomTab";
 
 import { SupervisorTab } from "../types";
-import { EmployeeProfile, MobileUser, getMyProfile, getUnreadNotificationCount, getTeamLeaveRequests } from "../api";
+import { EmployeeProfile, MobileUser, TeamEmployee, getMyProfile, getUnreadNotificationCount, getTeamLeaveRequests, getTeamEmployees } from "../api";
 import { CACHE_KEYS, cacheGet, cacheSet, revalidateCached, useCachedData } from "../utils/dataCache";
 
 const NOTIFICATION_POLL_MS = 5000;
@@ -29,7 +30,12 @@ export default function SupervisorMainScreen({ user, onLogout, canSwitchToEmploy
 
   const [unreadCount, setUnreadCount] = useState(0);
   const [notificationsVisible, setNotificationsVisible] = useState(false);
+  const [evaluatingEmployeeId, setEvaluatingEmployeeId] = useState<string | null>(null);
   const { data: profile } = useCachedData<EmployeeProfile>(CACHE_KEYS.myProfile, getMyProfile);
+  const { data: teamRoster } = useCachedData<TeamEmployee[]>(CACHE_KEYS.teamEmployees, getTeamEmployees);
+
+  const evaluatingEmployee = teamRoster?.find((e) => e.id === evaluatingEmployeeId);
+  const evaluatingEmployeeName = evaluatingEmployee ? `${evaluatingEmployee.firstName} ${evaluatingEmployee.lastName}` : "";
 
   useEffect(() => {
     let lastKnownCount: number | null = cacheGet<{ count: number }>(CACHE_KEYS.notificationsUnreadCount)?.count ?? null;
@@ -80,7 +86,17 @@ export default function SupervisorMainScreen({ user, onLogout, canSwitchToEmploy
         onUnreadCountChange={setUnreadCount}
         employeeId={user?.employeeId}
         canReviewTeamRequests
+        onEvaluateEmployee={setEvaluatingEmployeeId}
       />
+
+      {evaluatingEmployeeId && (
+        <EvaluationFormScreen
+          visible={!!evaluatingEmployeeId}
+          employeeId={evaluatingEmployeeId}
+          employeeName={evaluatingEmployeeName || "Employee"}
+          onClose={() => setEvaluatingEmployeeId(null)}
+        />
+      )}
 
       <View style={{ flex: 1, padding: 16 }}>
         {tab === "dashboard" && <SupervisorDashboardScreen departmentName={user?.department} />}

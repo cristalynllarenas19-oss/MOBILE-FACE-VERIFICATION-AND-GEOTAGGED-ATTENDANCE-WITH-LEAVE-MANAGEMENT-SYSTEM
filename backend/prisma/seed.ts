@@ -23,6 +23,7 @@ const permissionRows = [
   ["audit:read", "Audit"],
   ["geolocation:write", "Geolocation"],
   ["announcements:write", "Announcements"],
+  ["evaluations:write", "Evaluations"],
 ] as const;
 
 const rolePermissions: Record<RoleCode, string[]> = {
@@ -33,15 +34,22 @@ const rolePermissions: Record<RoleCode, string[]> = {
   // geolocation:write lets a Supervisor create/edit/assign geotagged areas —
   // GeolocationService enforces the department boundary per-request, this
   // permission only gates whether they can hit the write endpoints at all.
-  // employees:write lets a Supervisor edit/archive employees in their own
-  // department — EmployeesService enforces the department boundary the same
-  // way (see the scopeDepartmentId checks in create/update/archive).
+  // employees:write is intentionally withheld — a Supervisor may only view
+  // employees (employees:read) in their own department, never add, edit, or
+  // archive them. Add/Edit Employee and Archive Employee in EmployeesPage
+  // are all gated on this same permission (canWrite), so removing it here
+  // hides them in the UI too — this list is the single source of truth for
+  // both.
   // reports:read lets a Supervisor view the Reports page — ReportsService
   // already ANDs in getSupervisorDepartmentScope so they only ever see their
   // own department's data, same as Employees/Leave/Dashboard. Deliberately
   // does NOT imply audit:read — Utilities/Audit Logs stays HR/Admin-only, so
   // that page and reports:read must stay on separate permission codes.
-  SUPERVISOR: ["dashboard:view", "employees:read", "employees:write", "attendance:read", "schedules:read", "leave:read", "leave:approve", "geolocation:write", "reports:read"],
+  // evaluations:write lets a Supervisor view/save-draft/submit the
+  // probationary evaluation of their own team members (ownership is
+  // enforced per-request in EvaluationsService, same pattern as
+  // geolocation:write's department-boundary check) — see EvaluationsService.
+  SUPERVISOR: ["dashboard:view", "employees:read", "attendance:read", "schedules:read", "leave:read", "leave:approve", "geolocation:write", "reports:read", "evaluations:write"],
   EMPLOYEE: ["dashboard:view", "attendance:write", "leave:read", "leave:write"],
 };
 

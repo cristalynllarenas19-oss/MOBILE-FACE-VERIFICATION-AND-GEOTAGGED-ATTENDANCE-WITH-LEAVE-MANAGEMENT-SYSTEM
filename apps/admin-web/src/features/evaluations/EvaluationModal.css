@@ -1,0 +1,480 @@
+.evaluation-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(15, 23, 42, 0.38);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+.evaluation-modal {
+  width: min(600px, 100%);
+  max-height: calc(100vh - 36px);
+  background: #ffffff;
+  border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.evaluation-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid #edf2f7;
+  flex-shrink: 0;
+}
+
+.evaluation-modal-header h2 {
+  color: #193d69;
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.evaluation-modal-header p {
+  color: #7b8794;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.evaluation-modal-header .icon-button {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border: 1px solid #e3e9f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #1a3a5c;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.evaluation-modal-header .icon-button:hover {
+  background: #eef2f7;
+}
+
+.evaluation-modal-loading {
+  padding: 40px 20px;
+  text-align: center;
+  color: #7b8794;
+  font-size: 13px;
+}
+
+.evaluation-modal-body {
+  padding: 18px 20px 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* Small uppercase eyebrow heading, mirrors StatCard's own label typography
+   (styles/cards.css) so section headers read consistently with the rest of
+   the admin app rather than inventing a new heading scale. */
+.evaluation-section-title {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: #7b8794;
+  margin-bottom: 10px;
+}
+
+.evaluation-success-banner,
+.evaluation-locked-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.evaluation-success-banner {
+  background: #ecfdf3;
+  color: #15803d;
+}
+
+.evaluation-locked-banner {
+  background: #f8fafc;
+  border: 1px solid #dbe5ef;
+  color: #445569;
+}
+
+.evaluation-empty-note {
+  color: #7b8794;
+  font-size: 13px;
+}
+
+.evaluation-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.evaluation-field-label {
+  color: #1a3a5c;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.evaluation-rating-row {
+  display: flex;
+  gap: 8px;
+}
+
+.evaluation-rating-button {
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  border: 1.5px solid #dbe5ef;
+  background: #ffffff;
+  color: #7b8794;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.evaluation-rating-button:hover:not(:disabled) {
+  border-color: #1a3a5c;
+  color: #1a3a5c;
+}
+
+.evaluation-rating-button.active {
+  background: #1a3a5c;
+  border-color: #1a3a5c;
+  color: #ffffff;
+  box-shadow: 0 4px 10px rgba(26, 58, 92, 0.28);
+}
+
+.evaluation-rating-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.evaluation-rating-row.compact {
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.evaluation-rating-button.compact {
+  width: 30px;
+  height: 30px;
+  font-size: 12px;
+}
+
+/* Horizontal icon + label + rating-buttons rows for each criterion, with a
+   divider between rows — no per-criterion description text. */
+.evaluation-criteria-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.evaluation-criteria-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid #edf2f7;
+}
+
+.evaluation-criteria-row:last-child {
+  border-bottom: none;
+}
+
+.evaluation-criteria-icon {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  background: #eef2f7;
+  color: #1a3a5c;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.evaluation-criteria-label {
+  flex: 1;
+  min-width: 0;
+  color: #1a3a5c;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.evaluation-divider {
+  height: 1px;
+  background: #edf2f7;
+}
+
+.evaluation-textarea {
+  min-height: 84px;
+  border: 1.5px solid #dbe5ef;
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  color: #1a3a5c;
+  resize: vertical;
+}
+
+.evaluation-recommendation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.evaluation-recommendation-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1.5px solid #dbe5ef;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.evaluation-recommendation-option.active {
+  border-color: #1a3a5c;
+  background: #f4f7fb;
+  color: #1a3a5c;
+}
+
+/* Reuses the shared StatCard component (components/ui/StatCard, same one the
+   Dashboard's KPI tiles use) for visual consistency — this just supplies the
+   grid layout and the tone colors that component's `tone` prop expects.
+   Duplicated here (not edited in DashboardPage.css) because this modal is
+   mounted from AppLayout regardless of which page was last visited, so it
+   can't depend on DashboardPage.css having already loaded; values match
+   DashboardPage.css's tones exactly where they overlap. "pink" was never
+   actually defined there (a pre-existing gap in the Dashboard's own CSS —
+   not fixed here, only worked around) so its color is new. */
+.evaluation-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.evaluation-stat-grid .stat-card {
+  min-height: 66px;
+  padding: 10px;
+  gap: 8px;
+}
+
+.evaluation-stat-grid .stat-card strong {
+  font-size: 20px;
+}
+
+.stat-icon.blue { background: #e8f4fd; color: #1a6faf; }
+.stat-icon.green { background: #e8f8f0; color: #1baf7a; }
+.stat-icon.yellow { background: #fef9e7; color: #c09000; }
+.stat-icon.red { background: #fdecea; color: #e34948; }
+.stat-icon.cyan { background: #e3f7fb; color: #1a90aa; }
+.stat-icon.purple { background: #f1ebfd; color: #6d36c4; }
+.stat-icon.teal { background: #e6f8f4; color: #128a72; }
+.stat-icon.pink { background: #fce7f3; color: #be185d; }
+
+.evaluation-rating-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1px solid #edf2f7;
+  border-radius: 10px;
+}
+
+.evaluation-rating-summary > span {
+  color: #445569;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.evaluation-rating-summary-value {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.evaluation-rating-summary-value strong {
+  color: #1a3a5c;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.evaluation-attendance-hint {
+  color: #7b8794;
+  font-size: 11.5px;
+  margin-top: 6px;
+}
+
+/* Label-left/value-right rows, mirroring EmployeesPage's own
+   .employee-detail-grid so the read-only evaluation fields feel like the
+   same kind of data as the Employee Details modal right above this one —
+   duplicated (not imported) to stay independent of EmployeesPage.css's load
+   order, same reasoning as the icon-button rule above. */
+.evaluation-detail-grid {
+  display: grid;
+  gap: 0;
+}
+
+.evaluation-detail-grid > div {
+  min-height: 42px;
+  border-bottom: 1px solid #edf2f7;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.evaluation-detail-grid > div:last-child {
+  border-bottom: none;
+}
+
+.evaluation-detail-grid > div > span:first-child {
+  color: #7b8794;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.evaluation-rating-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 800;
+}
+
+.evaluation-rating-pill.success { background: #dcfce7; color: #166534; }
+.evaluation-rating-pill.warning { background: #fef3c7; color: #92400e; }
+.evaluation-rating-pill.danger { background: #fee2e2; color: #991b1b; }
+
+/* .evaluation-modal-body is a column flexbox, so a lone flex-item child
+   (like this Badge) defaults to align-self: stretch and fills the full
+   width — this opts it back out so the pill hugs its own content instead. */
+.evaluation-badge-row {
+  align-self: flex-start;
+}
+
+.evaluation-quote {
+  margin: 0;
+  padding: 12px 16px;
+  background: #f8fafc;
+  border-left: 3px solid #cbd5e1;
+  border-radius: 0 10px 10px 0;
+  font-style: italic;
+  color: #334155;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.evaluation-decision-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.evaluation-decision-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1.5px solid transparent;
+  background: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: center;
+}
+
+.evaluation-decision-approve {
+  grid-column: span 1;
+  background: #1a3a5c;
+  border-color: #1a3a5c;
+  color: #ffffff;
+}
+
+.evaluation-decision-approve:hover {
+  background: #254d78;
+  border-color: #254d78;
+}
+
+.evaluation-decision-review {
+  grid-column: span 1;
+  border-color: #fcd34d;
+  color: #b45309;
+}
+
+.evaluation-decision-review:hover {
+  background: #fffbeb;
+}
+
+.evaluation-decision-reject {
+  grid-column: 1 / -1;
+  border-color: #fca5a5;
+  color: #dc2626;
+}
+
+.evaluation-decision-reject:hover {
+  background: #fef2f2;
+}
+
+@media (max-width: 420px) {
+  .evaluation-decision-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+.evaluation-form-error {
+  color: #dc2626;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.evaluation-draft-saved {
+  color: #15803d;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.evaluation-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+@media (max-width: 480px) {
+  .evaluation-stat-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .evaluation-modal-actions {
+    flex-direction: column-reverse;
+  }
+
+  .evaluation-modal-actions .primary-button,
+  .evaluation-modal-actions .outline-button {
+    width: 100%;
+  }
+}

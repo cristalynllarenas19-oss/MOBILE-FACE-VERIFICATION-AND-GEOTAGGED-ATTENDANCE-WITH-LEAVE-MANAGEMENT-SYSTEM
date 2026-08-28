@@ -4,6 +4,7 @@ import * as argon2 from "argon2";
 import { generateTemporaryPassword } from "../../common/utils/password.util";
 import { PrismaService } from "../../prisma/prisma.service";
 import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
+import { EvaluationsService } from "../evaluations/evaluations.service";
 import { GeolocationService } from "../geolocation/geolocation.service";
 import { MailService } from "../mail/mail.service";
 import { NotificationsService } from "../notifications/notifications.service";
@@ -27,6 +28,7 @@ export class EmployeesService {
     private readonly mail: MailService,
     private readonly geolocation: GeolocationService,
     private readonly notifications: NotificationsService,
+    private readonly evaluations: EvaluationsService,
   ) {}
 
   // Derives the final attendanceMode for an employee: a department configured
@@ -49,6 +51,15 @@ export class EmployeesService {
 
   async findAll(departmentId?: string) {
     await this.checkProbationaryMilestones();
+    // Same opportunistic trigger as the Admin check just above, reused for
+    // the Supervisor-facing evaluation-required notification (its own
+    // @Cron(EVERY_HOUR) in EvaluationsService still covers the case where
+    // nobody happens to load an employee list for a while) — this endpoint
+    // is what both Admin's Employee Management and a Supervisor's own
+    // Employee Management view (via the admin-web view-switcher) already
+    // call, so it also closes the gap for a Supervisor who's actively
+    // browsing but hasn't yet hit an on-the-hour cron tick.
+    await this.evaluations.checkEvaluationsDue();
     return this.prisma.employee.findMany({
       where: departmentId ? { departmentId } : undefined,
       include: { user: true, department: true, position: true, supervisor: true },
@@ -491,6 +502,15 @@ export class EmployeesService {
     if (resolvedAttendanceMode === "FIXED" && employee.attendanceMode !== "FIXED") {
       await this.assignDefaultScheduleIfMissing(id);
       await this.geolocation.assignDefaultOfficeLocation(id, updated.departmentId, context);
+    }
+
+    // Tells the Supervisor who submitted this employee's probationary
+    // evaluation (if any) what Admin ultimately decided — a separate
+    // notification to a separate recipient, entirely independent of the
+    // existing PROBATION_REGULARIZATION_DUE notification this same edit may
+    // also have resolved.
+    if (dto.employmentStatus && dto.employmentStatus !== employee.employmentStatus) {
+      await this.evaluations.notifyOutcome(updated);
     }
 
     if (dto.leaveAllocationDays !== undefined && employee.sex) {

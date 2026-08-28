@@ -58,6 +58,11 @@ type Props = {
   // actions right on a team member's leave notification instead of making the
   // supervisor also open the Leave tab to act on it.
   canReviewTeamRequests?: boolean;
+  // Backs the "Evaluate Employee" button on a SUPERVISOR_EVALUATION_REQUIRED
+  // notification's detail view — opens EvaluationFormScreen for that
+  // employee. Optional since only the Supervisor portal ever receives this
+  // notification type.
+  onEvaluateEmployee?: (employeeId: string) => void;
 };
 
 type PickedAttachment = {
@@ -105,6 +110,8 @@ const NOTIFICATION_ICON_MAP: Record<string, { name: keyof typeof Ionicons.glyphM
   LEAVE_CANCELLED: { name: "ban-outline", category: "neutral" },
   ANNOUNCEMENT: { name: "megaphone-outline", category: "announce" },
   PROBATION_REGULARIZATION_DUE: { name: "ribbon-outline", category: "pending" },
+  SUPERVISOR_EVALUATION_REQUIRED: { name: "clipboard-outline", category: "pending" },
+  EVALUATION_CONVERSION_OUTCOME: { name: "ribbon-outline", category: "info" },
   ATTENDANCE_FLAGGED: { name: "alert-circle-outline", category: "pending" },
   ATTENDANCE_VALIDATED: { name: "shield-checkmark-outline", category: "success" },
   ATTENDANCE_FAKE_ATTEMPT: { name: "warning-outline", category: "critical" },
@@ -197,7 +204,7 @@ function PulsingDot() {
   );
 }
 
-export default function NotificationsScreen({ visible, onClose, onUnreadCountChange, employeeId, onLogRealAttendance, canReviewTeamRequests }: Props) {
+export default function NotificationsScreen({ visible, onClose, onUnreadCountChange, employeeId, onLogRealAttendance, canReviewTeamRequests, onEvaluateEmployee }: Props) {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Keyed on `visible` so nothing is fetched until the panel opens; while
@@ -605,6 +612,20 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                 )}
                 {detailTeamRequest && !detailIsOwnRequest && !detailCanReview && !detailCanDecideCancellation && (
                   <Text style={styles.reviewAlreadyDecidedText}>This request has already been reviewed.</Text>
+                )}
+
+                {detailNotification.type === "SUPERVISOR_EVALUATION_REQUIRED" && onEvaluateEmployee && detailNotification.entityId && (
+                  <Pressable
+                    style={({ pressed }) => [styles.evaluateButton, pressed && styles.evaluateButtonPressed]}
+                    onPress={() => {
+                      const targetEmployeeId = detailNotification.entityId!;
+                      handleCloseDetail();
+                      onEvaluateEmployee(targetEmployeeId);
+                    }}
+                  >
+                    <Ionicons name="clipboard-outline" size={18} color="#FFFFFF" />
+                    <Text style={styles.evaluateButtonText}>Evaluate Employee</Text>
+                  </Pressable>
                 )}
 
                 {detailNotification.type === "ATTENDANCE_LOCKED" && onLogRealAttendance && (
@@ -1107,6 +1128,24 @@ const styles = StyleSheet.create({
     opacity: 0.85,
   },
   logAttendanceButtonText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  evaluateButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: "#062B59",
+    marginTop: 16,
+  },
+  evaluateButtonPressed: {
+    opacity: 0.85,
+  },
+  evaluateButtonText: {
     color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "700",

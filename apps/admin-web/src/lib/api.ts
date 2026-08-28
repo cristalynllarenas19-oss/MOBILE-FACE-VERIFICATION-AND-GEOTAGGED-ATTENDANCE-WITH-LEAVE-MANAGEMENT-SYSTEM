@@ -47,7 +47,13 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
     throw new Error(message || `Request failed with status ${response.status}`);
   }
 
-  return response.json() as Promise<T>;
+  // Nest's Express adapter treats a controller returning `null` the same as
+  // `undefined` and sends a completely empty body (not the literal string
+  // "null") — response.json() throws "Unexpected end of input" on that, so
+  // an empty-but-ok body is read as text first and treated as `null`. Mirrors
+  // employee-mobile/src/api.ts's apiRequest, which already handles this.
+  const text = await response.text();
+  return (text ? JSON.parse(text) : null) as T;
 }
 
 export async function login(email: string, password: string) {

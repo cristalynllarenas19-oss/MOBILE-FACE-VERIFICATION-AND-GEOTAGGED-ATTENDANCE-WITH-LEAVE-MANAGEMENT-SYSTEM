@@ -3,6 +3,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { AlertTriangle, Archive, ChevronsUpDown, CheckCircle2, Eye, Pencil, Plus, ScanFace, Search, UserCheck, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
+import { EvaluationViewModal } from "../evaluations/EvaluationViewModal";
 import { apiRequest } from "../../lib/api";
 import { useCachedData } from "../../lib/dataCache";
 import { useActiveDepartments } from "../../lib/departments";
@@ -814,6 +815,8 @@ function ViewEmployeeModal({
   canWrite,
   canRegisterFace,
   onRegisterFace,
+  canViewPerformance,
+  onViewPerformance,
 }: {
   employee: Employee;
   attendanceModeOptions: AttendanceModeOption[];
@@ -823,6 +826,8 @@ function ViewEmployeeModal({
   canWrite: boolean;
   canRegisterFace: boolean;
   onRegisterFace?: () => void;
+  canViewPerformance: boolean;
+  onViewPerformance: () => void;
 }) {
   return (
     <EmployeeModal title="Employee Details" description={getEmployeeName(employee)} onClose={onClose}>
@@ -836,6 +841,11 @@ function ViewEmployeeModal({
               regularization review. Please review their performance and qualifications before converting their
               status to Regular.
             </p>
+            {canViewPerformance && (
+              <button type="button" className="outline-button" style={{ marginTop: 10 }} onClick={onViewPerformance}>
+                View Performance
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -1072,6 +1082,11 @@ export function EmployeesPage({
   const canWrite = user?.permissions.includes(permissions.employeesWrite) ?? true;
   const roles = user?.roles ?? [];
   const isDepartmentLocked = roles.includes("SUPERVISOR") && !roles.includes("ADMIN");
+  // Gates the "View Performance" button — the admin-view evaluation endpoint
+  // is Admin-only server-side, so a Supervisor never even sees the button
+  // (they already have their own submitted-evaluation view via the
+  // notification's "Evaluate Employee" action).
+  const isAdmin = roles.includes("ADMIN");
   const lockedDepartmentName = isDepartmentLocked ? user?.department : undefined;
 
   const [departmentFilter, setDepartmentFilter] = useState("ALL");
@@ -1082,6 +1097,7 @@ export function EmployeesPage({
   const [page, setPage] = useState(1);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [viewEmployee, setViewEmployee] = useState<Employee | null>(null);
+  const [viewingPerformanceEmployee, setViewingPerformanceEmployee] = useState<Employee | null>(null);
   const [editEmployee, setEditEmployee] = useState<Employee | null>(null);
   const [archiveEmployee, setArchiveEmployee] = useState<Employee | null>(null);
   const [notification, setNotification] = useState<Notification>(null);
@@ -1375,6 +1391,21 @@ export function EmployeesPage({
               viewEmployee.employmentStatus !== "SEPARATED",
           )}
           onRegisterFace={onRegisterFace ? () => onRegisterFace(viewEmployee) : undefined}
+          canViewPerformance={isAdmin}
+          onViewPerformance={() => setViewingPerformanceEmployee(viewEmployee)}
+        />
+      )}
+
+      {viewingPerformanceEmployee && (
+        <EvaluationViewModal
+          employeeId={viewingPerformanceEmployee.id}
+          employeeName={getEmployeeName(viewingPerformanceEmployee)}
+          onClose={() => setViewingPerformanceEmployee(null)}
+          onApproved={handleEmployeeUpdated}
+          onRequestArchive={() => {
+            setArchiveEmployee(viewingPerformanceEmployee);
+            setViewingPerformanceEmployee(null);
+          }}
         />
       )}
 

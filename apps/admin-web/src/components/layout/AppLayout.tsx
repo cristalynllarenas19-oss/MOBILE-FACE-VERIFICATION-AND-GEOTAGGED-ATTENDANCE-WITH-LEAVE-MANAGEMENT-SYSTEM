@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
+import { EvaluationModal } from "../../features/evaluations/EvaluationModal";
 import { PermissionCode, permissions } from "../../types/rbac";
 import { apiRequest } from "../../lib/api";
 import logo from "../../assets/unileaf-logo.png"; // ← add this
@@ -130,6 +131,10 @@ export function AppLayout({
   // navigating away, so the employee never loses their current page. Admin
   // and Supervisor (both activeView === "admin") keep navigating as before.
   const [detailNotification, setDetailNotification] = useState<AppNotification | null>(null);
+  // Supervisor-portal only: SUPERVISOR_EVALUATION_REQUIRED has no module page
+  // to navigate to (unlike LEAVE/ATTENDANCE/PROBATION below), so it opens
+  // this modal directly instead of calling onNavigate.
+  const [evaluatingEmployeeId, setEvaluatingEmployeeId] = useState<string | null>(null);
   const notifRef = useRef<HTMLDivElement>(null);
   const switcherRef = useRef<HTMLDivElement>(null);
 
@@ -291,6 +296,16 @@ export function AppLayout({
       // initialFocusEmployeeId), instead of dropping HR on the plain list to
       // go find and click them.
       onNavigate("employees", notification.entityId ?? undefined);
+    } else if (
+      notification.type === "SUPERVISOR_EVALUATION_REQUIRED" &&
+      activeView === "admin" &&
+      notification.entityId &&
+      (user.adminPermissions ?? user.permissions).includes(permissions.evaluationsWrite)
+    ) {
+      // No "Evaluations" nav item exists — opens the form directly rather
+      // than navigating, same as mobile's NotificationsScreen does with its
+      // "Evaluate Employee" button.
+      setEvaluatingEmployeeId(notification.entityId);
     }
     setNotifOpen(false);
   };
@@ -391,6 +406,10 @@ export function AppLayout({
           }}
           onCancel={() => setShowLogoutConfirm(false)}
         />
+      )}
+
+      {evaluatingEmployeeId && (
+        <EvaluationModal employeeId={evaluatingEmployeeId} onClose={() => setEvaluatingEmployeeId(null)} />
       )}
 
       {detailNotification && (

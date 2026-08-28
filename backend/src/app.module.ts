@@ -10,6 +10,7 @@ import { AuditLogsModule } from "./modules/audit-logs/audit-logs.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { DepartmentsModule } from "./modules/departments/departments.module";
 import { EmployeesModule } from "./modules/employees/employees.module";
+import { EvaluationsModule } from "./modules/evaluations/evaluations.module";
 import { FaceVerificationModule } from "./modules/face-verification/face-verification.module";
 import { FaceProfilesModule } from "./modules/face-profiles/face-profiles.module";
 import { GeolocationModule } from "./modules/geolocation/geolocation.module";
@@ -38,6 +39,7 @@ import { HealthController } from "./health.controller";
     UsersModule,
     DepartmentsModule,
     EmployeesModule,
+    EvaluationsModule,
     AttendanceModule,
     FaceVerificationModule,
     FaceProfilesModule,

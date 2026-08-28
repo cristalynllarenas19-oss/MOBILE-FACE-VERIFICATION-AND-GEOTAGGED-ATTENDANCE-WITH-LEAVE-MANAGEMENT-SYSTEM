@@ -442,7 +442,17 @@
   background: #ffffff;
   border-radius: 14px;
   box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);
-  overflow: hidden;
+  /* Was `overflow: hidden` — ViewEmployeeModal's content (banner + detail
+     grid + actions) isn't wrapped in its own scrollable element the way
+     AddEmployeeModal/EditEmployeeModal's <form className="employee-form">
+     is (that one already scrolls itself via flex:1/min-height:0/overflow-y),
+     so on a tall employee record (e.g. the regularization banner showing)
+     the footer buttons were clipped instead of reachable. Making this outer
+     container the scroll region — with the header/footer pinned via
+     position: sticky below — fixes that without touching any JSX; it's a
+     no-op for the form-based modals since their own inner scroll already
+     keeps them within bounds. */
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
 }
@@ -460,6 +470,12 @@
   padding: 18px 20px 14px;
   border-bottom: 1px solid var(--line);
   flex-shrink: 0;
+  /* Pins the header to the top of .employee-modal's own scroll (see above)
+     so it stays visible while the body scrolls underneath it. */
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: #ffffff;
 }
 
 .employee-modal-header:has(h2:empty) {
@@ -777,6 +793,17 @@
 
 .employee-detail-actions {
   padding: 12px 24px 24px;
+  /* Pins the action row to the bottom of .employee-modal's scroll region so
+     Archive/Edit/Close stay reachable instead of being clipped when the
+     modal's content (e.g. the regularization banner) makes it taller than
+     the viewport. Not applied to .employee-form-actions (Add/Edit Employee)
+     — that footer already lives inside <form className="employee-form">'s
+     own internal scroll, so it was never being clipped. */
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: #ffffff;
+  border-top: 1px solid #edf2f7;
 }
 
 .employee-detail-actions .employee-archive-action {

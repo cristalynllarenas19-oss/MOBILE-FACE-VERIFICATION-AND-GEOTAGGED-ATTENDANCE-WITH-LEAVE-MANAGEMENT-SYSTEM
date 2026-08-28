@@ -147,6 +147,17 @@ enum FaceEnrollmentStatus {
   REJECTED
 }
 
+enum EvaluationRecommendation {
+  READY_FOR_CONVERSION
+  NOT_YET_READY
+  NOT_RECOMMENDED
+}
+
+enum EvaluationStatus {
+  DRAFT
+  SUBMITTED
+}
+
 enum Sex {
   MALE
   FEMALE
@@ -365,6 +376,8 @@ model Employee {
   undertimeFilings     UndertimeFiling[]
   schedules            EmployeeSchedule[]
   workLocations        WorkLocationEmployee[]
+  evaluationsReceived  ProbationaryEvaluation[] @relation("EvaluatedEmployee")
+  evaluationsAuthored  ProbationaryEvaluation[] @relation("EvaluatingSupervisor")
 
   @@index([departmentId])
   @@index([supervisorId])
@@ -706,6 +719,39 @@ model Notification {
 
   @@index([userId, readAt])
   @@map("notifications")
+}
+
+// A Supervisor's 6-month probationary performance evaluation of one of their
+// direct reports. One row per employee-supervisor pair — a change of
+// supervisor naturally starts a fresh evaluation rather than overwriting the
+// previous supervisor's. Never writes Employee.employmentStatus itself: the
+// Admin's existing manual conversion (EmployeesService.update) remains the
+// only path to Regular, same as the pre-existing probation-milestone check.
+model ProbationaryEvaluation {
+  id             String                    @id @default(uuid())
+  employeeId     String                    @map("employee_id")
+  supervisorId   String                    @map("supervisor_id")
+  workQuality    Int?                      @map("work_quality")
+  productivity   Int?
+  jobKnowledge   Int?                      @map("job_knowledge")
+  workAttitude   Int?                      @map("work_attitude")
+  communication  Int?
+  teamwork       Int?
+  adaptability   Int?
+  overallRating  Int?                      @map("overall_rating")
+  comments       String?
+  recommendation EvaluationRecommendation?
+  status         EvaluationStatus          @default(DRAFT)
+  submittedAt    DateTime?                 @map("submitted_at")
+  createdAt      DateTime                  @default(now()) @map("created_at")
+  updatedAt      DateTime                  @updatedAt @map("updated_at")
+  employee       Employee                  @relation("EvaluatedEmployee", fields: [employeeId], references: [id])
+  supervisor     Employee                  @relation("EvaluatingSupervisor", fields: [supervisorId], references: [id])
+
+  @@unique([employeeId, supervisorId])
+  @@index([employeeId])
+  @@index([supervisorId])
+  @@map("probationary_evaluations")
 }
 
 enum AnnouncementStatus {
