@@ -98,9 +98,16 @@ export default function CalendarPickerModal({
             {cells.map((cell, index) => {
               if (!cell) return <View key={index} style={styles.cell} />;
               const { date } = cell;
-              const disabledReason = isDateDisabled?.(date);
-              const outOfRange = (min && date < min) || (max && date > max);
-              const disabled = Boolean(disabledReason) || Boolean(outOfRange);
+              // Two different reasons a day can't be picked, kept visually
+              // distinct: an actual conflict with an existing filed request
+              // (red — the only case the legend below refers to) vs. simply
+              // outside the min/max range, e.g. past what the remaining
+              // balance can cover (muted grey — nothing wrong with the date
+              // itself, there just isn't enough balance left to reach it).
+              const conflictReason = isDateDisabled?.(date);
+              const conflict = Boolean(conflictReason);
+              const outOfRange = !conflict && ((min && date < min) || (max && date > max));
+              const disabled = conflict || outOfRange;
               const selected = selectedDate ? isSameDay(date, selectedDate) : false;
               return (
                 <Pressable
@@ -109,8 +116,22 @@ export default function CalendarPickerModal({
                   disabled={disabled}
                   onPress={() => onSelect(date)}
                 >
-                  <View style={[styles.dayCircle, selected && styles.dayCircleSelected, disabled && styles.dayCircleDisabled]}>
-                    <Text style={[styles.dayText, selected && styles.dayTextSelected, disabled && styles.dayTextDisabled]}>
+                  <View
+                    style={[
+                      styles.dayCircle,
+                      selected && styles.dayCircleSelected,
+                      conflict && styles.dayCircleConflict,
+                      outOfRange && styles.dayCircleOutOfRange,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.dayText,
+                        selected && styles.dayTextSelected,
+                        conflict && styles.dayTextConflict,
+                        outOfRange && styles.dayTextOutOfRange,
+                      ]}
+                    >
                       {date.getDate()}
                     </Text>
                   </View>
@@ -144,12 +165,27 @@ const styles = StyleSheet.create({
   weekdayLabel: { flex: 1, textAlign: "center", fontSize: 11, fontWeight: "700", color: "#94A3B8", marginBottom: 4 },
   grid: { flexDirection: "row", flexWrap: "wrap" },
   cell: { width: `${100 / 7}%`, aspectRatio: 1, alignItems: "center", justifyContent: "center" },
-  dayCircle: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
-  dayCircleSelected: { backgroundColor: "#062B59" },
-  dayCircleDisabled: { backgroundColor: "#FEE2E2" },
+  // Soft card: rounded square instead of a circle, larger touch target, with
+  // a soft navy shadow lifting the selected day for depth.
+  dayCircle: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+  dayCircleSelected: {
+    backgroundColor: "#062B59",
+    shadowColor: "#062B59",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.32,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  // Actual conflict with an existing filed request — matches the legend.
+  dayCircleConflict: { backgroundColor: "#FEE2E2" },
+  // Simply outside the min/max range (e.g. no remaining balance to cover
+  // it) — muted, not red, since nothing about the date itself is a
+  // conflict.
+  dayCircleOutOfRange: { backgroundColor: "transparent" },
   dayText: { fontSize: 13, color: "#334155", fontWeight: "600" },
   dayTextSelected: { color: "#FFFFFF" },
-  dayTextDisabled: { color: "#FCA5A5" },
+  dayTextConflict: { color: "#FCA5A5" },
+  dayTextOutOfRange: { color: "#CBD5E1" },
   legendRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 12 },
   legendDot: { width: 10, height: 10, borderRadius: 5 },
   legendText: { fontSize: 11, color: "#64748B" },

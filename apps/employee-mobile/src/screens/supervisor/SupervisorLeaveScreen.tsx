@@ -17,6 +17,7 @@ import ResultModal, { ResultModalStatus } from "../../components/ResultModal";
 import EmptyState from "../../components/EmptyState";
 import Avatar from "../../components/Avatar";
 import StatusPill from "../../components/StatusPill";
+import SegmentedControl from "../../components/SegmentedControl";
 import {
   TeamLeaveRequest,
   getTeamLeaveRequests,
@@ -190,14 +191,15 @@ export default function SupervisorLeaveScreen({ currentEmployeeId }: Props) {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <View style={styles.tabSwitcher}>
-        <Pressable style={[styles.tabButton, filter === "PENDING" && styles.tabButtonActive]} onPress={() => setFilter("PENDING")}>
-          <Text style={[styles.tabButtonText, filter === "PENDING" && styles.tabButtonTextActive]}>Pending</Text>
-        </Pressable>
-        <Pressable style={[styles.tabButton, filter === "ALL" && styles.tabButtonActive]} onPress={() => setFilter("ALL")}>
-          <Text style={[styles.tabButtonText, filter === "ALL" && styles.tabButtonTextActive]}>All</Text>
-        </Pressable>
-      </View>
+      <SegmentedControl
+        segments={[
+          { key: "PENDING", label: "Pending" },
+          { key: "ALL", label: "All" },
+        ]}
+        value={filter}
+        onChange={(key) => setFilter(key as "PENDING" | "ALL")}
+        style={styles.tabSwitcher}
+      />
 
       {isLoading ? (
         <View style={styles.centered}>
@@ -384,16 +386,8 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1 },
   centered: { flex: 1, alignItems: "center", justifyContent: "center" },
   tabSwitcher: {
-    flexDirection: "row",
-    backgroundColor: "#F1F5F9",
-    borderRadius: 14,
-    padding: 4,
     marginBottom: 12,
   },
-  tabButton: { flex: 1, paddingVertical: 10, borderRadius: 11, alignItems: "center" },
-  tabButtonActive: { backgroundColor: "#062B59" },
-  tabButtonText: { fontSize: 14, fontWeight: "700", color: "#64748B" },
-  tabButtonTextActive: { color: "#FFFFFF" },
   list: { paddingBottom: 24, gap: 10 },
   card: {
     flexDirection: "row",

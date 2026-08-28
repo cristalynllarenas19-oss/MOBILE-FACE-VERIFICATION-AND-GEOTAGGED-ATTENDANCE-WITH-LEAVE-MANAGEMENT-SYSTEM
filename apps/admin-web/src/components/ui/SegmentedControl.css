@@ -1,0 +1,49 @@
+.seg-track {
+  position: relative;
+  display: flex;
+  background: #f1f5f9;
+  /* The fill alone is barely distinguishable from the page's own
+     background (body is #edf2f7 — a handful of RGB points off), so the
+     track needs its own outline to read as a container regardless of what
+     it's placed on. */
+  border: 1px solid #e2e8f0;
+  border-radius: 999px;
+  padding: 4px;
+}
+
+.seg-thumb {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  background: #062b59;
+  border-radius: 999px;
+  box-shadow: 0 3px 8px rgba(6, 43, 89, 0.25), 0 1px 2px rgba(6, 43, 89, 0.25);
+  transition: transform 0.32s cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+.seg-btn {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-height: 44px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: #64748b;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  transition: color 0.32s ease;
+}
+
+.seg-btn.active {
+  color: #ffffff;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seg-thumb {
+    transition: none;
+  }
+}

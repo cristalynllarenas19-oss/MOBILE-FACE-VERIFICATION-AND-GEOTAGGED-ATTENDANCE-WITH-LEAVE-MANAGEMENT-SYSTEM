@@ -5,7 +5,7 @@ import { AuthService } from "./auth.service";
 import { ForgotPasswordDto } from "./dto/forgot-password.dto";
 import { LoginDto } from "./dto/login.dto";
 import { ResetPasswordDto } from "./dto/reset-password.dto";
-import { RefreshTokenDto } from "./dto/refresh-token.dto";
+// import { RefreshTokenDto } from "./dto/refresh-token.dto"; // refresh tokens disabled — see auth.service.ts
 import { VerifyResetOtpDto } from "./dto/verify-reset-otp.dto";
 
 @Controller("auth")
@@ -18,11 +18,12 @@ export class AuthController {
     return this.authService.login(dto.email, dto.password, getAuditContext(request));
   }
 
-  @Public()
-  @Post("refresh")
-  refresh(@Body() dto: RefreshTokenDto) {
-    return this.authService.refresh(dto.refreshToken);
-  }
+  // Refresh tokens are disabled for now — see auth.service.ts's refresh().
+  // @Public()
+  // @Post("refresh")
+  // refresh(@Body() dto: RefreshTokenDto) {
+  //   return this.authService.refresh(dto.refreshToken);
+  // }
 
   @Post("logout")
   logout(@Req() request: Request) {

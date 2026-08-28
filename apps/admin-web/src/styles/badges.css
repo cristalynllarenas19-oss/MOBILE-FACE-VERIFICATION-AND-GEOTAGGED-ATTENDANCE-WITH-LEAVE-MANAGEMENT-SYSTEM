@@ -26,3 +26,16 @@
   background: #fee2e2;
   color: #991b1b;
 }
+
+.badge.neutral {
+  background: #e2e8f0;
+  color: #475569;
+}
+
+/* Darker red than .danger, not a different color family — used for a
+   cancelled leave request so it's distinct in shade from an outright
+   rejection while still reading as "not approved". */
+.badge.cancelled {
+  background: #fee2e2;
+  color: #7f1d1d;
+}

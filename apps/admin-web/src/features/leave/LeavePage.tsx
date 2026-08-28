@@ -161,7 +161,10 @@ function getEmployeeName(request: LeaveRequest) {
 
 function getLeaveTone(status: string) {
   if (status === "APPROVED" || status === "SUPERVISOR_APPROVED") return "success";
-  if (status === "REJECTED" || status === "CANCELLED") return "danger";
+  if (status === "REJECTED") return "danger";
+  // Its own neutral tone, not REJECTED's — withdrawing your own request
+  // isn't a rejection.
+  if (status === "CANCELLED") return "neutral";
   return "warning";
 }
 

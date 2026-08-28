@@ -13,12 +13,13 @@ import {
   ScrollView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { BlurView } from "expo-blur";
 import * as DocumentPicker from "expo-document-picker";
 import { File } from "expo-file-system";
-import DateTimePickerModal from "react-native-modal-datetime-picker";
 import ResultModal, { ResultModalStatus } from "../components/ResultModal";
 import LeaveBalanceChart from "../components/LeaveBalanceChart";
 import CalendarPickerModal from "../components/CalendarPickerModal";
+import SegmentedControl from "../components/SegmentedControl";
 import {
   LeaveType,
   LeaveBalance,
@@ -90,9 +91,38 @@ function isOneDayLeaveType(name?: string, isSingleDayOnly?: boolean) {
 
 // SUPERVISOR_APPROVED only exists on legacy rows from the old two-step flow;
 // it stays amber because it still needs one more Approve click to finalize.
+type RequestStatusFilter = "ALL" | "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+
+// Same neutral pill style as every other filter chip here (Filed From/To
+// below) — a permanent per-status color made the row read as decoration
+// rather than a set of toggles.
+const STATUS_FILTERS: { key: Exclude<RequestStatusFilter, "ALL">; label: string }[] = [
+  { key: "PENDING", label: "Pending" },
+  { key: "APPROVED", label: "Approved" },
+  { key: "REJECTED", label: "Rejected" },
+  { key: "CANCELLED", label: "Cancelled" },
+];
+
+// Buckets a request's raw status into one of the four filter chips —
+// SUPERVISOR_APPROVED joins APPROVED, and PENDING/NEEDS_REVISION/
+// CANCELLATION_PENDING all join PENDING, same grouping as statusTone below.
+function statusFilterBucket(status: string): Exclude<RequestStatusFilter, "ALL"> | null {
+  if (status === "APPROVED" || status === "SUPERVISOR_APPROVED") return "APPROVED";
+  if (status === "REJECTED") return "REJECTED";
+  if (status === "CANCELLED") return "CANCELLED";
+  if (status === "PENDING" || status === "NEEDS_REVISION" || status === "CANCELLATION_PENDING") return "PENDING";
+  return null;
+}
+
 function statusTone(status: string) {
-  if (status === "APPROVED") return { color: "#15803D", bg: "#DCFCE7" };
-  if (status === "REJECTED" || status === "CANCELLED") return { color: "#B91C1C", bg: "#FEE2E2" };
+  // SUPERVISOR_APPROVED reads as "Approved" (see statusLabel) so it needs
+  // the same green tone as APPROVED — matches admin-web's employee portal,
+  // which already handles both.
+  if (status === "APPROVED" || status === "SUPERVISOR_APPROVED") return { color: "#15803D", bg: "#DCFCE7" };
+  if (status === "REJECTED") return { color: "#B91C1C", bg: "#FEE2E2" };
+  // Darker red than REJECTED, not a different color family — still reads as
+  // "not approved" but distinct in shade from an outright rejection.
+  if (status === "CANCELLED") return { color: "#7F1D1D", bg: "#FEE2E2" };
   return { color: "#B45309", bg: "#FEF3C7" };
 }
 
@@ -151,8 +181,13 @@ export default function LeaveScreen({ employeeId }: Props) {
   // right after requesting a cancellation, so that request stays visible
   // instead of appearing to vanish.
   const [requestsListTab, setRequestsListTab] = useState<"current" | "past">("current");
-  const [requestsDateFilter, setRequestsDateFilter] = useState<Date | null>(null);
-  const [isRequestsDatePickerVisible, setRequestsDatePickerVisibility] = useState(false);
+  const [requestsStatusFilter, setRequestsStatusFilter] = useState<RequestStatusFilter>("ALL");
+  // Filed-date range — two calendars (from/to), same pattern as the leave
+  // request form's own Start Date/End Date pickers above.
+  const [requestsDateFrom, setRequestsDateFrom] = useState<Date | null>(null);
+  const [requestsDateTo, setRequestsDateTo] = useState<Date | null>(null);
+  const [isRequestsFromPickerVisible, setRequestsFromPickerVisibility] = useState(false);
+  const [isRequestsToPickerVisible, setRequestsToPickerVisibility] = useState(false);
   // Tapping a summary row in the "My Leave Requests" list opens its detail
   // (with the Cancel button) in place of the list, inside the same modal.
   const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null);
@@ -321,29 +356,39 @@ export default function LeaveScreen({ employeeId }: Props) {
   }
 
   function matchesDateFilter(r: LeaveRequest) {
-    if (!requestsDateFilter) return true;
+    if (!requestsDateFrom && !requestsDateTo) return true;
     const filed = new Date(r.createdAt);
-    return (
-      filed.getFullYear() === requestsDateFilter.getFullYear() &&
-      filed.getMonth() === requestsDateFilter.getMonth() &&
-      filed.getDate() === requestsDateFilter.getDate()
-    );
+    const filedDateOnly = new Date(filed.getFullYear(), filed.getMonth(), filed.getDate());
+    if (requestsDateFrom) {
+      const from = new Date(requestsDateFrom.getFullYear(), requestsDateFrom.getMonth(), requestsDateFrom.getDate());
+      if (filedDateOnly < from) return false;
+    }
+    if (requestsDateTo) {
+      const to = new Date(requestsDateTo.getFullYear(), requestsDateTo.getMonth(), requestsDateTo.getDate());
+      if (filedDateOnly > to) return false;
+    }
+    return true;
+  }
+
+  function matchesStatusFilter(r: LeaveRequest) {
+    if (requestsStatusFilter === "ALL") return true;
+    return statusFilterBucket(r.status) === requestsStatusFilter;
   }
 
   const currentRequests = useMemo(
     () =>
       requests
-        .filter((r) => isCurrentLeaveRequest(r) && matchesDateFilter(r))
+        .filter((r) => isCurrentLeaveRequest(r) && matchesDateFilter(r) && matchesStatusFilter(r))
         .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()),
-    [requests, todayStart, requestsDateFilter],
+    [requests, todayStart, requestsDateFrom, requestsDateTo, requestsStatusFilter],
   );
   // History — everything not currently active, most-recently-filed first.
   const pastRequests = useMemo(
     () =>
       requests
-        .filter((r) => !isCurrentLeaveRequest(r) && matchesDateFilter(r))
+        .filter((r) => !isCurrentLeaveRequest(r) && matchesDateFilter(r) && matchesStatusFilter(r))
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
-    [requests, todayStart, requestsDateFilter],
+    [requests, todayStart, requestsDateFrom, requestsDateTo, requestsStatusFilter],
   );
   const expandedRequest = useMemo(
     () => requests.find((r) => r.id === expandedRequestId),
@@ -404,7 +449,8 @@ export default function LeaveScreen({ employeeId }: Props) {
   function openPendingModal() {
     setShowPending(true);
     setRequestsListTab("current");
-    setRequestsDateFilter(null);
+    setRequestsDateFrom(null);
+    setRequestsDateTo(null);
     requestsCache.refresh().catch(() => undefined);
   }
 
@@ -813,26 +859,16 @@ export default function LeaveScreen({ employeeId }: Props) {
           </Pressable>
         </View>
       )}
-      <View style={styles.tabSwitcher}>
-        <Pressable
-          style={[styles.tabButton, activeTab === "balance" && styles.tabButtonActive]}
-          onPress={() => setActiveTab("balance")}
-        >
-          <Text style={[styles.tabButtonText, activeTab === "balance" && styles.tabButtonTextActive]}>Balance</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.tabButton, activeTab === "request" && styles.tabButtonActive]}
-          onPress={() => setActiveTab("request")}
-        >
-          <Text style={[styles.tabButtonText, activeTab === "request" && styles.tabButtonTextActive]}>Request</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.tabButton, activeTab === "undertime" && styles.tabButtonActive]}
-          onPress={() => setActiveTab("undertime")}
-        >
-          <Text style={[styles.tabButtonText, activeTab === "undertime" && styles.tabButtonTextActive]}>Undertime</Text>
-        </Pressable>
-      </View>
+      <SegmentedControl
+        segments={[
+          { key: "balance", label: "Balance" },
+          { key: "request", label: "Request" },
+          { key: "undertime", label: "Undertime" },
+        ]}
+        value={activeTab}
+        onChange={(key) => setActiveTab(key as typeof activeTab)}
+        style={styles.tabSwitcher}
+      />
 
       {activeTab === "balance" ? (
         <ScrollView contentContainerStyle={[styles.tabContentPad, { flexGrow: 1 }]}>
@@ -1134,6 +1170,12 @@ export default function LeaveScreen({ employeeId }: Props) {
 
       <Modal visible={showPending} transparent animationType="slide">
         <View style={styles.modalOverlay}>
+          <BlurView
+            intensity={45}
+            tint="dark"
+            experimentalBlurMethod="dimezisBlurView"
+            style={StyleSheet.absoluteFillObject}
+          />
           <View style={styles.modalCard}>
             {expandedRequest ? (
               <>
@@ -1283,37 +1325,65 @@ export default function LeaveScreen({ employeeId }: Props) {
               <>
                 <Text style={styles.modalTitle}>My Leave Requests</Text>
 
-                <View style={styles.requestsTabSwitcher}>
-                  <Pressable
-                    style={[styles.requestsTabButton, requestsListTab === "current" && styles.requestsTabButtonActive]}
-                    onPress={() => setRequestsListTab("current")}
-                  >
-                    <Text style={[styles.requestsTabButtonText, requestsListTab === "current" && styles.requestsTabButtonTextActive]}>
-                      Current ({currentRequests.length})
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    style={[styles.requestsTabButton, requestsListTab === "past" && styles.requestsTabButtonActive]}
-                    onPress={() => setRequestsListTab("past")}
-                  >
-                    <Text style={[styles.requestsTabButtonText, requestsListTab === "past" && styles.requestsTabButtonTextActive]}>
-                      Past ({pastRequests.length})
-                    </Text>
-                  </Pressable>
+                <SegmentedControl
+                  segments={[
+                    { key: "current", label: `Current (${currentRequests.length})` },
+                    { key: "past", label: `Past (${pastRequests.length})` },
+                  ]}
+                  value={requestsListTab}
+                  onChange={(key) => setRequestsListTab(key as "current" | "past")}
+                  style={styles.requestsTabSwitcher}
+                />
+
+                <View style={styles.statusFilterRow}>
+                  {STATUS_FILTERS.map((filter) => {
+                    const active = requestsStatusFilter === filter.key;
+                    return (
+                      <Pressable
+                        key={filter.key}
+                        style={[styles.statusFilterChip, active && styles.statusFilterChipActive]}
+                        onPress={() => setRequestsStatusFilter(active ? "ALL" : filter.key)}
+                      >
+                        <Text
+                          style={[styles.statusFilterChipText, active && styles.statusFilterChipTextActive]}
+                          numberOfLines={1}
+                          adjustsFontSizeToFit
+                          minimumFontScale={0.8}
+                        >
+                          {filter.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
                 </View>
 
-                <View style={styles.filterRow}>
-                  <Pressable
-                    style={[styles.dateFilterChip, requestsDateFilter && styles.dateFilterChipActive]}
-                    onPress={() => setRequestsDatePickerVisibility(true)}
-                  >
-                    <Ionicons name="calendar-outline" size={13} color={requestsDateFilter ? "#FFFFFF" : "#1680D8"} />
-                    <Text style={[styles.dateFilterChipText, requestsDateFilter && styles.dateFilterChipTextActive]} numberOfLines={1}>
-                      {requestsDateFilter ? requestsDateFilter.toLocaleDateString() : "Filed on..."}
+                <View style={styles.filedDateRow}>
+                  <Pressable style={styles.filedDateBox} onPress={() => setRequestsFromPickerVisibility(true)}>
+                    <Text
+                      style={[styles.filedDateText, !requestsDateFrom && styles.filedDateTextPlaceholder]}
+                      numberOfLines={1}
+                    >
+                      {requestsDateFrom ? formatDate(requestsDateFrom) : "Filed from"}
                     </Text>
+                    <Ionicons name="calendar-outline" size={14} color="#64748B" />
                   </Pressable>
-                  {requestsDateFilter && (
-                    <Pressable style={styles.dateFilterClear} onPress={() => setRequestsDateFilter(null)}>
+                  <Pressable style={styles.filedDateBox} onPress={() => setRequestsToPickerVisibility(true)}>
+                    <Text
+                      style={[styles.filedDateText, !requestsDateTo && styles.filedDateTextPlaceholder]}
+                      numberOfLines={1}
+                    >
+                      {requestsDateTo ? formatDate(requestsDateTo) : "Filed to"}
+                    </Text>
+                    <Ionicons name="calendar-outline" size={14} color="#64748B" />
+                  </Pressable>
+                  {(requestsDateFrom || requestsDateTo) && (
+                    <Pressable
+                      style={styles.dateFilterClear}
+                      onPress={() => {
+                        setRequestsDateFrom(null);
+                        setRequestsDateTo(null);
+                      }}
+                    >
                       <Ionicons name="close" size={16} color="#94A3B8" />
                     </Pressable>
                   )}
@@ -1322,8 +1392,8 @@ export default function LeaveScreen({ employeeId }: Props) {
                 <ScrollView style={{ maxHeight: 280 }}>
                   {(requestsListTab === "current" ? currentRequests : pastRequests).length === 0 ? (
                     <Text style={styles.modalEmptyText}>
-                      {requestsDateFilter
-                        ? "No requests filed on this date."
+                      {requestsDateFrom || requestsDateTo || requestsStatusFilter !== "ALL"
+                        ? "No requests match these filters."
                         : requestsListTab === "current"
                           ? "No ongoing or upcoming filed leave."
                           : "No past leave requests."}
@@ -1374,17 +1444,29 @@ export default function LeaveScreen({ employeeId }: Props) {
         </View>
       </Modal>
 
-      <DateTimePickerModal
-        isVisible={isRequestsDatePickerVisible}
-        mode="date"
-        date={requestsDateFilter ?? new Date()}
-        accentColor="#1680D8"
-        themeVariant="light"
-        onConfirm={(value) => {
-          setRequestsDateFilter(value);
-          setRequestsDatePickerVisibility(false);
+      <CalendarPickerModal
+        visible={isRequestsFromPickerVisible}
+        title="Filed From"
+        selectedDate={requestsDateFrom ?? undefined}
+        maximumDate={requestsDateTo ?? todayStart}
+        onSelect={(value) => {
+          setRequestsDateFrom(value);
+          setRequestsFromPickerVisibility(false);
         }}
-        onCancel={() => setRequestsDatePickerVisibility(false)}
+        onClose={() => setRequestsFromPickerVisibility(false)}
+      />
+
+      <CalendarPickerModal
+        visible={isRequestsToPickerVisible}
+        title="Filed To"
+        selectedDate={requestsDateTo ?? undefined}
+        minimumDate={requestsDateFrom ?? undefined}
+        maximumDate={todayStart}
+        onSelect={(value) => {
+          setRequestsDateTo(value);
+          setRequestsToPickerVisibility(false);
+        }}
+        onClose={() => setRequestsToPickerVisibility(false)}
       />
 
       <Modal visible={!!confirmCancelId} transparent animationType="fade">
@@ -1459,30 +1541,9 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   tabSwitcher: {
-    flexDirection: "row",
     marginHorizontal: 16,
     marginTop: 4,
     marginBottom: 4,
-    backgroundColor: "#F1F5F9",
-    borderRadius: 12,
-    padding: 3,
-  },
-  tabButton: {
-    flex: 1,
-    paddingVertical: 7,
-    borderRadius: 9,
-    alignItems: "center",
-  },
-  tabButtonActive: {
-    backgroundColor: "#062B59",
-  },
-  tabButtonText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#64748B",
-  },
-  tabButtonTextActive: {
-    color: "#FFFFFF",
   },
   tabContentPad: {
     paddingHorizontal: 16,
@@ -1726,29 +1787,40 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 18, fontWeight: "700", marginBottom: 16, color: "#062B59" },
   modalEmptyText: { color: "#94A3B8", fontSize: 13, textAlign: "center", paddingVertical: 12 },
   requestsTabSwitcher: {
-    flexDirection: "row",
-    backgroundColor: "#F1F5F9",
-    borderRadius: 12,
-    padding: 3,
     marginBottom: 10,
   },
-  requestsTabButton: { flex: 1, paddingVertical: 8, borderRadius: 9, alignItems: "center" },
-  requestsTabButtonActive: { backgroundColor: "#062B59" },
-  requestsTabButtonText: { fontSize: 13, fontWeight: "700", color: "#64748B" },
-  requestsTabButtonTextActive: { color: "#FFFFFF" },
-  filterRow: { flexDirection: "row", gap: 8, marginBottom: 12 },
-  dateFilterChip: {
+  statusFilterRow: { flexDirection: "row", gap: 5, marginBottom: 10 },
+  filedDateRow: { flexDirection: "row", gap: 8, marginBottom: 12 },
+  filedDateBox: {
+    flex: 1,
+    height: 40,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 10,
+    paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 999,
-    backgroundColor: "#EFF6FF",
+    justifyContent: "space-between",
+    backgroundColor: "#FFFFFF",
   },
-  dateFilterChipActive: { backgroundColor: "#1680D8" },
-  dateFilterChipText: { color: "#1680D8", fontSize: 12, fontWeight: "700" },
-  dateFilterChipTextActive: { color: "#FFFFFF" },
+  filedDateText: { fontSize: 12.5, fontWeight: "600", color: "#0F172A" },
+  filedDateTextPlaceholder: { color: "#94A3B8", fontWeight: "500" },
+  // flex: 1 each — same mechanism as SegmentedControl's own buttons — so all
+  // four always sit on one line regardless of screen width, and the same
+  // navy-active/grey-inactive colors as every other pill on this screen
+  // (Balance/Request/Undertime, Current/Past) instead of a third color.
+  statusFilterChip: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 7,
+    paddingHorizontal: 4,
+    borderRadius: 999,
+    backgroundColor: "#F1F5F9",
+  },
+  statusFilterChipActive: { backgroundColor: "#062B59" },
+  statusFilterChipText: { color: "#64748B", fontSize: 10.5, fontWeight: "700" },
+  statusFilterChipTextActive: { color: "#FFFFFF" },
   dateFilterClear: {
     alignItems: "center",
     justifyContent: "center",

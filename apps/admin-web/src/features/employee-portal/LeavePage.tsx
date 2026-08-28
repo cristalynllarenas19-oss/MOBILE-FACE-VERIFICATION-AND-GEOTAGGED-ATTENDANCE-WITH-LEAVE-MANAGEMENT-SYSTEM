@@ -2,7 +2,6 @@
 
 import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, CheckCircle, ChevronDown, ChevronUp, FileText, Paperclip, Search, X, XCircle } from "lucide-react";
-import "./EmployeeLeavePage.css";
 import "./EmployeePortal.css";
 import {
   LeaveType, LeaveBalance, LeaveRequest, UndertimeEligibility, UndertimeFiling,
@@ -11,6 +10,7 @@ import {
 } from "./api";
 import { LeaveBalanceChart } from "./components/LeaveBalanceChart";
 import { CalendarPicker } from "./components/CalendarPicker";
+import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import type { AuthUser } from "../../lib/api";
 import { CACHE_KEYS, useCachedData } from "../../lib/dataCache";
 
@@ -23,9 +23,34 @@ type Tab   = "balance" | "request" | "undertime";
 
 const MAX_BYTES = 5 * 1024 * 1024;
 
+type RequestStatusFilter = "ALL" | "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+
+// Same neutral pill style as every other filter chip here (Filed From/To
+// below) — a permanent per-status color made the row read as decoration
+// rather than a set of toggles (mirrors employee-mobile's LeaveScreen.tsx).
+const STATUS_FILTERS: { key: Exclude<RequestStatusFilter, "ALL">; label: string }[] = [
+  { key: "PENDING", label: "Pending" },
+  { key: "APPROVED", label: "Approved" },
+  { key: "REJECTED", label: "Rejected" },
+  { key: "CANCELLED", label: "Cancelled" },
+];
+
+// Buckets a request's raw status into one of the four filter chips — same
+// grouping as statusTone below (mirrors employee-mobile's LeaveScreen.tsx).
+function statusFilterBucket(status: string): Exclude<RequestStatusFilter, "ALL"> | null {
+  if (status === "APPROVED" || status === "SUPERVISOR_APPROVED") return "APPROVED";
+  if (status === "REJECTED") return "REJECTED";
+  if (status === "CANCELLED") return "CANCELLED";
+  if (status === "PENDING" || status === "NEEDS_REVISION" || status === "CANCELLATION_PENDING") return "PENDING";
+  return null;
+}
+
 function statusTone(s: string) {
   if (s === "APPROVED" || s === "SUPERVISOR_APPROVED") return { color: "#15803D", bg: "#DCFCE7" };
-  if (s === "REJECTED"  || s === "CANCELLED")           return { color: "#B91C1C", bg: "#FEE2E2" };
+  if (s === "REJECTED") return { color: "#B91C1C", bg: "#FEE2E2" };
+  // Darker red than REJECTED, not a different color family — still reads as
+  // "not approved" but distinct in shade from an outright rejection.
+  if (s === "CANCELLED") return { color: "#7F1D1D", bg: "#FEE2E2" };
   return { color: "#B45309", bg: "#FEF3C7" };
 }
 
@@ -136,7 +161,11 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
   // right after requesting a cancellation, so that request stays visible
   // instead of appearing to vanish.
   const [requestsListTab, setRequestsListTab] = useState<"current" | "past">("current");
-  const [requestsDateFilter, setRequestsDateFilter] = useState("");
+  // Filed-date range — two calendars (from/to), same pattern as the Start
+  // Date/End Date pickers on the Request tab above.
+  const [requestsDateFrom, setRequestsDateFrom] = useState("");
+  const [requestsDateTo, setRequestsDateTo] = useState("");
+  const [requestsStatusFilter, setRequestsStatusFilter] = useState<RequestStatusFilter>("ALL");
   // Opening the requests list is exactly when a stale status is most
   // visible and most annoying — force a fresh fetch right away instead of
   // waiting for the next poll tick. Only `requests` is shown in this modal,
@@ -144,7 +173,8 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
   function openPendingModal() {
     setShowPending(true);
     setRequestsListTab("current");
-    setRequestsDateFilter("");
+    setRequestsDateFrom("");
+    setRequestsDateTo("");
     requestsCache.refresh().catch(() => undefined);
   }
   const [resultModal,  setResultModal]   = useState<{ ok: boolean; title: string; msg: string } | null>(null);
@@ -207,14 +237,29 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   }
 
+  function matchesStatusFilter(r: LeaveRequest) {
+    if (requestsStatusFilter === "ALL") return true;
+    return statusFilterBucket(r.status) === requestsStatusFilter;
+  }
+
+  // dateKey and the from/to values are both "YYYY-MM-DD", so plain string
+  // comparison sorts the same as chronological order.
+  function matchesDateFilter(r: LeaveRequest) {
+    const filed = dateKey(r.createdAt);
+    if (requestsDateFrom && filed < requestsDateFrom) return false;
+    if (requestsDateTo && filed > requestsDateTo) return false;
+    return true;
+  }
+
   const currentRequests = useMemo(() => {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     return requests
       .filter((r) => isCurrentLeaveRequest(r, todayStart))
-      .filter((r) => !requestsDateFilter || dateKey(r.createdAt) === requestsDateFilter)
+      .filter(matchesDateFilter)
+      .filter(matchesStatusFilter)
       .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
-  }, [requests, requestsDateFilter]);
+  }, [requests, requestsDateFrom, requestsDateTo, requestsStatusFilter]);
 
   // History — everything not currently active, most-recently-filed first
   // (mirrors admin-web's own Leave History tab).
@@ -223,9 +268,10 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
     todayStart.setHours(0, 0, 0, 0);
     return requests
       .filter((r) => !isCurrentLeaveRequest(r, todayStart))
-      .filter((r) => !requestsDateFilter || dateKey(r.createdAt) === requestsDateFilter)
+      .filter(matchesDateFilter)
+      .filter(matchesStatusFilter)
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [requests, requestsDateFilter]);
+  }, [requests, requestsDateFrom, requestsDateTo, requestsStatusFilter]);
   const focusedRequest = useMemo(
     () => requests.find((r) => r.id === focusedRequestId),
     [requests, focusedRequestId],
@@ -871,17 +917,16 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
       )}
 
       {/* Tab switcher */}
-      <div className="leave-tab-switcher">
-        {(["balance", "request", "undertime"] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`leave-tab-btn${tab === t ? " is-active" : ""}`}
-          >
-            {t === "balance" ? "Balance" : t === "request" ? "Request" : "Undertime"}
-          </button>
-        ))}
-      </div>
+      <SegmentedControl
+        segments={[
+          { key: "balance", label: "Balance" },
+          { key: "request", label: "Request" },
+          { key: "undertime", label: "Undertime" },
+        ]}
+        value={tab}
+        onChange={(key) => setTab(key as Tab)}
+        style={{ marginBottom: 16 }}
+      />
 
       {/* ── Balance tab ──────────────────────────────────────────────────────── */}
       {tab === "balance" && (
@@ -1009,6 +1054,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                   max={maxEndDate}
                   isDateDisabled={isDateAlreadyFiledForType}
                   placeholder="End date"
+                  align="right"
                 />
               </div>
             )}
@@ -1166,38 +1212,61 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
           <div style={modalCardFloating}>
             <h3 style={{ color: "#062B59", fontWeight: 700, marginBottom: 14 }}>My Leave Requests</h3>
 
-            <div className="leave-tab-switcher">
-              <button
-                type="button"
-                className={`leave-tab-btn${requestsListTab === "current" ? " is-active" : ""}`}
-                onClick={() => setRequestsListTab("current")}
-              >
-                Current ({currentRequests.length})
-              </button>
-              <button
-                type="button"
-                className={`leave-tab-btn${requestsListTab === "past" ? " is-active" : ""}`}
-                onClick={() => setRequestsListTab("past")}
-              >
-                Past ({pastRequests.length})
-              </button>
+            <SegmentedControl
+              segments={[
+                { key: "current", label: `Current (${currentRequests.length})` },
+                { key: "past", label: `Past (${pastRequests.length})` },
+              ]}
+              value={requestsListTab}
+              onChange={(key) => setRequestsListTab(key as "current" | "past")}
+              style={{ marginBottom: 16 }}
+            />
+
+            {/* Same navy-active/grey-inactive colors as every other pill on
+                this page (Balance/Request/Undertime, Current/Past) instead of
+                a third color; flex:1 keeps all four on one line. */}
+            <div style={{ display: "flex", gap: 5, marginBottom: 10 }}>
+              {STATUS_FILTERS.map((filter) => {
+                const active = requestsStatusFilter === filter.key;
+                return (
+                  <button
+                    key={filter.key}
+                    type="button"
+                    onClick={() => setRequestsStatusFilter(active ? "ALL" : filter.key)}
+                    style={{
+                      flex: 1, border: "none", borderRadius: 999, padding: "7px 4px", cursor: "pointer",
+                      fontSize: 11, fontWeight: 700,
+                      background: active ? "#062B59" : "#F1F5F9",
+                      color: active ? "#FFFFFF" : "#64748B",
+                    }}
+                  >
+                    {filter.label}
+                  </button>
+                );
+              })}
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-              <input
-                type="date"
-                value={requestsDateFilter}
-                onChange={(e) => setRequestsDateFilter(e.target.value)}
-                aria-label="Filter by date filed"
-                style={{
-                  flex: 1, height: 38, border: "1px solid #E2E8F0", borderRadius: 10,
-                  padding: "0 10px", fontSize: 13, background: "#FFFFFF", color: "#334155",
-                }}
+              <CalendarPicker
+                value={requestsDateFrom}
+                onChange={setRequestsDateFrom}
+                max={requestsDateTo || undefined}
+                placeholder="Filed from"
               />
-              {requestsDateFilter && (
+              <CalendarPicker
+                value={requestsDateTo}
+                onChange={setRequestsDateTo}
+                min={requestsDateFrom || undefined}
+                placeholder="Filed to"
+                align="right"
+              />
+              {(requestsDateFrom || requestsDateTo) && (
                 <button
                   type="button"
-                  onClick={() => setRequestsDateFilter("")}
+                  onClick={() => {
+                    setRequestsDateFrom("");
+                    setRequestsDateTo("");
+                  }}
                   aria-label="Clear date filter"
                   style={{
                     border: "none", background: "#F1F5F9", borderRadius: 10, width: 32, height: 32,
@@ -1212,8 +1281,8 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
             <div style={{ maxHeight: 280, overflowY: "auto" }}>
               {(requestsListTab === "current" ? currentRequests : pastRequests).length === 0 ? (
                 <p style={{ color: "#94A3B8", fontSize: 13, textAlign: "center" }}>
-                  {requestsDateFilter
-                    ? "No requests filed on this date."
+                  {requestsDateFrom || requestsDateTo || requestsStatusFilter !== "ALL"
+                    ? "No requests match these filters."
                     : requestsListTab === "current"
                       ? "No ongoing or upcoming filed leave."
                       : "No past leave requests."}
@@ -1367,10 +1436,16 @@ const modalCard: CSSProperties = {
   maxHeight: "85vh", overflowY: "auto",
   background: "#fff", borderRadius: 20, padding: 20,
 };
-// Same positioning as overlayS but with no dimmed backdrop — just the
-// floating card itself. modalCardFloating adds its own shadow/border since
-// there's no dim background behind it to create contrast against the page.
-const overlayNoBg: CSSProperties = { ...overlayS, background: "transparent" };
+// Same positioning as overlayS but blurs the page behind it instead of
+// dimming it with a flat color — matches the blur(2px) backdrop already used
+// by the notification detail modal elsewhere in this app. modalCardFloating
+// still adds its own shadow/border for contrast against the blurred page.
+const overlayNoBg: CSSProperties = {
+  ...overlayS,
+  background: "rgba(15, 23, 42, 0.45)",
+  backdropFilter: "blur(2px)",
+  WebkitBackdropFilter: "blur(2px)",
+};
 const modalCardFloating: CSSProperties = {
   ...modalCard,
   border: "1px solid #E2E8F0",

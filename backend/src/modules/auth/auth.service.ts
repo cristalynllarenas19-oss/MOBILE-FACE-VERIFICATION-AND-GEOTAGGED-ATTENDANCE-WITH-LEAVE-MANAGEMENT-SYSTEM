@@ -125,17 +125,19 @@ export class AuthService {
     return {
       accessToken: await this.jwtService.signAsync(payload, {
         secret: this.config.get<string>("JWT_ACCESS_SECRET") ?? "dev-access-secret-change-me",
-        // 12h keeps the access token short-lived while mobile can refresh it.
-        // uses its stored refreshToken (apiRequest has no refresh-and-retry,
-        // and /auth/refresh is a stub), so once this expires every request
-        // 401s until the user logs in again — shorten only after real
-        // refresh-token rotation exists.
+        // Refresh tokens are disabled for now (not implemented — see refresh()
+        // below), so once this expires every request 401s until the user logs
+        // in again.
         expiresIn: "12h",
       }),
-      refreshToken: await this.jwtService.signAsync(payload, {
-        secret: this.config.get<string>("JWT_REFRESH_SECRET") ?? "dev-refresh-secret-change-me",
-        expiresIn: "7d",
-      }),
+      // Refresh-token issuance is disabled until refresh-token rotation is
+      // actually implemented. Uncomment together with refresh()/
+      // issueTokenPair() below, the /auth/refresh route in auth.controller.ts,
+      // and the mobile refresh flow in apps/employee-mobile/src/api.ts.
+      // refreshToken: await this.jwtService.signAsync(payload, {
+      //   secret: this.config.get<string>("JWT_REFRESH_SECRET") ?? "dev-refresh-secret-change-me",
+      //   expiresIn: "7d",
+      // }),
       user: {
         id: user.id,
         email: user.email,
@@ -156,46 +158,50 @@ export class AuthService {
     };
   }
 
-  async refresh(refreshToken: string) {
-    let payload: AuthTokenPayload;
-    try {
-      payload = await this.jwtService.verifyAsync<AuthTokenPayload>(refreshToken, {
-        secret: this.config.get<string>("JWT_REFRESH_SECRET") ?? "dev-refresh-secret-change-me",
-      });
-    } catch {
-      throw new UnauthorizedException("Session has expired. Please log in again.");
-    }
-
-    // Preserve immediate invalidation when an account is disabled or an
-    // administrator changes its roles/permissions.
-    const user = await this.prisma.user.findUnique({
-      where: { id: payload.sub },
-      select: { status: true, tokenVersion: true },
-    });
-    if (!user || user.status !== "ACTIVE" || user.tokenVersion !== payload.tokenVersion) {
-      throw new UnauthorizedException("Session is no longer valid.");
-    }
-
-    // verifyAsync returns the full decoded JWT, including the exp/iat claims
-    // stamped on the old refresh token — signAsync refuses to issue a new
-    // token when the payload already carries an exp, so those must be
-    // dropped before reusing this payload to sign the new token pair.
-    const { exp, iat, ...freshPayload } = payload as AuthTokenPayload & { exp?: number; iat?: number };
-    return this.issueTokenPair(freshPayload);
-  }
-
-  private async issueTokenPair(payload: AuthTokenPayload) {
-    return {
-      accessToken: await this.jwtService.signAsync(payload, {
-        secret: this.config.get<string>("JWT_ACCESS_SECRET") ?? "dev-access-secret-change-me",
-        expiresIn: "12h",
-      }),
-      refreshToken: await this.jwtService.signAsync(payload, {
-        secret: this.config.get<string>("JWT_REFRESH_SECRET") ?? "dev-refresh-secret-change-me",
-        expiresIn: "7d",
-      }),
-    };
-  }
+  // Refresh-token rotation is not implemented yet — disabled for now (see
+  // login()'s accessToken comment above). Re-enable this together with the
+  // /auth/refresh route in auth.controller.ts and the mobile refresh flow in
+  // apps/employee-mobile/src/api.ts.
+  // async refresh(refreshToken: string) {
+  //   let payload: AuthTokenPayload;
+  //   try {
+  //     payload = await this.jwtService.verifyAsync<AuthTokenPayload>(refreshToken, {
+  //       secret: this.config.get<string>("JWT_REFRESH_SECRET") ?? "dev-refresh-secret-change-me",
+  //     });
+  //   } catch {
+  //     throw new UnauthorizedException("Session has expired. Please log in again.");
+  //   }
+  //
+  //   // Preserve immediate invalidation when an account is disabled or an
+  //   // administrator changes its roles/permissions.
+  //   const user = await this.prisma.user.findUnique({
+  //     where: { id: payload.sub },
+  //     select: { status: true, tokenVersion: true },
+  //   });
+  //   if (!user || user.status !== "ACTIVE" || user.tokenVersion !== payload.tokenVersion) {
+  //     throw new UnauthorizedException("Session is no longer valid.");
+  //   }
+  //
+  //   // verifyAsync returns the full decoded JWT, including the exp/iat claims
+  //   // stamped on the old refresh token — signAsync refuses to issue a new
+  //   // token when the payload already carries an exp, so those must be
+  //   // dropped before reusing this payload to sign the new token pair.
+  //   const { exp, iat, ...freshPayload } = payload as AuthTokenPayload & { exp?: number; iat?: number };
+  //   return this.issueTokenPair(freshPayload);
+  // }
+  //
+  // private async issueTokenPair(payload: AuthTokenPayload) {
+  //   return {
+  //     accessToken: await this.jwtService.signAsync(payload, {
+  //       secret: this.config.get<string>("JWT_ACCESS_SECRET") ?? "dev-access-secret-change-me",
+  //       expiresIn: "12h",
+  //     }),
+  //     refreshToken: await this.jwtService.signAsync(payload, {
+  //       secret: this.config.get<string>("JWT_REFRESH_SECRET") ?? "dev-refresh-secret-change-me",
+  //       expiresIn: "7d",
+  //     }),
+  //   };
+  // }
 
   // Revokes ADMIN from every account whose grant is OLDER than the
   // logging-in admin's, falling back to EMPLOYEE for anyone left with zero

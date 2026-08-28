@@ -15,6 +15,7 @@ import * as Location from "expo-location";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import { AttendanceHistoryRecord, AttendanceLogPhoto, getAttendanceHistory } from "../api";
 import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
+import SegmentedControl from "../components/SegmentedControl";
 
 type Props = {
   employeeId?: string;
@@ -272,20 +273,15 @@ export default function DTRScreen({ employeeId }: Props) {
       <View style={styles.pinnedHeader}>
         <Text style={styles.cardTitle}>Daily Time Record</Text>
 
-        <View style={styles.tabSwitcher}>
-          <Pressable
-            style={[styles.tabButton, isOfficeTab && styles.tabButtonActive]}
-            onPress={() => setActiveTab("office")}
-          >
-            <Text style={[styles.tabButtonText, isOfficeTab && styles.tabButtonTextActive]}>Office</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.tabButton, !isOfficeTab && styles.tabButtonActive]}
-            onPress={() => setActiveTab("field")}
-          >
-            <Text style={[styles.tabButtonText, !isOfficeTab && styles.tabButtonTextActive]}>Field</Text>
-          </Pressable>
-        </View>
+        <SegmentedControl
+          segments={[
+            { key: "office", label: "Office" },
+            { key: "field", label: "Field" },
+          ]}
+          value={activeTab}
+          onChange={(key) => setActiveTab(key as Tab)}
+          style={styles.tabSwitcher}
+        />
 
         <View style={styles.summaryCard}>
           <Ionicons name="time" size={22} color="#1680D8" />
@@ -479,64 +475,17 @@ export default function DTRScreen({ employeeId }: Props) {
             {!isOfficeTab && selectedRecord?.workLocation?.name ? ` · ${selectedRecord.workLocation.name}` : ""}
           </Text>
 
-          <View style={styles.photoTabSwitcher}>
-            <Pressable
-              style={[styles.photoTabButton, photoTab === "TIME_IN" && styles.photoTabButtonActive]}
-              onPress={() => setPhotoTab("TIME_IN")}
-            >
-              <Text
-                style={[styles.photoTabText, photoTab === "TIME_IN" && styles.photoTabTextActive]}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.82}
-              >
-                {photoTabLabel("TIME_IN", isOfficeTab)}
-              </Text>
-            </Pressable>
-            {isOfficeTab && (
-              <Pressable
-                style={[styles.photoTabButton, photoTab === "LUNCH_OUT" && styles.photoTabButtonActive]}
-                onPress={() => setPhotoTab("LUNCH_OUT")}
-              >
-                <Text
-                  style={[styles.photoTabText, photoTab === "LUNCH_OUT" && styles.photoTabTextActive]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.82}
-                >
-                  Lunch Start
-                </Text>
-              </Pressable>
-            )}
-            {isOfficeTab && (
-              <Pressable
-                style={[styles.photoTabButton, photoTab === "LUNCH_IN" && styles.photoTabButtonActive]}
-                onPress={() => setPhotoTab("LUNCH_IN")}
-              >
-                <Text
-                  style={[styles.photoTabText, photoTab === "LUNCH_IN" && styles.photoTabTextActive]}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.82}
-                >
-                  Lunch End
-                </Text>
-              </Pressable>
-            )}
-            <Pressable
-              style={[styles.photoTabButton, photoTab === "TIME_OUT" && styles.photoTabButtonActive]}
-              onPress={() => setPhotoTab("TIME_OUT")}
-            >
-              <Text
-                style={[styles.photoTabText, photoTab === "TIME_OUT" && styles.photoTabTextActive]}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-                minimumFontScale={0.82}
-              >
-                {photoTabLabel("TIME_OUT", isOfficeTab)}
-              </Text>
-            </Pressable>
-          </View>
+          <SegmentedControl
+            segments={[
+              { key: "TIME_IN", label: photoTabLabel("TIME_IN", isOfficeTab) },
+              ...(isOfficeTab ? [{ key: "LUNCH_OUT", label: "Lunch Start" }] : []),
+              ...(isOfficeTab ? [{ key: "LUNCH_IN", label: "Lunch End" }] : []),
+              { key: "TIME_OUT", label: photoTabLabel("TIME_OUT", isOfficeTab) },
+            ]}
+            value={photoTab}
+            onChange={(key) => setPhotoTab(key as typeof photoTab)}
+            style={styles.photoTabSwitcher}
+          />
 
           {(() => {
             const log = selectedRecord?.logs.find((l) => l.logType === photoTab);
@@ -619,28 +568,7 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   tabSwitcher: {
-    flexDirection: "row",
-    backgroundColor: "#F1F5F9",
-    borderRadius: 14,
-    padding: 4,
     marginBottom: 14,
-  },
-  tabButton: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 11,
-    alignItems: "center",
-  },
-  tabButtonActive: {
-    backgroundColor: "#062B59",
-  },
-  tabButtonText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#64748B",
-  },
-  tabButtonTextActive: {
-    color: "#FFFFFF",
   },
   summaryCard: {
     flexDirection: "row",
@@ -840,32 +768,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   photoTabSwitcher: {
-    flexDirection: "row",
-    gap: 4,
-    backgroundColor: "#F1F5F9",
-    borderRadius: 12,
-    padding: 4,
     marginBottom: 14,
-  },
-  photoTabButton: {
-    flex: 1,
-    minWidth: 0,
-    paddingHorizontal: 2,
-    paddingVertical: 8,
-    borderRadius: 9,
-    alignItems: "center",
-  },
-  photoTabButtonActive: {
-    backgroundColor: "#062B59",
-  },
-  photoTabText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#64748B",
-    textAlign: "center",
-  },
-  photoTabTextActive: {
-    color: "#FFFFFF",
   },
   modalPhotoBlock: {
     gap: 8,

@@ -38,7 +38,9 @@ export type AuthUser = {
 
 export type LoginResponse = {
   accessToken: string;
-  refreshToken: string;
+  // refreshToken is not issued while refresh tokens are disabled — see
+  // backend/src/modules/auth/auth.service.ts.
+  // refreshToken: string;
   user: AuthUser;
 };
 

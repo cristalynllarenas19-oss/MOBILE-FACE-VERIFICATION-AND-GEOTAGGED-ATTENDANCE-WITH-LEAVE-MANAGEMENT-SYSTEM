@@ -1,5 +1,48 @@
-import { CalendarCheck, CalendarX, FileText, FileWarning, Inbox, Megaphone, UserCheck, Bell as BellIcon } from "lucide-react";
+import {
+  Ban,
+  CalendarCheck,
+  CalendarX,
+  FileText,
+  FileWarning,
+  Hourglass,
+  Inbox,
+  Lock,
+  Megaphone,
+  ScanFace,
+  ShieldAlert,
+  ShieldCheck,
+  TriangleAlert,
+  UserCheck,
+  Bell as BellIcon,
+} from "lucide-react";
 import { AppNotification } from "../../lib/notifications";
+
+// Category carries the color (scannable at a glance); the glyph disambiguates
+// the specific type within it. See the "Notification Icon System" audit —
+// this table is the single source of truth mirrored in employee-mobile's
+// NotificationsScreen.tsx (lucide-react here vs Ionicons there, same mapping).
+const NOTIFICATION_ICON_MAP: Record<string, { Icon: typeof BellIcon; category: string }> = {
+  LEAVE_SUBMITTED: { Icon: FileText, category: "info" },
+  LEAVE_RESUBMITTED: { Icon: FileText, category: "info" },
+  LEAVE_NEEDS_REQUIREMENTS: { Icon: FileWarning, category: "pending" },
+  LEAVE_APPROVED: { Icon: CalendarCheck, category: "success" },
+  LEAVE_REJECTED: { Icon: CalendarX, category: "rejected" },
+  LEAVE_CANCELLATION_REQUESTED: { Icon: Hourglass, category: "pending" },
+  LEAVE_CANCELLED: { Icon: Ban, category: "neutral" },
+  ANNOUNCEMENT: { Icon: Megaphone, category: "announce" },
+  PROBATION_REGULARIZATION_DUE: { Icon: UserCheck, category: "pending" },
+  ATTENDANCE_FLAGGED: { Icon: TriangleAlert, category: "pending" },
+  ATTENDANCE_VALIDATED: { Icon: ShieldCheck, category: "success" },
+  ATTENDANCE_FAKE_ATTEMPT: { Icon: ShieldAlert, category: "critical" },
+  ATTENDANCE_LOCKED: { Icon: Lock, category: "critical" },
+  FACE_MISMATCH_STREAK: { Icon: ScanFace, category: "critical" },
+};
+
+// Lowercased type -> category class name, applied by callers as
+// `notification-item-icon ${notificationCategory(type)}`.
+export function notificationCategory(type: string | null) {
+  return type ? (NOTIFICATION_ICON_MAP[type]?.category ?? "info") : "info";
+}
 
 function timeAgo(value: string) {
   const diffMs = Date.now() - new Date(value).getTime();
@@ -14,13 +57,8 @@ function timeAgo(value: string) {
 }
 
 export function NotificationIcon({ type }: { type: string | null }) {
-  if (type === "LEAVE_APPROVED") return <CalendarCheck size={16} />;
-  if (type === "LEAVE_REJECTED") return <CalendarX size={16} />;
-  if (type === "LEAVE_NEEDS_REQUIREMENTS") return <FileWarning size={16} />;
-  if (type === "LEAVE_SUBMITTED") return <FileText size={16} />;
-  if (type === "PROBATION_REGULARIZATION_DUE") return <UserCheck size={16} />;
-  if (type === "ANNOUNCEMENT") return <Megaphone size={16} />;
-  return <BellIcon size={16} />;
+  const Icon = (type ? NOTIFICATION_ICON_MAP[type]?.Icon : undefined) ?? BellIcon;
+  return <Icon size={16} />;
 }
 
 export function NotificationPanel({
@@ -60,16 +98,18 @@ export function NotificationPanel({
             <span>You're all caught up.</span>
           </div>
         ) : (
-          notifications.map((notification) => (
+          notifications.map((notification) => {
+            const category = notificationCategory(notification.type);
+            return (
             <button
               key={notification.id}
-              className={`notification-item ${notification.readAt ? "" : "unread"}`}
+              className={`notification-item ${notification.readAt ? "" : "unread"} ${category === "critical" ? "critical" : ""}`}
               onClick={() => {
                 if (!notification.readAt) onMarkRead(notification.id);
                 onSelect(notification);
               }}
             >
-              <span className={`notification-item-icon ${notification.type?.toLowerCase() ?? ""}`}>
+              <span className={`notification-item-icon ${category}`}>
                 <NotificationIcon type={notification.type} />
               </span>
               <span className="notification-item-body">
@@ -79,7 +119,8 @@ export function NotificationPanel({
               </span>
               {!notification.readAt && <span className="notification-item-dot" aria-hidden="true" />}
             </button>
-          ))
+            );
+          })
         )}
       </div>
     </div>

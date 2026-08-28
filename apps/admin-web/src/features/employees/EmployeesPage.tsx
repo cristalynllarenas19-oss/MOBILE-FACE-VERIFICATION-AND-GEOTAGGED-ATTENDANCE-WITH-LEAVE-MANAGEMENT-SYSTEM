@@ -19,6 +19,25 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3001
 
 const EMPLOYEES_PAGE_SIZE = 10;
 
+// NestJS error responses are JSON bodies ({ statusCode, message, error }), not
+// raw strings — message is a string[] when it comes from the validation
+// pipe. Falls back to fallback when nothing usable is found.
+function extractErrorMessage(err: unknown, fallback: string): string {
+  if (axios.isAxiosError(err) && err.response?.data) {
+    const data = err.response.data;
+    if (typeof data === "string") return data;
+    if (data && typeof data === "object" && "message" in data) {
+      const message = (data as { message?: unknown }).message;
+      if (typeof message === "string") return message;
+      if (Array.isArray(message) && message.every((item) => typeof item === "string")) {
+        return message.join(" ");
+      }
+    }
+  }
+  if (err instanceof Error) return err.message;
+  return fallback;
+}
+
 type Employee = {
   id: string;
   employeeNo: string;
@@ -312,13 +331,7 @@ function AddEmployeeModal({
 
       onCreated(response.data);
     } catch (err) {
-      const message =
-        axios.isAxiosError(err) && err.response?.data
-          ? typeof err.response.data === "string"
-            ? err.response.data
-            : "Unable to add employee."
-          : "Unable to add employee.";
-      setError(message);
+      setError(extractErrorMessage(err, "Unable to add employee."));
     } finally {
       setIsSaving(false);
     }
@@ -625,15 +638,7 @@ function EditEmployeeModal({
 
       onUpdated(response.data);
     } catch (err) {
-      const message =
-        axios.isAxiosError(err) && err.response?.data
-          ? typeof err.response.data === "string"
-            ? err.response.data
-            : "Unable to update employee."
-          : err instanceof Error
-            ? err.message
-            : "Unable to update employee.";
-      setError(message);
+      setError(extractErrorMessage(err, "Unable to update employee."));
     } finally {
       setIsSaving(false);
     }

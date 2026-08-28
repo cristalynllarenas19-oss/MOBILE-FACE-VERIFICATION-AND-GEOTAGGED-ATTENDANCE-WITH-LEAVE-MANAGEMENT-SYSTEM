@@ -61,7 +61,7 @@ function getApiBaseUrls() {
 const API_BASE_URLS = getApiBaseUrls();
 
 let unauthorizedHandler: (() => void) | null = null;
-let refreshPromise: Promise<string | null> | null = null;
+// let refreshPromise: Promise<string | null> | null = null; // refresh tokens disabled — see refreshAccessToken() below
 
 export function setUnauthorizedHandler(handler: (() => void) | null) {
   unauthorizedHandler = handler;
@@ -354,55 +354,54 @@ async function fetchFromApi(path: string, options: RequestInit, token?: string |
   return response;
 }
 
-async function refreshAccessToken(): Promise<string | null> {
-  if (refreshPromise) return refreshPromise;
-
-  refreshPromise = (async () => {
-    const refreshToken = await SecureStore.getItemAsync("refreshToken");
-    if (!refreshToken) return null;
-
-    try {
-      const response = await fetchFromApi("/auth/refresh", {
-        method: "POST",
-        body: JSON.stringify({ refreshToken }),
-      });
-      if (!response.ok) return null;
-
-      const data = (await response.json()) as { accessToken?: string; refreshToken?: string };
-      if (!data.accessToken || !data.refreshToken) return null;
-
-      await SecureStore.setItemAsync("accessToken", data.accessToken);
-      await SecureStore.setItemAsync("refreshToken", data.refreshToken);
-      return data.accessToken;
-    } catch {
-      return null;
-    } finally {
-      refreshPromise = null;
-    }
-  })();
-
-  return refreshPromise;
-}
+// Refresh tokens are disabled for now — the backend no longer issues one
+// (see backend/src/modules/auth/auth.service.ts) and /auth/refresh is
+// commented out (auth.controller.ts). Re-enable this together with those.
+// async function refreshAccessToken(): Promise<string | null> {
+//   if (refreshPromise) return refreshPromise;
+//
+//   refreshPromise = (async () => {
+//     const refreshToken = await SecureStore.getItemAsync("refreshToken");
+//     if (!refreshToken) return null;
+//
+//     try {
+//       const response = await fetchFromApi("/auth/refresh", {
+//         method: "POST",
+//         body: JSON.stringify({ refreshToken }),
+//       });
+//       if (!response.ok) return null;
+//
+//       const data = (await response.json()) as { accessToken?: string; refreshToken?: string };
+//       if (!data.accessToken || !data.refreshToken) return null;
+//
+//       await SecureStore.setItemAsync("accessToken", data.accessToken);
+//       await SecureStore.setItemAsync("refreshToken", data.refreshToken);
+//       return data.accessToken;
+//     } catch {
+//       return null;
+//     } finally {
+//       refreshPromise = null;
+//     }
+//   })();
+//
+//   return refreshPromise;
+// }
 
 async function clearExpiredSession() {
   clearDataCache();
   await SecureStore.deleteItemAsync("accessToken");
-  await SecureStore.deleteItemAsync("refreshToken");
+  // await SecureStore.deleteItemAsync("refreshToken"); // refresh tokens disabled
   await SecureStore.deleteItemAsync("sessionUser");
   unauthorizedHandler?.();
 }
 
 export async function apiRequest<T>(path: string, options: RequestInit = {}) {
-  let token = await SecureStore.getItemAsync("accessToken");
-  let response = await fetchFromApi(path, options, token);
+  const token = await SecureStore.getItemAsync("accessToken");
+  const response = await fetchFromApi(path, options, token);
 
-  // An access token expires before the saved mobile session. Refresh it once
-  // and replay the request; simultaneous initial screen requests share one
-  // refresh operation instead of logging the user out multiple times.
-  if (response.status === 401 && token) {
-    token = await refreshAccessToken();
-    if (token) response = await fetchFromApi(path, options, token);
-  }
+  // Refresh-and-retry on a 401 is disabled along with refresh tokens above —
+  // an expired access token now just clears the session below, same as any
+  // other invalid/missing token, so the user is prompted to log in again.
 
   if (!response.ok) {
     const body = await response.text();
@@ -436,7 +435,9 @@ export async function checkApiHealth() {
 }
 
 export async function login(email: string, password?: string) {
-  const data = await apiRequest<{ accessToken: string; refreshToken: string; user: MobileUser }>("/auth/login", {
+  // refreshToken is not part of the response while refresh tokens are
+  // disabled — see backend/src/modules/auth/auth.service.ts.
+  const data = await apiRequest<{ accessToken: string; user: MobileUser }>("/auth/login", {
     method: "POST",
     body: JSON.stringify(password ? { email, password } : { email }),
   });
@@ -444,7 +445,6 @@ export async function login(email: string, password?: string) {
   // see the previous account's cached data.
   clearDataCache();
   await SecureStore.setItemAsync("accessToken", data.accessToken);
-  await SecureStore.setItemAsync("refreshToken", data.refreshToken);
   await SecureStore.setItemAsync("sessionUser", JSON.stringify(data.user));
   return data.user;
 }
@@ -489,7 +489,7 @@ export async function restoreSession(): Promise<MobileUser | null> {
 export async function logout() {
   clearDataCache();
   await SecureStore.deleteItemAsync("accessToken");
-  await SecureStore.deleteItemAsync("refreshToken");
+  // await SecureStore.deleteItemAsync("refreshToken"); // refresh tokens disabled
   await SecureStore.deleteItemAsync("sessionUser");
 }
 

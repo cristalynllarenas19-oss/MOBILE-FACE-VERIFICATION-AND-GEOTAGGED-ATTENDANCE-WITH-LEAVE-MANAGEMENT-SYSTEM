@@ -1,6 +1,6 @@
 import { X } from "lucide-react";
 import { AppNotification } from "../../lib/notifications";
-import { NotificationIcon } from "./NotificationPanel";
+import { NotificationIcon, notificationCategory } from "./NotificationPanel";
 import "./NotificationDetailModal.css";
 
 function formatFullDate(value: string) {
@@ -33,10 +33,11 @@ export function NotificationDetailModal({
   // modal rather than navigating directly.
   onViewLeaveRequest?: () => void;
 }) {
+  const category = notificationCategory(notification.type);
   return (
     <div className="notif-detail-backdrop" role="presentation" onClick={onClose}>
       <section
-        className="notif-detail-card"
+        className={`notif-detail-card ${category === "critical" ? "critical" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="notif-detail-title"
@@ -46,7 +47,7 @@ export function NotificationDetailModal({
           <X size={18} />
         </button>
 
-        <span className={`notif-detail-icon ${notification.type?.toLowerCase() ?? ""}`}>
+        <span className={`notif-detail-icon ${category}`}>
           <NotificationIcon type={notification.type} />
         </span>
 

@@ -30,13 +30,17 @@ type Props = {
   max?: string;
   isDateDisabled?: (date: Date) => string | undefined;
   placeholder?: string;
+  // Which edge the popover hangs from. A field near the right edge of its
+  // container needs "right" so the 280px-wide popover opens leftward
+  // instead of overflowing past the container's edge.
+  align?: "left" | "right";
 };
 
 // Native <input type="date"> can only express a single contiguous
 // min/max range — it can't grey out arbitrary individual days (e.g. dates
 // already covered by a filed leave of this type). This replaces it with a
 // small popover month-grid that can.
-export function CalendarPicker({ value, onChange, min, max, isDateDisabled, placeholder }: Props) {
+export function CalendarPicker({ value, onChange, min, max, isDateDisabled, placeholder, align = "left" }: Props) {
   const [open, setOpen] = useState(false);
   const selected = value ? parseIsoDate(value) : undefined;
   const [viewMonth, setViewMonth] = useState(() => toDateOnly(selected ?? new Date()));
@@ -91,7 +95,9 @@ export function CalendarPicker({ value, onChange, min, max, isDateDisabled, plac
 
       {open && (
         <div style={{
-          position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 60,
+          position: "absolute", top: "calc(100% + 6px)",
+          ...(align === "right" ? { right: 0 } : { left: 0 }),
+          zIndex: 60,
           background: "#FFFFFF", border: "1px solid #E2E8F0", borderRadius: 14,
           boxShadow: "0 8px 28px rgba(6,43,89,0.16)", padding: 14, width: 280,
         }}>
@@ -125,22 +131,30 @@ export function CalendarPicker({ value, onChange, min, max, isDateDisabled, plac
           <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
             {cells.map((date, index) => {
               if (!date) return <div key={index} />;
-              const disabledReason = isDateDisabled?.(date);
-              const outOfRange = (minDate && date < minDate) || (maxDate && date > maxDate);
-              const disabled = Boolean(disabledReason) || Boolean(outOfRange);
+              // Two different reasons a day can't be picked, kept visually
+              // distinct: an actual conflict with an existing filed request
+              // (red — the only case the legend below refers to) vs. simply
+              // outside the min/max range, e.g. no remaining balance left to
+              // cover it (muted grey — nothing wrong with the date itself).
+              const conflictReason = isDateDisabled?.(date);
+              const conflict = Boolean(conflictReason);
+              const outOfRange = !conflict && ((minDate && date < minDate) || (maxDate && date > maxDate));
+              const disabled = conflict || outOfRange;
               const isSelected = selected && toIsoDate(date) === toIsoDate(selected);
               return (
                 <button
                   key={index}
                   type="button"
                   disabled={disabled}
-                  title={disabledReason}
+                  title={conflictReason}
                   onClick={() => { onChange(toIsoDate(date)); setOpen(false); }}
                   style={{
-                    aspectRatio: "1", border: "none", borderRadius: 8,
+                    aspectRatio: "1", border: "none", borderRadius: 10,
                     fontSize: 12, fontWeight: 600, cursor: disabled ? "not-allowed" : "pointer",
-                    background: isSelected ? "#062B59" : disabled ? "#FEE2E2" : "transparent",
-                    color: isSelected ? "#FFFFFF" : disabled ? "#FCA5A5" : "#334155",
+                    background: isSelected ? "#062B59" : conflict ? "#FEE2E2" : "transparent",
+                    color: isSelected ? "#FFFFFF" : conflict ? "#FCA5A5" : outOfRange ? "#CBD5E1" : "#334155",
+                    // Soft card: a lifted shadow under the selected day for depth.
+                    boxShadow: isSelected ? "0 4px 10px rgba(6,43,89,0.32)" : "none",
                   }}
                 >
                   {date.getDate()}

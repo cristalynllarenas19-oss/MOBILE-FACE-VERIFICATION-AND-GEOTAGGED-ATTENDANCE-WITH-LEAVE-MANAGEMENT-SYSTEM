@@ -17,20 +17,51 @@ export function isEligibleForLeaveType(kind: LeaveTypeKind, sex: Sex | null | un
   return true;
 }
 
+// How long a per-employee "already ensured" mark is trusted before
+// ensureAutoCreditedBalances re-checks that employee for real. Bounds how
+// stale a newly-added auto-credited leave type can appear for an employee
+// already marked within the window — acceptable since that's an infrequent
+// admin action, and worth it to skip 2-3 DB round trips on every one of the
+// mobile app's 3-second leave-balance polls.
+const ENSURE_AUTO_CREDIT_TTL_MS = 5 * 60 * 1000;
+
 @Injectable()
 export class LeaveBalancesService {
   constructor(private readonly prisma: PrismaService) {}
+
+  // employeeId::year -> last time it was confirmed to have all its
+  // auto-credited balance rows materialized. Process-local is fine here —
+  // worst case a second server instance redoes the check once.
+  private readonly ensuredCache = new Map<string, number>();
 
   // Proactively materializes this year's LeaveBalance row for any leave type
   // flagged isAutoCredited (Vacation/Sick Leave) for REGULAR employees, so
   // credits are locked in for the year rather than only appearing once an
   // employee's first request against that type is approved. Idempotent —
-  // safe to call on every read.
+  // safe to call on every read. When employeeIds is given, already-confirmed
+  // employees are skipped without hitting the DB at all (see ensuredCache).
   private async ensureAutoCreditedBalances(year: number, employeeIds?: string[]) {
+    const now = Date.now();
+    if (employeeIds) {
+      const pending = employeeIds.filter((id) => {
+        const last = this.ensuredCache.get(`${id}::${year}`);
+        return !last || now - last > ENSURE_AUTO_CREDIT_TTL_MS;
+      });
+      if (pending.length === 0) return;
+      employeeIds = pending;
+    }
+    const markEnsured = () => {
+      if (!employeeIds) return;
+      for (const id of employeeIds) this.ensuredCache.set(`${id}::${year}`, now);
+    };
+
     const autoTypes = await this.prisma.leaveType.findMany({
       where: { isAutoCredited: true, isActive: true },
     });
-    if (autoTypes.length === 0) return;
+    if (autoTypes.length === 0) {
+      markEnsured();
+      return;
+    }
 
     const employees = await this.prisma.employee.findMany({
       where: {
@@ -39,7 +70,10 @@ export class LeaveBalancesService {
       },
       select: { id: true, sex: true },
     });
-    if (employees.length === 0) return;
+    if (employees.length === 0) {
+      markEnsured();
+      return;
+    }
 
     const existing = await this.prisma.leaveBalance.findMany({
       where: {
@@ -65,6 +99,7 @@ export class LeaveBalancesService {
     if (toCreate.length > 0) {
       await this.prisma.leaveBalance.createMany({ data: toCreate, skipDuplicates: true });
     }
+    markEnsured();
   }
 
   async findForEmployee(employeeId: string, year: number) {

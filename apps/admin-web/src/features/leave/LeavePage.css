@@ -1178,11 +1178,11 @@
   font-size: 12px;
   font-weight: 600;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: 10px;
   background: transparent;
   color: #41536b;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .date-picker-day.empty {
@@ -1202,6 +1202,7 @@
   background: #1a3a5c;
   color: #ffffff;
   border-color: #1a3a5c;
+  box-shadow: 0 4px 10px rgba(26, 58, 92, 0.32);
 }
 
 

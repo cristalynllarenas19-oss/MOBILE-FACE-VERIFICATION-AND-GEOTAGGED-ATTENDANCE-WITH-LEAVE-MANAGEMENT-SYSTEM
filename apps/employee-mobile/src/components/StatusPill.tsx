@@ -4,13 +4,19 @@ import { Text, StyleSheet } from "react-native";
 const TONES: Record<string, { color: string; bg: string }> = {
   PRESENT: { color: "#15803D", bg: "#DCFCE7" },
   APPROVED: { color: "#15803D", bg: "#DCFCE7" },
-  SUPERVISOR_APPROVED: { color: "#0369A1", bg: "#E0F2FE" },
+  // Same green as APPROVED, not its own blue — the label already reads
+  // "Approved" (see LABEL_OVERRIDES below), so the color has to agree with
+  // it too. A supervisor reviewing this request and the employee who filed
+  // it must see the same color, not just the same text.
+  SUPERVISOR_APPROVED: { color: "#15803D", bg: "#DCFCE7" },
   LATE: { color: "#B45309", bg: "#FEF3C7" },
   PENDING: { color: "#B45309", bg: "#FEF3C7" },
   PENDING_REVIEW: { color: "#B45309", bg: "#FEF3C7" },
   ABSENT: { color: "#B91C1C", bg: "#FEE2E2" },
   REJECTED: { color: "#B91C1C", bg: "#FEE2E2" },
-  CANCELLED: { color: "#B91C1C", bg: "#FEE2E2" },
+  // Darker red than REJECTED, not a different color family — still reads as
+  // "not approved" but distinct in shade from an outright rejection.
+  CANCELLED: { color: "#7F1D1D", bg: "#FEE2E2" },
   ON_LEAVE: { color: "#7C3AED", bg: "#EDE9FE" },
   NEEDS_REVISION: { color: "#B45309", bg: "#FEF3C7" },
   CANCELLATION_PENDING: { color: "#B45309", bg: "#FEF3C7" },

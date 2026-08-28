@@ -79,16 +79,43 @@ function timeAgo(value: string) {
   return new Date(value).toLocaleDateString();
 }
 
+// Category carries the color (scannable at a glance); the glyph disambiguates
+// the specific type within it. See the "Notification Icon System" audit —
+// this table is the single source of truth mirrored in admin-web's
+// NotificationPanel.tsx (Ionicons here vs lucide-react there, same mapping).
+type NotificationCategory = "info" | "success" | "pending" | "rejected" | "neutral" | "announce" | "critical";
+
+const CATEGORY_COLORS: Record<NotificationCategory, string> = {
+  info: "#1680D8",
+  success: "#15803D",
+  pending: "#B45309",
+  rejected: "#B91C1C",
+  neutral: "#475569",
+  announce: "#7C3AED",
+  critical: "#991B1B",
+};
+
+const NOTIFICATION_ICON_MAP: Record<string, { name: keyof typeof Ionicons.glyphMap; category: NotificationCategory }> = {
+  LEAVE_SUBMITTED: { name: "document-text-outline", category: "info" },
+  LEAVE_RESUBMITTED: { name: "document-text-outline", category: "info" },
+  LEAVE_NEEDS_REQUIREMENTS: { name: "document-attach-outline", category: "pending" },
+  LEAVE_APPROVED: { name: "checkmark-circle-outline", category: "success" },
+  LEAVE_REJECTED: { name: "close-circle-outline", category: "rejected" },
+  LEAVE_CANCELLATION_REQUESTED: { name: "hourglass-outline", category: "pending" },
+  LEAVE_CANCELLED: { name: "ban-outline", category: "neutral" },
+  ANNOUNCEMENT: { name: "megaphone-outline", category: "announce" },
+  PROBATION_REGULARIZATION_DUE: { name: "ribbon-outline", category: "pending" },
+  ATTENDANCE_FLAGGED: { name: "alert-circle-outline", category: "pending" },
+  ATTENDANCE_VALIDATED: { name: "shield-checkmark-outline", category: "success" },
+  ATTENDANCE_FAKE_ATTEMPT: { name: "warning-outline", category: "critical" },
+  ATTENDANCE_LOCKED: { name: "lock-closed-outline", category: "critical" },
+  FACE_MISMATCH_STREAK: { name: "scan-outline", category: "critical" },
+};
+
 function notificationIcon(type: string | null) {
-  if (type === "LEAVE_APPROVED") return { name: "checkmark-circle-outline" as const, color: "#15803D" };
-  if (type === "LEAVE_REJECTED") return { name: "close-circle-outline" as const, color: "#B91C1C" };
-  if (type === "LEAVE_NEEDS_REQUIREMENTS") return { name: "document-attach-outline" as const, color: "#B45309" };
-  if (type === "LEAVE_SUBMITTED" || type === "LEAVE_RESUBMITTED") return { name: "document-text-outline" as const, color: "#1680D8" };
-  if (type === "LEAVE_CANCELLATION_REQUESTED") return { name: "close-circle-outline" as const, color: "#B45309" };
-  if (type === "LEAVE_CANCELLED") return { name: "checkmark-circle-outline" as const, color: "#15803D" };
-  if (type === "ANNOUNCEMENT") return { name: "megaphone-outline" as const, color: "#7C3AED" };
-  if (type === "ATTENDANCE_LOCKED") return { name: "shield-half-outline" as const, color: "#B91C1C" };
-  return { name: "notifications-outline" as const, color: "#244c7a" };
+  const entry = type ? NOTIFICATION_ICON_MAP[type] : undefined;
+  if (!entry) return { name: "notifications-outline" as const, color: "#244c7a", category: "info" as const };
+  return { name: entry.name, color: CATEGORY_COLORS[entry.category], category: entry.category };
 }
 
 function formatBytes(bytes: number) {
@@ -455,6 +482,7 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                   style={({ pressed }) => [
                     styles.notificationRow,
                     isUnread && styles.notificationRowUnread,
+                    icon.category === "critical" && styles.notificationRowCritical,
                     pressed && styles.notificationRowPressed,
                   ]}
                   onPress={() => handlePressItem(item)}
@@ -487,8 +515,16 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
 
     <Modal visible={!!detailNotification} animationType="fade" transparent onRequestClose={handleCloseDetail}>
       <Pressable style={styles.detailBackdrop} onPress={handleCloseDetail}>
-        <BlurView intensity={45} tint="dark" style={StyleSheet.absoluteFillObject} />
-        <Pressable style={styles.detailSheet} onPress={(event) => event.stopPropagation()}>
+        <BlurView
+          intensity={45}
+          tint="dark"
+          experimentalBlurMethod="dimezisBlurView"
+          style={StyleSheet.absoluteFillObject}
+        />
+        <Pressable
+          style={[styles.detailSheet, detailIcon?.category === "critical" && styles.detailSheetCritical]}
+          onPress={(event) => event.stopPropagation()}
+        >
           {detailNotification && detailIcon && (
             <>
               <View style={styles.detailHeader}>
@@ -747,6 +783,11 @@ const styles = StyleSheet.create({
   },
   notificationRowUnread: {
     backgroundColor: "#F0F7FF",
+  },
+  notificationRowCritical: {
+    borderLeftWidth: 3,
+    borderLeftColor: "#DC2626",
+    paddingLeft: 13,
   },
   notificationRowPressed: {
     opacity: 0.7,
@@ -1014,6 +1055,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 20,
     elevation: 10,
+  },
+  detailSheetCritical: {
+    borderLeftWidth: 4,
+    borderLeftColor: "#DC2626",
   },
   detailHeader: {
     flexDirection: "row",

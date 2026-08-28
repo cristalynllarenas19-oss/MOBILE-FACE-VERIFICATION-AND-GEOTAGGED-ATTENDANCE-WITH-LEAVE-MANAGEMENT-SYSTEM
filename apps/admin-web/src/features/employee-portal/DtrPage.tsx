@@ -4,6 +4,7 @@ import { ArrowRight, Camera, X } from "lucide-react";
 import { AttendanceHistoryRecord, AttendanceLogPhoto, getAttendanceHistory } from "./api";
 import type { AuthUser } from "../../lib/api";
 import { CACHE_KEYS, useCachedData } from "../../lib/dataCache";
+import { SegmentedControl } from "../../components/ui/SegmentedControl";
 import "./DtrPage.css";
 import "./EmployeePortal.css";
 
@@ -122,21 +123,15 @@ export function DtrPage({ user }: Props) {
       <h2 className="emp-page-title">Daily Time Record</h2>
 
       {/* Tab switcher */}
-      <div style={tabSwitcher}>
-        {(["office", "field"] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setActiveTab(t)}
-            style={{
-              ...tabBtn,
-              background: activeTab === t ? "#062B59" : "transparent",
-              color:      activeTab === t ? "#FFFFFF"  : "#64748B",
-            }}
-          >
-            {t === "office" ? "Office" : "Field"}
-          </button>
-        ))}
-      </div>
+      <SegmentedControl
+        segments={[
+          { key: "office", label: "Office" },
+          { key: "field", label: "Field" },
+        ]}
+        value={activeTab}
+        onChange={(key) => setActiveTab(key as Tab)}
+        style={{ marginBottom: 14 }}
+      />
 
       {/* Date range filter (From/To, both tabs) */}
       <div style={dateFilterCard}>
@@ -324,45 +319,21 @@ export function DtrPage({ user }: Props) {
             </p>
 
             {/* Time-In / Time-Out sub-tabs */}
-            <div style={tabSwitcher}>
-              {(["TIME_IN", "TIME_OUT"] as const).map((lt) => (
-                <button
-                  key={lt}
-                  onClick={() => setPhotoTab(lt)}
-                  style={{
-                    ...tabBtn,
-                    background: photoTab === lt ? "#062B59" : "transparent",
-                    color:      photoTab === lt ? "#FFFFFF"  : "#64748B",
-                  }}
-                >
-                  {photoTabLabel(lt, isOffice)}
-                </button>
-              ))}
-              {isOffice && selected.logs.some((l) => l.logType === "LUNCH_OUT") && (
-                <button
-                  onClick={() => setPhotoTab("LUNCH_OUT")}
-                  style={{
-                    ...tabBtn,
-                    background: photoTab === "LUNCH_OUT" ? "#062B59" : "transparent",
-                    color:      photoTab === "LUNCH_OUT" ? "#FFFFFF"  : "#64748B",
-                  }}
-                >
-                  Lunch Out
-                </button>
-              )}
-              {isOffice && selected.logs.some((l) => l.logType === "LUNCH_IN") && (
-                <button
-                  onClick={() => setPhotoTab("LUNCH_IN")}
-                  style={{
-                    ...tabBtn,
-                    background: photoTab === "LUNCH_IN" ? "#062B59" : "transparent",
-                    color:      photoTab === "LUNCH_IN" ? "#FFFFFF"  : "#64748B",
-                  }}
-                >
-                  Lunch In
-                </button>
-              )}
-            </div>
+            <SegmentedControl
+              segments={[
+                { key: "TIME_IN", label: photoTabLabel("TIME_IN", isOffice) },
+                { key: "TIME_OUT", label: photoTabLabel("TIME_OUT", isOffice) },
+                ...(isOffice && selected.logs.some((l) => l.logType === "LUNCH_OUT")
+                  ? [{ key: "LUNCH_OUT", label: "Lunch Out" }]
+                  : []),
+                ...(isOffice && selected.logs.some((l) => l.logType === "LUNCH_IN")
+                  ? [{ key: "LUNCH_IN", label: "Lunch In" }]
+                  : []),
+              ]}
+              value={photoTab}
+              onChange={(key) => setPhotoTab(key as PhotoTab)}
+              style={{ marginBottom: 14 }}
+            />
 
             {/* Photo */}
             {(() => {
@@ -405,15 +376,6 @@ export function DtrPage({ user }: Props) {
 }
 
 // ── Styles ────────────────────────────────────────────────────────────────────
-const tabSwitcher: CSSProperties = {
-  display: "flex", background: "#F1F5F9",
-  borderRadius: 14, padding: 4, marginBottom: 14,
-};
-const tabBtn: CSSProperties = {
-  flex: 1, paddingTop: 10, paddingBottom: 10,
-  borderRadius: 11, border: "none", cursor: "pointer",
-  fontSize: 14, fontWeight: 700,
-};
 const summaryCard: CSSProperties = {
   display: "flex", alignItems: "center", gap: 12,
   background: "#EFF6FF", borderRadius: 14, padding: 14, marginBottom: 18,
