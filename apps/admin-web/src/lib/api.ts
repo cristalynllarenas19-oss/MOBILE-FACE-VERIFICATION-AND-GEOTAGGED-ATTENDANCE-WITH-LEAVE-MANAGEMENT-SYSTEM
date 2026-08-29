@@ -15,6 +15,10 @@ export type AuthUser = {
   displayName: string;
   attendanceMode?: string;
   defaultView?: "ADMIN" | "EMPLOYEE" | null;
+  // Shared with employee-mobile: set on the Employee record, not per-platform,
+  // so accepting on one client (e.g. mobile) satisfies it everywhere.
+  requiresFaceConsent?: boolean;
+  faceConsentAcceptedAt?: string | null;
 };
 
 export class SessionExpiredError extends Error {
@@ -89,6 +93,9 @@ export function logout() {
   localStorage.removeItem("authUser");
   clearDataCache();
 }
+
+export const acceptFaceConsent = () =>
+  apiRequest<{ faceConsentAcceptedAt: string }>("/employees/me/consent", { method: "POST" });
 
 export const updateDefaultView = (userId: string, defaultView: "ADMIN" | "EMPLOYEE") =>
   apiRequest<{ id: string; defaultView: "ADMIN" | "EMPLOYEE" }>(`/users/${userId}/default-view`, {

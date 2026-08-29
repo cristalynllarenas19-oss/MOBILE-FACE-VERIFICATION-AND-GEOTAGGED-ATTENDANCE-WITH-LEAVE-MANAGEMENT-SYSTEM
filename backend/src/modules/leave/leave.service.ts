@@ -58,17 +58,38 @@ export class LeaveService {
     private readonly auditLogs: AuditLogsService,
   ) {}
 
-  async findAll(employeeId?: string, departmentId?: string) {
+  async findAll(employeeId?: string, departmentId?: string, includeAttachments = true) {
     const requests = await this.prisma.leaveRequest.findMany({
       where: {
         ...(employeeId ? { employeeId } : {}),
         ...(departmentId ? { employee: { departmentId } } : {}),
       },
+      // includeAttachments=false drops the base64 attachmentData blobs (used
+      // by the employee-mobile list poll, which never renders that field —
+      // only attachmentName). Admin callers omit the param and keep getting
+      // attachments as before, since the review UI reads them off this same
+      // list response.
+      ...(includeAttachments ? {} : { omit: { attachmentData: true } }),
       include: {
-        employee: { include: { department: true } },
+        // employee/reviewer.employee default-include every Employee scalar,
+        // including profilePhotoData (a base64 face photo) — dropped for the
+        // same includeAttachments=false callers, none of which read employee
+        // or reviewer off a leave request at all (mobile shows its own data;
+        // the admin review UI doesn't use these photo fields either).
+        employee: {
+          include: { department: true },
+          ...(includeAttachments ? {} : { omit: { profilePhotoData: true } }),
+        },
         leaveType: true,
-        reviewer: { include: { employee: true } },
-        notes: { orderBy: { createdAt: "asc" } },
+        reviewer: {
+          include: {
+            employee: includeAttachments ? true : { omit: { profilePhotoData: true } },
+          },
+        },
+        notes: {
+          orderBy: { createdAt: "asc" },
+          ...(includeAttachments ? {} : { omit: { attachmentData: true } }),
+        },
       },
       // Newest-filed request first (LIFO) — sorting by startDate instead would
       // bury a just-submitted request behind an older one whose leave dates

@@ -153,6 +153,9 @@ export default function LeaveScreen({ employeeId }: Props) {
   const balances = balancesCache.data ?? EMPTY_BALANCES;
   const requests = requestsCache.data ?? EMPTY_REQUESTS;
   const isLoadingData = leaveTypesCache.isLoading || balancesCache.isLoading || requestsCache.isLoading;
+  // Balance tab only ever renders balancesCache's data, so its spinner
+  // shouldn't wait on the (much heavier) requests/leave-types fetches too.
+  const isBalanceLoading = balancesCache.isLoading;
 
   const [leaveTypeId, setLeaveTypeId] = useState("");
   const [searchLeave, setSearchLeave] = useState("");
@@ -874,7 +877,7 @@ export default function LeaveScreen({ employeeId }: Props) {
         <ScrollView contentContainerStyle={[styles.tabContentPad, { flexGrow: 1 }]}>
           <LeaveBalanceChart
             balances={visibleBalances}
-            loading={isLoadingData}
+            loading={isBalanceLoading}
             pendingCount={pendingRequests.length}
             onPressPending={openPendingModal}
             onPressViewAll={openPendingModal}

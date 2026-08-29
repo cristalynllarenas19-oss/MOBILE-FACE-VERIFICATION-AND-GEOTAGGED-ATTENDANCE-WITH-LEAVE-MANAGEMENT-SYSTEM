@@ -13,7 +13,11 @@ export class LeaveController {
 
   @Get()
   @RequirePermissions("leave:read")
-  findAll(@Req() request: Request, @Query("employeeId") employeeId?: string) {
+  findAll(
+    @Req() request: Request,
+    @Query("employeeId") employeeId?: string,
+    @Query("includeAttachments") includeAttachments?: string,
+  ) {
     const user = (request as any).user;
     // Only ADMIN/SUPERVISOR may view org-wide leave requests; everyone else
     // (including an EMPLOYEE-linked account with no elevated role) only ever
@@ -25,7 +29,9 @@ export class LeaveController {
     const hasElevatedRole = roles.includes("ADMIN") || roles.includes("SUPERVISOR");
     const scopedEmployeeId = hasElevatedRole ? employeeId : user.employeeId;
     const departmentId = getSupervisorDepartmentScope(user);
-    return this.leaveService.findAll(scopedEmployeeId, departmentId);
+    // Defaults to true (today's behavior) unless a caller explicitly opts out.
+    const shouldIncludeAttachments = includeAttachments !== "false";
+    return this.leaveService.findAll(scopedEmployeeId, departmentId, shouldIncludeAttachments);
   }
 
   @Post()

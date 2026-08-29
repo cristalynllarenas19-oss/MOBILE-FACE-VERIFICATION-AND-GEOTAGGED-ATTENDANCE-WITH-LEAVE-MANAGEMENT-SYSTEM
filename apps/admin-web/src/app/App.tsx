@@ -17,6 +17,7 @@ import { LeavePage as EmployeeLeavePage } from "../features/employee-portal/Leav
 import { DtrPage } from "../features/employee-portal/DtrPage";
 import { WorkAreaPage } from "../features/employee-portal/WorkAreaPage";
 import { SettingsPage } from "../features/employee-portal/SettingsPage";
+import { FaceConsentPage } from "../features/employee-portal/FaceConsentPage";
 import { AppLayout, getVisibleNavItems, isNavItemVisible, navItems } from "../components/layout/AppLayout";
 import { PermissionCode } from "../types/rbac";
 import { apiRequest, AuthUser, getStoredUser, logout, setOnSessionExpired } from "../lib/api";
@@ -211,6 +212,13 @@ export default function App() {
     : !activeNavItem || isNavItemVisible(activeNavItem, adminScopedPermissions, user.roles);
   const renderPage = hasAccess ? page : (visibleItems[0]?.id ?? "employee-attendance");
 
+  // Mirrors employee-mobile's App.tsx gate — the field lives on the shared
+  // Employee record, so accepting on mobile also clears this on web, and
+  // vice versa. Scoped to the employee-portal view only, so a multi-role
+  // account isn't blocked out of its admin view by this.
+  const needsFaceConsent =
+    activeView === "employee" && !!authUser.employeeId && !!authUser.requiresFaceConsent && !authUser.faceConsentAcceptedAt;
+
   // The post-create redirect into Face Registration, and the Employee
   // Details modal's "Register Face" action, only happen when the account can
   // actually see that page; otherwise both behave as before (stay on
@@ -273,28 +281,44 @@ export default function App() {
       {renderPage === "reports" && <ReportsPage user={user} />}
       {renderPage === "utilities" && <UtilitiesPage user={user} />}
       {/* Employee self-service pages (mirrors employee-mobile) */}
-      {renderPage === "employee-attendance" && <EmployeeAttendancePage user={authUser!} />}
-      {renderPage === "employee-leave"      && (
-        <EmployeeLeavePage
-          user={authUser!}
-          initialFocusRequestId={employeeLeaveFocusRequestId}
-          onFocusRequestHandled={() => setEmployeeLeaveFocusRequestId(undefined)}
-        />
-      )}
-      {renderPage === "employee-dtr"        && <DtrPage user={authUser!} />}
-      {renderPage === "employee-work-area"  && <WorkAreaPage user={authUser!} />}
-      {renderPage === "employee-settings"   && (
-        <SettingsPage
-          user={authUser!}
-          onDefaultViewChange={(defaultView) => {
+      {needsFaceConsent ? (
+        <FaceConsentPage
+          onAccepted={(faceConsentAcceptedAt) => {
             setAuthUser((u) => {
               if (!u) return u;
-              const next = { ...u, defaultView };
+              const next = { ...u, faceConsentAcceptedAt };
               localStorage.setItem("authUser", JSON.stringify(next));
               return next;
             });
           }}
+          onLogout={handleLogout}
         />
+      ) : (
+        <>
+          {renderPage === "employee-attendance" && <EmployeeAttendancePage user={authUser!} />}
+          {renderPage === "employee-leave"      && (
+            <EmployeeLeavePage
+              user={authUser!}
+              initialFocusRequestId={employeeLeaveFocusRequestId}
+              onFocusRequestHandled={() => setEmployeeLeaveFocusRequestId(undefined)}
+            />
+          )}
+          {renderPage === "employee-dtr"        && <DtrPage user={authUser!} />}
+          {renderPage === "employee-work-area"  && <WorkAreaPage user={authUser!} />}
+          {renderPage === "employee-settings"   && (
+            <SettingsPage
+              user={authUser!}
+              onDefaultViewChange={(defaultView) => {
+                setAuthUser((u) => {
+                  if (!u) return u;
+                  const next = { ...u, defaultView };
+                  localStorage.setItem("authUser", JSON.stringify(next));
+                  return next;
+                });
+              }}
+            />
+          )}
+        </>
       )}
     </AppLayout>
   );

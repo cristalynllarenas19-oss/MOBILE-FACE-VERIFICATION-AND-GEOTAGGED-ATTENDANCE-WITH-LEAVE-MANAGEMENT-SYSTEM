@@ -332,12 +332,21 @@ export type AppNotification = {
   createdAt: string;
 };
 
+const REQUEST_TIMEOUT_MS = 15000;
+
 async function fetchFromApi(path: string, options: RequestInit, token?: string | null) {
   let response: Response | null = null;
 
   for (const baseUrl of API_BASE_URLS) {
     const url = `${baseUrl}${path}`;
     console.log("REQUEST:", url);
+
+    // A hung/very slow request previously had no ceiling, which could leave
+    // a screen's loading spinner stuck indefinitely. Timing out here just
+    // routes into the same catch-and-try-next-baseUrl path that a network
+    // error already takes below — no new behavior, just a bound on it.
+    const timeoutController = new AbortController();
+    const timeoutId = setTimeout(() => timeoutController.abort(), REQUEST_TIMEOUT_MS);
 
     try {
       response = await fetch(url, {
@@ -347,10 +356,13 @@ async function fetchFromApi(path: string, options: RequestInit, token?: string |
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
           ...options.headers,
         },
+        signal: timeoutController.signal,
       });
       break;
     } catch (error) {
       console.warn(`API request failed for ${url}`, error);
+    } finally {
+      clearTimeout(timeoutId);
     }
   }
 
@@ -608,7 +620,10 @@ export async function getLeaveBalances(employeeId: string) {
 }
 
 export async function getLeaveRequests(employeeId: string) {
-  return apiRequest<LeaveRequest[]>(`/leave-requests?employeeId=${employeeId}`);
+  // includeAttachments=false: this screen only ever shows attachmentName in
+  // the list, never the base64 attachmentData — skipping it keeps the
+  // 3-second poll fast regardless of how many/large the filed attachments are.
+  return apiRequest<LeaveRequest[]>(`/leave-requests?employeeId=${employeeId}&includeAttachments=false`);
 }
 
 export async function createLeaveRequest(input: CreateLeaveRequestInput) {
