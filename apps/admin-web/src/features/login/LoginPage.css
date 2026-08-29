@@ -65,16 +65,25 @@
 }
 
 .login-header h1 {
-  font-size: 22px;
+  font-size: 25px;
   font-weight: 700;
   color: #062b59;
   margin-bottom: 4px;
 }
 
+.login-header-divider {
+  width: 480px;
+  height: 2px;
+  margin: 10px auto 14px;
+  border: none;
+  border-radius: 2px;
+  background: #1a3a5c;
+}
+
 .login-subtitle {
   color: #7b8794;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 18px;
+  font-weight: 600;
 }
 
 .login-form {
@@ -89,7 +98,7 @@
 .input-group label {
   display: block;
   margin-bottom: 7px;
-  font-size: 12.5px;
+  font-size: 14px;
   font-weight: 700;
   color: #334155;
 }
@@ -189,6 +198,10 @@
 .signin-btn {
   width: 100%;
   height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   border: 1.5px solid #1a3a5c;
   border-radius: 10px;
   background: #1a3a5c;
@@ -206,6 +219,16 @@
   background: #254d78;
   border-color: #254d78;
   box-shadow: 0 10px 22px rgba(26, 58, 92, 0.2);
+}
+
+.signin-btn-arrow {
+  width: 16px;
+  height: 16px;
+  transition: transform 0.18s ease;
+}
+
+.signin-btn:hover:not(:disabled) .signin-btn-arrow {
+  transform: translateX(3px);
 }
 
 .signin-btn:disabled {

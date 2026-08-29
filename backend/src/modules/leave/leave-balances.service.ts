@@ -169,12 +169,12 @@ export class LeaveBalancesService {
   }
 
  
-  async getSummary(year: number) {
+  async getSummary(year: number, departmentId?: string) {
     await this.ensureAutoCreditedBalances(year);
 
     const [employees, leaveTypes, balances] = await Promise.all([
       this.prisma.employee.findMany({
-        where: { employmentStatus: { not: "SEPARATED" } },
+        where: { employmentStatus: { not: "SEPARATED" }, ...(departmentId ? { departmentId } : {}) },
         select: {
           id: true,
           employmentStatus: true,
@@ -300,12 +300,15 @@ export class LeaveBalancesService {
   // uses, and the same per-type resolution findForEmployee uses, so a row
   // here always matches what that employee's own detail view (View button)
   // shows. Omitting employmentStatus returns every non-separated employee.
-  async getByClassification(year: number, employmentStatus?: EmploymentStatus) {
+  async getByClassification(year: number, employmentStatus?: EmploymentStatus, departmentId?: string) {
     await this.ensureAutoCreditedBalances(year);
 
     const [employees, leaveTypes, balances] = await Promise.all([
       this.prisma.employee.findMany({
-        where: { employmentStatus: employmentStatus ?? { not: "SEPARATED" } },
+        where: {
+          employmentStatus: employmentStatus ?? { not: "SEPARATED" },
+          ...(departmentId ? { departmentId } : {}),
+        },
         select: { id: true, employmentStatus: true, sex: true },
       }),
       this.prisma.leaveType.findMany({ orderBy: { name: "asc" } }),

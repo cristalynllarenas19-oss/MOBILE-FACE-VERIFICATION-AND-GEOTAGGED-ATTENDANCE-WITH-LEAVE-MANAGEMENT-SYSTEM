@@ -5,6 +5,7 @@ import {
   FiEye,
   FiEyeOff,
   FiArrowLeft,
+  FiArrowRight,
   FiKey,
 } from "react-icons/fi";
 import { AuthUser, forgotPassword, login, resetPassword, verifyResetOtp } from "../../lib/api";
@@ -116,7 +117,7 @@ export function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => void }) {
         <img src={logo} alt="Universal Leaf Philippines Logo" className="login-topbar-logo" />
         <div className="login-topbar-text">
           <h1>Universal Leaf Philippines, Inc. — Agoo, La Union</h1>
-          <p>Attendance and Leave Management System</p>
+          <p>E-TALA: Electronic Tracking of  Announcements, Leave, and Attendance</p>
         </div>
       </header>
 
@@ -125,8 +126,9 @@ export function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => void }) {
           <div className="login-header">
             {view === "login" && (
               <>
-                <h1>Log In</h1>
-                <p className="login-subtitle">Attendance &amp; Leave Management System</p>
+                <h1>User Account Login</h1>
+                <p className="login-subtitle">E-TALA</p>
+                <hr className="login-header-divider" />
               </>
             )}
             {view === "forgot-email" && (
@@ -181,7 +183,11 @@ export function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => void }) {
               {loginError && <p className="form-error">{loginError}</p>}
 
               <button type="submit" className="signin-btn" disabled={submitting}>
-                {submitting ? "Logging In…" : "Log In"}
+                {submitting ? "Logging In…" : (
+                  <>
+                    Log In <FiArrowRight className="signin-btn-arrow" />
+                  </>
+                )}
               </button>
 
               <p className="forgot-password" onClick={() => { setFpEmail(email); setView("forgot-email"); }}>

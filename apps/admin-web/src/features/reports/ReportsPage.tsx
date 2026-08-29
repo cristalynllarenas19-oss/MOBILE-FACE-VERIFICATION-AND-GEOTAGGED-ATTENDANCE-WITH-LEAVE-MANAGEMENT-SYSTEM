@@ -159,7 +159,6 @@ export function ReportsPage({
  
   const roles = user?.roles ?? [];
   const isDepartmentLocked = roles.includes("SUPERVISOR") && !roles.includes("ADMIN");
-  const lockedDepartmentName = isDepartmentLocked ? user?.department : undefined;
 
   const [data, setData] = useState<ReportData | null>(null);
   const [tab, setTab] = useState<ReportTab>("ALL");
@@ -447,11 +446,9 @@ export function ReportsPage({
 
       {/* ── Filter Bar ── */}
       <div className="reports-filter-bar">
-        <div className="reports-filter-group">
-          <label className="reports-filter-label">Department</label>
-          {isDepartmentLocked ? (
-            <span className="cal-hint">{lockedDepartmentName}</span>
-          ) : (
+        {!isDepartmentLocked && (
+          <div className="reports-filter-group">
+            <label className="reports-filter-label">Department</label>
             <DropdownFilter
               className="reports-select"
               value={filters.department}
@@ -461,8 +458,8 @@ export function ReportsPage({
               menuLabel="Filter by department"
               ariaLabel="Report department"
             />
-          )}
-        </div>
+          </div>
+        )}
 
         <div className="reports-filter-group">
           <label className="reports-filter-label">Report Type</label>

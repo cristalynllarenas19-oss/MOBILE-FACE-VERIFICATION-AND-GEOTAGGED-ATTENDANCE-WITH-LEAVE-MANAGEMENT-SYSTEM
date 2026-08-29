@@ -46,7 +46,7 @@ export default function FaceConsentScreen({ onAccepted }: Props) {
         </Text>
 
         <Pressable style={[styles.button, isLoading && styles.buttonDisabled]} onPress={handleAccept} disabled={isLoading}>
-          <Text style={styles.buttonText}>{isLoading ? "Saving..." : "I Accept"}</Text>
+          <Text style={styles.buttonText}>{isLoading ? "Saving..." : "I Agree"}</Text>
         </Pressable>
       </ScrollView>
     </SafeAreaView>

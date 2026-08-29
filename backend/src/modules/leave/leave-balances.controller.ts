@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post, Query, Req } from "@nestjs/common";
 import { EmploymentStatus } from "@prisma/client";
 import { IsNumber, IsOptional, IsString, Min } from "class-validator";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
+import { getSupervisorDepartmentScope } from "../../common/utils/supervisor-scope.util";
 import { LeaveBalancesService } from "./leave-balances.service";
 
 export class GrantLeaveBalanceDto {
@@ -24,18 +25,24 @@ export class LeaveBalancesController {
   // NOTE: this must come BEFORE ":employeeId" below, otherwise Nest will try
   // to match "summary" as an employeeId and call findForEmployee instead.
   @Get("summary")
-  getSummary(@Query("year") year?: string) {
+  getSummary(@Req() request: Request, @Query("year") year?: string) {
     const resolvedYear = year ? Number(year) : new Date().getFullYear();
-    return this.leaveBalancesService.getSummary(resolvedYear);
+    const departmentId = getSupervisorDepartmentScope((request as any).user);
+    return this.leaveBalancesService.getSummary(resolvedYear, departmentId);
   }
 
   // Per-employee balance rows for the Leave Balances Overview's
   // classification drill-down list — same route-ordering reason as
   // "summary" above, must come before ":employeeId".
   @Get("by-classification")
-  getByClassification(@Query("year") year?: string, @Query("employmentStatus") employmentStatus?: EmploymentStatus) {
+  getByClassification(
+    @Req() request: Request,
+    @Query("year") year?: string,
+    @Query("employmentStatus") employmentStatus?: EmploymentStatus,
+  ) {
     const resolvedYear = year ? Number(year) : new Date().getFullYear();
-    return this.leaveBalancesService.getByClassification(resolvedYear, employmentStatus);
+    const departmentId = getSupervisorDepartmentScope((request as any).user);
+    return this.leaveBalancesService.getByClassification(resolvedYear, employmentStatus, departmentId);
   }
 
   @Get(":employeeId")
