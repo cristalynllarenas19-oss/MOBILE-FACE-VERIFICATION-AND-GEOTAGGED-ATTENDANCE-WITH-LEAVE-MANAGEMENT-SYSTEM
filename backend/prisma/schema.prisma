@@ -480,6 +480,15 @@ model AttendanceLog {
   failureReason          String?               @map("failure_reason")
   faceImageData          String?               @map("face_image_data")
   faceImageMimeType      String?               @map("face_image_mime_type")
+  // Reverse-geocoded once, server-side, at submission time — mobile and web
+  // used to each independently re-geocode the same stored lat/lon at view
+  // time through different providers (the device's native geocoder on
+  // mobile, Nominatim on web), which could legitimately return different
+  // address text for identical coordinates. Storing one resolved address
+  // here is what both DTR viewers now display, so they always match. Null
+  // for rows created before this column existed, or if the geocode call
+  // itself failed — viewers fall back to formatted coordinates in that case.
+  address                String?               @map("address")
   // Set for every new log going forward — lets a flagged log (no
   // AttendanceRecord yet) be turned into one later at admin-review time
   // without re-deriving employee state, which may have moved on by then.

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -11,7 +11,6 @@ import {
   Pressable,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import * as Location from "expo-location";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
 import { AttendanceHistoryRecord, AttendanceLogPhoto, getAttendanceHistory } from "../api";
 import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
@@ -127,22 +126,6 @@ function formatPhotoStampCoordinates(latitude: string | number, longitude: strin
   return `${Math.abs(lat).toFixed(6)}°${lat >= 0 ? "N" : "S"}, ${Math.abs(lng).toFixed(6)}°${lng >= 0 ? "E" : "W"}`;
 }
 
-// Keep the DTR stamp word-for-word consistent with CameraScanner's saved
-// capture label: first use the platform's formatted address, then assemble
-// the same practical street/city fallback, and finally show coordinates if
-// reverse geocoding is unavailable.
-function formatPhotoStampAddress(address: Location.LocationGeocodedAddress | null | undefined) {
-  if (!address) return null;
-  if (address.formattedAddress) return address.formattedAddress;
-
-  const streetLine = [address.streetNumber, address.street].filter(Boolean).join(" ");
-  const parts = [streetLine || address.name, address.city, address.subregion, address.region, address.country].filter(
-    (part): part is string => Boolean(part && part.trim()),
-  );
-  const unique = parts.filter((part, index) => parts.indexOf(part) === index);
-  return unique.length ? unique.join(", ") : null;
-}
-
 function photoTabLabel(tab: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN", isOfficeTab: boolean) {
   if (tab === "LUNCH_OUT") return "Lunch Start";
   if (tab === "LUNCH_IN") return "Lunch End";
@@ -187,7 +170,17 @@ export default function DTRScreen({ employeeId }: Props) {
   const [dateTo, setDateTo] = useState<Date | null>(null);
   const [isFromPickerVisible, setIsFromPickerVisible] = useState(false);
   const [isToPickerVisible, setIsToPickerVisible] = useState(false);
-  const [photoStampAddress, setPhotoStampAddress] = useState<string | null>(null);
+  const activeLog = selectedRecord?.logs.find((l) => l.logType === photoTab) ?? null;
+  // The GPS stamp is drawn from the log's own permanently stored address
+  // (resolved once, server-side, at submission time — see attendance.
+  // service.ts submit()). Deliberately never re-geocoded here: a capture is
+  // a frozen record, and re-deriving its address on-device is exactly what
+  // let this screen and web disagree on the same log. Every row has a
+  // stored address (backfilled for anything captured before this field
+  // existed), so the coordinate fallback below is only a last resort.
+  const photoStampAddress = activeLog
+    ? activeLog.address ?? formatPhotoStampCoordinates(activeLog.latitude, activeLog.longitude)
+    : null;
 
   const { data, isLoading, refresh } = useCachedData<AttendanceHistoryRecord[]>(
     employeeId ? CACHE_KEYS.attendanceHistory(employeeId) : null,
@@ -238,30 +231,6 @@ export default function DTRScreen({ employeeId }: Props) {
   const todayInProgress = Boolean(todayRecord?.timeInAt) && !todayRecord?.timeOutAt;
   const listData = isOfficeTab ? officeRecords : filteredFieldRecords;
   const hasDateFilter = Boolean(dateFrom || dateTo);
-
-  useEffect(() => {
-    const log = selectedRecord?.logs.find((item) => item.logType === photoTab);
-    if (!log) {
-      setPhotoStampAddress(null);
-      return;
-    }
-
-    let cancelled = false;
-    const fallback = formatPhotoStampCoordinates(log.latitude, log.longitude);
-    setPhotoStampAddress(null);
-
-    Location.reverseGeocodeAsync({ latitude: Number(log.latitude), longitude: Number(log.longitude) })
-      .then((addresses) => {
-        if (!cancelled) setPhotoStampAddress(formatPhotoStampAddress(addresses?.[0]) ?? fallback);
-      })
-      .catch(() => {
-        if (!cancelled) setPhotoStampAddress(fallback);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedRecord, photoTab]);
 
   return (
     <>

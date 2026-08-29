@@ -187,6 +187,13 @@ export type AttendanceLogPhoto = {
   faceImageMimeType: string | null;
   latitude: string | number;
   longitude: string | number;
+  // Reverse-geocoded once, server-side, at submission time (see
+  // attendance.service.ts submit()) — always prefer this over re-geocoding
+  // on-device, since that's what keeps this screen showing the same address
+  // as the web DTR view for the same log instead of each asking a different
+  // geocoding provider (device-native here vs Nominatim on web). Null for
+  // rows from before this field existed, or if the geocode itself failed.
+  address: string | null;
 };
 
 export type AttendanceHistoryRecord = {

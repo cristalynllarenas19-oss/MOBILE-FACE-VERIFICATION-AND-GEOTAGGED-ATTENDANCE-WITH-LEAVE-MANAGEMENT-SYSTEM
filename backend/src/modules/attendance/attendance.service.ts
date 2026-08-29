@@ -682,6 +682,21 @@ export class AttendanceService {
       );
     }
 
+    // allowedAccuracyMeters is configured phone-GPS-tight (tens of meters).
+    // A desktop/laptop browser has no GPS chip — navigator.geolocation falls
+    // back to Wi-Fi/IP-based positioning, which routinely reports accuracy
+    // in the hundreds or thousands of meters even standing right at the
+    // site, so the same threshold would reject web check-ins outright
+    // regardless of actual distance. Only the accuracy *tolerance* is
+    // loosened for web (identified by the fixed deviceId the web client
+    // sends — see AttendancePage.tsx); the actual distance-to-site check
+    // below is unchanged, and mobile keeps its original tight tolerance.
+    const isWebClient = dto.deviceId === "web-browser";
+    const WEB_ACCURACY_FALLBACK_METERS = 2000;
+    const allowedAccuracyMeters = isWebClient
+      ? Math.max(Number(location.allowedAccuracyMeters), WEB_ACCURACY_FALLBACK_METERS)
+      : Number(location.allowedAccuracyMeters);
+
     const geoResult =
       this.geolocation.validateGeofence({
         latitude: dto.latitude,
@@ -701,9 +716,7 @@ export class AttendanceService {
           location.radiusMeters,
         ),
 
-        allowedAccuracyMeters: Number(
-          location.allowedAccuracyMeters,
-        ),
+        allowedAccuracyMeters,
       });
 
     // Location is validated before anything face-related runs at all: a
@@ -813,6 +826,13 @@ export class AttendanceService {
     // attempt today instead of always showing the same generic message.
     let flaggedAttemptCount: number | null = null;
 
+    // Resolved once, server-side, and reused for whichever branch below
+    // creates a log — see AttendanceLog.address's schema comment for why
+    // this happens here instead of each DTR viewer re-geocoding on its own.
+    // Skipped for an outright rejection, which never creates a log row.
+    const address =
+      approved || shouldFlag ? await this.geolocation.reverseGeocode(dto.latitude, dto.longitude) : null;
+
     if (approved) {
       await this.prisma.attendanceLog.create({
         data: {
@@ -824,6 +844,7 @@ export class AttendanceService {
           visitNumber,
           latitude: dto.latitude,
           longitude: dto.longitude,
+          address,
           gpsAccuracyMeters: dto.accuracyMeters,
           distanceFromSiteMeters: geoResult.distanceMeters,
           workLocationId: location.id,
@@ -882,6 +903,7 @@ export class AttendanceService {
           visitNumber,
           latitude: dto.latitude,
           longitude: dto.longitude,
+          address,
           gpsAccuracyMeters: dto.accuracyMeters,
           distanceFromSiteMeters: geoResult.distanceMeters,
           workLocationId: location.id,
@@ -1282,6 +1304,7 @@ export class AttendanceService {
             faceImageMimeType: true,
             latitude: true,
             longitude: true,
+            address: true,
           },
         },
       },

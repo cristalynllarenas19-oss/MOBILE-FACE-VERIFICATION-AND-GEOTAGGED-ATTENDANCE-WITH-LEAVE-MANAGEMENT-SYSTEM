@@ -750,7 +750,15 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
           {new Date(r.startDate).toLocaleDateString()} – {new Date(r.endDate).toLocaleDateString()}
         </p>
         {r.attachmentName && (
-          <p style={{ color: "#64748B", fontSize: 12, margin: "3px 0" }}>📎 {r.attachmentName}</p>
+          <p
+            title={r.attachmentName}
+            style={{
+              color: "#64748B", fontSize: 12, margin: "3px 0",
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }}
+          >
+            📎 {r.attachmentName}
+          </p>
         )}
         {lastRejection && (
           <div style={{ background: "#FEF3C7", border: "1px solid #FCD34D", borderRadius: 8, padding: "8px 10px", margin: "6px 0" }}>

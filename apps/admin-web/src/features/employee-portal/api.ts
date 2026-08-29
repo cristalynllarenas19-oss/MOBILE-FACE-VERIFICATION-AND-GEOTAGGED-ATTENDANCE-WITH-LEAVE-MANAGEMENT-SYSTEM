@@ -28,6 +28,19 @@ export type AttendanceLogPhoto = {
   failureReason: string | null;
   faceImageData: string | null;
   faceImageMimeType: string | null;
+  // Stored per-log for exactly this reason — the photo itself is never
+  // watermarked (see CameraScanner's finishScan), so a viewer draws the GPS
+  // stamp from these instead. Decimal columns serialize as strings over
+  // JSON, same as WorkLocation's lat/lng above.
+  latitude: string | number;
+  longitude: string | number;
+  // Reverse-geocoded once, server-side, at submission time (see
+  // attendance.service.ts submit()) — always prefer this over re-geocoding
+  // client-side, since that's what keeps mobile's and web's DTR viewers
+  // showing the same address for the same log instead of each asking a
+  // different geocoding provider. Null for rows from before this field
+  // existed, or if the geocode itself failed.
+  address: string | null;
 };
 
 export type AttendanceHistoryRecord = {

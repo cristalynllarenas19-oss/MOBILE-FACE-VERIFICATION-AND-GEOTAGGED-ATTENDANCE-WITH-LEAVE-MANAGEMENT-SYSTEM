@@ -1,10 +1,11 @@
 
 import { CSSProperties, useMemo, useState } from "react";
-import { ArrowRight, Camera, X } from "lucide-react";
+import { ArrowRight, Calendar, Camera, Clock, RefreshCw, X } from "lucide-react";
 import { AttendanceHistoryRecord, AttendanceLogPhoto, getAttendanceHistory } from "./api";
 import type { AuthUser } from "../../lib/api";
 import { CACHE_KEYS, useCachedData } from "../../lib/dataCache";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
+import { buildMapGrid, formatCoordsFallback, formatStampDate, TILE_SIZE } from "./gpsStamp";
 import "./DtrPage.css";
 import "./EmployeePortal.css";
 
@@ -80,6 +81,22 @@ export function DtrPage({ user }: Props) {
   const [selected,    setSelected]    = useState<AttendanceHistoryRecord | null>(null);
   const [photoTab,    setPhotoTab]    = useState<PhotoTab>("TIME_IN");
 
+  const activeLog = selected?.logs.find((l) => l.logType === photoTab) ?? null;
+
+  // Attendance photos are stored raw/unwatermarked (see CameraScanner's
+  // finishScan) — the GPS stamp is drawn here as a DOM overlay from the
+  // log's own permanently stored address (resolved once, server-side, at
+  // submission time — see attendance.service.ts submit()). Deliberately
+  // never re-geocoded here: a capture is a frozen record, and re-deriving
+  // its address live (through whatever geocoding provider happens to be
+  // asking) is exactly what let mobile and web disagree on the same log.
+  // Every row has a stored address (backfilled for anything captured
+  // before this field existed), so the coordinate fallback below is only
+  // a last resort, not a normal path.
+  const stampAddress = activeLog
+    ? activeLog.address ?? formatCoordsFallback(Number(activeLog.latitude), Number(activeLog.longitude))
+    : null;
+
   async function handleRefresh() {
     setIsRefresh(true);
     await historyCache.refresh();
@@ -135,27 +152,29 @@ export function DtrPage({ user }: Props) {
 
       {/* Date range filter (From/To, both tabs) */}
       <div style={dateFilterCard}>
-        <label style={dateFieldLabel}>
-          From
-          <input
-            type="date"
-            value={dateFrom}
-            max={dateTo || todayStr}
-            onChange={(e) => setDateFrom(e.target.value)}
-            style={dateInput}
-          />
-        </label>
-        <label style={dateFieldLabel}>
-          To
-          <input
-            type="date"
-            value={dateTo}
-            min={dateFrom || undefined}
-            max={todayStr}
-            onChange={(e) => setDateTo(e.target.value)}
-            style={dateInput}
-          />
-        </label>
+        <div style={dateFilterFields}>
+          <label style={dateFieldLabel}>
+            <span style={dateFieldLabelText}><Calendar size={11} /> From</span>
+            <input
+              type="date"
+              value={dateFrom}
+              max={dateTo || todayStr}
+              onChange={(e) => setDateFrom(e.target.value)}
+              style={dateInput}
+            />
+          </label>
+          <label style={dateFieldLabel}>
+            <span style={dateFieldLabelText}><Calendar size={11} /> To</span>
+            <input
+              type="date"
+              value={dateTo}
+              min={dateFrom || undefined}
+              max={todayStr}
+              onChange={(e) => setDateTo(e.target.value)}
+              style={dateInput}
+            />
+          </label>
+        </div>
         {hasDateFilter && (
           <button
             type="button"
@@ -170,19 +189,26 @@ export function DtrPage({ user }: Props) {
 
       {/* Summary card */}
       <div style={summaryCard}>
-        <span style={{ fontSize: 18, color: "#1680D8" }}>⏱</span>
-        <div style={{ flex: 1 }}>
-          <p style={{ color: "#1E3A8A", fontSize: 12, fontWeight: 600, margin: 0 }}>
+        <div style={summaryIconWrap}>
+          <Clock size={18} color="#1680D8" />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p style={summaryLabel}>
             {isOffice ? "Today's Hours Rendered" : "Today's Hours Rendered (Latest Visit)"}
           </p>
-          <p style={{ color: "#062B59", fontSize: 20, fontWeight: 800, margin: "2px 0 0" }}>
+          <p style={summaryValue}>
             {todayRecord
               ? fmtHours(todayRecord.totalMinutes) ?? (todayInProg ? "In progress" : "--")
               : isOffice ? "Not yet timed in" : "No visit started"}
           </p>
         </div>
-        <button onClick={handleRefresh} disabled={isRefresh} style={refreshBtn}>
-          {isRefresh ? "…" : "↻"}
+        <button
+          onClick={handleRefresh}
+          disabled={isRefresh}
+          style={refreshBtn}
+          aria-label="Refresh"
+        >
+          <RefreshCw size={16} className={isRefresh ? "dtr-spin" : undefined} />
         </button>
       </div>
 
@@ -337,19 +363,76 @@ export function DtrPage({ user }: Props) {
 
             {/* Photo */}
             {(() => {
-              const log = selected.logs.find((l) => l.logType === photoTab);
-              const uri = log ? photoUri(log) : null;
+              const uri = activeLog ? photoUri(activeLog) : null;
+              const stampTiles = activeLog
+                ? buildMapGrid(Number(activeLog.latitude), Number(activeLog.longitude), 60)
+                : null;
               return (
-                <div style={{ marginBottom: 14 }}>
+                <div style={{ marginBottom: 14, textAlign: "center" }}>
                   {uri ? (
-                    <img
-                      src={uri}
-                      alt="attendance photo"
-                      style={{ width: "100%", aspectRatio: "3/4", borderRadius: 14, objectFit: "contain", background: "#F1F5F9" }}
-                    />
+                    <div style={{ position: "relative", display: "inline-block", maxWidth: "100%" }}>
+                      <img
+                        src={uri}
+                        alt="attendance photo"
+                        style={{
+                          display: "block",
+                          maxWidth: "100%", maxHeight: "44vh",
+                          width: "auto", height: "auto",
+                          borderRadius: 14, objectFit: "contain", background: "#F1F5F9",
+                        }}
+                      />
+                      {/* GPS stamp overlay — same idea as CameraScanner's
+                          gpsRow, rendered from this log's own stored
+                          lat/lon/timestamp since the photo itself is raw. */}
+                      {stampTiles && activeLog && (
+                        <div style={{
+                          position: "absolute", left: 10, right: 10, bottom: 10,
+                          display: "flex", alignItems: "flex-end", gap: 8,
+                          pointerEvents: "none",
+                        }}>
+                          <div style={{
+                            position: "relative", width: 60, height: 60, flexShrink: 0,
+                            borderRadius: 10, overflow: "hidden",
+                            border: "2px solid #FFFFFF", background: "#CBD5E1",
+                          }}>
+                            {stampTiles.map((cell) => (
+                              <img
+                                key={cell.key}
+                                src={cell.url}
+                                alt=""
+                                style={{ position: "absolute", left: cell.left, top: cell.top, width: TILE_SIZE, height: TILE_SIZE }}
+                              />
+                            ))}
+                            <div style={{
+                              position: "absolute", left: 26, top: 18,
+                              width: 8, height: 8, borderRadius: "50%",
+                              background: "#DC2626", boxShadow: "0 0 0 2px #fff",
+                            }} />
+                          </div>
+                          <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
+                            <div style={{
+                              alignSelf: "flex-start",
+                              background: "#DC2626", color: "#FFFFFF",
+                              padding: "3px 8px", borderRadius: 6,
+                              fontSize: 10, fontWeight: 800,
+                            }}>
+                              {photoTabLabel(photoTab, isOffice).toUpperCase()} · {formatStampDate(new Date(activeLog.capturedAt))}
+                            </div>
+                            <div style={{
+                              color: "#FFFFFF", fontSize: 10, fontWeight: 700,
+                              textShadow: "0 1px 4px rgba(0,0,0,0.85)",
+                              overflow: "hidden", display: "-webkit-box",
+                              WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+                            }}>
+                              {stampAddress ?? "Locating…"}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   ) : (
                     <div style={{
-                      width: "100%", aspectRatio: "3/4", borderRadius: 14,
+                      width: "100%", height: "34vh", borderRadius: 14,
                       background: "#F1F5F9",
                       display: "flex", flexDirection: "column",
                       alignItems: "center", justifyContent: "center", gap: 8,
@@ -378,32 +461,49 @@ export function DtrPage({ user }: Props) {
 // ── Styles ────────────────────────────────────────────────────────────────────
 const summaryCard: CSSProperties = {
   display: "flex", alignItems: "center", gap: 12,
-  background: "#EFF6FF", borderRadius: 14, padding: 14, marginBottom: 18,
+  background: "#EFF6FF", border: "1px solid #DBEAFE",
+  borderRadius: 14, padding: 14, marginBottom: 18,
 };
+const summaryIconWrap: CSSProperties = {
+  width: 38, height: 38, borderRadius: "50%",
+  background: "#FFFFFF",
+  display: "flex", alignItems: "center", justifyContent: "center",
+  flexShrink: 0,
+  boxShadow: "0 1px 3px rgba(15,23,42,0.12)",
+};
+const summaryLabel: CSSProperties = { color: "#1E3A8A", fontSize: 12, fontWeight: 700, margin: 0 };
+const summaryValue: CSSProperties = { color: "#062B59", fontSize: 20, fontWeight: 800, margin: "2px 0 0" };
 const refreshBtn: CSSProperties = {
-  background: "none", border: "none", cursor: "pointer",
-  fontSize: 18, color: "#1680D8", padding: "0 4px",
+  display: "flex", alignItems: "center", justifyContent: "center",
+  width: 34, height: 34, flexShrink: 0,
+  background: "#FFFFFF", border: "1px solid #DBEAFE", borderRadius: "50%",
+  cursor: "pointer", color: "#1680D8",
 };
 const dateFilterCard: CSSProperties = {
   display: "flex", alignItems: "flex-end", gap: 10,
   background: "#FFFFFF", border: "1px solid #DBE5EF", borderRadius: 14,
   padding: 12, marginBottom: 14,
+  boxShadow: "0 1px 2px rgba(15,23,42,0.04)",
 };
+const dateFilterFields: CSSProperties = { display: "flex", gap: 10, flex: 1 };
 const dateFieldLabel: CSSProperties = {
-  display: "flex", flexDirection: "column", gap: 4,
-  fontSize: 11, fontWeight: 700, color: "#64748B",
+  display: "flex", flexDirection: "column", gap: 5, flex: 1,
+};
+const dateFieldLabelText: CSSProperties = {
+  display: "flex", alignItems: "center", gap: 4,
+  fontSize: 10.5, fontWeight: 700, color: "#64748B",
   textTransform: "uppercase", letterSpacing: 0.03,
 };
 const dateInput: CSSProperties = {
-  height: 34, border: "1px solid #DBE5EF", borderRadius: 8,
-  padding: "0 8px", fontSize: 12, fontWeight: 600, color: "#062B59",
-  background: "#FFFFFF", outline: "none",
+  width: "100%", height: 36, border: "1px solid #DBE5EF", borderRadius: 9,
+  padding: "0 8px", fontSize: 12.5, fontWeight: 600, color: "#062B59",
+  background: "#F8FAFC", outline: "none", boxSizing: "border-box",
 };
 const clearDateBtn: CSSProperties = {
   display: "flex", alignItems: "center", gap: 4,
-  height: 34, padding: "0 10px", border: "1px solid #DBE5EF", borderRadius: 8,
+  height: 36, padding: "0 10px", border: "1px solid #DBE5EF", borderRadius: 9,
   background: "#F8FAFC", color: "#64748B", fontSize: 12, fontWeight: 700,
-  cursor: "pointer",
+  cursor: "pointer", flexShrink: 0,
 };
 const filterChip: CSSProperties = {
   paddingLeft: 16, paddingRight: 16, paddingTop: 7, paddingBottom: 7,

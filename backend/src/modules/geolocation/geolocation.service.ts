@@ -693,4 +693,37 @@ export class GeolocationService {
         Math.sin(dLon / 2) * Math.sin(dLon / 2);
     return earthRadiusMeters * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
+
+  // Resolves one address for a submitted lat/lon and is what attendance.
+  // service.ts stores on the AttendanceLog row (see the address column's
+  // schema comment). Doing this once, server-side, at submission time is
+  // what makes mobile's and web's DTR viewers show the same address for the
+  // same log — each used to independently re-geocode the stored
+  // coordinates through a different provider (the device's native geocoder
+  // on mobile, Nominatim on web) purely for display, which could legitimately
+  // disagree on the same coordinates. Never throws: a failed/slow geocode
+  // must not block an otherwise-valid attendance submission, so callers get
+  // null and can fall back to formatted coordinates.
+  async reverseGeocode(latitude: number, longitude: number): Promise<string | null> {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`,
+        {
+          headers: {
+            "Accept-Language": "en",
+            // Required by Nominatim's usage policy for non-browser clients.
+            "User-Agent": "UniversalLeafHRIS/1.0 (attendance geocoding)",
+          },
+          signal: controller.signal,
+        },
+      );
+      clearTimeout(timeout);
+      const data = (await res.json()) as { display_name?: string };
+      return data.display_name ?? null;
+    } catch {
+      return null;
+    }
+  }
 }

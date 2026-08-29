@@ -1,0 +1,29 @@
+@keyframes cs-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes cs-pop-in {
+  0% { opacity: 0; transform: scale(0.55); }
+  60% { opacity: 1; transform: scale(1.08); }
+  100% { opacity: 1; transform: scale(1); }
+}
+@keyframes cs-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes cs-fade-slide-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.cs-spin {
+  animation: cs-spin 1s linear infinite;
+}
+.cs-success-overlay {
+  animation: cs-fade-in 0.18s ease;
+}
+.cs-success-circle {
+  animation: cs-pop-in 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.cs-pill {
+  animation: cs-fade-slide-in 0.25s ease;
+}
