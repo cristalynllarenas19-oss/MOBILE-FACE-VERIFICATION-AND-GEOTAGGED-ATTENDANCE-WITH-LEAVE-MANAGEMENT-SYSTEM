@@ -3,11 +3,35 @@ import { View, Text, StyleSheet, ActivityIndicator, Pressable } from "react-nati
 import { Ionicons } from "@expo/vector-icons";
 import Svg, { Circle } from "react-native-svg";
 import { LeaveBalance } from "../api";
+import AestheticScrollView from "./AestheticScrollView";
 
-const LEAVE_TYPE_COLORS = ["#1680D8", "#1BAF7A", "#EDA100", "#E34948", "#7C3AED", "#0EA5B8", "#D6336C", "#4A3AA7"];
+// Kept distinct from the summary ring's own legend colors (#062B59 Earned,
+// #1680D8 Used, #DCE7F5 Remaining) so no leave type visually collides with
+// them, and long enough that a typical leave-type list doesn't wrap back
+// onto its own first color.
+const LEAVE_TYPE_COLORS = [
+  "#F97316",
+  "#1BAF7A",
+  "#EDA100",
+  "#E34948",
+  "#7C3AED",
+  "#0EA5B8",
+  "#D6336C",
+  "#4A3AA7",
+  "#65A30D",
+];
 
-const RING_SIZE = 84;
-const RING_STROKE = 9;
+// Overrides the index-based palette above for specific leave types.
+const LEAVE_TYPE_COLOR_OVERRIDES: Record<string, string> = {
+  "Bereavement Leave": "#C71585",
+};
+
+function colorForLeaveType(name: string, index: number): string {
+  return LEAVE_TYPE_COLOR_OVERRIDES[name] ?? LEAVE_TYPE_COLORS[index % LEAVE_TYPE_COLORS.length];
+}
+
+const RING_SIZE = 94;
+const RING_STROKE = 10;
 const RING_RADIUS = (RING_SIZE - RING_STROKE) / 2;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
@@ -33,7 +57,7 @@ export default function LeaveBalanceChart({ balances, loading, pendingCount, onP
           const length = (balance.usedDays / totalEarned) * RING_CIRCUMFERENCE;
           const offset = cumulativeOffset;
           cumulativeOffset += length;
-          return { id: balance.leaveTypeId, color: LEAVE_TYPE_COLORS[index % LEAVE_TYPE_COLORS.length], length, offset };
+          return { id: balance.leaveTypeId, color: colorForLeaveType(balance.leaveTypeName, index), length, offset };
         })
         .filter((segment) => segment.length > 0)
     : [];
@@ -111,36 +135,33 @@ export default function LeaveBalanceChart({ balances, loading, pendingCount, onP
             ))}
           </Svg>
           <View style={styles.ringCenter}>
-            <Text style={styles.ringValue}>{totalRemaining}</Text>
-            <Text style={styles.ringLabel}>left</Text>
             <Text style={styles.ringPercent}>{usedPercent}% used</Text>
           </View>
         </View>
 
         <View style={styles.statsCol}>
+          <View style={styles.heroRow}>
+            <Text style={styles.heroValue}>{totalRemaining}</Text>
+            <Text style={styles.heroLabel}>Remaining</Text>
+          </View>
+
           <View style={styles.statRow}>
-            <View style={[styles.statDot, { backgroundColor: "#062B59" }]} />
             <Text style={styles.statLabel}>Earned</Text>
             <Text style={styles.statValue}>{totalEarned}</Text>
           </View>
           <View style={styles.statRow}>
-            <View style={[styles.statDot, { backgroundColor: "#1680D8" }]} />
             <Text style={styles.statLabel}>Used</Text>
             <Text style={styles.statValue}>{totalUsed}</Text>
-          </View>
-          <View style={styles.statRow}>
-            <View style={[styles.statDot, { backgroundColor: "#DCE7F5" }]} />
-            <Text style={styles.statLabel}>Remaining</Text>
-            <Text style={styles.statValue}>{totalRemaining}</Text>
           </View>
         </View>
       </View>
 
       <View style={styles.divider} />
 
+      <AestheticScrollView style={styles.barsScroll} nestedScrollEnabled>
       <View style={styles.barsGrid}>
         {balances.map((balance, index) => {
-          const color = LEAVE_TYPE_COLORS[index % LEAVE_TYPE_COLORS.length];
+          const color = colorForLeaveType(balance.leaveTypeName, index);
           const ratio = balance.earnedDays > 0 ? Math.min(1, balance.usedDays / balance.earnedDays) : 0;
           return (
             <View key={balance.leaveTypeId} style={styles.barCell}>
@@ -165,12 +186,14 @@ export default function LeaveBalanceChart({ balances, loading, pendingCount, onP
           );
         })}
       </View>
+      </AestheticScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   card: {
+    flex: 1,
     backgroundColor: "#FFFFFF",
     borderRadius: 18,
     padding: 14,
@@ -246,21 +269,32 @@ const styles = StyleSheet.create({
     position: "absolute",
     alignItems: "center",
   },
-  ringValue: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#062B59",
-  },
-  ringLabel: {
-    fontSize: 10,
-    color: "#64748B",
-    marginTop: 1,
-  },
   ringPercent: {
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: "700",
     color: "#1680D8",
-    marginTop: 2,
+  },
+  heroRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 5,
+    marginBottom: 8,
+  },
+  heroValue: {
+    fontSize: 26,
+    fontWeight: "800",
+    color: "#062B59",
+    letterSpacing: -0.3,
+  },
+  heroLabel: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#64748B",
+  },
+  statDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 5,
   },
   statsCol: {
     flex: 1,
@@ -269,15 +303,9 @@ const styles = StyleSheet.create({
   statRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-  },
-  statDot: {
-    width: 9,
-    height: 9,
-    borderRadius: 5,
+    justifyContent: "space-between",
   },
   statLabel: {
-    flex: 1,
     color: "#64748B",
     fontSize: 12,
   },
@@ -290,6 +318,9 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: "#F1F5F9",
     marginVertical: 10,
+  },
+  barsScroll: {
+    flex: 1,
   },
   barsGrid: {
     flexDirection: "row",

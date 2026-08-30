@@ -1,7 +1,8 @@
 import React, { useState } from "react";
-import { SafeAreaView, View, Text, Pressable, StyleSheet, Alert, ScrollView } from "react-native";
+import { SafeAreaView, View, Text, Pressable, StyleSheet, Alert } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { acceptFaceConsent } from "../api";
+import AestheticScrollView from "../components/AestheticScrollView";
 
 type Props = {
   onAccepted: (faceConsentAcceptedAt: string) => void;
@@ -24,7 +25,7 @@ export default function FaceConsentScreen({ onAccepted }: Props) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <AestheticScrollView contentContainerStyle={styles.content}>
         <Ionicons name="scan-outline" size={48} color="#062B59" style={{ marginBottom: 12 }} />
         <Text style={styles.title}>Face Data Consent</Text>
         <Text style={styles.subtitle}>
@@ -48,7 +49,7 @@ export default function FaceConsentScreen({ onAccepted }: Props) {
         <Pressable style={[styles.button, isLoading && styles.buttonDisabled]} onPress={handleAccept} disabled={isLoading}>
           <Text style={styles.buttonText}>{isLoading ? "Saving..." : "I Agree"}</Text>
         </Pressable>
-      </ScrollView>
+      </AestheticScrollView>
     </SafeAreaView>
   );
 }

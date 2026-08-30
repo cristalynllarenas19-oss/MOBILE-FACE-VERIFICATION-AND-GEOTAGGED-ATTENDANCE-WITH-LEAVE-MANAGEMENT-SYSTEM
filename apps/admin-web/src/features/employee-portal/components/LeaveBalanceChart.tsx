@@ -5,10 +5,23 @@ import "./LeaveBalanceChart.css";
 // Mirrors employee-mobile's LeaveBalanceChart.tsx — same palette, same
 // per-type color assignment (by array index), same ring math — so the two
 // platforms read as the same feature, just laid out for a wider viewport.
-const LEAVE_TYPE_COLORS = ["#1680D8", "#1BAF7A", "#EDA100", "#E34948", "#7C3AED", "#0EA5B8", "#D6336C", "#4A3AA7"];
+// Kept distinct from the summary ring's own legend colors (#062B59 Earned,
+// #1680D8 Used, #DCE7F5 Remaining) so no leave type visually collides with
+// them, and long enough that a typical leave-type list doesn't wrap back
+// onto its own first color.
+const LEAVE_TYPE_COLORS = ["#F97316", "#1BAF7A", "#EDA100", "#E34948", "#7C3AED", "#0EA5B8", "#D6336C", "#4A3AA7", "#65A30D"];
 
-const RING_SIZE = 96;
-const RING_STROKE = 10;
+// Overrides the index-based palette above for specific leave types.
+const LEAVE_TYPE_COLOR_OVERRIDES: Record<string, string> = {
+  "Bereavement Leave": "#C71585",
+};
+
+function colorForLeaveType(name: string, index: number): string {
+  return LEAVE_TYPE_COLOR_OVERRIDES[name] ?? LEAVE_TYPE_COLORS[index % LEAVE_TYPE_COLORS.length];
+}
+
+const RING_SIZE = 106;
+const RING_STROKE = 11;
 const RING_RADIUS = (RING_SIZE - RING_STROKE) / 2;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
@@ -34,7 +47,7 @@ export function LeaveBalanceChart({ balances, loading, pendingCount, onPressPend
           const length = (balance.usedDays / totalEarned) * RING_CIRCUMFERENCE;
           const offset = cumulativeOffset;
           cumulativeOffset += length;
-          return { id: balance.leaveTypeId, color: LEAVE_TYPE_COLORS[index % LEAVE_TYPE_COLORS.length], length, offset };
+          return { id: balance.leaveTypeId, color: colorForLeaveType(balance.leaveTypeName, index), length, offset };
         })
         .filter((segment) => segment.length > 0)
     : [];
@@ -106,36 +119,33 @@ export function LeaveBalanceChart({ balances, loading, pendingCount, onPressPend
             ))}
           </svg>
           <div className="lbc-ring-center">
-            <span className="lbc-ring-value">{totalRemaining}</span>
-            <span className="lbc-ring-label">left</span>
             <span className="lbc-ring-percent">{usedPercent}% used</span>
           </div>
         </div>
 
         <div className="lbc-stats-col">
+          <div className="lbc-hero-row">
+            <span className="lbc-hero-value">{totalRemaining}</span>
+            <span className="lbc-hero-label">Remaining</span>
+          </div>
+
           <div className="lbc-stat-row">
-            <span className="lbc-dot" style={{ background: "#062B59" }} />
             <span className="lbc-stat-label">Earned</span>
             <span className="lbc-stat-value">{totalEarned}</span>
           </div>
           <div className="lbc-stat-row">
-            <span className="lbc-dot" style={{ background: "#1680D8" }} />
             <span className="lbc-stat-label">Used</span>
             <span className="lbc-stat-value">{totalUsed}</span>
-          </div>
-          <div className="lbc-stat-row">
-            <span className="lbc-dot" style={{ background: "#DCE7F5" }} />
-            <span className="lbc-stat-label">Remaining</span>
-            <span className="lbc-stat-value">{totalRemaining}</span>
           </div>
         </div>
       </div>
 
       <div className="lbc-divider" />
 
+      <div className="lbc-bars-scroll">
       <div className="lbc-bars-grid">
         {balances.map((balance, index) => {
-          const color = LEAVE_TYPE_COLORS[index % LEAVE_TYPE_COLORS.length];
+          const color = colorForLeaveType(balance.leaveTypeName, index);
           const ratio = balance.earnedDays > 0 ? Math.min(1, balance.usedDays / balance.earnedDays) : 0;
           return (
             <div key={balance.leaveTypeId} className="lbc-bar-cell">
@@ -160,6 +170,7 @@ export function LeaveBalanceChart({ balances, loading, pendingCount, onPressPend
             </div>
           );
         })}
+      </div>
       </div>
     </div>
   );

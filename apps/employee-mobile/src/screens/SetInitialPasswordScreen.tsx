@@ -9,11 +9,11 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
-  ScrollView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { setInitialPassword } from "../api";
 import { checkRequirements, getStrength } from "../utils/passwordStrength";
+import AestheticScrollView from "../components/AestheticScrollView";
 
 type Props = {
   onDone: () => void;
@@ -60,7 +60,7 @@ export default function SetInitialPasswordScreen({ onDone }: Props) {
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <AestheticScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <Ionicons name="shield-checkmark-outline" size={48} color="#062B59" style={{ marginBottom: 12 }} />
           <Text style={styles.title}>Set Your Password</Text>
           <Text style={styles.subtitle}>
@@ -150,7 +150,7 @@ export default function SetInitialPasswordScreen({ onDone }: Props) {
           >
             <Text style={styles.buttonText}>{isLoading ? "Saving..." : "Set Password"}</Text>
           </Pressable>
-        </ScrollView>
+        </AestheticScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );

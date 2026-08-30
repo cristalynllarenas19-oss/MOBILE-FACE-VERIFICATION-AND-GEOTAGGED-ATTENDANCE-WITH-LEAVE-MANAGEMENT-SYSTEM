@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  FlatList,
   RefreshControl,
   Modal,
   Image,
@@ -15,6 +14,7 @@ import DateTimePickerModal from "react-native-modal-datetime-picker";
 import { AttendanceHistoryRecord, AttendanceLogPhoto, getAttendanceHistory } from "../api";
 import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
 import SegmentedControl from "../components/SegmentedControl";
+import AestheticFlatList from "../components/AestheticFlatList";
 
 type Props = {
   employeeId?: string;
@@ -234,23 +234,23 @@ export default function DTRScreen({ employeeId }: Props) {
 
   return (
     <>
+    <SegmentedControl
+      segments={[
+        { key: "office", label: "Office" },
+        { key: "field", label: "Field" },
+      ]}
+      value={activeTab}
+      onChange={(key) => setActiveTab(key as Tab)}
+      style={styles.tabSwitcher}
+    />
+
     <View style={styles.card}>
-      {/* Pinned header — title, tabs, today's-hours summary, and filters
-          all stay fixed above the list instead of scrolling away with it
+      {/* Pinned header — title, today's-hours summary, and filters all
+          stay fixed above the list instead of scrolling away with it
           (previously a FlatList ListHeaderComponent, which scrolls with
           the content). Only the record rows below scroll now. */}
       <View style={styles.pinnedHeader}>
         <Text style={styles.cardTitle}>Daily Time Record</Text>
-
-        <SegmentedControl
-          segments={[
-            { key: "office", label: "Office" },
-            { key: "field", label: "Field" },
-          ]}
-          value={activeTab}
-          onChange={(key) => setActiveTab(key as Tab)}
-          style={styles.tabSwitcher}
-        />
 
         <View style={styles.summaryCard}>
           <Ionicons name="time" size={22} color="#1680D8" />
@@ -350,7 +350,7 @@ export default function DTRScreen({ employeeId }: Props) {
         onCancel={() => setIsToPickerVisible(false)}
       />
 
-    <FlatList
+    <AestheticFlatList
       style={styles.list}
       data={listData}
       keyExtractor={(item) => item.id}
@@ -454,6 +454,7 @@ export default function DTRScreen({ employeeId }: Props) {
             value={photoTab}
             onChange={(key) => setPhotoTab(key as typeof photoTab)}
             style={styles.photoTabSwitcher}
+            dense
           />
 
           {(() => {
@@ -537,7 +538,7 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   tabSwitcher: {
-    marginBottom: 14,
+    marginBottom: 12,
   },
   summaryCard: {
     flexDirection: "row",
@@ -818,7 +819,7 @@ const styles = StyleSheet.create({
   modalCloseButton: {
     height: 46,
     borderRadius: 12,
-    backgroundColor: "#1680D8",
+    backgroundColor: "#062B59",
     alignItems: "center",
     justifyContent: "center",
   },

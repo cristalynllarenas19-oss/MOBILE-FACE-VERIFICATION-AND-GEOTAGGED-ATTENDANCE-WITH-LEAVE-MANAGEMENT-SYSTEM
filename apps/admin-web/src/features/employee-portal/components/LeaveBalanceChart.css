@@ -71,12 +71,16 @@
 
 .lbc-ring-wrap {
   position: relative;
-  width: 96px;
-  height: 96px;
+  width: 106px;
+  height: 106px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.lbc-ring-wrap svg {
+  display: block;
 }
 
 .lbc-ring-center {
@@ -86,36 +90,54 @@
   align-items: center;
 }
 
-.lbc-ring-value {
-  font-size: 20px;
-  font-weight: 800;
-  color: var(--emp-navy);
-}
-
-.lbc-ring-label {
-  font-size: 11px;
-  color: #64748b;
-  margin-top: 1px;
-}
-
 .lbc-ring-percent {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--emp-blue);
-  margin-top: 2px;
 }
 
 .lbc-stats-col {
-  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
+.lbc-hero-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.lbc-hero-value {
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--emp-navy);
+  letter-spacing: -0.3px;
+}
+
+.lbc-hero-label {
+  font-size: 19px;
+  font-weight: 600;
+  color: #64748b;
+}
+
 .lbc-stat-row {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 20px;
+}
+
+.lbc-stat-label {
+  color: #64748b;
+  font-size: 13px;
+  min-width: 46px;
+}
+
+.lbc-stat-value {
+  font-weight: 700;
+  color: var(--emp-navy);
+  font-size: 14px;
 }
 
 .lbc-dot {
@@ -123,18 +145,6 @@
   height: 10px;
   border-radius: 50%;
   flex-shrink: 0;
-}
-
-.lbc-stat-label {
-  flex: 1;
-  color: #64748b;
-  font-size: 13px;
-}
-
-.lbc-stat-value {
-  font-weight: 700;
-  color: var(--emp-navy);
-  font-size: 14px;
 }
 
 .lbc-divider {
@@ -146,6 +156,31 @@
 /* Two columns at mobile widths (matches employee-mobile exactly), growing to
    more columns as the viewport widens instead of stretching two fixed
    columns across the full desktop width. */
+.lbc-bars-scroll {
+  max-height: 340px;
+  overflow-y: auto;
+  padding-right: 10px;
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+.lbc-bars-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.lbc-bars-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.lbc-bars-scroll::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+}
+
+.lbc-bars-scroll::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
 .lbc-bars-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));

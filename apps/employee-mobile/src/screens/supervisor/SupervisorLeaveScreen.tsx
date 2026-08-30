@@ -8,7 +8,6 @@ import {
   StyleSheet,
   Modal,
   SafeAreaView,
-  ScrollView,
   ActivityIndicator,
   RefreshControl,
 } from "react-native";
@@ -18,6 +17,7 @@ import EmptyState from "../../components/EmptyState";
 import Avatar from "../../components/Avatar";
 import StatusPill from "../../components/StatusPill";
 import SegmentedControl from "../../components/SegmentedControl";
+import AestheticScrollView from "../../components/AestheticScrollView";
 import {
   TeamLeaveRequest,
   getTeamLeaveRequests,
@@ -206,9 +206,8 @@ export default function SupervisorLeaveScreen({ currentEmployeeId }: Props) {
           <ActivityIndicator color="#062B59" size="large" />
         </View>
       ) : (
-        <ScrollView
+        <AestheticScrollView
           contentContainerStyle={styles.list}
-          showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => load(true)} tintColor="#062B59" />}
         >
           {visibleRequests.length === 0 ? (
@@ -238,7 +237,7 @@ export default function SupervisorLeaveScreen({ currentEmployeeId }: Props) {
               </Pressable>
             ))
           )}
-        </ScrollView>
+        </AestheticScrollView>
       )}
 
       <Modal visible={!!reviewRequest} transparent animationType="fade" onRequestClose={closeReview}>
@@ -248,7 +247,7 @@ export default function SupervisorLeaveScreen({ currentEmployeeId }: Props) {
               <Ionicons name="close" size={20} color="#64748B" />
             </Pressable>
 
-            <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+            <AestheticScrollView keyboardShouldPersistTaps="handled">
               {reviewRequest && (
                 <>
                   <View style={styles.modalHeaderRow}>
@@ -358,7 +357,7 @@ export default function SupervisorLeaveScreen({ currentEmployeeId }: Props) {
                   )}
                 </>
               )}
-            </ScrollView>
+            </AestheticScrollView>
           </View>
         </View>
       </Modal>

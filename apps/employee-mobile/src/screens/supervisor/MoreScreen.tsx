@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { View, Text, Image, Pressable, StyleSheet, ScrollView } from "react-native";
+import { View, Text, Image, Pressable, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { EmployeeProfile, getMyProfile } from "../../api";
 import { CACHE_KEYS, useCachedData } from "../../utils/dataCache";
@@ -10,6 +10,7 @@ import GeotaggedAreasScreen from "./GeotaggedAreasScreen";
 import SupervisorSchedulesScreen from "./SupervisorSchedulesScreen";
 import SupervisorReportsScreen from "./SupervisorReportsScreen";
 import Avatar from "../../components/Avatar";
+import AestheticScrollView from "../../components/AestheticScrollView";
 
 type Props = {
   onLogout: () => void;
@@ -64,7 +65,7 @@ export default function MoreScreen({ onLogout, canSwitchToEmployeePortal, onSwit
     : null;
 
   return (
-    <ScrollView contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+    <AestheticScrollView contentContainerStyle={styles.container}>
       <View style={styles.profileCard}>
         {avatarSource ? (
           <Image source={{ uri: avatarSource }} style={styles.avatarImage} />
@@ -101,7 +102,7 @@ export default function MoreScreen({ onLogout, canSwitchToEmployeePortal, onSwit
         <Ionicons name="log-out-outline" size={22} color="#DC2626" />
         <Text style={styles.logoutText}>Log out</Text>
       </Pressable>
-    </ScrollView>
+    </AestheticScrollView>
   );
 }
 

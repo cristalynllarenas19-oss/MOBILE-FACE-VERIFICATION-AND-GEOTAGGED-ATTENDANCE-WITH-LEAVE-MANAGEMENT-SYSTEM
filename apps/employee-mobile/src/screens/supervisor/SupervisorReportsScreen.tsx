@@ -1,9 +1,10 @@
 import React from "react";
-import { View, Text, Pressable, StyleSheet, SafeAreaView, ScrollView, ActivityIndicator, Share } from "react-native";
+import { View, Text, Pressable, StyleSheet, SafeAreaView, ActivityIndicator, Share } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { ReportsSummary, getReportsSummary } from "../../api";
 import { useCachedData } from "../../utils/dataCache";
 import StatusPill from "../../components/StatusPill";
+import AestheticScrollView from "../../components/AestheticScrollView";
 
 type Props = {
   onClose: () => void;
@@ -76,7 +77,7 @@ export default function SupervisorReportsScreen({ onClose }: Props) {
           <ActivityIndicator color="#062B59" size="large" />
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.list}>
+        <AestheticScrollView contentContainerStyle={styles.list}>
           <View style={styles.grid}>
             <View style={styles.statCard}>
               <Text style={styles.statValue}>{summary?.totals.attendanceRecords ?? 0}</Text>
@@ -115,7 +116,7 @@ export default function SupervisorReportsScreen({ onClose }: Props) {
             </View>
             <BreakdownBars data={summary?.leaveByStatus ?? {}} />
           </View>
-        </ScrollView>
+        </AestheticScrollView>
       )}
     </SafeAreaView>
   );

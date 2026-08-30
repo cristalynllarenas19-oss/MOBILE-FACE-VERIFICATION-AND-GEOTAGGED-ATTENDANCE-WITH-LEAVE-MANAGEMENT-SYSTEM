@@ -9,13 +9,13 @@ import {
   Image,
   KeyboardAvoidingView,
   Platform,
-  ScrollView,
   TouchableWithoutFeedback,
   Keyboard,
   Dimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import AestheticScrollView from "../components/AestheticScrollView";
 
 const { width } = Dimensions.get("window");
 
@@ -61,7 +61,7 @@ export default function LoginScreen({
         <TouchableWithoutFeedback
           onPress={Keyboard.dismiss}
         >
-          <ScrollView
+          <AestheticScrollView
             style={styles.scroll}
             contentContainerStyle={
               styles.content
@@ -70,9 +70,6 @@ export default function LoginScreen({
             bounces={false}
             alwaysBounceVertical={false}
             overScrollMode="never"
-            showsVerticalScrollIndicator={
-              false
-            }
           >
             <Image
               source={require("../assets/unileaf-logo.png")}
@@ -188,7 +185,7 @@ export default function LoginScreen({
                 Forgot your password?
               </Text>
             </Pressable>
-          </ScrollView>
+          </AestheticScrollView>
         </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
     </SafeAreaView>

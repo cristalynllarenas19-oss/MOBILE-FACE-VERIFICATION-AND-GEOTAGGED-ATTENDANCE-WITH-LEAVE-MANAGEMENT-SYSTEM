@@ -1,7 +1,8 @@
 import React from "react";
-import { View, Text, Pressable, StyleSheet, ScrollView } from "react-native";
+import { View, Text, Pressable, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import appConfig from "../../app.json";
+import AestheticScrollView from "../components/AestheticScrollView";
 
 type Props = {
   onClose: () => void;
@@ -11,7 +12,7 @@ export default function AboutScreen({ onClose }: Props) {
   const version = appConfig.expo.version ?? "1.0.0";
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <AestheticScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Pressable onPress={onClose} style={styles.backButton} hitSlop={10}>
         <Ionicons name="arrow-back" size={24} color="#062B59" />
       </Pressable>
@@ -52,7 +53,7 @@ export default function AboutScreen({ onClose }: Props) {
         contacting your HR department. By using this application, you confirm that you have read, understood, and
         agree to this Data Privacy Consent.
       </Text>
-    </ScrollView>
+    </AestheticScrollView>
   );
 }
 

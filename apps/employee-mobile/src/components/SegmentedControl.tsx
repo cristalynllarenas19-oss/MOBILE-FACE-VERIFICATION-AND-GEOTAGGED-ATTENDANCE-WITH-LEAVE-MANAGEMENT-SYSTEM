@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Animated, LayoutChangeEvent, Pressable, StyleSheet, Text, View, ViewStyle } from "react-native";
 
 const PADDING = 4;
+const DENSE_GAP = 4;
 
 export type SegmentedControlOption = { key: string; label: string };
 
@@ -10,15 +11,21 @@ export default function SegmentedControl({
   value,
   onChange,
   style,
+  dense,
 }: {
   segments: SegmentedControlOption[];
   value: string;
   onChange: (key: string) => void;
   style?: ViewStyle;
+  // Tighter label size/spacing for tracks with longer labels (e.g. DTR's
+  // Time In / Lunch Start / Lunch End / Time Out) — keeps the default look
+  // for every other SegmentedControl in the app untouched.
+  dense?: boolean;
 }) {
   const activeIndex = Math.max(0, segments.findIndex((s) => s.key === value));
   const [trackWidth, setTrackWidth] = useState(0);
   const anim = useRef(new Animated.Value(activeIndex)).current;
+  const gap = dense ? DENSE_GAP : 0;
 
   useEffect(() => {
     Animated.spring(anim, {
@@ -33,13 +40,17 @@ export default function SegmentedControl({
     setTrackWidth(e.nativeEvent.layout.width);
   }
 
-  const segmentWidth = segments.length > 0 ? (trackWidth - PADDING * 2) / segments.length : 0;
+  const segmentWidth =
+    segments.length > 0
+      ? (trackWidth - PADDING * 2 - gap * (segments.length - 1)) / segments.length
+      : 0;
   // interpolate needs >=2 points even for a single-segment control
   const inputRange = segments.length > 1 ? segments.map((_, i) => i) : [0, 1];
-  const outputRange = segments.length > 1 ? segments.map((_, i) => i * segmentWidth) : [0, 0];
+  const outputRange =
+    segments.length > 1 ? segments.map((_, i) => i * (segmentWidth + gap)) : [0, 0];
 
   return (
-    <View style={[styles.track, style]} onLayout={handleLayout}>
+    <View style={[styles.track, dense && { gap: DENSE_GAP }, style]} onLayout={handleLayout}>
       {trackWidth > 0 && (
         <Animated.View
           style={[
@@ -55,14 +66,24 @@ export default function SegmentedControl({
         const isActive = segment.key === value;
         return (
           <Pressable key={segment.key} style={styles.button} onPress={() => onChange(segment.key)} hitSlop={4}>
-            <Text
-              style={[styles.label, isActive && styles.labelActive]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.82}
-            >
-              {segment.label}
-            </Text>
+            {dense ? (
+              <Text
+                style={[styles.label, styles.labelDense, isActive && styles.labelActive]}
+                numberOfLines={1}
+                ellipsizeMode="tail"
+              >
+                {segment.label}
+              </Text>
+            ) : (
+              <Text
+                style={[styles.label, isActive && styles.labelActive]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.82}
+              >
+                {segment.label}
+              </Text>
+            )}
           </Pressable>
         );
       })}
@@ -101,6 +122,10 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: 0.2,
     color: "#64748B",
+  },
+  labelDense: {
+    fontSize: 11,
+    letterSpacing: -0.2,
   },
   labelActive: {
     color: "#FFFFFF",

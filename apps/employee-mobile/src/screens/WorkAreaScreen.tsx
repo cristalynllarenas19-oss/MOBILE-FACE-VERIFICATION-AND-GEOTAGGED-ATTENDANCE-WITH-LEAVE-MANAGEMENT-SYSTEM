@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { View, Text, StyleSheet, ActivityIndicator, RefreshControl, ScrollView, Pressable } from "react-native";
+import { View, Text, StyleSheet, ActivityIndicator, RefreshControl, Pressable } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { WebView } from "react-native-webview";
 import * as Location from "expo-location";
 import { WorkLocation, getMyWorkLocation, getMyWorkLocations } from "../api";
 import { CACHE_KEYS, cacheGet, cacheSet } from "../utils/dataCache";
 import { distanceInMeters } from "../utils/geofence";
+import AestheticScrollView from "../components/AestheticScrollView";
 
 type Props = {
   employeeId?: string;
@@ -148,27 +149,27 @@ export default function WorkAreaScreen({ employeeId, attendanceMode }: Props) {
 
   if (isField && workLocations.length === 0) {
     return (
-      <ScrollView
+      <AestheticScrollView
         contentContainerStyle={styles.centered}
         refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} colors={["#1680D8"]} />}
       >
         <Ionicons name="location-outline" size={36} color="#94A3B8" />
         <Text style={styles.emptyText}>No client/work sites have been assigned to you yet.</Text>
         <Text style={styles.emptySubText}>Contact your supervisor if you believe this is a mistake.</Text>
-      </ScrollView>
+      </AestheticScrollView>
     );
   }
 
   if (!isField && !workLocation) {
     return (
-      <ScrollView
+      <AestheticScrollView
         contentContainerStyle={styles.centered}
         refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} colors={["#1680D8"]} />}
       >
         <Ionicons name="location-outline" size={36} color="#94A3B8" />
         <Text style={styles.emptyText}>No geotagged work area has been assigned to you yet.</Text>
         <Text style={styles.emptySubText}>Contact HR if you believe this is a mistake.</Text>
-      </ScrollView>
+      </AestheticScrollView>
     );
   }
 
@@ -186,9 +187,8 @@ export default function WorkAreaScreen({ employeeId, attendanceMode }: Props) {
   return (
     <View style={styles.container}>
       {isField && (
-        <ScrollView
+        <AestheticScrollView
           horizontal
-          showsHorizontalScrollIndicator={false}
           style={styles.siteChipRow}
           contentContainerStyle={styles.siteChipRowContent}
         >
@@ -204,7 +204,7 @@ export default function WorkAreaScreen({ employeeId, attendanceMode }: Props) {
               </Pressable>
             );
           })}
-        </ScrollView>
+        </AestheticScrollView>
       )}
 
       {selectedSite && (

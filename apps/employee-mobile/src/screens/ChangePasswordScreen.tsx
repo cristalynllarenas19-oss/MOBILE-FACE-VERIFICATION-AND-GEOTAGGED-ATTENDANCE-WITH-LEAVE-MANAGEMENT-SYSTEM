@@ -1,7 +1,8 @@
 import React, { useState } from "react";
-import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, Alert } from "react-native";
+import { View, Text, TextInput, Pressable, StyleSheet, Alert } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { changePassword } from "../api";
+import AestheticScrollView from "../components/AestheticScrollView";
 
 type Props = {
   onClose: () => void;
@@ -39,7 +40,7 @@ export default function ChangePasswordScreen({ onClose }: Props) {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+    <AestheticScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
       <Pressable onPress={onClose} style={styles.backButton} hitSlop={10}>
         <Ionicons name="arrow-back" size={24} color="#062B59" />
       </Pressable>
@@ -59,7 +60,7 @@ export default function ChangePasswordScreen({ onClose }: Props) {
       <Pressable style={styles.button} onPress={handleSave} disabled={isSaving}>
         <Text style={styles.buttonText}>{isSaving ? "Saving..." : "Update Password"}</Text>
       </Pressable>
-    </ScrollView>
+    </AestheticScrollView>
   );
 }
 

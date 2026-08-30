@@ -10,7 +10,6 @@ import {
   SafeAreaView,
   Dimensions,
   ActivityIndicator,
-  ScrollView,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
@@ -41,6 +40,7 @@ import {
   getMySchedules,
 } from "../api";
 import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
+import AestheticScrollView from "../components/AestheticScrollView";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
@@ -139,7 +139,7 @@ function statusLabel(status: string) {
 }
 
 export default function LeaveScreen({ employeeId }: Props) {
-  const leaveTypesCache = useCachedData<LeaveType[]>("leave-types", getLeaveTypes);
+  const leaveTypesCache = useCachedData<LeaveType[]>(CACHE_KEYS.leaveTypes, getLeaveTypes);
   // Same cache key as MainScreen/ViewProfileScreen, so this reuses whatever
   // profile is already in cache instead of firing a redundant fetch.
   const profileCache = useCachedData<EmployeeProfile>(CACHE_KEYS.myProfile, getMyProfile);
@@ -268,7 +268,8 @@ export default function LeaveScreen({ employeeId }: Props) {
   const today = useMemo(() => new Date(), []);
   const todayStart = useMemo(() => new Date(today.getFullYear(), today.getMonth(), today.getDate()), [today]);
   const filteredLeaveTypes = leaveTypes
-    .filter((item) => item.isActive)
+    .filter((item) => item.isActive !== false)
+    .filter((item) => !item.requiresEhsActivation || item.ehsActivated)
     .filter((item) => isEligibleForLeaveType(item.kind, employeeSex))
     .filter((item) => item.name.toLowerCase().includes(searchLeave.toLowerCase()));
 
@@ -305,7 +306,7 @@ export default function LeaveScreen({ employeeId }: Props) {
   // the disabled dropdown entries).
   function handleRequestFromBalance(id: string) {
     const type = leaveTypes.find((t) => t.id === id);
-    if (!type || !type.isActive) return;
+    if (!type || type.isActive === false) return;
     if (isLeaveTypeExhausted(type)) {
       setResultModal({
         status: "info",
@@ -933,7 +934,7 @@ export default function LeaveScreen({ employeeId }: Props) {
       />
 
       {activeTab === "balance" ? (
-        <ScrollView contentContainerStyle={[styles.tabContentPad, { flexGrow: 1 }]}>
+        <View style={[styles.tabContentPad, { flex: 1 }]}>
           <LeaveBalanceChart
             balances={visibleBalances}
             loading={isBalanceLoading}
@@ -942,9 +943,9 @@ export default function LeaveScreen({ employeeId }: Props) {
             onPressViewAll={openPendingModal}
             onRequestLeave={handleRequestFromBalance}
           />
-        </ScrollView>
+        </View>
       ) : activeTab === "undertime" ? (
-        <ScrollView
+        <AestheticScrollView
           contentContainerStyle={[styles.tabContentPad, { flexGrow: 1 }]}
           keyboardShouldPersistTaps="handled"
         >
@@ -1005,15 +1006,12 @@ export default function LeaveScreen({ employeeId }: Props) {
               ))
             )}
           </View>
-        </ScrollView>
+        </AestheticScrollView>
       ) : (
-        <ScrollView
-          contentContainerStyle={[styles.tabContentPad, { flexGrow: 1 }]}
-          keyboardShouldPersistTaps="handled"
-        >
+        <View style={[styles.tabContentPad, { flex: 1 }]}>
           <View style={styles.card}>
             <View style={styles.formHeader}>
-              <Ionicons color="#DC2777" name="document-text-outline" size={32} />
+              <Ionicons color="#DC2777" name="document-text-outline" size={28} />
               <Text style={styles.cardTitle}>Leave Request</Text>
             </View>
 
@@ -1063,7 +1061,7 @@ export default function LeaveScreen({ employeeId }: Props) {
                   />
                 </View>
 
-                <ScrollView style={{ maxHeight: 160 }} persistentScrollbar={true} indicatorStyle="black">
+                <AestheticScrollView style={{ maxHeight: 160 }}>
                   {filteredLeaveTypes.length > 0 ? (
                     filteredLeaveTypes.map((item) => {
                       const exhausted = isLeaveTypeExhausted(item);
@@ -1114,7 +1112,7 @@ export default function LeaveScreen({ employeeId }: Props) {
                       <Text style={styles.noResultsText}>No leave types found</Text>
                     </View>
                   )}
-                </ScrollView>
+                </AestheticScrollView>
               </View>
             </Modal>
 
@@ -1237,10 +1235,10 @@ export default function LeaveScreen({ employeeId }: Props) {
               <Text style={styles.buttonText}>Submit Leave Request</Text>
             </Pressable>
           </View>
-        </ScrollView>
+        </View>
       )}
 
-      <Modal visible={showPending} transparent animationType="slide">
+      <Modal visible={showPending} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <BlurView
             intensity={45}
@@ -1256,7 +1254,7 @@ export default function LeaveScreen({ employeeId }: Props) {
                   <Text style={styles.backText}>All requests</Text>
                 </Pressable>
                 <Text style={styles.modalTitle}>Leave Request Details</Text>
-                <ScrollView style={{ maxHeight: 320 }}>
+                <AestheticScrollView style={{ maxHeight: 320 }}>
                   {(() => {
                     const request = expandedRequest;
                     const tone = statusTone(request.status);
@@ -1391,7 +1389,7 @@ export default function LeaveScreen({ employeeId }: Props) {
                       </View>
                     );
                   })()}
-                </ScrollView>
+                </AestheticScrollView>
               </>
             ) : (
               <>
@@ -1461,7 +1459,7 @@ export default function LeaveScreen({ employeeId }: Props) {
                   )}
                 </View>
 
-                <ScrollView style={{ maxHeight: 280 }}>
+                <AestheticScrollView style={{ maxHeight: 280 }}>
                   {(requestsListTab === "current" ? currentRequests : pastRequests).length === 0 ? (
                     <Text style={styles.modalEmptyText}>
                       {requestsDateFrom || requestsDateTo || requestsStatusFilter !== "ALL"
@@ -1500,7 +1498,7 @@ export default function LeaveScreen({ employeeId }: Props) {
                       );
                     })
                   )}
-                </ScrollView>
+                </AestheticScrollView>
               </>
             )}
             <Pressable
@@ -1619,15 +1617,15 @@ const styles = StyleSheet.create({
   },
   tabContentPad: {
     paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: SCREEN_HEIGHT < 700 ? 16 : 24,
+    paddingTop: 10,
+    paddingBottom: SCREEN_HEIGHT < 700 ? 10 : 16,
   },
   card: {
     backgroundColor: "#FFFFFF",
     borderRadius: 18,
-    paddingHorizontal: 20,
-    paddingTop: SCREEN_HEIGHT < 700 ? 14 : 20,
-    paddingBottom: SCREEN_HEIGHT < 700 ? 16 : 24,
+    paddingHorizontal: 18,
+    paddingTop: SCREEN_HEIGHT < 700 ? 12 : 16,
+    paddingBottom: SCREEN_HEIGHT < 700 ? 12 : 16,
     borderWidth: 1,
     borderColor: "#E2E8F0",
     zIndex: 1,
@@ -1635,25 +1633,26 @@ const styles = StyleSheet.create({
   formHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 8,
   },
   cardTitle: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: "700",
     color: "#062B59",
   },
   label: {
     fontWeight: "600",
     color: "#475569",
-    marginTop: SCREEN_HEIGHT < 700 ? 6 : 12,
-    marginBottom: SCREEN_HEIGHT < 700 ? 2 : 4,
+    fontSize: 13,
+    marginTop: SCREEN_HEIGHT < 700 ? 4 : 8,
+    marginBottom: 2,
   },
   pendingNoticeText: {
     color: "#64748B",
-    fontSize: 13,
-    marginTop: 12,
-    marginBottom: 4,
-    lineHeight: 18,
+    fontSize: 12,
+    marginTop: 8,
+    marginBottom: 2,
+    lineHeight: 16,
   },
 
   dropdownWrapper: {
@@ -1661,7 +1660,7 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   dropdownButton: {
-    height: SCREEN_HEIGHT < 700 ? 44 : 50,
+    height: SCREEN_HEIGHT < 700 ? 40 : 46,
     borderWidth: 1,
     borderColor: "#E2E8F0",
     borderRadius: 12,
@@ -1738,23 +1737,23 @@ const styles = StyleSheet.create({
   },
 
   dateRow: { flexDirection: "row", gap: 10 },
-  dateBox: { flex: 1, height: SCREEN_HEIGHT < 700 ? 44 : 50, borderWidth: 1, borderColor: "#E2E8F0", borderRadius: 12, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "#FFFFFF" },
+  dateBox: { flex: 1, height: SCREEN_HEIGHT < 700 ? 40 : 46, borderWidth: 1, borderColor: "#E2E8F0", borderRadius: 12, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between", backgroundColor: "#FFFFFF" },
   dateText: { fontSize: 14 },
   totalDaysText: {
-    marginTop: 6,
-    fontSize: 12,
+    marginTop: 4,
+    fontSize: 11.5,
     fontWeight: "600",
     color: "#1680D8",
   },
   nonWorkingWarningText: {
-    marginTop: 6,
-    fontSize: 12,
+    marginTop: 4,
+    fontSize: 11.5,
     fontWeight: "600",
     color: "#B45309",
   },
 
   attachmentPicker: {
-    height: 50,
+    height: SCREEN_HEIGHT < 700 ? 40 : 46,
     borderWidth: 1.5,
     borderStyle: "dashed",
     borderColor: "#BFDBFE",
@@ -1774,7 +1773,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    height: 54,
+    height: 46,
     borderWidth: 1,
     borderColor: "#E2E8F0",
     borderRadius: 12,
@@ -1807,28 +1806,28 @@ const styles = StyleSheet.create({
   },
 
   textAreaContainer: {
-    height: SCREEN_HEIGHT < 700 ? 80 : 110,
+    height: SCREEN_HEIGHT < 700 ? 56 : 72,
     borderWidth: 1,
     borderColor: "#E2E8F0",
     borderRadius: 12,
     backgroundColor: "#FFFFFF",
     overflow: "hidden",
-    marginVertical: SCREEN_HEIGHT < 700 ? 4 : 6,
+    marginVertical: 4,
   },
   textAreaInput: {
     flex: 1,
     paddingHorizontal: 14,
-    paddingTop: 10,
-    paddingBottom: 10,
+    paddingTop: 8,
+    paddingBottom: 8,
     textAlignVertical: "top",
   },
   button: {
-    height: SCREEN_HEIGHT < 700 ? 46 : 52,
+    height: SCREEN_HEIGHT < 700 ? 42 : 48,
     borderRadius: 14,
     backgroundColor: "#062B59",
     justifyContent: "center",
     alignItems: "center",
-    marginTop: SCREEN_HEIGHT < 700 ? 10 : 16,
+    marginTop: SCREEN_HEIGHT < 700 ? 8 : 12,
   },
   buttonDisabled: {
     opacity: 0.7,

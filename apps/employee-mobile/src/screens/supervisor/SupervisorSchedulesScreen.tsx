@@ -1,10 +1,11 @@
 import React, { useCallback, useState } from "react";
-import { View, Text, Pressable, StyleSheet, SafeAreaView, ScrollView, ActivityIndicator, RefreshControl } from "react-native";
+import { View, Text, Pressable, StyleSheet, SafeAreaView, ActivityIndicator, RefreshControl } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { ScheduleAssignment, getSchedules } from "../../api";
 import { useCachedData } from "../../utils/dataCache";
 import EmptyState from "../../components/EmptyState";
 import Avatar from "../../components/Avatar";
+import AestheticScrollView from "../../components/AestheticScrollView";
 
 type Props = {
   onClose: () => void;
@@ -49,9 +50,8 @@ export default function SupervisorSchedulesScreen({ onClose }: Props) {
           <ActivityIndicator color="#062B59" size="large" />
         </View>
       ) : (
-        <ScrollView
+        <AestheticScrollView
           contentContainerStyle={styles.list}
-          showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => load(true)} tintColor="#062B59" />}
         >
           {schedules.length === 0 ? (
@@ -75,7 +75,7 @@ export default function SupervisorSchedulesScreen({ onClose }: Props) {
               </View>
             ))
           )}
-        </ScrollView>
+        </AestheticScrollView>
       )}
     </SafeAreaView>
   );

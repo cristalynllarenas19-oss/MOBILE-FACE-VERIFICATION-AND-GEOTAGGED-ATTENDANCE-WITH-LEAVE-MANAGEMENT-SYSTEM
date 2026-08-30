@@ -1,10 +1,11 @@
 import React, { useCallback, useRef, useState } from "react";
-import { View, Text, Pressable, StyleSheet, SafeAreaView, ScrollView, ActivityIndicator, RefreshControl, Modal } from "react-native";
+import { View, Text, Pressable, StyleSheet, SafeAreaView, ActivityIndicator, RefreshControl, Modal } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { WebView } from "react-native-webview";
 import ResultModal, { ResultModalStatus } from "../../components/ResultModal";
 import EmptyState from "../../components/EmptyState";
 import Avatar from "../../components/Avatar";
+import AestheticScrollView from "../../components/AestheticScrollView";
 import {
   GeotaggedLocation,
   TeamEmployee,
@@ -180,9 +181,8 @@ export default function GeotaggedAreasScreen({ onClose }: Props) {
             )}
           </View>
 
-          <ScrollView
+          <AestheticScrollView
             contentContainerStyle={styles.list}
-            showsVerticalScrollIndicator={false}
             refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => load(true)} tintColor="#062B59" />}
           >
             {locations.length === 0 ? (
@@ -208,7 +208,7 @@ export default function GeotaggedAreasScreen({ onClose }: Props) {
                 ))}
               </>
             )}
-          </ScrollView>
+          </AestheticScrollView>
         </>
       )}
 
@@ -218,7 +218,7 @@ export default function GeotaggedAreasScreen({ onClose }: Props) {
             <View style={styles.modalHandle} />
             <Text style={styles.modalTitle}>{managingLocation?.name}</Text>
             <Text style={styles.modalSubtitle}>Tap an employee to assign or unassign</Text>
-            <ScrollView style={{ maxHeight: 360 }} showsVerticalScrollIndicator={false}>
+            <AestheticScrollView style={{ maxHeight: 360 }}>
               {employees.map((employee) => {
                 const assigned = managingLocation ? isAssigned(managingLocation, employee.id) : false;
                 return (
@@ -234,7 +234,7 @@ export default function GeotaggedAreasScreen({ onClose }: Props) {
                   </Pressable>
                 );
               })}
-            </ScrollView>
+            </AestheticScrollView>
             <Pressable style={styles.closeButton} onPress={() => setManagingLocation(null)}>
               <Text style={styles.closeText}>Done</Text>
             </Pressable>

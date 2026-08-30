@@ -7,7 +7,6 @@ import {
   StyleSheet,
   Modal,
   SafeAreaView,
-  ScrollView,
   ActivityIndicator,
   RefreshControl,
 } from "react-native";
@@ -15,6 +14,7 @@ import { Ionicons } from "@expo/vector-icons";
 import ResultModal, { ResultModalStatus } from "../../components/ResultModal";
 import EmptyState from "../../components/EmptyState";
 import Avatar from "../../components/Avatar";
+import AestheticScrollView from "../../components/AestheticScrollView";
 import {
   TeamEmployee,
   CreateTeamEmployeeInput,
@@ -185,9 +185,8 @@ export default function TeamScreen({ departmentName, currentEmployeeId }: Props)
           <ActivityIndicator color="#062B59" size="large" />
         </View>
       ) : (
-        <ScrollView
+        <AestheticScrollView
           contentContainerStyle={styles.list}
-          showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => load(true)} tintColor="#062B59" />}
         >
           {filtered.length === 0 ? (
@@ -223,14 +222,14 @@ export default function TeamScreen({ departmentName, currentEmployeeId }: Props)
               ))}
             </>
           )}
-        </ScrollView>
+        </AestheticScrollView>
       )}
 
       <Modal visible={showForm} transparent animationType="slide" onRequestClose={() => setShowForm(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalHandle} />
-            <ScrollView keyboardShouldPersistTaps="handled">
+            <AestheticScrollView keyboardShouldPersistTaps="handled">
               <Text style={styles.modalTitle}>{editing ? "Edit Employee" : "Add Employee"}</Text>
 
               <Text style={styles.label}>First Name</Text>
@@ -293,7 +292,7 @@ export default function TeamScreen({ departmentName, currentEmployeeId }: Props)
                   {isSaving ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.saveText}>Save</Text>}
                 </Pressable>
               </View>
-            </ScrollView>
+            </AestheticScrollView>
           </View>
         </View>
       </Modal>

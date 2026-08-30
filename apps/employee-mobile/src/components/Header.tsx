@@ -62,19 +62,26 @@ export default function Header({
     <View style={styles.container}>
       <View style={styles.topRow}>
         <View style={styles.userSection}>
-          {avatarSource ? (
-            <Image source={{ uri: avatarSource }} style={styles.avatar} />
-          ) : (
-            <Ionicons
-              name="person-circle"
-              size={40}
-              color="#244c7a"
-            />
-          )}
+          <View style={styles.avatarWrap}>
+            {avatarSource ? (
+              <Image source={{ uri: avatarSource }} style={styles.avatarImage} />
+            ) : (
+              <Ionicons
+                name="person"
+                size={22}
+                color="#1680D8"
+              />
+            )}
+          </View>
 
-          <Text style={styles.name}>
-            {user?.displayName}
-          </Text>
+          <View style={styles.userTextCol}>
+            <Text style={styles.name} numberOfLines={1} ellipsizeMode="tail">
+              {user?.displayName}
+            </Text>
+            <View style={styles.rolePill}>
+              <Text style={styles.roleText}>{subtitle}</Text>
+            </View>
+          </View>
         </View>
 
         <Pressable
@@ -85,7 +92,7 @@ export default function Header({
           <Animated.View style={{ transform: [{ rotate: bellRotate }] }}>
             <Ionicons
               name="notifications-outline"
-              size={28}
+              size={22}
               color="#244c7a"
             />
           </Animated.View>
@@ -104,10 +111,6 @@ export default function Header({
           </Animated.View>
         </Pressable>
       </View>
-
-      <Text style={styles.subtitle}>
-        {subtitle}
-      </Text>
     </View>
   );
 }
@@ -129,32 +132,65 @@ const styles = StyleSheet.create({
   },
 
   userSection: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
+    gap: 10,
+    marginRight: 12,
   },
 
-  avatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  avatarWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#EAF3FC",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: "#BFDBFE",
+    overflow: "hidden",
+  },
+
+  avatarImage: {
+    width: "100%",
+    height: "100%",
+  },
+
+  userTextCol: {
+    flex: 1,
+    gap: 4,
   },
 
   name: {
-    fontSize: 22,
-    fontWeight: "700",
+    fontSize: 19,
+    fontWeight: "800",
     color: "#062B59",
-    marginLeft: 8,
+    letterSpacing: -0.2,
   },
 
-  subtitle: {
-    marginTop: 4,
-    marginLeft: 48,
-    fontSize: 13,
-    color: "#64748B",
+  rolePill: {
+    alignSelf: "flex-start",
+    backgroundColor: "#EAF3FC",
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+
+  roleText: {
+    fontSize: 10.5,
+    fontWeight: "700",
+    color: "#1680D8",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
   },
 
   bellButton: {
     position: "relative",
+    padding: 7,
+    borderRadius: 999,
+    backgroundColor: "#F8FAFF",
+    borderWidth: 1,
+    borderColor: "#EEF2F7",
   },
 
   bellButtonPressed: {
@@ -163,8 +199,8 @@ const styles = StyleSheet.create({
 
   bellBadge: {
     position: "absolute",
-    top: -4,
-    right: -4,
+    top: 3,
+    right: 3,
     minWidth: 16,
     height: 16,
     paddingHorizontal: 3,

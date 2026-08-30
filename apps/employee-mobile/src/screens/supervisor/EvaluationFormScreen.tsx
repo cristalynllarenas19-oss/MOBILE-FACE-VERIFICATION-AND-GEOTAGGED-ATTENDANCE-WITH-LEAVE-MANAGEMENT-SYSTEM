@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { Modal, SafeAreaView, View, Text, TextInput, Pressable, ScrollView, ActivityIndicator, StyleSheet } from "react-native";
+import { Modal, SafeAreaView, View, Text, TextInput, Pressable, ActivityIndicator, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import SegmentedControl from "../../components/SegmentedControl";
 import ResultModal, { ResultModalStatus } from "../../components/ResultModal";
+import AestheticScrollView from "../../components/AestheticScrollView";
 import {
   EvaluationCriteriaInput,
   EvaluationRecommendation,
@@ -157,7 +158,7 @@ export default function EvaluationFormScreen({ visible, employeeId, employeeName
             <ActivityIndicator color="#062B59" size="large" />
           </View>
         ) : (
-          <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+          <AestheticScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
             {isLocked && (
               <View style={styles.submittedBanner}>
                 <Ionicons name="checkmark-circle" size={18} color="#15803D" />
@@ -235,7 +236,7 @@ export default function EvaluationFormScreen({ visible, employeeId, employeeName
                 </Pressable>
               </View>
             )}
-          </ScrollView>
+          </AestheticScrollView>
         )}
       </SafeAreaView>
 

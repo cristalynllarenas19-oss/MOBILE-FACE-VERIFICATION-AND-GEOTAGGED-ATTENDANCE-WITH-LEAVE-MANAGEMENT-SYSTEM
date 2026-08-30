@@ -6,8 +6,6 @@ import {
   Text,
   TextInput,
   Pressable,
-  FlatList,
-  ScrollView,
   RefreshControl,
   ActivityIndicator,
   StyleSheet,
@@ -36,6 +34,8 @@ import {
 import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
 import { FormattedAnnouncementText, stripFormattingTokens } from "../utils/richText";
 import ResultModal, { ResultModalStatus } from "../components/ResultModal";
+import AestheticScrollView from "../components/AestheticScrollView";
+import AestheticFlatList from "../components/AestheticFlatList";
 
 // Stable fallbacks so downstream filters don't recompute on every render
 // while the cache/network is still empty.
@@ -466,7 +466,7 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
           </Pressable>
         </View>
 
-        <FlatList
+        <AestheticFlatList
           data={notifications}
           keyExtractor={(item) => item.id}
           contentContainerStyle={notifications.length === 0 ? styles.emptyContainer : styles.listContainer}
@@ -552,7 +552,7 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                 </Pressable>
               </View>
 
-              <ScrollView contentContainerStyle={styles.detailScrollContent}>
+              <AestheticScrollView contentContainerStyle={styles.detailScrollContent}>
                 {detailNotification.type === "ANNOUNCEMENT" ? (
                   <FormattedAnnouncementText message={detailNotification.message} textStyle={styles.detailMessage} />
                 ) : (
@@ -721,7 +721,7 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                     )}
                   </View>
                 )}
-              </ScrollView>
+              </AestheticScrollView>
             </>
           )}
         </Pressable>

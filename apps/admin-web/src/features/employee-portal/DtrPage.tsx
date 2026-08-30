@@ -359,6 +359,7 @@ export function DtrPage({ user }: Props) {
               value={photoTab}
               onChange={(key) => setPhotoTab(key as PhotoTab)}
               style={{ marginBottom: 14 }}
+              dense
             />
 
             {/* Photo */}
@@ -447,7 +448,7 @@ export function DtrPage({ user }: Props) {
 
             <button
               onClick={() => setSelected(null)}
-              style={{ display: "block", width: "100%", height: 46, borderRadius: 12, border: "none", background: "#1680D8", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer" }}
+              style={{ display: "block", width: "100%", height: 46, borderRadius: 12, border: "none", background: "#062B59", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer" }}
             >
               Close
             </button>

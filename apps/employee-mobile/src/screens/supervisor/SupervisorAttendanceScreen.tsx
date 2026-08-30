@@ -1,8 +1,9 @@
 import React, { useCallback, useMemo, useState } from "react";
-import { View, Text, TextInput, Pressable, StyleSheet, SafeAreaView, ScrollView, ActivityIndicator, RefreshControl } from "react-native";
+import { View, Text, TextInput, Pressable, StyleSheet, SafeAreaView, ActivityIndicator, RefreshControl } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { TeamAttendanceRecord, getTeamAttendance } from "../../api";
 import { useCachedData } from "../../utils/dataCache";
+import AestheticScrollView from "../../components/AestheticScrollView";
 
 // Stable fallback so useMemo filters don't recompute on every render while
 // the cache/network is still empty.
@@ -99,9 +100,8 @@ export default function SupervisorAttendanceScreen() {
           <ActivityIndicator color="#062B59" size="large" />
         </View>
       ) : (
-        <ScrollView
+        <AestheticScrollView
           contentContainerStyle={styles.list}
-          showsVerticalScrollIndicator={false}
           refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => load(true)} tintColor="#062B59" />}
         >
           {filtered.length === 0 ? (
@@ -149,7 +149,7 @@ export default function SupervisorAttendanceScreen() {
               </View>
             ))
           )}
-        </ScrollView>
+        </AestheticScrollView>
       )}
     </SafeAreaView>
   );

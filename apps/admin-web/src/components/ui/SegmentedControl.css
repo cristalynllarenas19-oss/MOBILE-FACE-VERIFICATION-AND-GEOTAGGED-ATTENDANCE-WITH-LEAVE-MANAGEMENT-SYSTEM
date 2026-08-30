@@ -11,6 +11,10 @@
   padding: 4px;
 }
 
+.seg-track.dense {
+  gap: 4px;
+}
+
 .seg-thumb {
   position: absolute;
   top: 4px;
@@ -19,7 +23,9 @@
   background: #062b59;
   border-radius: 999px;
   box-shadow: 0 3px 8px rgba(6, 43, 89, 0.25), 0 1px 2px rgba(6, 43, 89, 0.25);
-  transition: transform 0.32s cubic-bezier(0.65, 0, 0.35, 1);
+  /* Mirrors employee-mobile's Animated.spring(speed: 20, bounciness: 6) —
+     a quick slide with a slight settle-overshoot, not a plain ease. */
+  transition: transform 0.32s cubic-bezier(0.22, 1.4, 0.36, 1);
 }
 
 .seg-btn {
@@ -34,8 +40,19 @@
   font-weight: 700;
   font-size: 14px;
   letter-spacing: 0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
-  transition: color 0.32s ease;
+  /* No color transition — mobile's Text color swap is instant (RN doesn't
+     animate it), so fading it here just meant the label sat at a washed-out
+     in-between gray for the length of the pill's slide. Only the pill itself
+     animates now, same as mobile. */
+}
+
+.seg-btn.dense {
+  font-size: 11px;
+  letter-spacing: -0.2px;
 }
 
 .seg-btn.active {
