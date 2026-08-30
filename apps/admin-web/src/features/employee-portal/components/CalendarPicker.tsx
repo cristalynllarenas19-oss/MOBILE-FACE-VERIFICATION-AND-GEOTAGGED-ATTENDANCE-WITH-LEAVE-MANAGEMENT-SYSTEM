@@ -29,6 +29,10 @@ type Props = {
   min?: string;
   max?: string;
   isDateDisabled?: (date: Date) => string | undefined;
+  // Same shape, checked separately so it gets its own visual treatment (amber
+  // "day off", not the red "conflict" above) — e.g. a weekly rest day or a
+  // day outside the employee's own working-days schedule.
+  isDateNonWorking?: (date: Date) => string | undefined;
   placeholder?: string;
   // Which edge the popover hangs from. A field near the right edge of its
   // container needs "right" so the 280px-wide popover opens leftward
@@ -40,7 +44,7 @@ type Props = {
 // min/max range — it can't grey out arbitrary individual days (e.g. dates
 // already covered by a filed leave of this type). This replaces it with a
 // small popover month-grid that can.
-export function CalendarPicker({ value, onChange, min, max, isDateDisabled, placeholder, align = "left" }: Props) {
+export function CalendarPicker({ value, onChange, min, max, isDateDisabled, isDateNonWorking, placeholder, align = "left" }: Props) {
   const [open, setOpen] = useState(false);
   const selected = value ? parseIsoDate(value) : undefined;
   const [viewMonth, setViewMonth] = useState(() => toDateOnly(selected ?? new Date()));
@@ -131,28 +135,31 @@ export function CalendarPicker({ value, onChange, min, max, isDateDisabled, plac
           <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 2 }}>
             {cells.map((date, index) => {
               if (!date) return <div key={index} />;
-              // Two different reasons a day can't be picked, kept visually
+              // Three different reasons a day can't be picked, kept visually
               // distinct: an actual conflict with an existing filed request
-              // (red — the only case the legend below refers to) vs. simply
-              // outside the min/max range, e.g. no remaining balance left to
-              // cover it (muted grey — nothing wrong with the date itself).
+              // (red), a day off / non-working day per the employee's own
+              // schedule (amber), or simply outside the min/max range, e.g.
+              // no remaining balance left to cover it (muted grey — nothing
+              // wrong with the date itself).
               const conflictReason = isDateDisabled?.(date);
               const conflict = Boolean(conflictReason);
-              const outOfRange = !conflict && ((minDate && date < minDate) || (maxDate && date > maxDate));
-              const disabled = conflict || outOfRange;
+              const nonWorkingReason = !conflict ? isDateNonWorking?.(date) : undefined;
+              const nonWorking = Boolean(nonWorkingReason);
+              const outOfRange = !conflict && !nonWorking && ((minDate && date < minDate) || (maxDate && date > maxDate));
+              const disabled = conflict || nonWorking || outOfRange;
               const isSelected = selected && toIsoDate(date) === toIsoDate(selected);
               return (
                 <button
                   key={index}
                   type="button"
                   disabled={disabled}
-                  title={conflictReason}
+                  title={conflictReason ?? nonWorkingReason}
                   onClick={() => { onChange(toIsoDate(date)); setOpen(false); }}
                   style={{
                     aspectRatio: "1", border: "none", borderRadius: 10,
                     fontSize: 12, fontWeight: 600, cursor: disabled ? "not-allowed" : "pointer",
-                    background: isSelected ? "#062B59" : conflict ? "#FEE2E2" : "transparent",
-                    color: isSelected ? "#FFFFFF" : conflict ? "#FCA5A5" : outOfRange ? "#CBD5E1" : "#334155",
+                    background: isSelected ? "#062B59" : conflict ? "#FEE2E2" : nonWorking ? "#FEF3C7" : "transparent",
+                    color: isSelected ? "#FFFFFF" : conflict ? "#FCA5A5" : nonWorking ? "#D97706" : outOfRange ? "#CBD5E1" : "#334155",
                     // Soft card: a lifted shadow under the selected day for depth.
                     boxShadow: isSelected ? "0 4px 10px rgba(6,43,89,0.32)" : "none",
                   }}
@@ -167,6 +174,12 @@ export function CalendarPicker({ value, onChange, min, max, isDateDisabled, plac
             <span style={{ width: 9, height: 9, borderRadius: 3, background: "#FEE2E2", display: "inline-block" }} />
             <span style={{ fontSize: 10.5, color: "#64748B" }}>Already filed for this leave type</span>
           </div>
+          {isDateNonWorking && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+              <span style={{ width: 9, height: 9, borderRadius: 3, background: "#FEF3C7", display: "inline-block" }} />
+              <span style={{ fontSize: 10.5, color: "#64748B" }}>Day off / non-working day</span>
+            </div>
+          )}
         </div>
       )}
     </div>

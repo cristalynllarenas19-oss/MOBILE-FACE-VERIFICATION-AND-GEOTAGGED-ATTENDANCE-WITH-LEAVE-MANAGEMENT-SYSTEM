@@ -4,9 +4,9 @@ import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, CheckCircle, ChevronDown, ChevronUp, FileText, Paperclip, Search, X, XCircle } from "lucide-react";
 import "./EmployeePortal.css";
 import {
-  LeaveType, LeaveBalance, LeaveRequest, UndertimeEligibility, UndertimeFiling,
+  LeaveType, LeaveBalance, LeaveRequest, UndertimeEligibility, UndertimeFiling, MySchedule,
   getLeaveTypes, getLeaveBalances, getLeaveRequests, createLeaveRequest, cancelLeaveRequest, resubmitLeaveRequest,
-  getUndertimeEligibility, getUndertimeFilings, fileUndertime,
+  getUndertimeEligibility, getUndertimeFilings, fileUndertime, getMySchedules,
 } from "./api";
 import { LeaveBalanceChart } from "./components/LeaveBalanceChart";
 import { CalendarPicker } from "./components/CalendarPicker";
@@ -98,11 +98,18 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
     user.employeeId ? CACHE_KEYS.undertimeFilings(user.employeeId) : null,
     () => getUndertimeFilings(user.employeeId!),
   );
+  // Own schedule assignment(s) — drives the calendar's day-off/non-working
+  // classification below (see isDateNonWorking).
+  const mySchedulesCache = useCachedData<MySchedule[]>(
+    user.employeeId ? CACHE_KEYS.mySchedules(user.employeeId) : null,
+    () => getMySchedules(),
+  );
   const leaveTypes = leaveTypesCache.data ?? [];
   const balances = balancesCache.data ?? [];
   const requests = requestsCache.data ?? [];
   const undertimeEligibility = undertimeEligibilityCache.data;
   const undertimeFilings = undertimeFilingsCache.data ?? [];
+  const mySchedules = mySchedulesCache.data ?? [];
   const loadingData = leaveTypesCache.isLoading || balancesCache.isLoading || requestsCache.isLoading;
 
   async function refreshAll() {
@@ -329,6 +336,14 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
       });
       return;
     }
+    if (isLeaveTypeUnavailableToday(type)) {
+      setResultModal({
+        ok: false,
+        title: "Non-Working Day",
+        msg: `${type.name} can only be filed for today's date, but today is your day off / a non-working day.`,
+      });
+      return;
+    }
     setLeaveTypeId(id);
     setTab("request");
   }
@@ -505,6 +520,39 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
     return hit ? "Already filed for this leave type" : undefined;
   }
 
+  // Sunday is a company-wide rest day (mirrors backend/schedule.util.ts's
+  // isDayOff); beyond that, a schedule assignment active on this date can
+  // narrow which other weekdays are actually worked (e.g. a 6-day shift's
+  // Saturday, or a part-timer's own override). No active assignment for the
+  // date falls back to "working" — same "nothing to compare against" rule
+  // the backend uses. Mirrors employee-mobile's LeaveScreen.tsx.
+  function isDateNonWorking(date: Date) {
+    if (date.getDay() === 0) return "Day off / non-working day";
+    const schedule = mySchedules.find((s) => {
+      const start = new Date(s.startsOn);
+      if (date < new Date(start.getFullYear(), start.getMonth(), start.getDate())) return false;
+      if (!s.endsOn) return true;
+      const end = new Date(s.endsOn);
+      return date <= new Date(end.getFullYear(), end.getMonth(), end.getDate());
+    });
+    if (!schedule) return undefined;
+    return schedule.workingDays.includes(date.getDay()) ? undefined : "Day off / non-working day";
+  }
+
+  const todayStart = useMemo(() => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  }, []);
+
+  // A !advanceFilingAllowed type (Sick Leave, Emergency Leave, Adverse
+  // Weather Leave) can only ever be filed for today — so if today happens to
+  // be this employee's day off, the type is entirely unfilable right now,
+  // not just on some dates. Surfaced up front (dropdown + Date section)
+  // instead of only failing at submit time.
+  function isLeaveTypeUnavailableToday(t: LeaveType) {
+    return t.advanceFilingAllowed === false && Boolean(isDateNonWorking(todayStart));
+  }
+
   // Leave types with advanceFilingAllowed === false (Sick Leave) cannot be
   // filed for a future date — driven by the selected type's own config so
   // this isn't a rule baked into the frontend, it just mirrors whatever HR
@@ -583,6 +631,23 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
     }
     if (!reason.trim()) {
       setResultModal({ ok: false, title: "Reason Required", msg: "Please provide a reason for your leave." });
+      return;
+    }
+    // Mirrors the backend's own-day-off check (leave.service.ts) — catches
+    // dates set outside the calendar's disabled-day styling.
+    const requestedStartDate = new Date(startDate);
+    const requestedEndDate = new Date(endDate);
+    const nonWorkingBoundary = isDateNonWorking(requestedStartDate)
+      ? requestedStartDate
+      : isDateNonWorking(requestedEndDate)
+        ? requestedEndDate
+        : null;
+    if (nonWorkingBoundary) {
+      setResultModal({
+        ok: false,
+        title: "Non-Working Day",
+        msg: `${nonWorkingBoundary.toLocaleDateString()} is your day off / a non-working day. Leave can only be filed for a working day.`,
+      });
       return;
     }
     // Mirrors the backend's check (leave.service.ts) so the error shows up
@@ -1001,7 +1066,8 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                       : filteredTypes.map((t) => {
                           const exhausted = isLeaveTypeExhausted(t);
                           const alreadyPending = isLeaveTypeAlreadyPending(t);
-                          const disabled = exhausted || alreadyPending;
+                          const unavailableToday = !exhausted && !alreadyPending && isLeaveTypeUnavailableToday(t);
+                          const disabled = exhausted || alreadyPending || unavailableToday;
                           return (
                             <button
                               key={t.id}
@@ -1025,7 +1091,9 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                                   : " (no balance left)"
                                 : alreadyPending
                                   ? " (already pending)"
-                                  : ""}
+                                  : unavailableToday
+                                    ? " (today is a non-working day)"
+                                    : ""}
                             </button>
                           );
                         })
@@ -1044,6 +1112,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                 min={minStartDate}
                 max={maxStartDate}
                 isDateDisabled={isDateAlreadyFiledForType}
+                isDateNonWorking={isDateNonWorking}
               />
             ) : (
               <div style={{ display: "flex", gap: 10 }}>
@@ -1053,6 +1122,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                   min={minStartDate}
                   max={maxStartDate}
                   isDateDisabled={isDateAlreadyFiledForType}
+                  isDateNonWorking={isDateNonWorking}
                   placeholder="Start date"
                 />
                 <CalendarPicker
@@ -1061,6 +1131,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                   min={startDate || minStartDate}
                   max={maxEndDate}
                   isDateDisabled={isDateAlreadyFiledForType}
+                  isDateNonWorking={isDateNonWorking}
                   placeholder="End date"
                   align="right"
                 />
@@ -1069,6 +1140,11 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
             {startDate && endDate && !selectedType?.isSingleDayOnly && (
               <p style={{ fontSize: 12, fontWeight: 600, color: "#1680D8", margin: "5px 0 0" }}>
                 {totalDays} day{totalDays === 1 ? "" : "s"} total
+              </p>
+            )}
+            {selectedType && selectedType.advanceFilingAllowed === false && isDateNonWorking(todayStart) && (
+              <p style={{ fontSize: 11.5, fontWeight: 600, color: "#B45309", margin: "4px 0 0" }}>
+                Today is your day off / a non-working day — {selectedType.name} can't be filed until your next working day.
               </p>
             )}
             {maxEndDate && !selectedType?.isSingleDayOnly && (

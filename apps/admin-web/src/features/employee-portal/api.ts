@@ -311,6 +311,21 @@ export function getMyProfile() {
   return apiRequest<EmployeeProfile>("/employees/me");
 }
 
+export type MySchedule = {
+  id: string;
+  startsOn: string;
+  endsOn?: string | null;
+  // 0=Sunday..6=Saturday, matches JS Date.getDay().
+  workingDays: number[];
+};
+
+// The signed-in employee's own active schedule assignment(s) — used to mark
+// their non-working days on the leave-filing calendar (mirrors
+// employee-mobile's api.ts getMySchedules).
+export function getMySchedules() {
+  return apiRequest<MySchedule[]>("/schedules/mine");
+}
+
 export function changePassword(currentPassword: string, newPassword: string) {
   return apiRequest<{ message: string }>("/users/me/password", {
     method: "PATCH",
