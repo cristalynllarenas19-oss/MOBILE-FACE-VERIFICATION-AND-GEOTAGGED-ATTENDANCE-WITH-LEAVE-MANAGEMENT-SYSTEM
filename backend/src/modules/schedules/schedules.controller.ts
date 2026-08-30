@@ -24,6 +24,15 @@ export class SchedulesController {
     return this.schedulesService.findShifts();
   }
 
+  // Self-scoped — any authenticated user with an employee record can read
+  // their own schedule (used by the leave calendar), independent of the
+  // "schedules:write"-gated management endpoints below.
+  @Get("mine")
+  findMine(@Req() request: Request) {
+    const employeeId = (request as any).user?.employeeId;
+    return employeeId ? this.schedulesService.findMine(employeeId) : [];
+  }
+
   @Post()
   @RequirePermissions("schedules:write")
   createAssignment(

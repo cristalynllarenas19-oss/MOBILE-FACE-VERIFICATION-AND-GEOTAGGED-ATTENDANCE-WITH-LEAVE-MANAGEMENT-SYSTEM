@@ -50,6 +50,23 @@ export class SchedulesService {
     });
   }
 
+  // Self-scoped: an employee's own active schedule assignments, used by
+  // employee-mobile to know which weekdays are theirs to work (so the leave
+  // calendar can mark/block their non-working days) without exposing the
+  // org-wide findAll() list above.
+  findMine(employeeId: string) {
+    const today = new Date();
+    return this.prisma.employeeSchedule.findMany({
+      where: {
+        employeeId,
+        isActive: true,
+        OR: [{ endsOn: null }, { endsOn: { gte: today } }],
+      },
+      select: { id: true, startsOn: true, endsOn: true, workingDays: true },
+      orderBy: { startsOn: "desc" },
+    });
+  }
+
   async setAssignmentStatus(id: string, isActive: boolean, scopeDepartmentId?: string) {
     if (scopeDepartmentId) {
       const assignment = await this.prisma.employeeSchedule.findUniqueOrThrow({

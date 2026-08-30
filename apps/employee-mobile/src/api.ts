@@ -899,6 +899,20 @@ export async function getShifts() {
   return apiRequest<Shift[]>("/schedules/shifts");
 }
 
+export type MySchedule = {
+  id: string;
+  startsOn: string;
+  endsOn?: string | null;
+  // 0=Sunday..6=Saturday, matches JS Date.getDay().
+  workingDays: number[];
+};
+
+// The signed-in employee's own active schedule assignment(s) — used to mark
+// their non-working days on the leave-filing calendar.
+export async function getMySchedules() {
+  return apiRequest<MySchedule[]>("/schedules/mine");
+}
+
 export type ReportsSummary = {
   generatedAt: string;
   totals: {

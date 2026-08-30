@@ -27,6 +27,7 @@ import {
   UndertimeEligibility,
   UndertimeFiling,
   EmployeeProfile,
+  MySchedule,
   getLeaveTypes,
   getLeaveBalances,
   getLeaveRequests,
@@ -37,6 +38,7 @@ import {
   getUndertimeFilings,
   fileUndertime,
   getMyProfile,
+  getMySchedules,
 } from "../api";
 import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
 
@@ -56,6 +58,7 @@ const EMPTY_LEAVE_TYPES: LeaveType[] = [];
 const EMPTY_BALANCES: LeaveBalance[] = [];
 const EMPTY_REQUESTS: LeaveRequest[] = [];
 const EMPTY_UNDERTIME_FILINGS: UndertimeFiling[] = [];
+const EMPTY_SCHEDULES: MySchedule[] = [];
 
 type PickedAttachment = {
   name: string;
@@ -149,9 +152,16 @@ export default function LeaveScreen({ employeeId }: Props) {
     employeeId ? CACHE_KEYS.leaveRequests(employeeId) : null,
     () => getLeaveRequests(employeeId!),
   );
+  // Own schedule assignment(s) — drives the calendar's day-off/non-working
+  // classification below (see isNonWorkingDay).
+  const mySchedulesCache = useCachedData<MySchedule[]>(
+    employeeId ? CACHE_KEYS.mySchedules(employeeId) : null,
+    () => getMySchedules(),
+  );
   const leaveTypes = leaveTypesCache.data ?? EMPTY_LEAVE_TYPES;
   const balances = balancesCache.data ?? EMPTY_BALANCES;
   const requests = requestsCache.data ?? EMPTY_REQUESTS;
+  const mySchedules = mySchedulesCache.data ?? EMPTY_SCHEDULES;
   const isLoadingData = leaveTypesCache.isLoading || balancesCache.isLoading || requestsCache.isLoading;
   // Balance tab only ever renders balancesCache's data, so its spinner
   // shouldn't wait on the (much heavier) requests/leave-types fetches too.
@@ -311,6 +321,14 @@ export default function LeaveScreen({ employeeId }: Props) {
         status: "info",
         title: "Already Pending",
         message: `You already have a ${type.name} request awaiting review. Please wait until it is approved, rejected, or cancelled before filing another for this leave type.`,
+      });
+      return;
+    }
+    if (isLeaveTypeUnavailableToday(type)) {
+      setResultModal({
+        status: "info",
+        title: "Non-Working Day",
+        message: `${type.name} can only be filed for today's date, but today is your day off / a non-working day.`,
       });
       return;
     }
@@ -570,6 +588,34 @@ export default function LeaveScreen({ employeeId }: Props) {
     return hit ? "Already filed for this leave type" : undefined;
   }
 
+  // Sunday is a company-wide rest day (mirrors backend/schedule.util.ts's
+  // isDayOff); beyond that, a schedule assignment active on this date can
+  // narrow which other weekdays are actually worked (e.g. a 6-day shift's
+  // Saturday, or a part-timer's own override). No active assignment for the
+  // date falls back to "working" — same "nothing to compare against" rule
+  // the backend uses.
+  function isDateNonWorking(date: Date) {
+    if (date.getDay() === 0) return "Day off / non-working day";
+    const schedule = mySchedules.find((s) => {
+      const start = new Date(s.startsOn);
+      if (date < new Date(start.getFullYear(), start.getMonth(), start.getDate())) return false;
+      if (!s.endsOn) return true;
+      const end = new Date(s.endsOn);
+      return date <= new Date(end.getFullYear(), end.getMonth(), end.getDate());
+    });
+    if (!schedule) return undefined;
+    return schedule.workingDays.includes(date.getDay()) ? undefined : "Day off / non-working day";
+  }
+
+  // A !advanceFilingAllowed type (Sick Leave, Emergency Leave, Adverse
+  // Weather Leave) can only ever be filed for today — so if today happens to
+  // be this employee's day off, the type is entirely unfilable right now,
+  // not just on some dates. Surfaced up front (dropdown + Date section)
+  // instead of only failing at submit time.
+  function isLeaveTypeUnavailableToday(item: LeaveType) {
+    return item.advanceFilingAllowed === false && Boolean(isDateNonWorking(todayStart));
+  }
+
   // Single-day-only types (Sick Leave, Emergency Leave) always mirror the end
   // date to the start date the moment either one is known.
   useEffect(() => {
@@ -735,6 +781,19 @@ export default function LeaveScreen({ employeeId }: Props) {
     const leaveStartDate = isSingleDayLeave ? startDate : startDate;
     const leaveEndDate = isSingleDayLeave ? startDate : endDate;
     const leaveTotalDays = isSingleDayLeave ? 1 : totalDays;
+
+    // Mirrors the backend's own-day-off check (leave.service.ts) — catches
+    // dates set outside the calendar's disabled-day styling, e.g. the
+    // "Request" shortcut from the Balance tab, which jumps straight to today.
+    const nonWorkingBoundary = isDateNonWorking(leaveStartDate) ? leaveStartDate : isDateNonWorking(leaveEndDate) ? leaveEndDate : null;
+    if (nonWorkingBoundary) {
+      setResultModal({
+        status: "info",
+        title: "Non-Working Day",
+        message: `${formatDate(nonWorkingBoundary)} is your day off / a non-working day. Leave can only be filed for a working day.`,
+      });
+      return;
+    }
 
     // Mirrors the backend's check (leave.service.ts) so the error shows up
     // immediately instead of after a round trip — same type is blocked
@@ -1009,7 +1068,8 @@ export default function LeaveScreen({ employeeId }: Props) {
                     filteredLeaveTypes.map((item) => {
                       const exhausted = isLeaveTypeExhausted(item);
                       const alreadyPending = isLeaveTypeAlreadyPending(item);
-                      const disabled = exhausted || alreadyPending;
+                      const unavailableToday = !exhausted && !alreadyPending && isLeaveTypeUnavailableToday(item);
+                      const disabled = exhausted || alreadyPending || unavailableToday;
                       return (
                         <Pressable
                           key={item.id}
@@ -1042,7 +1102,9 @@ export default function LeaveScreen({ employeeId }: Props) {
                                 : " (no balance left)"
                               : alreadyPending
                                 ? " (already pending)"
-                                : ""}
+                                : unavailableToday
+                                  ? " (today is a non-working day)"
+                                  : ""}
                           </Text>
                         </Pressable>
                       );
@@ -1088,6 +1150,11 @@ export default function LeaveScreen({ employeeId }: Props) {
             ) : startDateSelected && endDateSelected ? (
               <Text style={styles.totalDaysText}>{totalDays} day{totalDays === 1 ? "" : "s"} total</Text>
             ) : null}
+            {selectedLeaveType && lockedToToday && isDateNonWorking(todayStart) && (
+              <Text style={styles.nonWorkingWarningText}>
+                Today is your day off / a non-working day — {selectedLeaveType.name} can't be filed until your next working day.
+              </Text>
+            )}
             {maxEndDate && !isSingleDayLeave && (
               <Text style={styles.totalDaysText}>
                 {remainingDaysFor(selectedLeaveType!)} day{remainingDaysFor(selectedLeaveType!) === 1 ? "" : "s"} available for {selectedLeaveType!.name} — end date can't go past {formatDate(maxEndDate)}
@@ -1106,6 +1173,7 @@ export default function LeaveScreen({ employeeId }: Props) {
               minimumDate={lockedToToday ? (isSingleDayLeave ? todayStart : undefined) : todayStart}
               maximumDate={lockedToToday ? todayStart : undefined}
               isDateDisabled={isDateAlreadyFiledForType}
+              isDateNonWorking={isDateNonWorking}
               onSelect={handleStartDateConfirm}
               onClose={() => setStartPickerVisibility(false)}
             />
@@ -1117,6 +1185,7 @@ export default function LeaveScreen({ employeeId }: Props) {
               minimumDate={startDateSelected ? startDate : todayStart}
               maximumDate={maxEndDate}
               isDateDisabled={isDateAlreadyFiledForType}
+              isDateNonWorking={isDateNonWorking}
               onSelect={handleEndDateConfirm}
               onClose={() => setEndPickerVisibility(false)}
             />
@@ -1676,6 +1745,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
     color: "#1680D8",
+  },
+  nonWorkingWarningText: {
+    marginTop: 6,
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#B45309",
   },
 
   attachmentPicker: {

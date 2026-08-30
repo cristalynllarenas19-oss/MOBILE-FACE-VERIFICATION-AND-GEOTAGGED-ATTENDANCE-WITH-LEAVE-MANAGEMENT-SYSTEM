@@ -6,7 +6,7 @@ import { CreateLeaveRequestDto } from "./dto/create-leave-request.dto";
 import { RejectLeaveRequestDto } from "./dto/reject-leave-request.dto";
 import { ResubmitLeaveRequestDto } from "./dto/resubmit-leave-request.dto";
 import { isEligibleForLeaveType } from "./leave-balances.service";
-import { isDayOff } from "../../common/utils/schedule.util";
+import { isDayOff, isNonWorkingDay } from "../../common/utils/schedule.util";
 
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 type LeaveRequestStatus =
@@ -307,6 +307,32 @@ export class LeaveService {
         }
       } else if (requestedStart > today) {
         throw new BadRequestException(`${leaveType.name} cannot be filed in advance — the date must be today or earlier.`);
+      }
+    }
+
+    // An employee can't file leave to cover a day they aren't scheduled to
+    // work in the first place — mirrors the calendar's own day-off styling
+    // (CalendarPickerModal's isDateNonWorking) so a crafted request can't
+    // bypass it. Only the request's boundary dates are checked: the days in
+    // between a multi-day range are already implicitly off as part of a
+    // normal working-week span and don't need to individually pass.
+    const boundaryDateStrings = new Set([dto.startDate, dto.endDate].map((d) => new Date(d).toDateString()));
+    for (const dateString of boundaryDateStrings) {
+      const date = new Date(dateString);
+      const scheduleOnDate = await this.prisma.employeeSchedule.findFirst({
+        where: {
+          employeeId: dto.employeeId,
+          isActive: true,
+          startsOn: { lte: date },
+          OR: [{ endsOn: null }, { endsOn: { gte: date } }],
+        },
+        orderBy: { startsOn: "desc" },
+        select: { workingDays: true },
+      });
+      if (isNonWorkingDay(date, scheduleOnDate?.workingDays)) {
+        throw new BadRequestException(
+          `${date.toLocaleDateString()} is your day off / a non-working day — leave can only be filed for a working day.`,
+        );
       }
     }
 
