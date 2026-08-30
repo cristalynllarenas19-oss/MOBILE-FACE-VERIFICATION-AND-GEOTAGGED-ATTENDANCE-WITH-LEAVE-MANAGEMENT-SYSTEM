@@ -1,7 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import type { AttendanceRecord } from "@prisma/client";
 import { randomUUID } from "crypto";
-import { PrismaService } from "../../prisma/prisma.service";
+import { PrismaService, withPrismaRetry } from "../../prisma/prisma.service";
 import { FaceVerificationService } from "../face-verification/face-verification.service";
 import { GeolocationService } from "../geolocation/geolocation.service";
 import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
@@ -1283,32 +1283,34 @@ export class AttendanceService {
   }
 
   async getHistory(employeeId: string, limit = 30) {
-    return this.prisma.attendanceRecord.findMany({
-      where: { employeeId },
-      orderBy: [{ attendanceDate: "desc" }, { visitNumber: "asc" }],
-      take: limit,
-      include: {
-        workLocation: { select: { name: true } },
-        // Include every attempt for the day, not just the approved
-        // TIME_IN/TIME_OUT ones — rejected attempts still have a captured
-        // photo and the employee should be able to review it too.
-        logs: {
-          orderBy: { capturedAt: "asc" },
-          select: {
-            id: true,
-            logType: true,
-            capturedAt: true,
-            verificationStatus: true,
-            failureReason: true,
-            faceImageData: true,
-            faceImageMimeType: true,
-            latitude: true,
-            longitude: true,
-            address: true,
+    return withPrismaRetry(() =>
+      this.prisma.attendanceRecord.findMany({
+        where: { employeeId },
+        orderBy: [{ attendanceDate: "desc" }, { visitNumber: "asc" }],
+        take: limit,
+        include: {
+          workLocation: { select: { name: true } },
+          // Include every attempt for the day, not just the approved
+          // TIME_IN/TIME_OUT ones — rejected attempts still have a captured
+          // photo and the employee should be able to review it too.
+          logs: {
+            orderBy: { capturedAt: "asc" },
+            select: {
+              id: true,
+              logType: true,
+              capturedAt: true,
+              verificationStatus: true,
+              failureReason: true,
+              faceImageData: true,
+              faceImageMimeType: true,
+              latitude: true,
+              longitude: true,
+              address: true,
+            },
           },
         },
-      },
-    });
+      }),
+    );
   }
 
   private decodeImageBase64(imageData: string) {

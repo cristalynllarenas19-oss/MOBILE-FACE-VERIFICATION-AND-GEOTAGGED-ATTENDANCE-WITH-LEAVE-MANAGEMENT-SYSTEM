@@ -1,8 +1,27 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 
 const CONNECT_RETRY_ATTEMPTS = 5;
 const CONNECT_RETRY_DELAY_MS = 3000;
+
+// Neon's compute also suspends mid-session, not just at boot: a query issued
+// right as it wakes back up can land on a connection the server already
+// closed (P1017), even though the pooler accepted it. Safe to retry only for
+// read-only calls, since a write that actually reached the server before the
+// close would otherwise risk executing twice.
+export async function withPrismaRetry<T>(query: () => Promise<T>, attempts = 2): Promise<T> {
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await query();
+    } catch (error) {
+      const isStaleConnection =
+        error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P1017";
+      if (!isStaleConnection || attempt === attempts) throw error;
+    }
+  }
+  /* istanbul ignore next -- unreachable, loop always returns or throws */
+  throw new Error("unreachable");
+}
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {

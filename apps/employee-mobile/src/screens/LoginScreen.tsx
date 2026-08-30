@@ -15,6 +15,7 @@ import {
   Dimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 
 const { width } = Dimensions.get("window");
 
@@ -41,7 +42,14 @@ export default function LoginScreen({
     useState(false);
 
   return (
-    <SafeAreaView style={styles.container}>
+    <LinearGradient
+      colors={["#FFFFFF", "#FFFFFF", "#9FD0F5", "#1680D8"]}
+      locations={[0, 0.35, 0.68, 1]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={styles.container}
+    >
+    <SafeAreaView style={styles.safeArea}>
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={
@@ -184,13 +192,17 @@ export default function LoginScreen({
         </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
     </SafeAreaView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F1F5F9",
+  },
+
+  safeArea: {
+    flex: 1,
   },
 
   scroll: {
