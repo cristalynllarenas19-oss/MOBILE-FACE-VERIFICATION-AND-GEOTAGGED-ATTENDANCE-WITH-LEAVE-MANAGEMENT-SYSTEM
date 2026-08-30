@@ -1,11 +1,11 @@
 import axios from "axios";
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { AlertTriangle, Archive, ChevronsUpDown, CheckCircle2, Eye, Pencil, Plus, ScanFace, Search, UserCheck, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { EvaluationViewModal } from "../evaluations/EvaluationViewModal";
 import { apiRequest } from "../../lib/api";
-import { useCachedData } from "../../lib/dataCache";
+import { CACHE_KEYS, revalidateCached, useCachedData } from "../../lib/dataCache";
 import { useActiveDepartments } from "../../lib/departments";
 import {
   type AttendanceModeOption,
@@ -452,6 +452,8 @@ function EditEmployeeModal({
   lockedDepartmentName,
   onClose,
   onUpdated,
+  onSynced,
+  onSaveFailed,
 }: {
   employee: Employee;
   departments: DepartmentOption[];
@@ -461,6 +463,8 @@ function EditEmployeeModal({
   lockedDepartmentName?: string;
   onClose: () => void;
   onUpdated: (employee: Employee) => void;
+  onSynced: (employee: Employee) => void;
+  onSaveFailed: (message: string) => void;
 }) {
   const [form, setForm] = useState<EditEmployeeForm>({
     firstName: employee.firstName,
@@ -475,7 +479,6 @@ function EditEmployeeModal({
     sex: employee.sex === "FEMALE" ? "FEMALE" : "MALE",
     supervisorId: employee.supervisor?.id ?? "",
   });
-  const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
 
  
@@ -488,15 +491,8 @@ function EditEmployeeModal({
     }
   }, [isModeLocked, departmentMode]);
   const [leaveAllocation, setLeaveAllocation] = useState("");
-  const [isAllocationLoading, setIsAllocationLoading] = useState(false);
- 
-  const [genderLeaveTypeId, setGenderLeaveTypeId] = useState<string | null>(null);
-
-  
-  const [adminGrantTypes, setAdminGrantTypes] = useState<{ id: string; name: string; defaultDays: string }[]>([]);
   const [grantedTypeIds, setGrantedTypeIds] = useState<Set<string>>(new Set());
   const [initialGrantedTypeIds, setInitialGrantedTypeIds] = useState<Set<string>>(new Set());
-  const [isGrantsLoading, setIsGrantsLoading] = useState(false);
 
   const availableSupervisors = supervisors.filter(
     (supervisor) => supervisor.id !== employee.id && supervisor.department.name === form.department.trim(),
@@ -509,52 +505,69 @@ function EditEmployeeModal({
         ? "Maternity Leave Allocation (days)"
         : null;
 
-  useEffect(() => {
-    if (!employee.sex) return;
+  // The allocation field and the admin-grant checklist both read the same
+  // two endpoints — routing them through the shared stale-while-revalidate
+  // cache means any employee this modal (or LeavePage) has already fetched
+  // renders instantly instead of showing "Loading..." again, and a cold open
+  // only fires 2 requests total instead of 4.
+  type LeaveTypeRow = {
+    id: string;
+    name: string;
+    defaultDays: string;
+    requiresAdminGrant: boolean;
+    isActive: boolean;
+    isTransferable: boolean;
+    kind: "GENERAL" | "MATERNITY" | "PATERNITY";
+  };
+  const leaveTypesCache = useCachedData<LeaveTypeRow[]>(CACHE_KEYS.leaveTypes, () =>
+    apiRequest<LeaveTypeRow[]>("/leave-types"),
+  );
+  const balancesCache = useCachedData<{ leaveTypeId: string; earnedDays: number }[]>(
+    CACHE_KEYS.leaveBalances(employee.id),
+    () => apiRequest(`/leave-balances/${employee.id}`),
+  );
+
+  const isAllocationLoading = leaveTypesCache.isLoading || balancesCache.isLoading;
+  const isGrantsLoading = leaveTypesCache.isLoading || balancesCache.isLoading;
+
+  const genderLeaveTypeId = useMemo(() => {
+    if (!employee.sex || !leaveTypesCache.data) return null;
     const wantedKind = employee.sex === "MALE" ? "PATERNITY" : "MATERNITY";
+    return leaveTypesCache.data.find((t) => t.kind === wantedKind && t.isActive)?.id ?? null;
+  }, [employee.sex, leaveTypesCache.data]);
 
-    setIsAllocationLoading(true);
-    Promise.all([
-      apiRequest<{ id: string; isActive: boolean; kind: "GENERAL" | "MATERNITY" | "PATERNITY" }[]>("/leave-types"),
-      apiRequest<{ leaveTypeId: string; earnedDays: number }[]>(`/leave-balances/${employee.id}`),
-    ])
-      .then(([types, balances]) => {
-        const genderType = types.find((t) => t.kind === wantedKind && t.isActive) ?? null;
-        setGenderLeaveTypeId(genderType?.id ?? null);
-        const match = genderType ? balances.find((b) => b.leaveTypeId === genderType.id) : undefined;
-        setLeaveAllocation(match ? String(match.earnedDays) : "");
-      })
-      .catch(() => undefined)
-      .finally(() => setIsAllocationLoading(false));
-  }, [employee.id, employee.sex]);
+  const adminGrantTypes = useMemo(() => {
+    if (!leaveTypesCache.data) return [];
+    return leaveTypesCache.data.filter((t) => {
+      if (!t.requiresAdminGrant || !t.isActive) return false;
+      if (t.isTransferable && employee.sex !== "MALE") return false;
+      return true;
+    });
+  }, [leaveTypesCache.data, employee.sex]);
 
+  // Seeds the editable local state exactly once, the first time both caches
+  // have data — which, on a warm cache, is the very first render. A later
+  // background revalidation must never clobber whatever the admin has
+  // already checked or typed in this open modal.
+  const seededRef = useRef(false);
   useEffect(() => {
-    setIsGrantsLoading(true);
-    Promise.all([
-      apiRequest<{ id: string; name: string; defaultDays: string; requiresAdminGrant: boolean; isActive: boolean; isTransferable: boolean }[]>(
-        "/leave-types",
-      ),
-      apiRequest<{ leaveTypeId: string; earnedDays: number }[]>(`/leave-balances/${employee.id}`),
-    ])
-      .then(([types, balances]) => {
-        
-        const grantTypes = types.filter((t) => {
-          if (!t.requiresAdminGrant || !t.isActive) return false;
-          if (t.isTransferable && employee.sex !== "MALE") return false;
-          return true;
-        });
-        setAdminGrantTypes(grantTypes);
-        const granted = new Set(
-          balances
-            .filter((b) => b.earnedDays > 0 && grantTypes.some((t) => t.id === b.leaveTypeId))
-            .map((b) => b.leaveTypeId),
-        );
-        setGrantedTypeIds(granted);
-        setInitialGrantedTypeIds(granted);
-      })
-      .catch(() => undefined)
-      .finally(() => setIsGrantsLoading(false));
-  }, [employee.id]);
+    if (seededRef.current) return;
+    if (!leaveTypesCache.data || !balancesCache.data) return;
+    seededRef.current = true;
+
+    if (genderLeaveTypeId) {
+      const match = balancesCache.data.find((b) => b.leaveTypeId === genderLeaveTypeId);
+      setLeaveAllocation(match ? String(match.earnedDays) : "");
+    }
+
+    const granted = new Set(
+      balancesCache.data
+        .filter((b) => b.earnedDays > 0 && adminGrantTypes.some((t) => t.id === b.leaveTypeId))
+        .map((b) => b.leaveTypeId),
+    );
+    setGrantedTypeIds(granted);
+    setInitialGrantedTypeIds(granted);
+  }, [leaveTypesCache.data, balancesCache.data, genderLeaveTypeId, adminGrantTypes]);
 
   const toggleGrantedType = (typeId: string) => {
     setGrantedTypeIds((current) => {
@@ -580,7 +593,7 @@ function EditEmployeeModal({
     return "";
   };
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const validationError = validateForm();
 
@@ -589,60 +602,96 @@ function EditEmployeeModal({
       return;
     }
 
-    setIsSaving(true);
     setError("");
 
-    try {
-      const token = localStorage.getItem("accessToken");
-      const response = await axios.patch<Employee>(
-        `${API_BASE_URL}/employees/${employee.id}`,
-        {
-          firstName: form.firstName.trim(),
-          lastName: form.lastName.trim(),
-          email: form.email.trim(),
-          department: form.department.trim(),
-          position: form.position.trim(),
-          employmentStatus: form.employmentStatus,
-          attendanceMode: form.attendanceMode,
-          soloParentStatus: form.soloParentStatus,
-          supervisorId: form.supervisorId,
-          ...(form.hireDate ? { hireDate: form.hireDate } : {}),
-          ...(employee.sex && leaveAllocation !== "" ? { leaveAllocationDays: Number(leaveAllocation) } : {}),
+    // The admin gets an instant result: the list/modal update with the
+    // values just typed right away, and the actual writes continue in the
+    // background. onSynced reconciles with the server's response when it
+    // lands (e.g. server-resolved attendance mode); onSaveFailed surfaces a
+    // toast and reverts the optimistic change if the write actually failed.
+    const optimisticSupervisor = form.supervisorId
+      ? (() => {
+          const match = supervisors.find((supervisor) => supervisor.id === form.supervisorId);
+          return match ? { id: match.id, firstName: match.firstName, lastName: match.lastName } : employee.supervisor;
+        })()
+      : null;
+
+    onUpdated({
+      ...employee,
+      firstName: form.firstName.trim(),
+      lastName: form.lastName.trim(),
+      user: employee.user ? { ...employee.user, email: form.email.trim() } : employee.user,
+      department: { name: form.department.trim() },
+      position: { title: form.position.trim() },
+      employmentStatus: form.employmentStatus,
+      attendanceMode: form.attendanceMode,
+      soloParentStatus: form.soloParentStatus,
+      supervisor: optimisticSupervisor ?? null,
+      hireDate: form.hireDate || employee.hireDate,
+    });
+
+    const token = localStorage.getItem("accessToken");
+    const patchPromise = axios.patch<Employee>(
+      `${API_BASE_URL}/employees/${employee.id}`,
+      {
+        firstName: form.firstName.trim(),
+        lastName: form.lastName.trim(),
+        email: form.email.trim(),
+        department: form.department.trim(),
+        position: form.position.trim(),
+        employmentStatus: form.employmentStatus,
+        attendanceMode: form.attendanceMode,
+        soloParentStatus: form.soloParentStatus,
+        supervisorId: form.supervisorId,
+        ...(form.hireDate ? { hireDate: form.hireDate } : {}),
+        ...(employee.sex && leaveAllocation !== "" ? { leaveAllocationDays: Number(leaveAllocation) } : {}),
+      },
+      {
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        {
-          headers: {
-            "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
-          },
-        },
-      );
+      },
+    );
 
-      const changedTypeIds = adminGrantTypes
-        .filter((t) => grantedTypeIds.has(t.id) !== initialGrantedTypeIds.has(t.id))
-        .map((t) => t.id);
+    const changedTypeIds = adminGrantTypes
+      .filter((t) => grantedTypeIds.has(t.id) !== initialGrantedTypeIds.has(t.id))
+      .map((t) => t.id);
 
-      if (changedTypeIds.length > 0) {
-        await Promise.all(
-          changedTypeIds.map((typeId) => {
-            const type = adminGrantTypes.find((t) => t.id === typeId)!;
-            const isGranted = grantedTypeIds.has(typeId);
-            return apiRequest(`/leave-balances/${employee.id}/grant`, {
-              method: "POST",
-              body: JSON.stringify({
-                leaveTypeId: typeId,
-                earnedDays: isGranted ? Number(type.defaultDays) : 0,
-              }),
-            });
-          }),
-        );
-      }
+    // Independent writes (employee fields vs. leave-balance grants) fire
+    // concurrently instead of one-after-another.
+    const grantsPromise =
+      changedTypeIds.length > 0
+        ? Promise.all(
+            changedTypeIds.map((typeId) => {
+              const type = adminGrantTypes.find((t) => t.id === typeId)!;
+              const isGranted = grantedTypeIds.has(typeId);
+              return apiRequest(`/leave-balances/${employee.id}/grant`, {
+                method: "POST",
+                body: JSON.stringify({
+                  leaveTypeId: typeId,
+                  earnedDays: isGranted ? Number(type.defaultDays) : 0,
+                }),
+              });
+            }),
+          )
+        : Promise.resolve(null);
 
-      onUpdated(response.data);
-    } catch (err) {
-      setError(extractErrorMessage(err, "Unable to update employee."));
-    } finally {
-      setIsSaving(false);
-    }
+    Promise.all([patchPromise, grantsPromise])
+      .then(([response]) => {
+        onSynced(response.data);
+        // The grant POST above writes straight to the server, bypassing the
+        // shared leave-balances cache — without this, reopening Edit
+        // Employee (or the employee's own Leave page) would keep reading the
+        // pre-grant snapshot and show the checkbox unchecked even though
+        // soloParentStatus already says Eligible.
+        if (changedTypeIds.length > 0) {
+          revalidateCached(CACHE_KEYS.leaveBalances(employee.id), () =>
+            apiRequest(`/leave-balances/${employee.id}`),
+          ).catch(() => undefined);
+        }
+      })
+      .catch((err) => onSaveFailed(extractErrorMessage(err, "Unable to update employee.")));
   };
 
   return (
@@ -756,14 +805,6 @@ function EditEmployeeModal({
               />
             </label>
           )}
-          <label>
-            Solo Parent Status
-            <select value={form.soloParentStatus} onChange={updateField("soloParentStatus")}>
-              <option value="NOT_APPLICABLE">Not Applicable</option>
-              <option value="ELIGIBLE">Eligible</option>
-              <option value="INELIGIBLE">Ineligible</option>
-            </select>
-          </label>
         </div>
 
         {adminGrantTypes.length > 0 && (
@@ -775,29 +816,73 @@ function EditEmployeeModal({
               These leave types are only available to an employee once granted here. Checking one grants its default
               day allotment; unchecking revokes it.
             </p>
-            {adminGrantTypes.map((type) => (
-              <label key={type.id} className="employee-leave-grant-row">
-                <input
-                  type="checkbox"
-                  checked={grantedTypeIds.has(type.id)}
-                  disabled={isGrantsLoading}
-                  onChange={() => toggleGrantedType(type.id)}
-                />
-                <span>
-                  {type.name} <span className="grant-days">({type.defaultDays} day{Number(type.defaultDays) === 1 ? "" : "s"})</span>
-                </span>
-              </label>
-            ))}
+            {adminGrantTypes.map((type) => {
+              const isSoloParentLeave = type.name === "Solo Parent Leave";
+              const isIneligible = isSoloParentLeave && form.soloParentStatus === "INELIGIBLE";
+              return (
+                <div key={type.id} className="employee-leave-grant-line">
+                  <label className="employee-leave-grant-row">
+                    <input
+                      type="checkbox"
+                      checked={grantedTypeIds.has(type.id)}
+                      disabled={isGrantsLoading || isIneligible}
+                      onChange={() => {
+                        const wasGranted = grantedTypeIds.has(type.id);
+                        toggleGrantedType(type.id);
+                        if (isSoloParentLeave) {
+                          setForm((current) => ({
+                            ...current,
+                            soloParentStatus: wasGranted ? "NOT_APPLICABLE" : "ELIGIBLE",
+                          }));
+                        }
+                      }}
+                    />
+                    <span>
+                      {type.name} <span className="grant-days">({type.defaultDays} day{Number(type.defaultDays) === 1 ? "" : "s"})</span>
+                    </span>
+                  </label>
+                  {isSoloParentLeave && (
+                    <label className="employee-inline-checkbox employee-solo-parent-ineligible">
+                      <input
+                        type="checkbox"
+                        checked={isIneligible}
+                        disabled={isGrantsLoading}
+                        onChange={(event) => {
+                          const checked = event.target.checked;
+                          setForm((current) => ({
+                            ...current,
+                            soloParentStatus: checked ? "INELIGIBLE" : "NOT_APPLICABLE",
+                          }));
+                          if (checked && grantedTypeIds.has(type.id)) {
+                            toggleGrantedType(type.id);
+                          }
+                        }}
+                      />
+                      <span>Ineligible</span>
+                    </label>
+                  )}
+                  {isSoloParentLeave && (
+                    <span className={`employee-solo-parent-status employee-solo-parent-status--${form.soloParentStatus.toLowerCase()}`}>
+                      {form.soloParentStatus === "ELIGIBLE"
+                        ? "Eligible"
+                        : form.soloParentStatus === "INELIGIBLE"
+                          ? "Ineligible"
+                          : "Not Applicable"}
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
 
         {error && <p className="employee-form-error">{error}</p>}
 
         <div className="employee-form-actions">
-          <button type="submit" className="primary-button" disabled={isSaving}>
-            {isSaving ? "Saving..." : "Save Changes"}
+          <button type="submit" className="primary-button">
+            Save Changes
           </button>
-          <button type="button" className="outline-button" onClick={onClose} disabled={isSaving}>
+          <button type="button" className="outline-button" onClick={onClose}>
             Cancel
           </button>
         </div>
@@ -1188,6 +1273,19 @@ export function EmployeesPage({
     setNotification({ type: "success", message: "Employee was updated successfully." });
   };
 
+  // Quietly reconciles the optimistic edit with the server's response once
+  // the background save actually lands — no re-closing the modal (already
+  // closed) and no second toast.
+  const handleEmployeeSynced = (employee: Employee) => {
+    employeesCache.setData(employees.map((item) => (item.id === employee.id ? employee : item)));
+    setViewEmployee((current) => (current?.id === employee.id ? employee : current));
+  };
+
+  const handleEmployeeSaveFailed = (message: string) => {
+    setNotification({ type: "error", message });
+    employeesCache.refresh().catch(() => undefined);
+  };
+
   const handleEmployeeArchived = (employee: Employee) => {
     employeesCache.setData(employees.map((item) => (item.id === employee.id ? employee : item)));
     setViewEmployee((current) => (current?.id === employee.id ? employee : current));
@@ -1422,6 +1520,8 @@ export function EmployeesPage({
             handleEmployeeUpdated(updatedEmployee);
             supervisorsCache.refresh().catch(() => undefined);
           }}
+          onSynced={handleEmployeeSynced}
+          onSaveFailed={handleEmployeeSaveFailed}
         />
       )}
 

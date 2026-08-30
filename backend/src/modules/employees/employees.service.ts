@@ -460,7 +460,13 @@ export class EmployeesService {
     }
 
     const targetDepartmentId = department?.id ?? employee.departmentId;
-    let resolvedSupervisorId = await this.resolveSupervisorId(dto.supervisorId, targetDepartmentId, id);
+    // The edit form always resubmits supervisorId even when the admin didn't
+    // touch it — skip the extra lookup query on that common no-op case.
+    const currentSupervisorId = employee.supervisorId ?? "";
+    let resolvedSupervisorId =
+      dto.supervisorId !== undefined && dto.supervisorId !== currentSupervisorId
+        ? await this.resolveSupervisorId(dto.supervisorId, targetDepartmentId, id)
+        : undefined;
 
     // Moving departments without an explicit supervisor change would otherwise
     // leave a dangling cross-department supervisorId — clear it rather than

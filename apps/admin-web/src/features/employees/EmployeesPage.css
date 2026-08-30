@@ -544,6 +544,64 @@
   font-weight: 500;
 }
 
+.employee-leave-grant-line {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.employee-inline-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 7px 6px;
+}
+
+.employee-inline-checkbox input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  accent-color: #dc2626;
+  cursor: pointer;
+}
+
+.employee-solo-parent-ineligible {
+  border-left: 1px solid #dbe5ef;
+  padding-left: 10px;
+  margin-left: 2px;
+}
+
+.employee-solo-parent-status {
+  margin-left: 4px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.employee-solo-parent-status--not_applicable {
+  color: #64748b;
+  background: #e2e8f0;
+}
+
+.employee-solo-parent-status--eligible {
+  color: #15803d;
+  background: #dcfce7;
+}
+
+.employee-solo-parent-status--ineligible {
+  color: #b91c1c;
+  background: #fee2e2;
+}
+
 .employee-leave-grants {
   display: flex;
   flex-direction: column;
