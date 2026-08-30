@@ -1,7 +1,7 @@
 import { MousePointerClick } from "lucide-react";
 import { AttendanceNavigateFilter, DeptAttendanceRow } from "../../components/ui/BarChart";
 import { computeAttendanceRate, getRateTone, RATE_TONE_COLOR } from "./attendanceRate";
-import { formatFullDate, toDateInputValue } from "./dateUtils";
+import { toDateInputValue } from "./dateUtils";
 import "./DayDetailPanel.css";
 
 export type SelectedDay = {
@@ -43,10 +43,10 @@ function DeptRateRow({
         )}
       </div>
       <div className="ddp-dept-stats">
-        <span>Present: {row.present}</span>
-        <span>Late: {row.late}</span>
-        <span>Absent: {row.absent}</span>
-        <span>On Leave: {row.onLeave}</span>
+        <span>Present: <strong>{row.present}</strong></span>
+        <span>Late: <strong>{row.late}</strong></span>
+        <span>Absent: <strong>{row.absent}</strong></span>
+        <span>On Leave: <strong>{row.onLeave}</strong></span>
       </div>
       <div className="ddp-rate-line">
         <span className="ddp-rate-value">Attendance Rate: {rate}%</span>
@@ -88,8 +88,6 @@ export function DayDetailPanel({
 
   return (
     <div className="ddp-body" key={`${day.date}-${departmentFilter}`}>
-      <h4 className="ddp-date">{formatFullDate(day.date)}</h4>
-
       {day.isDayOff ? (
         <p className="ddp-empty">Sunday — company-wide day off. Attendance is not required.</p>
       ) : rows.length > 0 ? (

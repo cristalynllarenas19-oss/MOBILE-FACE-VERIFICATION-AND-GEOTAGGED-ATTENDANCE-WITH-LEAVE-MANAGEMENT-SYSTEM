@@ -1,9 +1,11 @@
 import {
   AlertTriangle,
+  BarChart3,
   CalendarOff,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Info,
   MapPinned,
   ScanFace,
   TrendingUp,
@@ -17,18 +19,33 @@ import { StatCard } from "../../components/ui/StatCard";
 import { apiRequest } from "../../lib/api";
 import { prefetchCached, useCachedData } from "../../lib/dataCache";
 import { useActiveDepartments } from "../../lib/departments";
-import { AttendanceDonut } from "./AttendanceDonut";
+import { AttendanceDonutChart, AttendanceDonutLegend } from "./AttendanceDonut";
 import { computeAttendanceRate, getRateTone, RATE_TONE_COLOR } from "./attendanceRate";
-import { formatShortDate } from "./dateUtils";
+import { formatFullDate } from "./dateUtils";
 import { DayDetailPanel } from "./DayDetailPanel";
 import { MonthlyAttendanceChart } from "./MonthlyAttendanceChart";
-import { TodaySummaryCard } from "./TodaySummaryCard";
 import "./DashboardPage.css";
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ];
+
+const WEEKDAY_FULL_NAME: Record<string, string> = {
+  Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday",
+  Fri: "Friday", Sat: "Saturday", Sun: "Sunday",
+};
+
+// Rounds the Absence Trends chart's max bar value up to a "nice" step (1/2/5/10
+// x a power of ten) so the y-axis reads 0/10/20/30/40 rather than an arbitrary
+// number — same rounding rule chart libraries like d3/Recharts use for ticks.
+function niceAxisTicks(maxValue: number): number[] {
+  const target = Math.max(maxValue, 1) / 4;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(target)));
+  const residual = target / magnitude;
+  const step = (residual > 5 ? 10 : residual > 2 ? 5 : residual > 1 ? 2 : 1) * magnitude;
+  return [4, 3, 2, 1, 0].map((i) => Math.round(step * i));
+}
 
 function dashboardSummaryKey(month: number, year: number) {
   return `dashboard-summary:${month + 1}-${year}`;
@@ -37,6 +54,8 @@ function dashboardSummaryKey(month: number, year: number) {
 function fetchDashboardSummary(month: number, year: number) {
   return apiRequest<DashboardSummary>(`/dashboard/summary?month=${month + 1}&year=${year}`);
 }
+
+const WEEKDAY_ORDER = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 type CalendarDay = {
   day: number;
@@ -73,7 +92,6 @@ type DashboardSummary = {
     monthLabel: string;
     days: CalendarDay[];
   };
-  absenceTrends: { department: string; dayOfWeek: string; absences: number; insight: string }[];
   departmentAttendance: {
     today: DeptAttendanceRow[];
     week: DeptAttendanceRow[];
@@ -86,7 +104,6 @@ const initialSummary: DashboardSummary = {
   enrollment: { enrolled: 0, total: 0 },
   geotagging: { assigned: 0, total: 0 },
   calendar: { monthLabel: "", days: [] },
-  absenceTrends: [],
   departmentAttendance: { today: [], week: [], month: [] },
 };
 
@@ -237,21 +254,10 @@ export function DashboardPage({
       enrollment: { ...initialSummary.enrollment, ...summaryData.enrollment },
       geotagging: { ...initialSummary.geotagging, ...summaryData.geotagging },
       calendar: { ...initialSummary.calendar, ...summaryData.calendar },
-      absenceTrends: summaryData.absenceTrends ?? [],
       departmentAttendance: { ...initialSummary.departmentAttendance, ...summaryData.departmentAttendance },
     };
   }, [summaryData]);
   const [departmentFilter, setDepartmentFilter] = useState("ALL");
-  const [trendIndex, setTrendIndex] = useState(0);
-
-  useEffect(() => {
-    const trendCount = summary.absenceTrends.length;
-    if (trendCount <= 1) return;
-    const interval = window.setInterval(() => {
-      setTrendIndex((current) => (current + 1) % trendCount);
-    }, 4500);
-    return () => window.clearInterval(interval);
-  }, [summary.absenceTrends.length]);
 
   useEffect(() => {
     if (!summaryData) return;
@@ -276,6 +282,14 @@ export function DashboardPage({
   }
 
   const onLeaveToday = summary.departmentAttendance.today.reduce((sum, row) => sum + row.onLeave, 0);
+
+  // Sunday is a company-wide day off, so a 0% rate would misleadingly read
+  // as a bad day rather than an expected non-working day.
+  const todayAttendanceRateLabel = new Date().getDay() === 0
+    ? "Day Off"
+    : `${summary.stats.totalEmployees > 0
+        ? Math.round(((summary.stats.presentToday + summary.stats.lateToday) / summary.stats.totalEmployees) * 100)
+        : 0}%`;
 
   // Sourced from GET /departments (all active departments), not from the
   // calendar summary's per-day rows — those only include departments that
@@ -340,6 +354,82 @@ export function DashboardPage({
       onLeave: row?.onLeave ?? 0,
     };
   }, [selectedDay, departmentFilter]);
+
+  // Absence Trends: company-wide (not filtered by the Monthly Attendance
+  // department dropdown — that filter already applies to the calendar and
+  // Attendance Details, so applying it here too would just be the same
+  // information restated) weekday aggregate over whatever month/year is
+  // currently selected via the Monthly Attendance picker above — no
+  // separate month control of its own. Every occurrence of a given weekday
+  // in the visible month is summed (all Mondays together, etc.), so the
+  // chart reads as "which weekday tends to be worst," not a single day.
+  // The bars themselves follow the same departmentFilter as the Monthly
+  // Attendance dropdown (and Attendance Details, which already reacts to
+  // it) — picking a department there narrows this chart too. "Most Affected
+  // Department" stays company-wide regardless of that filter: once you've
+  // already drilled into one department, "which department is worst" isn't
+  // a question the chart can answer any more, so it keeps the full picture.
+  const trendChart = useMemo(() => {
+    const weekdayTotals: Record<string, number> = Object.fromEntries(WEEKDAY_ORDER.map((d) => [d, 0]));
+    const departmentTotals = new Map<string, number>();
+    // Per-department, per-weekday — feeds the "Highest Absence Day" card's
+    // click-to-drill-down (which department is worst on the clicked
+    // weekday), independent of departmentTotals above (that one stays
+    // company-wide for the "Department with Most Absences" card).
+    const departmentWeekdayTotals = new Map<string, Record<string, number>>();
+    for (const day of summary.calendar.days) {
+      const weekday = WEEKDAY_ORDER[(new Date(day.date).getDay() + 6) % 7];
+      if (departmentFilter === "ALL") {
+        weekdayTotals[weekday] += day.absent;
+      } else {
+        const row = day.departments.find((d) => d.department === departmentFilter);
+        weekdayTotals[weekday] += row?.absent ?? 0;
+      }
+      for (const row of day.departments) {
+        departmentTotals.set(row.department, (departmentTotals.get(row.department) ?? 0) + row.absent);
+        const byWeekday = departmentWeekdayTotals.get(row.department) ?? Object.fromEntries(WEEKDAY_ORDER.map((d) => [d, 0]));
+        byWeekday[weekday] += row.absent;
+        departmentWeekdayTotals.set(row.department, byWeekday);
+      }
+    }
+
+    const bars = WEEKDAY_ORDER.map((day) => ({ day, absences: weekdayTotals[day] }));
+    const peak = bars.reduce((max, bar) => (bar.absences > max.absences ? bar : max), bars[0]);
+    const weekTotal = bars.reduce((sum, bar) => sum + bar.absences, 0);
+
+    let topDepartment: { department: string; total: number } | null = null;
+    for (const [department, total] of departmentTotals) {
+      if (!topDepartment || total > topDepartment.total) topDepartment = { department, total };
+    }
+
+    return {
+      bars,
+      peakDay: peak.absences > 0 ? peak.day : null,
+      peakAbsences: peak.absences,
+      weekTotal,
+      topDepartment,
+      departmentWeekdayTotals,
+    };
+  }, [summary.calendar.days, departmentFilter]);
+
+  // Which weekday bar is currently selected/highlighted — defaults to the
+  // overall peak day until the admin clicks a different bar.
+  const [selectedTrendDay, setSelectedTrendDay] = useState<string | null>(null);
+  const activeTrendDay = selectedTrendDay ?? trendChart.peakDay;
+
+  // The department with the most absences on just the active weekday
+  // (drives the "Highest Absence Day" card's content when a bar is clicked)
+  // — distinct from trendChart.topDepartment, which is always company-wide
+  // for the whole period regardless of which day is selected.
+  const topDepartmentForActiveDay = useMemo(() => {
+    if (!activeTrendDay) return null;
+    let top: { department: string; total: number } | null = null;
+    for (const [department, byWeekday] of trendChart.departmentWeekdayTotals) {
+      const total = byWeekday[activeTrendDay] ?? 0;
+      if (total > 0 && (!top || total > top.total)) top = { department, total };
+    }
+    return top;
+  }, [activeTrendDay, trendChart.departmentWeekdayTotals]);
 
   return (
     <div className="dashboard-page">
@@ -416,66 +506,161 @@ export function DashboardPage({
         </Card>
 
         <Card className="day-detail-card">
-          <div className="card-heading">
+          <div className="card-heading calendar-heading-row">
             <h3>Attendance Details</h3>
+            <span className="cal-hint">{selectedDay ? formatFullDate(selectedDay.date) : "No date selected"}</span>
           </div>
           <DayDetailPanel day={selectedDay} departmentFilter={departmentFilter} onNavigate={onNavigateToAttendance} />
-
-          <div className="dashboard-inline-section">
-            <div className="side-card-header">
-              <TrendingUp size={15} />
-              <h3>Absence Trends</h3>
-            </div>
-            {summary.absenceTrends.length === 0 ? (
-              <p className="trend-empty">No repeated absence pattern this month.</p>
-            ) : (
-              (() => {
-                const trend = summary.absenceTrends[trendIndex % summary.absenceTrends.length];
-                return (
-                  <div className="trend-row" key={`${trend.department}-${trend.dayOfWeek}`}>
-                    <strong>{trend.department}</strong>
-                    <span>{trend.dayOfWeek}: {trend.absences} absences</span>
-                    <small>{trend.insight}</small>
-                  </div>
-                );
-              })()
-            )}
-            {summary.absenceTrends.length > 1 && (
-              <div className="trend-dots" aria-hidden="true">
-                {summary.absenceTrends.map((trend, index) => (
-                  <span
-                    key={`${trend.department}-${trend.dayOfWeek}`}
-                    className={index === trendIndex % summary.absenceTrends.length ? "active" : ""}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
         </Card>
 
         <Card className="donut-card">
           <div className="card-heading calendar-heading-row">
-            <h3>Attendance Breakdown</h3>
-            <span className="cal-hint">{selectedDay ? formatShortDate(selectedDay.date) : "No date selected"}</span>
+            <h3>Today's Summary</h3>
+            <span className="cal-hint cal-hint-rate">{todayAttendanceRateLabel}</span>
           </div>
-          <AttendanceDonut
-            present={donutSource.present}
-            absent={donutSource.absent}
-            onLeave={donutSource.onLeave}
-          />
-
-          <div className="dashboard-inline-section">
-            <div className="side-card-header">
-              <h3>Today's Summary</h3>
-            </div>
-            <TodaySummaryCard
-              working={summary.stats.presentToday}
-              onLeave={onLeaveToday}
-              late={summary.stats.lateToday}
-              absent={summary.stats.absentToday}
-              totalEmployees={summary.stats.totalEmployees}
-              isDayOff={new Date().getDay() === 0}
+          <div className="donut-summary-row">
+            <AttendanceDonutChart
+              present={donutSource.present}
+              absent={donutSource.absent}
+              onLeave={donutSource.onLeave}
             />
+            <div className="donut-summary-col">
+              <AttendanceDonutLegend
+                present={donutSource.present}
+                absent={donutSource.absent}
+                onLeave={donutSource.onLeave}
+              />
+            </div>
+          </div>
+
+          <div className="donut-card-scroll">
+          <div className="dashboard-inline-section trend-section">
+            <div className="side-card-header trend-header">
+              <span className="trend-title-icon">
+                <TrendingUp size={15} />
+              </span>
+              <h3>Absence Trends</h3>
+              <div className="trend-subheading">
+                <div className="trend-subheading-top">
+                  <span className="trend-subheading-title">By Day of Week</span>
+                  <Info
+                    size={11}
+                    className="trend-subheading-info"
+                    aria-label="Total absences grouped by weekday, across all weeks in the selected period"
+                  />
+                </div>
+                <span className="trend-subheading-total">
+                  <strong>{trendChart.weekTotal}</strong> total absences
+                </span>
+              </div>
+            </div>
+
+            {trendChart.peakAbsences === 0 ? (
+              <p className="trend-empty">No absences recorded this period.</p>
+            ) : (
+              (() => {
+                const ticks = niceAxisTicks(Math.max(...trendChart.bars.map((bar) => bar.absences)));
+                const chartMax = ticks[0];
+                return (
+                  <>
+                    <div className="trend-chart-row">
+                      <div className="trend-chart-axis">
+                        {ticks.map((tick) => (
+                          <span key={tick}>{tick}</span>
+                        ))}
+                      </div>
+                      <div className="trend-chart-plot">
+                        <div className="trend-chart-zone">
+                          {ticks.map((tick) => (
+                            <div
+                              key={tick}
+                              className="trend-chart-gridline"
+                              style={{ bottom: `${chartMax > 0 ? (tick / chartMax) * 100 : 0}%` }}
+                            />
+                          ))}
+                          {trendChart.bars.map((bar) => {
+                            const heightPct = chartMax > 0 ? (bar.absences / chartMax) * 100 : 0;
+                            const isActive = bar.day === activeTrendDay;
+                            return (
+                              <button
+                                type="button"
+                                className="trend-chart-col"
+                                key={bar.day}
+                                onClick={() => setSelectedTrendDay(bar.day)}
+                                title={`${WEEKDAY_FULL_NAME[bar.day] ?? bar.day}: ${bar.absences} absence${bar.absences === 1 ? "" : "s"}`}
+                              >
+                                <div className="trend-chart-bar-track">
+                                  <span
+                                    className={`trend-chart-value${isActive ? " peak" : ""}`}
+                                    style={{ bottom: `calc(${heightPct}% + 3px)` }}
+                                  >
+                                    {bar.absences}
+                                  </span>
+                                  <div
+                                    className={`trend-chart-bar${isActive ? " peak" : ""}`}
+                                    style={{ height: `${heightPct}%` }}
+                                  />
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <div className="trend-chart-xlabels">
+                          {trendChart.bars.map((bar) => (
+                            <span
+                              key={bar.day}
+                              className={bar.day === activeTrendDay ? "peak" : ""}
+                            >
+                              {bar.day}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="trend-insights">
+                      <div className="trend-insight-card red">
+                        <span className="trend-insight-icon red">
+                          <BarChart3 size={15} />
+                        </span>
+                        <div className="trend-insight-body">
+                          <span className="trend-insight-label">Highest Absence Day</span>
+                          <strong className="trend-insight-value red">
+                            {topDepartmentForActiveDay?.department ?? "No data"}
+                          </strong>
+                        </div>
+                        <div className="trend-insight-count-block">
+                          <strong className="trend-insight-count-number red">
+                            {topDepartmentForActiveDay?.total ?? 0}
+                          </strong>
+                          <span className="trend-insight-count-label">
+                            absence{topDepartmentForActiveDay?.total === 1 ? "" : "s"}
+                          </span>
+                        </div>
+                      </div>
+                      {trendChart.topDepartment && (
+                        <div className="trend-insight-card amber">
+                          <span className="trend-insight-icon amber">
+                            <Users size={15} />
+                          </span>
+                          <div className="trend-insight-body">
+                            <span className="trend-insight-label">Department with Most Absences</span>
+                            <strong className="trend-insight-value amber">{trendChart.topDepartment.department}</strong>
+                          </div>
+                          <div className="trend-insight-count-block">
+                            <strong className="trend-insight-count-number amber">{trendChart.topDepartment.total}</strong>
+                            <span className="trend-insight-count-label">
+                              absence{trendChart.topDepartment.total === 1 ? "" : "s"}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                );
+              })()
+            )}
+          </div>
           </div>
         </Card>
       </div>

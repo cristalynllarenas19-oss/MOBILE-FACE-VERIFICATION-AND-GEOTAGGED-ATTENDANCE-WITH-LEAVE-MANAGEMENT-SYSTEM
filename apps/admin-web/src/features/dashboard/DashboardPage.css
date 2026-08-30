@@ -97,6 +97,7 @@
   align-items: stretch;
   flex: 1;
   min-height: 0;
+  max-height: 480px;
   transition: opacity 0.2s ease;
 }
 
@@ -105,9 +106,6 @@
   pointer-events: none;
 }
 
-/* All three cards stretch to the same full row height (which fills the
-   page down toward the sidebar's Logout line) — overflowing content
-   scrolls inside its own region instead (see .ddp-dept-list, .mabar-track). */
 .monthly-chart-card,
 .day-detail-card,
 .donut-card {
@@ -123,28 +121,52 @@
   margin-bottom: 8px;
 }
 
+.day-detail-card .card-heading {
+  padding-bottom: 8px;
+  border-bottom: 1px solid #edf2f781;
+}
+
+
 .donut-card .side-card-header {
   margin-bottom: 6px;
 }
 
-/* Absence Trends / Today's Summary don't have enough content to fill the
-   stretched card height on their own, so center them in the leftover
-   space (even gap above/below) instead of leaving one gap at the bottom. */
-.day-detail-card .dashboard-inline-section {
-  margin: auto 0;
-  padding-top: 2px;
-}
-
-.day-detail-card .side-card-header {
-  margin-bottom: 4px;
-}
-
 .donut-card .dashboard-inline-section {
-  margin: auto 0;
+  margin: 10px 0 0;
 }
 
-.day-detail-card .side-card-header {
-  margin-bottom: 4px;
+
+.donut-summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 20px;
+  padding: 4px 14px;
+  box-sizing: border-box;
+}
+
+.donut-summary-col {
+  flex: 1 1 140px;
+  min-width: 140px;
+}
+
+.donut-card-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+
+.trend-section {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+
+.donut-card .trend-section {
+  padding-top: 10px;
 }
 
 .dashboard-inline-section {
@@ -218,6 +240,12 @@
   flex-shrink: 0;
 }
 
+.cal-hint-rate {
+  color: #1a6faf;
+  font-size: 17px;
+  font-weight: 800;
+}
+
 .cal-nav-btn {
   width: 32px;
   height: 32px;
@@ -260,50 +288,300 @@
   flex-shrink: 0;
 }
 
-.trend-row {
-  display: grid;
-  gap: 3px;
-  padding: 2px 0;
-  animation: trend-fade-in 0.35s ease;
-}
-
-@keyframes trend-fade-in {
-  from { opacity: 0; transform: translateY(3px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-.trend-row strong {
-  color: var(--text);
-  font-size: 12px;
-  line-height: 1.2;
-}
-
-.trend-row span,
-.trend-row small,
 .trend-empty {
   color: var(--muted);
   font-size: 11px;
   line-height: 1.3;
 }
 
-.trend-dots {
-  display: flex;
-  justify-content: center;
-  gap: 5px;
-  margin-top: 2px;
+.trend-header {
+  flex-wrap: nowrap;
+  align-items: flex-start;
 }
 
-.trend-dots span {
-  width: 5px;
-  height: 5px;
+.trend-header h3 {
+  font-size: 13px;
+  align-self: center;
+  white-space: nowrap;
+}
+
+.trend-title-icon {
+  width: 24px;
+  height: 24px;
   border-radius: 50%;
-  background: #dbe5f0;
-  transition: background 0.2s ease, transform 0.2s ease;
+  background: #fde2e2;
+  color: #dc2626;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
 }
 
-.trend-dots span.active {
-  background: #1a6faf;
-  transform: scale(1.3);
+
+.trend-subheading {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  margin-left: auto;
+  min-width: 0;
+}
+
+.trend-subheading-top {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.trend-subheading-title {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.trend-subheading-info {
+  color: var(--muted);
+  cursor: help;
+}
+
+.trend-subheading-total {
+  font-size: 9.5px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.trend-subheading-total strong {
+  font-size: 12px;
+  font-weight: 800;
+  color: #dc2626;
+}
+
+.trend-chart-row {
+  display: flex;
+  gap: 6px;
+}
+
+.trend-chart-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 100px;
+  margin-top: 14px;
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--muted);
+  text-align: right;
+  line-height: 1;
+}
+
+.trend-chart-plot {
+  flex: 1;
+  min-width: 0;
+}
+
+.trend-chart-zone {
+  position: relative;
+  height: 100px;
+  margin-top: 14px;
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.trend-chart-gridline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px dashed #e3e9f2;
+}
+
+.trend-chart-col {
+  
+  appearance: none;
+  background: none;
+  border: none;
+  margin: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: center;
+  position: relative;
+}
+
+.trend-chart-bar-track {
+  position: relative;
+  width: 100%;
+  max-width: 26px;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+
+.trend-chart-value {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 8px;
+  font-weight: 700;
+  color: var(--sub);
+  white-space: nowrap;
+}
+
+.trend-chart-value.peak {
+  font-size: 10px;
+  font-weight: 800;
+  color: #dc2626;
+}
+
+.trend-chart-bar {
+  width: 100%;
+  min-height: 2px;
+  border-radius: 5px 5px 2px 2px;
+  background: #f6c9c9;
+  transition: height 0.3s ease, filter 0.15s ease, transform 0.15s ease;
+}
+
+.trend-chart-col:hover .trend-chart-bar {
+  filter: brightness(0.94);
+  transform: scaleX(1.08);
+}
+
+.trend-chart-bar.peak {
+  background: #dc2626;
+  box-shadow: 0 2px 6px rgba(220, 38, 38, 0.35);
+}
+
+.trend-chart-xlabels {
+  display: flex;
+  gap: 6px;
+  margin-top: 3px;
+}
+
+.trend-chart-xlabels span {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.trend-chart-xlabels span.peak {
+  color: #dc2626;
+  font-weight: 800;
+}
+
+
+.trend-insights {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+.trend-insight-card {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #eef4fb;
+  border-radius: 10px;
+  padding: 10px 12px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.trend-insight-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
+}
+
+.trend-insight-card.red {
+  background: #fdecec;
+}
+
+.trend-insight-card.amber {
+  background: #fdf3e0;
+}
+
+.trend-insight-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.trend-insight-icon.red {
+  background: #fad2d2;
+  color: #dc2626;
+}
+
+.trend-insight-icon.amber {
+  background: #fbe6b8;
+  color: #b8790f;
+}
+
+.trend-insight-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+}
+
+.trend-insight-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--sub);
+  line-height: 1.25;
+}
+
+.trend-insight-value {
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.trend-insight-value.red {
+  color: #dc2626;
+}
+
+.trend-insight-value.amber {
+  color: #b8790f;
+}
+
+.trend-insight-count-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.trend-insight-count-number {
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.trend-insight-count-number.red {
+  color: #dc2626;
+}
+
+.trend-insight-count-number.amber {
+  color: #b8790f;
+}
+
+.trend-insight-count-label {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--muted);
 }
 
 .dashboard-error {

@@ -31,11 +31,7 @@ export class EmployeesService {
     private readonly evaluations: EvaluationsService,
   ) {}
 
-  // Derives the final attendanceMode for an employee: a department configured
-  // to anything other than "BOTH" always wins — no per-employee choice is
-  // accepted, closing the gap where an employee's mode could otherwise drift
-  // from their department's policy. A "BOTH" department has no restriction,
-  // so HR must explicitly choose one of the employee-eligible DB-managed modes.
+  
   private async resolveAttendanceMode(departmentAttendanceMode: string, requested?: string) {
     if (departmentAttendanceMode !== "BOTH") return departmentAttendanceMode;
 
@@ -51,14 +47,7 @@ export class EmployeesService {
 
   async findAll(departmentId?: string) {
     await this.checkProbationaryMilestones();
-    // Same opportunistic trigger as the Admin check just above, reused for
-    // the Supervisor-facing evaluation-required notification (its own
-    // @Cron(EVERY_HOUR) in EvaluationsService still covers the case where
-    // nobody happens to load an employee list for a while) — this endpoint
-    // is what both Admin's Employee Management and a Supervisor's own
-    // Employee Management view (via the admin-web view-switcher) already
-    // call, so it also closes the gap for a Supervisor who's actively
-    // browsing but hasn't yet hit an on-the-hour cron tick.
+
     await this.evaluations.checkEvaluationsDue();
     return this.prisma.employee.findMany({
       where: departmentId ? { departmentId } : undefined,
@@ -68,12 +57,7 @@ export class EmployeesService {
     });
   }
 
-  // Recommendation-only check, never touches employmentStatus itself — HR
-  // still has to manually convert Probationary -> Regular via Edit Employee.
-  // Runs opportunistically whenever the employee list is fetched (no cron
-  // job exists in this backend), so it's "automatic" from HR's perspective
-  // without needing a scheduler. Idempotent: the Notification table itself
-  // is the source of truth for "already notified", not a flag on Employee.
+  
   private async checkProbationaryMilestones() {
     const cutoff = new Date();
     cutoff.setMonth(cutoff.getMonth() - PROBATION_MILESTONE_MONTHS);
@@ -107,11 +91,35 @@ export class EmployeesService {
     }
   }
 
-  // Candidates for the "Supervisor" field on Add/Edit Employee — anyone
-  // currently carrying the SUPERVISOR role. A department is only ever
-  // meaningful to pass for a scoped Supervisor (who can only supervise their
-  // own department anyway); HR/Admin gets the full cross-department list and
-  // the frontend narrows it to whatever department the form currently holds.
+  private async notifyProbationaryMilestoneIfDue(employee: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    employmentStatus: string;
+    hireDate: Date;
+  }) {
+    if (employee.employmentStatus !== "PROBATIONARY") return;
+
+    const cutoff = new Date();
+    cutoff.setMonth(cutoff.getMonth() - PROBATION_MILESTONE_MONTHS);
+    if (employee.hireDate > cutoff) return;
+
+    const alreadyNotified = await this.prisma.notification.findFirst({
+      where: { type: PROBATION_MILESTONE_NOTIFICATION_TYPE, entityId: employee.id },
+      select: { id: true },
+    });
+    if (alreadyNotified) return;
+
+    const adminUserIds = await this.notifications.adminUserIds();
+    await this.notifications.notifyUsers(adminUserIds, {
+      title: "Regularization Review Recommended",
+      message: `${employee.firstName} ${employee.lastName} has completed six (6) months of probationary employment and may be ready for evaluation and conversion to Regular status.`,
+      type: PROBATION_MILESTONE_NOTIFICATION_TYPE,
+      entityId: employee.id,
+    });
+  }
+
+
   findSupervisors(departmentId?: string) {
     return this.prisma.employee.findMany({
       where: {
@@ -124,11 +132,7 @@ export class EmployeesService {
     });
   }
 
-  // Shared by create()/update(): resolves and validates the incoming
-  // supervisorId against the employee's *target* department (the one they'll
-  // have after this save, not necessarily their current one) so a supervisor
-  // can never be assigned across departments — this must hold for
-  // getSupervisorDepartmentScope-based leave/report scoping to stay correct.
+
   private async resolveSupervisorId(
     supervisorId: string | undefined,
     targetDepartmentId: string,
@@ -162,11 +166,7 @@ export class EmployeesService {
     return supervisorId;
   }
 
-  // Face enrollment, work-location assignment, and having an active shift
-  // assignment covering today are all prerequisites the mobile/web clients
-  // check before letting an employee attempt Time In/Out at all (rather than
-  // only failing after they've already gone through the camera scan) — see
-  // AttendanceScreen's eligibility gate.
+
   async findMe(employeeId: string) {
     const { faceProfiles, ...employee } = await this.prisma.employee.findUniqueOrThrow({
       where: { id: employeeId },
@@ -178,9 +178,7 @@ export class EmployeesService {
       },
     });
 
-    // Same lookup as AttendanceService.resolveActiveShift: whichever
-    // EmployeeSchedule assignment is currently active, then check today is
-    // one of its working days.
+    
     const now = new Date();
     const activeSchedule = await this.prisma.employeeSchedule.findFirst({
       where: {
@@ -205,9 +203,7 @@ export class EmployeesService {
     });
   }
 
-  // Called once by the employee from FaceConsentScreen on mobile. Idempotent
-  // by design (re-accepting just keeps the original timestamp) so a retried
-  // request from a flaky connection can't silently move the acceptance time.
+
   async acceptFaceConsent(employeeId: string) {
     const existing = await this.prisma.employee.findUniqueOrThrow({
       where: { id: employeeId },
@@ -225,12 +221,7 @@ export class EmployeesService {
     return { faceConsentAcceptedAt: updated.faceConsentAcceptedAt };
   }
 
-  // ULPI-{YY}{NNN}, e.g. ULPI-26001 — NNN resets every calendar year (keyed
-  // off the employee's hire year) and is handed out from id_sequences, a
-  // one-row-per-year counter. The upsert-then-UPDATE...RETURNING runs in its
-  // own short transaction so the row lock (which serializes concurrent hires
-  // in the same year) is held only as long as it takes to claim a number, not
-  // for the rest of employee creation.
+
   private async generateEmployeeNo(hireDate: Date): Promise<string> {
     const year = hireDate.getFullYear();
 
@@ -253,9 +244,7 @@ export class EmployeesService {
     if (existingUser) throw new ConflictException(`An account with the email "${dto.email}" already exists.`);
 
     const role = await this.prisma.role.findUniqueOrThrow({ where: { code: "EMPLOYEE" } });
-    // A scoped Supervisor's new hire is always auto-associated with their own
-    // department, regardless of what was submitted — same rule as Geotagged
-    // Areas creation.
+   
     const department = scopeDepartmentId
       ? await this.prisma.department.findUniqueOrThrow({ where: { id: scopeDepartmentId } })
       : await this.prisma.department.upsert({
@@ -263,16 +252,12 @@ export class EmployeesService {
           update: {},
           create: { name: dto.department },
         });
-    // Position is no longer collected when adding an employee — HR can set a
-    // specific title later via Edit. Every new hire starts on this
-    // placeholder so `positionId` (a required FK) is always populated.
+    
     const position =
       (await this.prisma.position.findFirst({ where: { title: "Employee" } })) ??
       (await this.prisma.position.create({ data: { title: "Employee" } }));
 
-    // A random temporary password is generated and emailed to the new hire —
-    // they log in with it once, then are forced to set their own password
-    // (see AuthService.login / UsersService.changePassword).
+    
     const resolvedSupervisorId = await this.resolveSupervisorId(dto.supervisorId, department.id);
     const temporaryPassword = generateTemporaryPassword();
     const hireDate = dto.hireDate ? new Date(dto.hireDate) : new Date();
@@ -300,10 +285,7 @@ export class EmployeesService {
         attendanceMode,
         sex: dto.sex,
         soloParentStatus: dto.soloParentStatus ?? "NOT_APPLICABLE",
-        // Explicit even though it matches the schema default — every
-        // employee created through this flow must go through face-data
-        // consent; only pre-existing employees are grandfathered out (see
-        // requiresFaceConsent's schema comment).
+       
         requiresFaceConsent: true,
         ...(resolvedSupervisorId !== undefined ? { supervisorId: resolvedSupervisorId } : {}),
       },
@@ -351,13 +333,7 @@ export class EmployeesService {
     return created;
   }
 
-  // Fixed/office employees need a real EmployeeSchedule to be visible to
-  // lateness/absence tracking at all (see AttendanceService.resolveActiveShift
-  // and DashboardService's no-show checks) — without one they're silently
-  // excluded from both. No-ops if the employee already has an active
-  // schedule (don't stomp on one HR assigned deliberately), or if no
-  // "Standard Shift" exists yet to fall back to. workingDays isn't set
-  // explicitly — it picks up the schema default (Mon-Fri).
+  
   private async assignDefaultScheduleIfMissing(employeeId: string) {
     const today = new Date();
     const hasActiveSchedule = await this.prisma.employeeSchedule.findFirst({
@@ -385,10 +361,7 @@ export class EmployeesService {
     });
   }
 
-  // Male hires are auto-enrolled in the Paternity-kind leave type and female
-  // hires in the Maternity-kind one, so HR never has to add these manually
-  // after registration. No-ops until HR has created a leave type with that
-  // kind (see Utilities -> Leave Types).
+  
   private async assignGenderLeaveType(employeeId: string, sex: CreateEmployeeSex) {
     const kind = GENDER_LEAVE_TYPE_KIND[sex];
     const oppositeKinds = Object.values(GENDER_LEAVE_TYPE_KIND).filter((candidate) => candidate !== kind);
@@ -437,9 +410,7 @@ export class EmployeesService {
         (await this.prisma.position.create({ data: { title: dto.position } }))
       : null;
 
-    // Changing the login email is treated like a re-issue of credentials: the
-    // old temporary/self-chosen password is only known as a hash, so a fresh
-    // one is generated and mailed to the new address, same as on hire.
+    // If the email is being changed, generate a new temporary password and update the user's password hash.
     const emailChanged = !!dto.email && dto.email !== employee.user?.email;
     const newTemporaryPassword = emailChanged ? generateTemporaryPassword() : null;
 
@@ -468,18 +439,12 @@ export class EmployeesService {
         ? await this.resolveSupervisorId(dto.supervisorId, targetDepartmentId, id)
         : undefined;
 
-    // Moving departments without an explicit supervisor change would otherwise
-    // leave a dangling cross-department supervisorId — clear it rather than
-    // silently break the "supervisor is always in the employee's own
-    // department" invariant that leave/report scoping depends on.
+   
     if (resolvedSupervisorId === undefined && department && department.id !== employee.departmentId && employee.supervisorId) {
       resolvedSupervisorId = null;
     }
 
-    // Recompute only when it could actually change: an explicit
-    // dto.attendanceMode, or an actual department move (which may carry its
-    // own restriction the employee must now conform to). A same-department
-    // edit that touches neither is left alone.
+
     let resolvedAttendanceMode: string | undefined;
     if (dto.attendanceMode !== undefined || (department && department.id !== employee.departmentId)) {
       const targetDepartmentAttendanceMode = department?.attendanceMode ?? employee.department.attendanceMode;
@@ -502,21 +467,20 @@ export class EmployeesService {
       include: { user: true, department: true, position: true, supervisor: true },
     });
 
-    // Only auto-assign on an actual transition into Fixed — not on every
-    // unrelated save while already Fixed — matching how create() only ever
-    // does this once, at hire.
+   
     if (resolvedAttendanceMode === "FIXED" && employee.attendanceMode !== "FIXED") {
       await this.assignDefaultScheduleIfMissing(id);
       await this.geolocation.assignDefaultOfficeLocation(id, updated.departmentId, context);
     }
 
-    // Tells the Supervisor who submitted this employee's probationary
-    // evaluation (if any) what Admin ultimately decided — a separate
-    // notification to a separate recipient, entirely independent of the
-    // existing PROBATION_REGULARIZATION_DUE notification this same edit may
-    // also have resolved.
+  
     if (dto.employmentStatus && dto.employmentStatus !== employee.employmentStatus) {
       await this.evaluations.notifyOutcome(updated);
+    }
+
+  
+    if (dto.hireDate) {
+      await this.notifyProbationaryMilestoneIfDue(updated);
     }
 
     if (dto.leaveAllocationDays !== undefined && employee.sex) {

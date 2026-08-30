@@ -39,6 +39,7 @@ export class DashboardService {
       weekAttendanceRaw,
       realMonthAttendanceRaw,
       monthApprovedLeaves,
+      departments,
     ] = await Promise.all([
       // Archived (SEPARATED) employees don't count toward current headcount —
       // matches the "All Employees" tab on the Employees page, which already
@@ -119,6 +120,14 @@ export class DashboardService {
         },
         select: { employeeId: true, startDate: true, endDate: true, leaveType: { select: { name: true } } },
       }),
+      // Every active department, not just ones with current employees — a
+      // freshly-created department with no headcount yet should still show
+      // up (at 0/0/0/0) in the day/week/month breakdowns instead of being
+      // silently dropped.
+      this.prisma.department.findMany({
+        where: { isActive: true, ...(departmentId ? { id: departmentId } : {}) },
+        select: { name: true },
+      }),
     ]);
 
     // A FIELD employee can have several visit rows for the same day — collapse
@@ -180,8 +189,6 @@ export class DashboardService {
     }
 
     const totalEmployees = employees.length;
-    const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-    const trendMap = new Map<string, { department: string; dayOfWeek: string; absences: number; dates: string[] }>();
 
     // Filters the whole month's approved leaves down to whoever is on leave
     // on one specific day, in memory — avoids one LeaveRequest query per day.
@@ -207,10 +214,9 @@ export class DashboardService {
         { department: string; present: number; late: number; absent: number; onLeave: number; officialBusiness: number }
       >();
 
-      for (const emp of employees) {
-        const name = emp.department.name;
-        if (!deptMap.has(name)) {
-          deptMap.set(name, { department: name, present: 0, late: 0, absent: 0, onLeave: 0, officialBusiness: 0 });
+      for (const dept of departments) {
+        if (!deptMap.has(dept.name)) {
+          deptMap.set(dept.name, { department: dept.name, present: 0, late: 0, absent: 0, onLeave: 0, officialBusiness: 0 });
         }
       }
 
@@ -280,21 +286,6 @@ export class DashboardService {
 
       const absent = explicitAbsentees.length + noShowAbsentees.length;
 
-      if (absent > 0) {
-        const dayOfWeekName = dayNames[date.getDay()];
-        const departmentsInvolved = [
-          ...explicitAbsentees.map((r) => r.employee.department.name),
-          ...noShowAbsentees.map((e) => e.department.name),
-        ];
-        for (const department of departmentsInvolved) {
-          const key = `${department}-${dayOfWeekName}`;
-          const current = trendMap.get(key) ?? { department, dayOfWeek: dayOfWeekName, absences: 0, dates: [] };
-          current.absences += 1;
-          current.dates.push(date.toISOString());
-          trendMap.set(key, current);
-        }
-      }
-
       return {
         date,
         day: index + 1,
@@ -310,17 +301,6 @@ export class DashboardService {
         departments: buildDeptRows(records, "day", date, onLeaveMap),
       };
     });
-
-    const absenceTrends = Array.from(trendMap.values())
-      .sort((a, b) => b.absences - a.absences)
-      .slice(0, 5)
-      .map((trend) => ({
-        ...trend,
-        insight:
-          trend.absences >= 3
-            ? `${trend.department} has repeated absences on ${trend.dayOfWeek}s this month.`
-            : `${trend.department} has ${trend.absences} absence${trend.absences === 1 ? "" : "s"} on ${trend.dayOfWeek}s this month.`,
-      }));
 
     const monthLabel = new Date(year, month, 1).toLocaleString("en-US", {
       month: "long",
@@ -350,7 +330,6 @@ export class DashboardService {
       enrollment: { enrolled: enrolledEmployees.length, total: totalEmployees },
       geotagging: { assigned: assignedEmployees, total: totalEmployees },
       calendar: { monthLabel, days: calendarDays },
-      absenceTrends,
       departmentAttendance,
     };
   }

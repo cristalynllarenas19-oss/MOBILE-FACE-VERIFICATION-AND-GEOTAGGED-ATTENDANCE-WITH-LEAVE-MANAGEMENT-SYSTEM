@@ -41,16 +41,6 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
-.ddp-date {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1.2;
-  color: var(--text);
-  padding-bottom: 5px;
-  border-bottom: 1px solid #edf2f7;
-}
-
 .ddp-dept-list {
   display: flex;
   flex-direction: column;
@@ -103,11 +93,24 @@
 }
 
 .ddp-dept-stats {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 1px 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
   font-size: 10px;
+  font-weight: 500;
   color: var(--sub);
+}
+
+.ddp-dept-stats strong {
+  font-weight: 620;
+  color: var(--text);
+}
+
+.ddp-dept-stats span + span::before {
+  content: "|";
+  margin-right: 6px;
+  color: var(--line);
 }
 
 .ddp-rate-line {
