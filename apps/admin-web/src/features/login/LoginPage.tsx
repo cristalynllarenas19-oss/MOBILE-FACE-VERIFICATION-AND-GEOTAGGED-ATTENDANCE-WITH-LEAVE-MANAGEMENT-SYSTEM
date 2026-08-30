@@ -113,21 +113,20 @@ export function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => void }) {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <main className="login-page">
-      <header className="login-topbar">
-        <img src={logo} alt="Universal Leaf Philippines Logo" className="login-topbar-logo" />
-        <div className="login-topbar-text">
-          <h1>Universal Leaf Philippines, Inc. — Agoo, La Union</h1>
-          <p>E-TALA: Electronic Tracking of  Announcements, Leave, and Attendance</p>
-        </div>
-      </header>
-
       <div className="login-content">
+        <div className="login-hero">
+          <img src={logo} alt="Universal Leaf Philippines Logo" className="login-hero-logo" />
+          <p className="login-hero-name">
+            E-TALA: Electronic Tracking of Announcements, Leave, and Attendance with Face
+            Verification and Geotagging
+          </p>
+        </div>
+
         <section className="login-card">
           <div className="login-header">
             {view === "login" && (
               <>
                 <h1>User Account Login</h1>
-                <p className="login-subtitle">E-TALA</p>
                 <hr className="login-header-divider" />
               </>
             )}
@@ -296,10 +295,6 @@ export function LoginPage({ onLogin }: { onLogin: (user: AuthUser) => void }) {
           )}
         </section>
       </div>
-
-      <footer className="login-footer">
-        <p>© {new Date().getFullYear()} Universal Leaf Philippines, Inc., Agoo, La Union. All rights reserved.</p>
-      </footer>
     </main>
   );
 }
