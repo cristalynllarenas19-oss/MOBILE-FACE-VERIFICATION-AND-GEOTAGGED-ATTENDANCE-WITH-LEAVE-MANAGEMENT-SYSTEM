@@ -9,6 +9,7 @@ type Props = ScrollViewProps & {
   trackStyle?: ViewStyle;
   thumbColor?: string;
   trackColor?: string;
+  hideThumb?: boolean;
 };
 
 const AestheticScrollView = forwardRef<any, Props>(function AestheticScrollView(
@@ -22,6 +23,7 @@ const AestheticScrollView = forwardRef<any, Props>(function AestheticScrollView(
     trackStyle,
     thumbColor = "#94A3B8",
     trackColor = "#F1F5F9",
+    hideThumb = false,
     children,
     ...rest
   },
@@ -35,7 +37,7 @@ const AestheticScrollView = forwardRef<any, Props>(function AestheticScrollView(
     { useNativeDriver: true, listener: onScroll }
   );
 
-  const showBar = metrics.contentSize > metrics.containerSize && metrics.containerSize > 0;
+  const showBar = !hideThumb && metrics.contentSize > metrics.containerSize && metrics.containerSize > 0;
   let thumbSize = 0;
   let maxThumbTravel = 0;
   let maxScroll = 1;

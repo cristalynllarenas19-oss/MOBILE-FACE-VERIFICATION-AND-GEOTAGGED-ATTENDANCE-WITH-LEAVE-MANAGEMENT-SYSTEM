@@ -398,7 +398,8 @@ export function AppLayout({
               />
               <div>
                 <h1>
-                  E-TALA: Electronic Tracking of Announcements, Leave, and Attendance
+                  E-TALA: Electronic Tracking of Announcements, Leave, and Attendance with Face
+                  Verification and Geotagging
                 </h1>
                 <p>Universal Leaf Philippines, Inc. — Agoo, La Union</p>
               </div>

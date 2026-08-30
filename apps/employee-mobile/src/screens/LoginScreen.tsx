@@ -70,6 +70,7 @@ export default function LoginScreen({
             bounces={false}
             alwaysBounceVertical={false}
             overScrollMode="never"
+            hideThumb
           >
             <Image
               source={require("../assets/unileaf-logo.png")}
@@ -77,13 +78,17 @@ export default function LoginScreen({
               resizeMode="contain"
             />
 
-            <Text style={styles.title}>
-              Log In
+            <Text
+              style={styles.etalaName}
+              numberOfLines={2}
+              adjustsFontSizeToFit
+              minimumFontScale={0.7}
+            >
+              {"E-TALA: Electronic Tracking of Announcements, Leave, and Attendance\nwith Face Verification and Geotagging"}
             </Text>
 
-            <Text style={styles.subtitle}>
-              Attendance & Leave Management
-              System
+            <Text style={styles.title}>
+              Log In
             </Text>
 
             <Text style={styles.label}>
@@ -217,7 +222,17 @@ const styles = StyleSheet.create({
     width: Math.min(width * 0.8, 320),
     height: 140,
     alignSelf: "center",
-    marginBottom: 15,
+    marginBottom: -14,
+  },
+
+  etalaName: {
+    alignSelf: "stretch",
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#062B59",
+    textAlign: "center",
+    lineHeight: 17,
+    marginBottom: 24,
   },
 
   title: {
@@ -225,14 +240,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#062B59",
     textAlign: "center",
-  },
-
-  subtitle: {
-    textAlign: "center",
-    color: "#64748B",
-    marginTop: 8,
     marginBottom: 40,
-    fontSize: 14,
   },
 
   label: {
