@@ -228,6 +228,11 @@ function statusTone(status: string) {
   // Darker red than REJECTED, not a different color family — still reads as
   // "not approved" but distinct in shade from an outright rejection.
   if (status === "CANCELLED") return { color: "#7F1D1D", bg: "#FEE2E2" };
+  // Same amber pill as plain Pending, but red text — this is the one that
+  // needs the employee to act (resubmit), so it should still stand out from
+  // a plain "awaiting someone else" Pending. Matches the My Leave Balance
+  // card's pending pill (LeaveBalanceChart.tsx).
+  if (status === "NEEDS_REVISION") return { color: "#EF4444", bg: "#FEF3C7" };
   return { color: "#B45309", bg: "#FEF3C7" };
 }
 
@@ -460,6 +465,14 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
 
   const pendingRequests = useMemo(
     () => requests.filter((r) => r.status === "PENDING" || r.status === "SUPERVISOR_APPROVED" || r.status === "NEEDS_REVISION"),
+    [requests],
+  );
+  // Of pendingRequests, how many specifically need the employee to act
+  // (resubmit) rather than just wait on someone else's decision — drives the
+  // "My Leave Balance" card's pending pill so it reads "Needs Revision"
+  // instead of a generic "Pending" when that's what's actually happening.
+  const needsRevisionCount = useMemo(
+    () => requests.filter((r) => r.status === "NEEDS_REVISION").length,
     [requests],
   );
   // A request is "current" if it's still awaiting a decision (including a
@@ -1081,6 +1094,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
             balances={visibleBalances}
             loading={isBalanceLoading}
             pendingCount={pendingRequests.length}
+            needsRevisionCount={needsRevisionCount}
             onPressPending={openPendingModal}
             onPressViewAll={openPendingModal}
             onRequestLeave={handleRequestFromBalance}
@@ -1396,7 +1410,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                   <Text style={styles.backText}>All requests</Text>
                 </Pressable>
                 <Text style={styles.modalTitle}>Leave Request Details</Text>
-                <AestheticScrollView style={{ maxHeight: 320 }}>
+                <AestheticScrollView style={{ maxHeight: 480 }}>
                   {(() => {
                     const request = expandedRequest;
                     const tone = statusTone(request.status);
@@ -1654,15 +1668,17 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                 </AestheticScrollView>
               </>
             )}
-            <Pressable
-              style={styles.closeButton}
-              onPress={() => {
-                setShowPending(false);
-                setExpandedRequestId(null);
-              }}
-            >
-              <Text style={styles.closeText}>Close</Text>
-            </Pressable>
+            {!expandedRequest && (
+              <Pressable
+                style={styles.closeButton}
+                onPress={() => {
+                  setShowPending(false);
+                  setExpandedRequestId(null);
+                }}
+              >
+                <Text style={styles.closeText}>Close</Text>
+              </Pressable>
+            )}
           </View>
         </View>
       </Modal>

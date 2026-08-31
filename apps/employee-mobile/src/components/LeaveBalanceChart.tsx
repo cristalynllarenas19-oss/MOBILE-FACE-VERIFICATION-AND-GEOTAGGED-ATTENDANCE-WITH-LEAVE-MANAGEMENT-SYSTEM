@@ -42,9 +42,14 @@ type Props = {
   onPressPending?: () => void;
   onPressViewAll?: () => void;
   onRequestLeave?: (leaveTypeId: string) => void;
+  // How many of pendingCount are specifically NEEDS_REVISION — those need the
+  // employee to act (resubmit), unlike a plain PENDING/SUPERVISOR_APPROVED
+  // request that's just awaiting someone else's decision, so the pill calls
+  // that out instead of lumping everything under "Pending".
+  needsRevisionCount?: number;
 };
 
-export default function LeaveBalanceChart({ balances, loading, pendingCount, onPressPending, onPressViewAll, onRequestLeave }: Props) {
+export default function LeaveBalanceChart({ balances, loading, pendingCount, onPressPending, onPressViewAll, onRequestLeave, needsRevisionCount }: Props) {
   const totalEarned = balances.reduce((sum, b) => sum + b.earnedDays, 0);
   const totalUsed = balances.reduce((sum, b) => sum + b.usedDays, 0);
   const totalRemaining = balances.reduce((sum, b) => sum + b.remainingDays, 0);
@@ -62,13 +67,32 @@ export default function LeaveBalanceChart({ balances, loading, pendingCount, onP
         .filter((segment) => segment.length > 0)
     : [];
 
+  const otherPendingCount = (pendingCount ?? 0) - (needsRevisionCount ?? 0);
+  // Dark red for the Needs Revision part specifically — that's the part
+  // that needs the employee to act (resubmit). The pill itself stays one
+  // consistent amber container; only this text segment's color calls it out.
+  const needsRevisionColor = "#EF4444";
+
   const header = (
-    <View style={styles.headerRow}>
+    <View style={styles.headerWrap}>
       <Text style={styles.cardTitle}>My Leave Balance</Text>
+      {/* Its own row below the title rather than squeezed in alongside it —
+          the label varies from a short "2 Pending" to a much longer
+          "1 Needs Revision · 1 Pending", so it needs the full card width to
+          sit on, not just whatever's left over next to the title. */}
       {!!pendingCount && (
         <Pressable style={styles.pendingPill} onPress={onPressPending}>
           <Ionicons name="time-outline" size={12} color="#92400E" />
-          <Text style={styles.pendingPillText}>{pendingCount} Pending</Text>
+          <Text style={styles.pendingPillText}>
+            {needsRevisionCount ? (
+              <>
+                <Text style={{ color: needsRevisionColor }}>{needsRevisionCount} Needs Revision</Text>
+                {otherPendingCount > 0 && <>{" · "}{otherPendingCount} Pending</>}
+              </>
+            ) : (
+              `${pendingCount} Pending`
+            )}
+          </Text>
         </Pressable>
       )}
     </View>
@@ -77,7 +101,7 @@ export default function LeaveBalanceChart({ balances, loading, pendingCount, onP
   const viewAllButton = onPressViewAll && (
     <Pressable style={styles.viewAllButton} onPress={onPressViewAll}>
       <Ionicons name="calendar-outline" size={14} color="#1680D8" />
-      <Text style={styles.viewAllButtonText}>View ongoing and future filed leave</Text>
+      <Text style={styles.viewAllButtonText}>View Filed Leave</Text>
     </Pressable>
   );
 
@@ -210,10 +234,8 @@ const styles = StyleSheet.create({
     color: "#94A3B8",
     fontSize: 13,
   },
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+  headerWrap: {
+    gap: 8,
     marginBottom: 12,
   },
   cardTitle: {
@@ -224,6 +246,7 @@ const styles = StyleSheet.create({
   pendingPill: {
     flexDirection: "row",
     alignItems: "center",
+    alignSelf: "flex-start",
     gap: 4,
     backgroundColor: "#FFFBEB",
     borderRadius: 999,

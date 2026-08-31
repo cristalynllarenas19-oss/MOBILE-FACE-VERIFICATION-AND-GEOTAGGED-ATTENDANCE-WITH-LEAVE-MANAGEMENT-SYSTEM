@@ -29,12 +29,17 @@ type Props = {
   balances: LeaveBalance[];
   loading?: boolean;
   pendingCount?: number;
+  // How many of pendingCount are specifically NEEDS_REVISION — those need the
+  // employee to act (resubmit), unlike a plain PENDING/SUPERVISOR_APPROVED
+  // request that's just awaiting someone else's decision, so the pill calls
+  // that out instead of lumping everything under "Pending".
+  needsRevisionCount?: number;
   onPressPending?: () => void;
   onPressViewAll?: () => void;
   onRequest?: (leaveTypeId: string) => void;
 };
 
-export function LeaveBalanceChart({ balances, loading, pendingCount, onPressPending, onPressViewAll, onRequest }: Props) {
+export function LeaveBalanceChart({ balances, loading, pendingCount, needsRevisionCount, onPressPending, onPressViewAll, onRequest }: Props) {
   const totalEarned = balances.reduce((sum, b) => sum + b.earnedDays, 0);
   const totalUsed = balances.reduce((sum, b) => sum + b.usedDays, 0);
   const totalRemaining = balances.reduce((sum, b) => sum + b.remainingDays, 0);
@@ -52,12 +57,22 @@ export function LeaveBalanceChart({ balances, loading, pendingCount, onPressPend
         .filter((segment) => segment.length > 0)
     : [];
 
+  const otherPendingCount = (pendingCount ?? 0) - (needsRevisionCount ?? 0);
+
   const header = (
     <div className="lbc-header">
       <h3 className="lbc-title">My Leave Balance</h3>
       {Boolean(pendingCount) && (
         <button type="button" className="lbc-pending-pill" onClick={onPressPending}>
-          ⏳ {pendingCount} Pending
+          ⏳{" "}
+          {needsRevisionCount ? (
+            <>
+              <span className="lbc-pending-pill-revision">{needsRevisionCount} Needs Revision</span>
+              {otherPendingCount > 0 && <> · {otherPendingCount} Pending</>}
+            </>
+          ) : (
+            `${pendingCount} Pending`
+          )}
         </button>
       )}
     </div>
@@ -65,7 +80,7 @@ export function LeaveBalanceChart({ balances, loading, pendingCount, onPressPend
 
   const viewAllButton = onPressViewAll && (
     <button type="button" className="lbc-view-all-button" onClick={onPressViewAll}>
-      View ongoing and future filed leave
+      View Filed Leave
     </button>
   );
 

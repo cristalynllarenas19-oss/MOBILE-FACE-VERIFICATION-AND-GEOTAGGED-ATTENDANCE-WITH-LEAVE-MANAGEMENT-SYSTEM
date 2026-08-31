@@ -287,11 +287,28 @@
 .leave-modal {
   width: min(560px, 100%);
   max-height: min(88vh, 720px);
-  overflow-y: auto;
-  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  /* Scrolling lives on .leave-modal-body, not here, so the scrollbar track
+     never has to share this box's rounded corners — a scrollbar drawn on an
+     element with border-radius isn't reliably clipped to the curve, and was
+     poking out past the top/bottom-right corners into the backdrop. */
+  overflow: hidden;
   background: #ffffff;
   border-radius: 14px;
   box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);
+}
+
+/* Whatever body element follows the header (.leave-modal-body here,
+   .used-dates-body / .employee-balance-modal-body for the other two modals
+   sharing this .leave-modal shell) is the flex child that actually scrolls,
+   so the header stays put and .leave-modal's overflow:hidden is the only
+   thing clipping to the rounded corners. */
+.leave-modal-header + * {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 /* A bit more room than the default .leave-modal width so a long leave-type

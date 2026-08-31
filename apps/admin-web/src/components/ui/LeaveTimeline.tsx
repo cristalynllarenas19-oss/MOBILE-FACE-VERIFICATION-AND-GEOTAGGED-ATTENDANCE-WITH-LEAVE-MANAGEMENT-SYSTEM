@@ -128,7 +128,7 @@ function buildTimelineSteps(history: LeaveRequestHistoryEvent[], status: string)
 export function LeaveTimeline({ history, status }: { history?: LeaveRequestHistoryEvent[]; status: string }) {
   const steps = useMemo(() => buildTimelineSteps(history ?? [], status), [history, status]);
   return (
-    <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid #E2E8F0" }}>
+    <div style={{ marginTop: 14, padding: "12px 24px 0", borderTop: "1px solid #E2E8F0" }}>
       <p style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.4, color: "#94A3B8", margin: "0 0 10px" }}>
         APPROVAL PROGRESS
       </p>

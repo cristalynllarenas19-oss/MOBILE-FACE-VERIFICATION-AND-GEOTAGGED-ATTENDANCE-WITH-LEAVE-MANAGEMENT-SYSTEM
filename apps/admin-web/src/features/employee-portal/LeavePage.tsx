@@ -52,6 +52,11 @@ function statusTone(s: string) {
   // Darker red than REJECTED, not a different color family — still reads as
   // "not approved" but distinct in shade from an outright rejection.
   if (s === "CANCELLED") return { color: "#7F1D1D", bg: "#FEE2E2" };
+  // Same amber pill as plain Pending, but red text — this is the one that
+  // needs the employee to act (resubmit), so it should still stand out from
+  // a plain "awaiting someone else" Pending. Matches the My Leave Balance
+  // card's pending pill (components/LeaveBalanceChart.tsx).
+  if (s === "NEEDS_REVISION") return { color: "#EF4444", bg: "#FEF3C7" };
   return { color: "#B45309", bg: "#FEF3C7" };
 }
 
@@ -228,6 +233,15 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
     .filter((t) => t.name.toLowerCase().includes(searchLeave.toLowerCase()));
   const pendingRequests = useMemo(
     () => requests.filter((r) => r.status === "PENDING" || r.status === "SUPERVISOR_APPROVED" || r.status === "NEEDS_REVISION"),
+    [requests],
+  );
+  // Of pendingRequests, how many specifically need the employee to act
+  // (resubmit) rather than just wait on someone else's decision — drives the
+  // "My Leave Balance" card's pending pill so it reads "Needs Revision"
+  // instead of a generic "Pending" when that's what's actually happening.
+  // Kept in lockstep with employee-mobile's LeaveScreen.tsx.
+  const needsRevisionCount = useMemo(
+    () => requests.filter((r) => r.status === "NEEDS_REVISION").length,
     [requests],
   );
   // A request is "current" if it's still awaiting a decision (including a
@@ -1041,6 +1055,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
           balances={visibleBalances}
           loading={loadingData}
           pendingCount={pendingRequests.length}
+          needsRevisionCount={needsRevisionCount}
           onPressPending={openPendingModal}
           onPressViewAll={openPendingModal}
           onRequest={handleRequestFromBalance}

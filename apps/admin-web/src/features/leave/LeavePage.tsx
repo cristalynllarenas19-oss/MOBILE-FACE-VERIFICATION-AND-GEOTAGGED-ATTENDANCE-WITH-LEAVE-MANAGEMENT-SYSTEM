@@ -1846,6 +1846,7 @@ export function LeavePage({
               </button>
             </div>
 
+            <div className="leave-modal-body">
             <div
               className={`leave-photo-frame${
                 attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData) &&
@@ -2099,6 +2100,7 @@ export function LeavePage({
               >
                 Close
               </button>
+            </div>
             </div>
           </section>
         </div>

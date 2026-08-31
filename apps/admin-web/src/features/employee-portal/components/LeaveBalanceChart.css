@@ -23,6 +23,11 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  /* The pending pill's text length varies a lot ("1 Needs Revision · 1
+     Pending" vs. just "2 Pending") — wrap it below the title instead of
+     letting it run past the card edge when it doesn't fit on one line. */
+  flex-wrap: wrap;
+  gap: 8px;
   margin-bottom: 18px;
 }
 
@@ -45,6 +50,13 @@
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
+}
+
+/* Dark red for the Needs Revision part specifically — that's the part that
+   needs the employee to act (resubmit). The pill itself stays one
+   consistent amber container; only this text segment's color calls it out. */
+.lbc-pending-pill-revision {
+  color: #ef4444;
 }
 
 .lbc-view-all-button {
