@@ -114,6 +114,15 @@ export default AestheticFlatList;
 
 const styles = StyleSheet.create({
   wrap: {
+    // flex: 1 is required here, not just on the inner FlatList below — a
+    // flex value on a child only has something to grow into if its own
+    // immediate parent has a determinate size. Without this, a caller that
+    // places this component as a sibling of other content inside a flex
+    // column (e.g. DTRScreen's card, with a pinnedHeader sibling above the
+    // list) sees this wrapper collapse to ~0 height — the inner FlatList's
+    // own flex:1 has nothing to expand into — and the list silently renders
+    // nothing and can't even be pulled to refresh, despite having real data.
+    flex: 1,
     position: "relative",
   },
   contentVertical: {

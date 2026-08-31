@@ -1,7 +1,7 @@
 
 import { CSSProperties, useMemo, useState } from "react";
 import { ArrowRight, Calendar, Camera, Clock, RefreshCw, X } from "lucide-react";
-import { AttendanceHistoryRecord, AttendanceLogPhoto, getAttendanceHistory } from "./api";
+import { AttendanceHistoryRecord, AttendanceLogPhoto, getAttendanceHistory, getAttendanceRecordPhotos } from "./api";
 import type { AuthUser } from "../../lib/api";
 import { CACHE_KEYS, useCachedData } from "../../lib/dataCache";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
@@ -80,6 +80,10 @@ export function DtrPage({ user }: Props) {
   const [dateTo,      setDateTo]      = useState("");
   const [selected,    setSelected]    = useState<AttendanceHistoryRecord | null>(null);
   const [photoTab,    setPhotoTab]    = useState<PhotoTab>("TIME_IN");
+  // The list response never carries photo bytes (see getAttendanceHistory's
+  // comment in api.ts) — true while this modal's actual photos are being
+  // fetched for the record just opened.
+  const [isLoadingPhotos, setIsLoadingPhotos] = useState(false);
 
   const activeLog = selected?.logs.find((l) => l.logType === photoTab) ?? null;
 
@@ -101,6 +105,26 @@ export function DtrPage({ user }: Props) {
     setIsRefresh(true);
     await historyCache.refresh();
     setIsRefresh(false);
+  }
+
+  async function openRecord(record: AttendanceHistoryRecord) {
+    setSelected(record);
+    setPhotoTab("TIME_IN");
+    if (!record.hasPhoto) return;
+    setIsLoadingPhotos(true);
+    try {
+      const photos = await getAttendanceRecordPhotos(record.id);
+      const photoById = new Map(photos.map((photo) => [photo.id, photo]));
+      setSelected((current) =>
+        current && current.id === record.id
+          ? { ...current, logs: current.logs.map((log) => ({ ...log, ...photoById.get(log.id) })) }
+          : current,
+      );
+    } catch (error) {
+      console.error("Failed to load attendance photos", error);
+    } finally {
+      setIsLoadingPhotos(false);
+    }
   }
 
   const hasDateFilter = Boolean(dateFrom || dateTo);
@@ -249,11 +273,11 @@ export function DtrPage({ user }: Props) {
             const tone       = statusTone(item.status);
             const hrs        = fmtHours(item.totalMinutes);
             const inProgress = Boolean(item.timeInAt) && !item.timeOutAt;
-            const hasPhotos  = item.logs?.some((l) => l.faceImageData);
+            const hasPhotos  = item.hasPhoto;
             return (
               <button
                 key={item.id}
-                onClick={() => { setSelected(item); setPhotoTab("TIME_IN"); }}
+                onClick={() => openRecord(item)}
                 style={{
                   ...rowBtn,
                   borderTop: idx === 0 ? "none" : "1px solid #EDF3F8",
@@ -430,6 +454,16 @@ export function DtrPage({ user }: Props) {
                           </div>
                         </div>
                       )}
+                    </div>
+                  ) : isLoadingPhotos ? (
+                    <div style={{
+                      width: "100%", height: "34vh", borderRadius: 14,
+                      background: "#F1F5F9",
+                      display: "flex", flexDirection: "column",
+                      alignItems: "center", justifyContent: "center", gap: 8,
+                    }}>
+                      <RefreshCw size={28} color="#CBD5E1" className="dtr-spin" />
+                      <p style={{ color: "#94A3B8", fontSize: 13, fontWeight: 600, margin: 0 }}>Loading photo…</p>
                     </div>
                   ) : (
                     <div style={{

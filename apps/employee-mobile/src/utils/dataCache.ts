@@ -121,13 +121,24 @@ export function prefetchCached<T>(key: string, fetcher: () => Promise<T>) {
 export function useCachedData<T>(key: string | null, fetcher: () => Promise<T>) {
   const [data, setDataState] = useState<T | null>(() => (key ? cacheGet<T>(key) : null));
   const [isLoading, setIsLoading] = useState(key !== null && data === null);
+  // Distinguishes "the request failed" from "the request succeeded with
+  // nothing" — without this, a network/auth error and a genuinely empty
+  // result render identically (see DTRScreen's empty state).
+  const [error, setError] = useState<Error | null>(null);
   const fetcherRef = useRef(fetcher);
   fetcherRef.current = fetcher;
 
   const refresh = useCallback(async () => {
     if (!key) return;
-    const fresh = await revalidateCached(key, fetcherRef.current);
-    setDataState(fresh);
+    try {
+      const fresh = await revalidateCached(key, fetcherRef.current);
+      setDataState(fresh);
+      setError(null);
+      return fresh;
+    } catch (err) {
+      setError(err instanceof Error ? err : new Error(String(err)));
+      throw err;
+    }
   }, [key]);
 
   useEffect(() => {
@@ -161,5 +172,5 @@ export function useCachedData<T>(key: string | null, fetcher: () => Promise<T>) 
     [key],
   );
 
-  return { data, isLoading, refresh, setData };
+  return { data, isLoading, error, refresh, setData };
 }

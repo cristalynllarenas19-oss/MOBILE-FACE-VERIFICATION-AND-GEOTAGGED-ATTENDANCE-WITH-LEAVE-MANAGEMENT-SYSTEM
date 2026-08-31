@@ -52,6 +52,13 @@ export class AttendanceController {
     return this.attendanceService.getHistory(employeeId, limit ? Number(limit) : undefined);
   }
 
+  // Lazily loaded by the DTR viewer's detail modal — see getHistory()'s
+  // comment for why photos aren't inlined in the list response.
+  @Get("records/:id/photos")
+  getRecordPhotos(@Param("id") id: string) {
+    return this.attendanceService.getRecordPhotos(id);
+  }
+
   // Face-mismatch attempts awaiting an admin/supervisor decision. Gated the
   // same as approve/official-business below since it surfaces a captured
   // "this might not be you" photo per attempt.

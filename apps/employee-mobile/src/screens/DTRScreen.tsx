@@ -11,7 +11,12 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePickerModal from "react-native-modal-datetime-picker";
-import { AttendanceHistoryRecord, AttendanceLogPhoto, getAttendanceHistory } from "../api";
+import {
+  AttendanceHistoryRecord,
+  AttendanceLogPhoto,
+  getAttendanceHistory,
+  getAttendanceRecordPhotos,
+} from "../api";
 import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
 import SegmentedControl from "../components/SegmentedControl";
 import AestheticFlatList from "../components/AestheticFlatList";
@@ -159,6 +164,11 @@ export default function DTRScreen({ employeeId }: Props) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("office");
   const [selectedRecord, setSelectedRecord] = useState<AttendanceHistoryRecord | null>(null);
+  // The list response never carries photo bytes (see getAttendanceHistory's
+  // comment) — true while this modal's actual photos are being fetched for
+  // the record just opened, so the photo pane can show "Loading..." instead
+  // of a false "No photo captured".
+  const [isLoadingPhotos, setIsLoadingPhotos] = useState(false);
   const [photoTab, setPhotoTab] = useState<"TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN">("TIME_IN");
   const [amPmFilter, setAmPmFilter] = useState<"ALL" | "AM" | "PM">("ALL");
   // Date-range filter for the list below the (now-pinned) summary card —
@@ -182,7 +192,7 @@ export default function DTRScreen({ employeeId }: Props) {
     ? activeLog.address ?? formatPhotoStampCoordinates(activeLog.latitude, activeLog.longitude)
     : null;
 
-  const { data, isLoading, refresh } = useCachedData<AttendanceHistoryRecord[]>(
+  const { data, isLoading, error, refresh } = useCachedData<AttendanceHistoryRecord[]>(
     employeeId ? CACHE_KEYS.attendanceHistory(employeeId) : null,
     () => getAttendanceHistory(employeeId!),
   );
@@ -192,6 +202,26 @@ export default function DTRScreen({ employeeId }: Props) {
     setIsRefreshing(true);
     await refresh().catch((error) => console.error("Failed to load attendance history", error));
     setIsRefreshing(false);
+  }
+
+  async function openRecord(record: AttendanceHistoryRecord) {
+    setSelectedRecord(record);
+    setPhotoTab("TIME_IN");
+    if (!record.hasPhoto) return;
+    setIsLoadingPhotos(true);
+    try {
+      const photos = await getAttendanceRecordPhotos(record.id);
+      const photoById = new Map(photos.map((photo) => [photo.id, photo]));
+      setSelectedRecord((current) =>
+        current && current.id === record.id
+          ? { ...current, logs: current.logs.map((log) => ({ ...log, ...photoById.get(log.id) })) }
+          : current,
+      );
+    } catch (error) {
+      console.error("Failed to load attendance photos", error);
+    } finally {
+      setIsLoadingPhotos(false);
+    }
   }
 
   // Unfiltered by date — these back the "Today's Hours Rendered" summary
@@ -358,13 +388,19 @@ export default function DTRScreen({ employeeId }: Props) {
       ListEmptyComponent={
         !isLoading ? (
           <View style={styles.emptyState}>
-            <Ionicons name="document-text-outline" size={36} color="#CBD5E1" />
-            <Text style={styles.emptyText}>
-              {hasDateFilter
-                ? "No attendance records in this date range."
-                : isOfficeTab
-                  ? "No office attendance records yet."
-                  : "No visit records yet."}
+            <Ionicons
+              name={error ? "cloud-offline-outline" : "document-text-outline"}
+              size={36}
+              color={error ? "#DC2626" : "#CBD5E1"}
+            />
+            <Text style={[styles.emptyText, error && styles.emptyTextError]}>
+              {error
+                ? "Couldn't load attendance records. Pull down to try again."
+                : hasDateFilter
+                  ? "No attendance records in this date range."
+                  : isOfficeTab
+                    ? "No office attendance records yet."
+                    : "No visit records yet."}
             </Text>
           </View>
         ) : null
@@ -374,15 +410,12 @@ export default function DTRScreen({ employeeId }: Props) {
         const tone = statusTone(item.status);
         const hoursRendered = formatHoursRendered(item.totalMinutes);
         const inProgress = Boolean(item.timeInAt) && !item.timeOutAt;
-        const hasPhotos = item.logs?.some((log) => log.faceImageData);
+        const hasPhotos = item.hasPhoto;
 
         return (
           <Pressable
             style={styles.row}
-            onPress={() => {
-              setSelectedRecord(item);
-              setPhotoTab("TIME_IN");
-            }}
+            onPress={() => openRecord(item)}
           >
             <View style={styles.rowTop}>
               <View style={styles.dateRow}>
@@ -484,6 +517,11 @@ export default function DTRScreen({ employeeId }: Props) {
                       </View>
                     </View>
                   </ImageBackground>
+                ) : isLoadingPhotos ? (
+                  <View style={[styles.modalPhoto, styles.modalPhotoPlaceholder]}>
+                    <Ionicons name="cloud-download-outline" size={28} color="#CBD5E1" />
+                    <Text style={styles.modalEmptyText}>Loading photo...</Text>
+                  </View>
                 ) : (
                   <View style={[styles.modalPhoto, styles.modalPhotoPlaceholder]}>
                     <Ionicons name="image-outline" size={28} color="#CBD5E1" />
@@ -707,6 +745,9 @@ const styles = StyleSheet.create({
     color: "#94A3B8",
     fontSize: 13,
     fontWeight: "600",
+  },
+  emptyTextError: {
+    color: "#DC2626",
   },
   modalOverlay: {
     flex: 1,

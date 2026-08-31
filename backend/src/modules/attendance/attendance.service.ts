@@ -1283,8 +1283,8 @@ export class AttendanceService {
   }
 
   async getHistory(employeeId: string, limit = 30) {
-    return withPrismaRetry(() =>
-      this.prisma.attendanceRecord.findMany({
+    return withPrismaRetry(async () => {
+      const records = await this.prisma.attendanceRecord.findMany({
         where: { employeeId },
         orderBy: [{ attendanceDate: "desc" }, { visitNumber: "asc" }],
         take: limit,
@@ -1293,6 +1293,14 @@ export class AttendanceService {
           // Include every attempt for the day, not just the approved
           // TIME_IN/TIME_OUT ones — rejected attempts still have a captured
           // photo and the employee should be able to review it too.
+          // faceImageData/faceImageMimeType are deliberately NOT selected
+          // here — inlining every log's full base64 photo for up to `limit`
+          // records made this response tens of megabytes (e.g. 35MB for 26
+          // records), which reliably timed out over mobile wifi even though
+          // it loaded fine over localhost/LAN. The photo itself is fetched
+          // on demand via getRecordPhotos() only for the record the viewer
+          // actually opens — see attendance.controller.ts's
+          // "records/:id/photos" route.
           logs: {
             orderBy: { capturedAt: "asc" },
             select: {
@@ -1301,16 +1309,36 @@ export class AttendanceService {
               capturedAt: true,
               verificationStatus: true,
               failureReason: true,
-              faceImageData: true,
-              faceImageMimeType: true,
               latitude: true,
               longitude: true,
               address: true,
             },
           },
         },
-      }),
-    );
+      });
+
+      const recordIds = records.map((record) => record.id);
+      const logsWithPhoto = recordIds.length
+        ? await this.prisma.attendanceLog.findMany({
+            where: { attendanceRecordId: { in: recordIds }, faceImageData: { not: null } },
+            select: { attendanceRecordId: true },
+            distinct: ["attendanceRecordId"],
+          })
+        : [];
+      const recordIdsWithPhoto = new Set(logsWithPhoto.map((log) => log.attendanceRecordId));
+
+      return records.map((record) => ({ ...record, hasPhoto: recordIdsWithPhoto.has(record.id) }));
+    });
+  }
+
+  // Full-resolution photos for one attendance record's logs — fetched lazily
+  // by the DTR viewer (mobile/web) only when that record's detail modal is
+  // opened. See getHistory() above for why these are excluded from the list.
+  async getRecordPhotos(recordId: string) {
+    return this.prisma.attendanceLog.findMany({
+      where: { attendanceRecordId: recordId },
+      select: { id: true, faceImageData: true, faceImageMimeType: true },
+    });
   }
 
   private decodeImageBase64(imageData: string) {

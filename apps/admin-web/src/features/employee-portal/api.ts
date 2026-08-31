@@ -26,8 +26,11 @@ export type AttendanceLogPhoto = {
   capturedAt: string;
   verificationStatus: string;
   failureReason: string | null;
-  faceImageData: string | null;
-  faceImageMimeType: string | null;
+  // Absent from GET /attendance/history/:employeeId (see attendance.
+  // service.ts getHistory) — populated only after getAttendanceRecordPhotos
+  // is called for the record this log belongs to.
+  faceImageData?: string | null;
+  faceImageMimeType?: string | null;
   // Stored per-log for exactly this reason — the photo itself is never
   // watermarked (see CameraScanner's finishScan), so a viewer draws the GPS
   // stamp from these instead. Decimal columns serialize as strings over
@@ -56,6 +59,10 @@ export type AttendanceHistoryRecord = {
   workLocationId?: string | null;
   workLocation?: { name: string } | null;
   recordType?: AttendanceRecordType;
+  // Whether any of this record's logs has a captured photo — computed
+  // server-side so the list can show the camera badge without shipping the
+  // photo data itself (see getHistory()'s comment in attendance.service.ts).
+  hasPhoto?: boolean;
   logs: AttendanceLogPhoto[];
 };
 
@@ -250,6 +257,14 @@ export function getTodayAttendance(employeeId: string) {
 
 export function getAttendanceHistory(employeeId: string, limit = 30) {
   return apiRequest<AttendanceHistoryRecord[]>(`/attendance/history/${employeeId}?limit=${limit}`);
+}
+
+// Fetched lazily when a DTR row's detail modal is opened — see the
+// AttendanceLogPhoto.faceImageData comment above.
+export function getAttendanceRecordPhotos(recordId: string) {
+  return apiRequest<Pick<AttendanceLogPhoto, "id" | "faceImageData" | "faceImageMimeType">[]>(
+    `/attendance/records/${recordId}/photos`,
+  );
 }
 
 export function detectFace(imageBase64: string, precise = false) {

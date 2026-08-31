@@ -183,8 +183,11 @@ export type AttendanceLogPhoto = {
   capturedAt: string;
   verificationStatus: string;
   failureReason: string | null;
-  faceImageData: string | null;
-  faceImageMimeType: string | null;
+  // Absent from GET /attendance/history/:employeeId (see attendance.
+  // service.ts getHistory) — populated only after getAttendanceRecordPhotos
+  // is called for the record this log belongs to.
+  faceImageData?: string | null;
+  faceImageMimeType?: string | null;
   latitude: string | number;
   longitude: string | number;
   // Reverse-geocoded once, server-side, at submission time (see
@@ -209,6 +212,10 @@ export type AttendanceHistoryRecord = {
   workLocationId?: string | null;
   workLocation?: { name: string } | null;
   recordType?: AttendanceRecordType;
+  // Whether any of this record's logs has a captured photo — computed
+  // server-side so the list can show the camera badge without shipping the
+  // photo data itself (see getHistory()'s comment in attendance.service.ts).
+  hasPhoto?: boolean;
   logs: AttendanceLogPhoto[];
 };
 
@@ -612,6 +619,14 @@ export async function submitAttendance(input: SubmitAttendanceInput) {
 
 export async function getAttendanceHistory(employeeId: string, limit = 30) {
   return apiRequest<AttendanceHistoryRecord[]>(`/attendance/history/${employeeId}?limit=${limit}`);
+}
+
+// Fetched lazily when a DTR row's detail modal is opened — see the
+// AttendanceLogPhoto.faceImageData comment above.
+export async function getAttendanceRecordPhotos(recordId: string) {
+  return apiRequest<Pick<AttendanceLogPhoto, "id" | "faceImageData" | "faceImageMimeType">[]>(
+    `/attendance/records/${recordId}/photos`,
+  );
 }
 
 export async function getMyWorkLocation() {
