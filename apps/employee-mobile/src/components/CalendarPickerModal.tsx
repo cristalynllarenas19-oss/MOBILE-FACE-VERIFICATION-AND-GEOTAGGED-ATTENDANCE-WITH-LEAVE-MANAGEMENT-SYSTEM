@@ -150,10 +150,12 @@ export default function CalendarPickerModal({
             })}
           </View>
 
-          <View style={styles.legendRow}>
-            <View style={[styles.legendDot, { backgroundColor: "#FEE2E2" }]} />
-            <Text style={styles.legendText}>Already filed for this leave type</Text>
-          </View>
+          {isDateDisabled && (
+            <View style={styles.legendRow}>
+              <View style={[styles.legendDot, { backgroundColor: "#FEE2E2" }]} />
+              <Text style={styles.legendText}>Already filed for this leave type</Text>
+            </View>
+          )}
           {isDateNonWorking && (
             <View style={styles.legendRow}>
               <View style={[styles.legendDot, { backgroundColor: "#FEF3C7" }]} />

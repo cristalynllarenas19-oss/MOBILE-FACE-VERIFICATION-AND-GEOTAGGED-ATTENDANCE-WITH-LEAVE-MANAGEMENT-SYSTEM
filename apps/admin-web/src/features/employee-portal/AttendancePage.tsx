@@ -26,6 +26,35 @@ function fmtTime(v: string | null | undefined) {
   return new Date(v).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
 
+// Worked time is Official Start Time → Time Out (or now, while still in),
+// excluding the lunch break — an open lunch (started but not ended) pauses
+// the counter. Uses the shift-rounded renderTimeInAt (falling back to the
+// raw timeInAt when absent), same as the server's totalMinutes math, so the
+// live counter doesn't run ahead of the DTR's own total once timed out.
+// Mirrors employee-mobile's AttendanceScreen.tsx.
+function getWorkedMs(attendance: TodayAttendance, now: number) {
+  if (!attendance.timeInAt) return 0;
+  const start = new Date(attendance.renderTimeInAt ?? attendance.timeInAt).getTime();
+  const end = attendance.timeOutAt ? new Date(attendance.timeOutAt).getTime() : now;
+  let worked = end - start;
+  if (attendance.lunchOutAt) {
+    const lunchStart = new Date(attendance.lunchOutAt).getTime();
+    const lunchEnd = attendance.lunchInAt ? new Date(attendance.lunchInAt).getTime() : end;
+    worked -= Math.max(0, lunchEnd - lunchStart);
+  }
+  return Math.max(0, worked);
+}
+
+function formatElapsed(ms: number) {
+  const totalSeconds = Math.floor(ms / 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return [
+    pad(Math.floor(totalSeconds / 3600)),
+    pad(Math.floor((totalSeconds % 3600) / 60)),
+    pad(totalSeconds % 60),
+  ].join(":");
+}
+
 function getEligibilityMessage(eligibility: AttendanceEligibility | null) {
   if (!eligibility) return "Checking your attendance eligibility...";
   if (!eligibility.faceEnrolled && !eligibility.hasWorkLocation) {
@@ -200,6 +229,18 @@ export function AttendancePage({ user }: Props) {
   const hasLunchOut = Boolean(todayAtt?.lunchOutAt);
   const hasLunchIn = Boolean(todayAtt?.lunchInAt);
   const isOnLunch = Boolean(hasOpenVisit && hasLunchOut && !hasLunchIn);
+
+  // Live worked-time counter (OFFICE-only): ticks every second while the
+  // session is open, then holds the final Time In → Time Out total once
+  // timed out. Mirrors employee-mobile's AttendanceScreen.tsx.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    if (isField || !hasOpenVisit) return;
+    setNowTick(Date.now());
+    const interval = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [isField, hasOpenVisit]);
+  const workedMs = todayAtt ? getWorkedMs(todayAtt, nowTick) : 0;
   const applicableAction = getApplicableAction({ isField, hasTimedIn, hasTimedOut, hasOpenVisit, isOnLunch });
   const eligibilityMessage = getEligibilityMessage(eligibility) ?? getGeofenceMessage(geofenceStatus, applicableAction);
   const showLunchSection = !isField && hasTimedIn;
@@ -400,9 +441,45 @@ export function AttendancePage({ user }: Props) {
             </div>
           </div>
 
-          <p className="att-welcome" style={{ color: "#475569", fontSize: 14, marginTop: 16, marginBottom: 20 }}>
+          <p className="att-welcome" style={{ color: "#475569", fontSize: 14, marginTop: 16, marginBottom: !isField && hasTimedIn ? 12 : 20 }}>
             Welcome back, {user.displayName}
           </p>
+
+          {!isField && hasTimedIn && (
+            // Mirrors employee-mobile's AttendanceScreen.tsx workedTimeRow
+            // styling exactly (same gray card, same type scale/weights).
+            <div
+              className="att-worked-time-row"
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 10,
+                padding: "8px 12px", marginBottom: 14,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                {hasOpenVisit && (
+                  <span
+                    style={{
+                      width: 7, height: 7, borderRadius: "50%",
+                      background: isOnLunch ? "#EA580C" : "#17A34A",
+                      flexShrink: 0,
+                    }}
+                  />
+                )}
+                <span style={{ color: "#64748B", fontSize: 13, fontWeight: 600 }}>
+                  {hasTimedOut ? "Total Time Worked" : isOnLunch ? "Time Worked (On Lunch)" : "Time Worked"}
+                </span>
+              </div>
+              <span
+                style={{
+                  fontSize: 16, fontWeight: 700, fontVariantNumeric: "tabular-nums",
+                  color: hasTimedOut ? "#17A34A" : "#062B59",
+                }}
+              >
+                {formatElapsed(workedMs)}
+              </span>
+            </div>
+          )}
 
           <div className="att-stats-row" style={{ display: "flex", alignItems: "center", paddingTop: 18, borderTop: "1px solid #EDF1F6" }}>
             <div className="att-stat-col" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>

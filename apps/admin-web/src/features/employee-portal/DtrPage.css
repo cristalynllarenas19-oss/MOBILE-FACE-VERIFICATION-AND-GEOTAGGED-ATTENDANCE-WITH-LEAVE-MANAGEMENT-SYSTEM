@@ -12,3 +12,154 @@
 .dtr-spin {
   animation: dtr-spin 0.8s linear infinite;
 }
+
+/* Records list scrolls on its own, bounded to the viewport — the title,
+   tabs, and date filters above it stay in normal flow and never scroll
+   away, mirroring employee-mobile's DTRScreen.tsx (its "pinned header"
+   sits outside the FlatList entirely). */
+.dtr-records-scroll {
+  overflow-y: auto;
+  overflow-x: hidden;
+  max-height: calc(100vh - 300px);
+  min-height: 420px;
+}
+
+/* ── Dense table row layout ("Dense table" row-redesign sample) ──────────
+   A status dot instead of a text badge, and an inline bar under Hours
+   Rendered against an 8-hour target — built for scanning many records at
+   once. The header and every row share the same grid-template-columns so
+   their cells line up; the trailing column is a fixed-width slot for the
+   explicit "View" button (only rendered when a record has a photo). */
+.dtr-dense-head,
+.dtr-dense-row {
+  display: grid;
+  grid-template-columns: 1.5fr 1.55fr 1.5fr 1.15fr 128px;
+  column-gap: 14px;
+  align-items: center;
+  padding: 11px 16px;
+}
+.dtr-dense-head {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+.dtr-dense-row {
+  width: 100%;
+  min-height: 60px;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+.dtr-dense-row:hover {
+  background: #f8fafc;
+}
+.dtr-dense-row:focus-visible {
+  outline: 2px solid #1680d8;
+  outline-offset: -2px;
+}
+
+/* Explicit "View" button for a record's captured photo(s) — sits inside
+   the row (see DtrPage.tsx: the row itself is a <div role="button">, not a
+   <button>, specifically so this can nest inside it and still be its own
+   independently clickable/focusable control). */
+.dtr-dense-view-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 16px;
+  border: 1.5px solid #b6c6ea;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #1e3a8a;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+.dtr-dense-view-btn:hover {
+  background: #eff6ff;
+  border-color: #93a9dd;
+}
+.dtr-dense-view-btn:focus-visible {
+  outline: 2px solid #1680d8;
+  outline-offset: 1px;
+}
+
+.dtr-dense-date-cell {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+.dtr-dense-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 5px;
+}
+.dtr-dense-date-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  color: #062b59;
+  font-weight: 700;
+  font-size: 13px;
+}
+.dtr-dense-site {
+  color: #64748b;
+  font-weight: 600;
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Lunch is a single short value (or an em dash) with nothing else in its
+   column to anchor against, unlike Time In → Out's left-to-right flow — so
+   it reads better centered under its header rather than pinned left. */
+.dtr-dense-lunch {
+  justify-content: center;
+  text-align: center;
+}
+
+.dtr-dense-time {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: #475569;
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.dtr-dense-bar-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.dtr-dense-bar-label {
+  font-size: 12.5px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.dtr-dense-bar-track {
+  height: 4px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  overflow: hidden;
+}
+.dtr-dense-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+}

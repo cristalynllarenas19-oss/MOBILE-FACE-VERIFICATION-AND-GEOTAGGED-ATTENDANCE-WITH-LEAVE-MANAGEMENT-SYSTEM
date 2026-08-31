@@ -10,7 +10,6 @@ import {
   Pressable,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import DateTimePickerModal from "react-native-modal-datetime-picker";
 import {
   AttendanceHistoryRecord,
   AttendanceLogPhoto,
@@ -20,6 +19,7 @@ import {
 import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
 import SegmentedControl from "../components/SegmentedControl";
 import AestheticFlatList from "../components/AestheticFlatList";
+import CalendarPickerModal from "../components/CalendarPickerModal";
 
 type Props = {
   employeeId?: string;
@@ -34,12 +34,6 @@ const EMPTY_RECORDS: AttendanceHistoryRecord[] = [];
 const PHOTO_STAMP_TILE_SIZE = 256;
 const PHOTO_STAMP_MAP_SIZE = 56;
 const PHOTO_STAMP_MAP_ZOOM = 16;
-// Matches the app's own accent blue (used for icons/CTAs elsewhere on this
-// screen) instead of the picker's default iOS blue — only takes effect on
-// iOS via the accentColor prop below; the Android calendar's colors come
-// from the native theme instead (see the datetimepicker plugin config in
-// app.json), which needs a rebuild, not just a JS change, to pick up.
-const CALENDAR_ACCENT_COLOR = "#1680D8";
 
 function buildPhotoStampTiles(latitude: string | number, longitude: string | number): PhotoStampTile[] {
   const lat = Number(latitude);
@@ -99,6 +93,18 @@ function formatTime(value: string | null) {
   return new Date(value).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
 
+// Drops the repeated AM/PM off the first time when both share the same
+// period (e.g. "3:00–3:37 PM" instead of "3:00 PM – 3:37 PM") — keeps the
+// lunch stat block on one line instead of wrapping now that it sits
+// side-by-side with Time In/Time Out.
+function formatTimeRangeCompact(startValue: string | null, endValue: string | null) {
+  const start = formatTime(startValue);
+  const end = formatTime(endValue);
+  if (start === "--:--" || end === "--:--") return `${start}–${end}`;
+  const samePeriod = ["AM", "PM"].some((period) => start.includes(period) && end.includes(period));
+  return samePeriod ? `${start.replace(/\s?(AM|PM)$/, "")}–${end}` : `${start}–${end}`;
+}
+
 function formatHoursRendered(totalMinutes: number) {
   if (!totalMinutes) return null;
   const hours = Math.floor(totalMinutes / 60);
@@ -147,13 +153,6 @@ function statusTone(status: string) {
   return { color: "#94A3B8", bg: "#F8FAFC", icon: "time" as const };
 }
 
-function latestOf(records: AttendanceHistoryRecord[]) {
-  const todayKey = new Date().toDateString();
-  const todays = records.filter((r) => new Date(r.attendanceDate).toDateString() === todayKey);
-  if (!todays.length) return null;
-  return todays.reduce((latest, record) => ((record.visitNumber ?? 1) > (latest.visitNumber ?? 1) ? record : latest));
-}
-
 // DTR for every employee — one screen, two tabs (mirroring the Leave
 // screen's Balance/Request tabs): Office (Time In/Time Out) and Field
 // (Start/End Visit). Every employee sees both tabs regardless of which
@@ -164,6 +163,9 @@ export default function DTRScreen({ employeeId }: Props) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("office");
   const [selectedRecord, setSelectedRecord] = useState<AttendanceHistoryRecord | null>(null);
+  // Which list row's detail (Time In/Out, lunch) is expanded — only one at a
+  // time, mirroring the accordion behavior in the row-redesign samples.
+  const [expandedRecordId, setExpandedRecordId] = useState<string | null>(null);
   // The list response never carries photo bytes (see getAttendanceHistory's
   // comment) — true while this modal's actual photos are being fetched for
   // the record just opened, so the photo pane can show "Loading..." instead
@@ -171,11 +173,8 @@ export default function DTRScreen({ employeeId }: Props) {
   const [isLoadingPhotos, setIsLoadingPhotos] = useState(false);
   const [photoTab, setPhotoTab] = useState<"TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN">("TIME_IN");
   const [amPmFilter, setAmPmFilter] = useState<"ALL" | "AM" | "PM">("ALL");
-  // Date-range filter for the list below the (now-pinned) summary card —
-  // both ends optional/independent, inclusive. Deliberately does not affect
-  // the "Today's Hours Rendered" summary card above it (see
-  // todayOfficeRecord/todayFieldRecord below), which always reflects today
-  // regardless of what range the list itself is filtered to.
+  // Date-range filter for the list below the pinned header — both ends
+  // optional/independent, inclusive.
   const [dateFrom, setDateFrom] = useState<Date | null>(null);
   const [dateTo, setDateTo] = useState<Date | null>(null);
   const [isFromPickerVisible, setIsFromPickerVisible] = useState(false);
@@ -224,14 +223,6 @@ export default function DTRScreen({ employeeId }: Props) {
     }
   }
 
-  // Unfiltered by date — these back the "Today's Hours Rendered" summary
-  // card, which should keep reflecting today even while the list below is
-  // filtered to a different date range.
-  const officeRecordsAll = useMemo(() => records.filter((r) => r.recordType !== "FIELD"), [records]);
-  const fieldRecordsAll = useMemo(() => records.filter((r) => r.recordType === "FIELD"), [records]);
-  const todayOfficeRecord = useMemo(() => latestOf(officeRecordsAll), [officeRecordsAll]);
-  const todayFieldRecord = useMemo(() => latestOf(fieldRecordsAll), [fieldRecordsAll]);
-
   const dateFilteredRecords = useMemo(() => {
     if (!dateFrom && !dateTo) return records;
     const fromMs = dateFrom ? startOfDay(dateFrom) : -Infinity;
@@ -257,8 +248,6 @@ export default function DTRScreen({ employeeId }: Props) {
   }, [fieldRecords, amPmFilter]);
 
   const isOfficeTab = activeTab === "office";
-  const todayRecord = isOfficeTab ? todayOfficeRecord : todayFieldRecord;
-  const todayInProgress = Boolean(todayRecord?.timeInAt) && !todayRecord?.timeOutAt;
   const listData = isOfficeTab ? officeRecords : filteredFieldRecords;
   const hasDateFilter = Boolean(dateFrom || dateTo);
 
@@ -275,47 +264,34 @@ export default function DTRScreen({ employeeId }: Props) {
     />
 
     <View style={styles.card}>
-      {/* Pinned header — title, today's-hours summary, and filters all
-          stay fixed above the list instead of scrolling away with it
-          (previously a FlatList ListHeaderComponent, which scrolls with
-          the content). Only the record rows below scroll now. */}
+      {/* Pinned header — title and filters stay fixed above the list
+          instead of scrolling away with it (previously a FlatList
+          ListHeaderComponent, which scrolls with the content). Only the
+          record rows below scroll now. */}
       <View style={styles.pinnedHeader}>
         <Text style={styles.cardTitle}>Daily Time Record</Text>
 
-        <View style={styles.summaryCard}>
-          <Ionicons name="time" size={22} color="#1680D8" />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.summaryLabel}>
-              {isOfficeTab ? "Today's Hours Rendered" : "Today's Hours Rendered (Latest Visit)"}
-            </Text>
-            <Text style={styles.summaryValue}>
-              {todayRecord
-                ? formatHoursRendered(todayRecord.totalMinutes) ?? (todayInProgress ? "In progress" : "--")
-                : isOfficeTab
-                  ? "Not yet timed in"
-                  : "No visit started"}
-            </Text>
-          </View>
-        </View>
-
+        {/* Mirrors admin-web's CalendarPicker trigger (DtrPage.tsx / LeavePage.tsx
+            Request tab) — a full-width outlined box with the icon on the
+            right, instead of the small filled pill chip this used before. */}
         <View style={styles.filterRow}>
           <Pressable
-            style={[styles.dateFilterChip, dateFrom && styles.dateFilterChipActive]}
+            style={styles.dateFilterBox}
             onPress={() => setIsFromPickerVisible(true)}
           >
-            <Ionicons name="calendar-outline" size={13} color={dateFrom ? "#FFFFFF" : "#1680D8"} />
-            <Text style={[styles.dateFilterChipText, dateFrom && styles.dateFilterChipTextActive]} numberOfLines={1}>
+            <Text style={[styles.dateFilterBoxText, dateFrom && styles.dateFilterBoxTextFilled]} numberOfLines={1}>
               {dateFrom ? formatShortDate(dateFrom) : "From"}
             </Text>
+            <Ionicons name="calendar-outline" size={16} color="#64748B" />
           </Pressable>
           <Pressable
-            style={[styles.dateFilterChip, dateTo && styles.dateFilterChipActive]}
+            style={styles.dateFilterBox}
             onPress={() => setIsToPickerVisible(true)}
           >
-            <Ionicons name="calendar-outline" size={13} color={dateTo ? "#FFFFFF" : "#1680D8"} />
-            <Text style={[styles.dateFilterChipText, dateTo && styles.dateFilterChipTextActive]} numberOfLines={1}>
+            <Text style={[styles.dateFilterBoxText, dateTo && styles.dateFilterBoxTextFilled]} numberOfLines={1}>
               {dateTo ? formatShortDate(dateTo) : "To"}
             </Text>
+            <Ionicons name="calendar-outline" size={16} color="#64748B" />
           </Pressable>
           {hasDateFilter && (
             <Pressable
@@ -348,36 +324,35 @@ export default function DTRScreen({ employeeId }: Props) {
         )}
       </View>
 
-      <DateTimePickerModal
-        isVisible={isFromPickerVisible}
-        mode="date"
-        date={dateFrom ?? new Date()}
+      {/* Same in-app CalendarPickerModal LeaveScreen.tsx uses for Start/End
+          Date, instead of the OS-native date picker — one calendar look
+          across the app rather than the platform's own Material/iOS sheet. */}
+      <CalendarPickerModal
+        visible={isFromPickerVisible}
+        title="Select From Date"
+        selectedDate={dateFrom ?? undefined}
         // Can't be later than today (no attendance exists for future dates
         // yet) or later than "To", whichever is earlier.
         maximumDate={dateTo ?? new Date()}
-        accentColor={CALENDAR_ACCENT_COLOR}
-        themeVariant="light"
-        onConfirm={(value) => {
+        onSelect={(value) => {
           setDateFrom(value);
           setIsFromPickerVisible(false);
         }}
-        onCancel={() => setIsFromPickerVisible(false)}
+        onClose={() => setIsFromPickerVisible(false)}
       />
-      <DateTimePickerModal
-        isVisible={isToPickerVisible}
-        mode="date"
-        date={dateTo ?? new Date()}
+      <CalendarPickerModal
+        visible={isToPickerVisible}
+        title="Select To Date"
+        selectedDate={dateTo ?? undefined}
         minimumDate={dateFrom ?? undefined}
         // No attendance exists for future dates yet, so "To" can never be
         // set past today either.
         maximumDate={new Date()}
-        accentColor={CALENDAR_ACCENT_COLOR}
-        themeVariant="light"
-        onConfirm={(value) => {
+        onSelect={(value) => {
           setDateTo(value);
           setIsToPickerVisible(false);
         }}
-        onCancel={() => setIsToPickerVisible(false)}
+        onClose={() => setIsToPickerVisible(false)}
       />
 
     <AestheticFlatList
@@ -411,54 +386,62 @@ export default function DTRScreen({ employeeId }: Props) {
         const hoursRendered = formatHoursRendered(item.totalMinutes);
         const inProgress = Boolean(item.timeInAt) && !item.timeOutAt;
         const hasPhotos = item.hasPhoto;
+        const isExpanded = expandedRecordId === item.id;
 
         return (
-          <Pressable
-            style={styles.row}
-            onPress={() => openRecord(item)}
-          >
-            <View style={styles.rowTop}>
-              <View style={styles.dateRow}>
-                <Text style={styles.dateText}>{formatDate(item.attendanceDate)}</Text>
+          <View style={styles.accItem}>
+            <Pressable
+              style={styles.accSummary}
+              onPress={() => setExpandedRecordId(isExpanded ? null : item.id)}
+            >
+              <View style={[styles.accDot, { backgroundColor: tone.color }]} />
+              <View style={styles.accDateGroup}>
+                <Text style={styles.dateText} numberOfLines={1}>{formatDate(item.attendanceDate)}</Text>
                 {!isOfficeTab && item.workLocation?.name && (
-                  <Text style={styles.siteNameText}>· {item.workLocation.name}</Text>
+                  <Text style={styles.siteNameText} numberOfLines={1}>{item.workLocation.name}</Text>
                 )}
-                {hasPhotos && <Ionicons name="camera" size={13} color="#94A3B8" />}
               </View>
-              <View style={[styles.statusBadge, { backgroundColor: tone.bg }]}>
-                <Ionicons name={tone.icon} size={12} color={tone.color} />
-                <Text style={[styles.statusBadgeText, { color: tone.color }]}>{item.status.replace("_", " ")}</Text>
-              </View>
-            </View>
+              <Text style={[styles.accHoursText, { color: hoursRendered ? tone.color : "#94A3B8" }]}>
+                {hoursRendered ?? (inProgress ? "In progress" : item.status === "ABSENT" ? "Absent" : "--")}
+              </Text>
+              <Ionicons name={isExpanded ? "chevron-down" : "chevron-forward"} size={16} color="#94A3B8" />
+            </Pressable>
 
-            <View style={styles.rowBody}>
-              <View style={styles.timeBlock}>
-                <Text style={styles.timeLabel}>{isOfficeTab ? "Time In" : "Visit Start"}</Text>
-                <Text style={styles.timeValue}>{formatTime(item.timeInAt)}</Text>
-              </View>
-              <Ionicons name="arrow-forward" size={14} color="#CBD5E1" />
-              <View style={styles.timeBlock}>
-                <Text style={styles.timeLabel}>{isOfficeTab ? "Time Out" : "Visit End"}</Text>
-                <Text style={styles.timeValue}>{formatTime(item.timeOutAt)}</Text>
-              </View>
+            {isExpanded && (
+              <View style={styles.accDetail}>
+                <View style={styles.rowBody}>
+                  <View style={styles.timeBlock}>
+                    <Text style={styles.timeLabel}>{isOfficeTab ? "Time In" : "Visit Start"}</Text>
+                    <Text style={styles.timeValue}>{formatTime(item.timeInAt)}</Text>
+                  </View>
+                  <Ionicons name="arrow-forward" size={14} color="#CBD5E1" />
+                  <View style={styles.timeBlock}>
+                    <Text style={styles.timeLabel}>{isOfficeTab ? "Time Out" : "Visit End"}</Text>
+                    <Text style={styles.timeValue}>{formatTime(item.timeOutAt)}</Text>
+                  </View>
+                  {isOfficeTab && item.lunchOutAt && (
+                    <View style={styles.timeBlock}>
+                      <Text style={styles.timeLabel}>Lunch Break</Text>
+                      <Text style={styles.timeValue} numberOfLines={1} adjustsFontSizeToFit>
+                        {formatTimeRangeCompact(item.lunchOutAt, item.lunchInAt ?? null)}
+                      </Text>
+                    </View>
+                  )}
+                </View>
 
-              <View style={styles.hoursBlock}>
-                <Text style={styles.timeLabel}>Hours Rendered</Text>
-                <Text style={[styles.hoursValue, !hoursRendered && styles.hoursValueMuted]}>
-                  {hoursRendered ?? (inProgress ? "In progress" : "--")}
-                </Text>
-              </View>
-            </View>
-
-            {isOfficeTab && item.lunchOutAt && (
-              <View style={styles.lunchRow}>
-                <Ionicons name="cafe-outline" size={13} color="#EA580C" />
-                <Text style={styles.lunchRowText}>
-                  Lunch: {formatTime(item.lunchOutAt)} – {formatTime(item.lunchInAt ?? null)}
-                </Text>
+                {hasPhotos && (
+                  <Pressable
+                    style={({ pressed }) => [styles.accPhotoLink, pressed && styles.accPhotoLinkPressed]}
+                    onPress={() => openRecord(item)}
+                  >
+                    <Ionicons name="camera-outline" size={15} color="#1680D8" />
+                    <Text style={styles.accPhotoLinkText}>View captured photos</Text>
+                    <Ionicons name="chevron-forward" size={14} color="#1680D8" />
+                  </Pressable>
+                )}
               </View>
             )}
-          </Pressable>
+          </View>
         );
       }}
     />
@@ -578,26 +561,6 @@ const styles = StyleSheet.create({
   tabSwitcher: {
     marginBottom: 12,
   },
-  summaryCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    backgroundColor: "#EFF6FF",
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 18,
-  },
-  summaryLabel: {
-    color: "#1E3A8A",
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  summaryValue: {
-    color: "#062B59",
-    fontSize: 20,
-    fontWeight: "800",
-    marginTop: 2,
-  },
   filterRow: {
     flexDirection: "row",
     gap: 8,
@@ -620,30 +583,29 @@ const styles = StyleSheet.create({
   filterChipTextActive: {
     color: "#FFFFFF",
   },
-  // Blue-tinted (matches the summary card above and the app's accent color)
-  // rather than the plain gray of the AM/PM chips, so the date filter reads
-  // as its own distinct control — and, unlike before, actually has a
-  // matching active-state background instead of leaving white text sitting
-  // on the same light gray fill.
-  dateFilterChip: {
+  // Outlined input-style box — mirrors admin-web's CalendarPicker trigger
+  // (icon on the right, placeholder-gray label, flex:1 so both boxes split
+  // the row evenly) instead of the small filled pill chip this used before.
+  dateFilterBox: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    justifyContent: "space-between",
+    gap: 8,
+    height: 48,
     paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 999,
-    backgroundColor: "#EFF6FF",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    backgroundColor: "#FFFFFF",
   },
-  dateFilterChipActive: {
-    backgroundColor: "#1680D8",
+  dateFilterBoxText: {
+    color: "#94A3B8",
+    fontSize: 14,
+    fontWeight: "600",
   },
-  dateFilterChipText: {
-    color: "#1680D8",
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  dateFilterChipTextActive: {
-    color: "#FFFFFF",
+  dateFilterBoxTextFilled: {
+    color: "#0F172A",
   },
   dateFilterClear: {
     alignItems: "center",
@@ -658,43 +620,77 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
   },
-  row: {
-    paddingVertical: 12,
-    borderBottomWidth: 1,
+  // Expandable-accordion row (mirrors the "Expandable" sample) — each record
+  // is its own card, collapsed to a dot + date + hours + chevron; tapping it
+  // toggles the detail block below instead of jumping straight to the photo
+  // modal (that's now reached via the "View captured photos" link inside
+  // the expanded state).
+  accItem: {
+    backgroundColor: "#fff",
+    borderWidth: 1,
     borderColor: "#edf3f8",
-  },
-  rowTop: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    borderRadius: 12,
     marginBottom: 10,
+    overflow: "hidden",
   },
-  dateRow: {
+  accSummary: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: 10,
+    padding: 12,
+  },
+  accDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  accDateGroup: {
+    flex: 1,
+    minWidth: 0,
   },
   dateText: {
     color: "#062B59",
     fontWeight: "700",
     fontSize: 14,
   },
-  statusBadge: {
+  accHoursText: {
+    fontSize: 13,
+    fontWeight: "800",
+    fontVariant: ["tabular-nums"],
+  },
+  accDetail: {
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    paddingTop: 2,
+    borderTopWidth: 1,
+    borderColor: "#edf3f8",
+  },
+  // A real button now — light-blue pill filling the row, not just an
+  // icon+text link — so it reads as tappable and gives clear press feedback
+  // instead of blending into the rest of the expanded detail text.
+  accPhotoLink: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
+    justifyContent: "center",
+    gap: 6,
+    marginTop: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: "#EFF6FF",
   },
-  statusBadgeText: {
-    fontSize: 10,
+  accPhotoLinkPressed: {
+    backgroundColor: "#DBEAFE",
+  },
+  accPhotoLinkText: {
+    color: "#1680D8",
+    fontSize: 12.5,
     fontWeight: "700",
   },
   rowBody: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
+    marginTop: 10,
   },
   timeBlock: {
     flex: 1,
@@ -709,32 +705,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     marginTop: 2,
-  },
-  hoursBlock: {
-    flex: 1.2,
-    alignItems: "flex-end",
-  },
-  hoursValue: {
-    color: "#17A34A",
-    fontSize: 15,
-    fontWeight: "800",
-    marginTop: 2,
-  },
-  hoursValueMuted: {
-    color: "#94A3B8",
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  lunchRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    marginTop: 8,
-  },
-  lunchRowText: {
-    color: "#9A3412",
-    fontSize: 12,
-    fontWeight: "600",
   },
   emptyState: {
     alignItems: "center",

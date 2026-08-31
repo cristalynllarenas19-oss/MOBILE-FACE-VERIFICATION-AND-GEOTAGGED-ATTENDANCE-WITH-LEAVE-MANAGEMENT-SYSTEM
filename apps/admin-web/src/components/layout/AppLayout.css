@@ -328,6 +328,31 @@
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-gutter: stable;
+  /* Thin, rounded scrollbar for the main page area — every page (not just
+     the employee portal) scrolls inside this container, so the bare OS
+     scrollbar (arrow buttons and all) showed up everywhere. Same palette as
+     employee-mobile's AestheticScrollView/AestheticFlatList. */
+  scrollbar-width: thin;
+  scrollbar-color: #94a3b8 #f1f5f9;
+}
+.page-content::-webkit-scrollbar {
+  width: 4px;
+}
+.page-content::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 2px;
+}
+.page-content::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-radius: 2px;
+}
+.page-content::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+.page-content::-webkit-scrollbar-button {
+  display: none;
+  height: 0;
+  width: 0;
 }
 
 .menu-toggle {

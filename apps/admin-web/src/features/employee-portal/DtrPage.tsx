@@ -1,10 +1,11 @@
 
 import { CSSProperties, useMemo, useState } from "react";
-import { ArrowRight, Calendar, Camera, Clock, RefreshCw, X } from "lucide-react";
+import { ArrowRight, Camera, Eye, RefreshCw, X } from "lucide-react";
 import { AttendanceHistoryRecord, AttendanceLogPhoto, getAttendanceHistory, getAttendanceRecordPhotos } from "./api";
 import type { AuthUser } from "../../lib/api";
 import { CACHE_KEYS, useCachedData } from "../../lib/dataCache";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
+import { CalendarPicker } from "./components/CalendarPicker";
 import { buildMapGrid, formatCoordsFallback, formatStampDate, TILE_SIZE } from "./gpsStamp";
 import "./DtrPage.css";
 import "./EmployeePortal.css";
@@ -51,12 +52,6 @@ function statusTone(s: string): { color: string; bg: string; icon: string } {
   if (s === "OFFICIAL_BUSINESS") return { color: "#7C3AED", bg: "#F5F3FF", icon: "💼" };
   if (s === "ABSENT")            return { color: "#DC2626", bg: "#FEF2F2", icon: "✕" };
   return { color: "#94A3B8", bg: "#F8FAFC", icon: "⏱" };
-}
-function latestOfToday(recs: AttendanceHistoryRecord[]) {
-  const key    = new Date().toDateString();
-  const todays = recs.filter((r) => new Date(r.attendanceDate).toDateString() === key);
-  if (!todays.length) return null;
-  return todays.reduce((best, r) => ((r.visitNumber ?? 1) > (best.visitNumber ?? 1) ? r : best));
 }
 // Local (not UTC) YYYY-MM-DD, so a "2026-08-25" input value lines up with
 // attendanceDate regardless of the browser's timezone offset.
@@ -151,17 +146,21 @@ export function DtrPage({ user }: Props) {
 
   const isOffice     = activeTab === "office";
   const listData     = isOffice ? officeRecs : filteredField;
-  // Summary card always reflects today regardless of the date-range filter —
-  // computed from the unfiltered record set, matching mobile's DTRScreen.
-  const todayRecord  = isOffice
-    ? latestOfToday(records.filter((r) => r.recordType !== "FIELD"))
-    : latestOfToday(records.filter((r) => r.recordType === "FIELD"));
-  const todayInProg  = Boolean(todayRecord?.timeInAt) && !todayRecord?.timeOutAt;
 
   return (
     <div className="dtr-shell emp-form-page">
 
-      <h2 className="emp-page-title">Daily Time Record</h2>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <h2 className="emp-page-title">Daily Time Record</h2>
+        <button
+          onClick={handleRefresh}
+          disabled={isRefresh}
+          style={refreshBtn}
+          aria-label="Refresh"
+        >
+          <RefreshCw size={16} className={isRefresh ? "dtr-spin" : undefined} />
+        </button>
+      </div>
 
       {/* Tab switcher */}
       <SegmentedControl
@@ -174,30 +173,25 @@ export function DtrPage({ user }: Props) {
         style={{ marginBottom: 14 }}
       />
 
-      {/* Date range filter (From/To, both tabs) */}
+      {/* Date range filter (From/To, both tabs) — same CalendarPicker popover
+          used for Start/End Date on the Request tab, instead of a native
+          <input type="date">. */}
       <div style={dateFilterCard}>
         <div style={dateFilterFields}>
-          <label style={dateFieldLabel}>
-            <span style={dateFieldLabelText}><Calendar size={11} /> From</span>
-            <input
-              type="date"
-              value={dateFrom}
-              max={dateTo || todayStr}
-              onChange={(e) => setDateFrom(e.target.value)}
-              style={dateInput}
-            />
-          </label>
-          <label style={dateFieldLabel}>
-            <span style={dateFieldLabelText}><Calendar size={11} /> To</span>
-            <input
-              type="date"
-              value={dateTo}
-              min={dateFrom || undefined}
-              max={todayStr}
-              onChange={(e) => setDateTo(e.target.value)}
-              style={dateInput}
-            />
-          </label>
+          <CalendarPicker
+            value={dateFrom}
+            onChange={setDateFrom}
+            max={dateTo || todayStr}
+            placeholder="From"
+          />
+          <CalendarPicker
+            value={dateTo}
+            onChange={setDateTo}
+            min={dateFrom || undefined}
+            max={todayStr}
+            placeholder="To"
+            align="right"
+          />
         </div>
         {hasDateFilter && (
           <button
@@ -209,31 +203,6 @@ export function DtrPage({ user }: Props) {
             <X size={13} /> Clear
           </button>
         )}
-      </div>
-
-      {/* Summary card */}
-      <div style={summaryCard}>
-        <div style={summaryIconWrap}>
-          <Clock size={18} color="#1680D8" />
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <p style={summaryLabel}>
-            {isOffice ? "Today's Hours Rendered" : "Today's Hours Rendered (Latest Visit)"}
-          </p>
-          <p style={summaryValue}>
-            {todayRecord
-              ? fmtHours(todayRecord.totalMinutes) ?? (todayInProg ? "In progress" : "--")
-              : isOffice ? "Not yet timed in" : "No visit started"}
-          </p>
-        </div>
-        <button
-          onClick={handleRefresh}
-          disabled={isRefresh}
-          style={refreshBtn}
-          aria-label="Refresh"
-        >
-          <RefreshCw size={16} className={isRefresh ? "dtr-spin" : undefined} />
-        </button>
       </div>
 
       {/* AM/PM filter (Field only) */}
@@ -255,7 +224,9 @@ export function DtrPage({ user }: Props) {
         </div>
       )}
 
-      {/* Records list */}
+      {/* Records list — the only part of this page that scrolls; the title,
+          tabs, and date filters above it stay fixed in place (see
+          .dtr-records-scroll in DtrPage.css). */}
       {isLoading ? (
         <p style={{ color: "#64748B", textAlign: "center", padding: 32 }}>Loading…</p>
       ) : listData.length === 0 ? (
@@ -269,90 +240,93 @@ export function DtrPage({ user }: Props) {
         </div>
       ) : (
         <div style={{ border: "1px solid #DBE5EF", borderRadius: 10, background: "#FFFFFF", overflow: "hidden" }}>
-          {listData.map((item, idx) => {
-            const tone       = statusTone(item.status);
-            const hrs        = fmtHours(item.totalMinutes);
-            const inProgress = Boolean(item.timeInAt) && !item.timeOutAt;
-            const hasPhotos  = item.hasPhoto;
-            return (
-              <button
-                key={item.id}
-                onClick={() => openRecord(item)}
-                style={{
-                  ...rowBtn,
-                  borderTop: idx === 0 ? "none" : "1px solid #EDF3F8",
-                }}
-              >
-                {/* Top row: date + status badge */}
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ color: "#062B59", fontWeight: 700, fontSize: 13 }}>
-                      {fmtDate(item.attendanceDate)}
+          {/* Dense table — a status dot instead of a badge, and an inline bar
+              under Hours Rendered (against an 8-hour target once a record is
+              closed; an open session just shows the label, since live
+              elapsed time isn't tracked here). */}
+          <div className="dtr-dense-head">
+            <span>Date</span>
+            <span>{isOffice ? "Time In → Out" : "Visit Start → End"}</span>
+            <span style={{ textAlign: "center" }}>Lunch</span>
+            <span>Hours Rendered</span>
+            <span />
+          </div>
+          <div className="dtr-records-scroll emp-scroll-thin">
+            {listData.map((item, idx) => {
+              const tone       = statusTone(item.status);
+              const hrs        = fmtHours(item.totalMinutes);
+              const inProgress = Boolean(item.timeInAt) && !item.timeOutAt;
+              const hasPhotos  = item.hasPhoto;
+              // Against an 8-hour (480-minute) target — only meaningful once
+              // a record has a real totalMinutes from the server; an open
+              // session shows an empty track rather than a guessed fraction.
+              const barPct = item.totalMinutes ? Math.min(100, Math.round((item.totalMinutes / 480) * 100)) : 0;
+              return (
+                // A <div> here (not <button>) so the explicit "View" button
+                // below can nest inside it — a <button> can't contain
+                // another <button>. Still fully clickable/keyboard-operable
+                // as a row; the View button is the discoverable way in.
+                <div
+                  key={item.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openRecord(item)}
+                  onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openRecord(item); } }}
+                  className="dtr-dense-row"
+                  style={{ borderTop: idx === 0 ? "none" : "1px solid #EDF3F8" }}
+                  title={item.status.replace("_", " ")}
+                >
+                  <span className="dtr-dense-date-cell">
+                    <span className="dtr-dense-dot" style={{ background: tone.color }} />
+                    <span className="dtr-dense-date-text">
+                      <span>{fmtDate(item.attendanceDate)}</span>
+                      {!isOffice && item.workLocation?.name && (
+                        <span className="dtr-dense-site">{item.workLocation.name}</span>
+                      )}
                     </span>
-                    {!isOffice && item.workLocation?.name && (
-                      <span style={{ color: "#64748B", fontSize: 12, fontWeight: 600 }}>
-                        · {item.workLocation.name}
-                      </span>
-                    )}
-                    {hasPhotos && <Camera size={12} color="#94A3B8" />}
-                  </div>
-                  <span style={{
-                    background: tone.bg, color: tone.color,
-                    fontSize: 10, fontWeight: 700,
-                    borderRadius: 999, padding: "3px 7px",
-                    display: "flex", alignItems: "center", gap: 3,
-                  }}>
-                    {tone.icon} {item.status.replace("_", " ")}
                   </span>
-                </div>
 
-                {/* Bottom row: time in → time out → hours */}
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ flex: 1 }}>
-                    <p style={{ color: "#94A3B8", fontSize: 11, fontWeight: 600, margin: 0 }}>
-                      {isOffice ? "Time In" : "Visit Start"}
-                    </p>
-                    <p style={{ color: "#334155", fontSize: 14, fontWeight: 700, margin: "2px 0 0" }}>
-                      {fmtTime(item.timeInAt)}
-                    </p>
-                  </div>
-                  <ArrowRight size={14} color="#CBD5E1" />
-                  <div style={{ flex: 1 }}>
-                    <p style={{ color: "#94A3B8", fontSize: 11, fontWeight: 600, margin: 0 }}>
-                      {isOffice ? "Time Out" : "Visit End"}
-                    </p>
-                    <p style={{ color: "#334155", fontSize: 14, fontWeight: 700, margin: "2px 0 0" }}>
-                      {fmtTime(item.timeOutAt)}
-                    </p>
-                  </div>
-                  <div style={{ flex: 1.2, textAlign: "right" }}>
-                    <p style={{ color: "#94A3B8", fontSize: 11, fontWeight: 600, margin: 0 }}>Hours Rendered</p>
-                    <p style={{
-                      fontSize: 15, fontWeight: 800, margin: "2px 0 0",
-                      color: hrs ? "#17A34A" : "#94A3B8",
-                    }}>
+                  <span className="dtr-dense-time">
+                    {fmtTime(item.timeInAt)} <ArrowRight size={11} color="#CBD5E1" /> {fmtTime(item.timeOutAt)}
+                  </span>
+
+                  <span className="dtr-dense-time dtr-dense-lunch">
+                    {isOffice && item.lunchOutAt ? `${fmtTime(item.lunchOutAt)} – ${fmtTime(item.lunchInAt ?? null)}` : "—"}
+                  </span>
+
+                  <span className="dtr-dense-bar-wrap">
+                    <span className="dtr-dense-bar-label" style={{ color: hrs ? tone.color : inProgress ? tone.color : "#94A3B8" }}>
                       {hrs ?? (inProgress ? "In progress" : "--")}
-                    </p>
-                  </div>
-                </div>
-
-                {isOffice && item.lunchOutAt && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 5, marginTop: 8 }}>
-                    <span style={{ color: "#9A3412", fontSize: 12, fontWeight: 600 }}>
-                      Lunch: {fmtTime(item.lunchOutAt)} - {fmtTime(item.lunchInAt ?? null)}
                     </span>
-                  </div>
-                )}
-              </button>
-            );
-          })}
+                    <span className="dtr-dense-bar-track">
+                      <span className="dtr-dense-bar-fill" style={{ width: `${barPct}%`, background: tone.color }} />
+                    </span>
+                  </span>
+
+                  {hasPhotos ? (
+                    <button
+                      type="button"
+                      className="dtr-dense-view-btn"
+                      onClick={(e) => { e.stopPropagation(); openRecord(item); }}
+                      title="View captured photos"
+                    >
+                      <Eye size={16} />
+                      View
+                    </button>
+                  ) : (
+                    <span />
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
       {/* ── Photo modal ──────────────────────────────────────────────────────── */}
       {selected && (
         <div style={overlayS}>
-          <div style={modalCard}>
+          <div className="emp-scroll-thin" style={modalCard}>
             <button
               type="button"
               onClick={() => setSelected(null)}
@@ -494,20 +468,6 @@ export function DtrPage({ user }: Props) {
 }
 
 // ── Styles ────────────────────────────────────────────────────────────────────
-const summaryCard: CSSProperties = {
-  display: "flex", alignItems: "center", gap: 12,
-  background: "#EFF6FF", border: "1px solid #DBEAFE",
-  borderRadius: 14, padding: 14, marginBottom: 18,
-};
-const summaryIconWrap: CSSProperties = {
-  width: 38, height: 38, borderRadius: "50%",
-  background: "#FFFFFF",
-  display: "flex", alignItems: "center", justifyContent: "center",
-  flexShrink: 0,
-  boxShadow: "0 1px 3px rgba(15,23,42,0.12)",
-};
-const summaryLabel: CSSProperties = { color: "#1E3A8A", fontSize: 12, fontWeight: 700, margin: 0 };
-const summaryValue: CSSProperties = { color: "#062B59", fontSize: 20, fontWeight: 800, margin: "2px 0 0" };
 const refreshBtn: CSSProperties = {
   display: "flex", alignItems: "center", justifyContent: "center",
   width: 34, height: 34, flexShrink: 0,
@@ -515,28 +475,15 @@ const refreshBtn: CSSProperties = {
   cursor: "pointer", color: "#1680D8",
 };
 const dateFilterCard: CSSProperties = {
-  display: "flex", alignItems: "flex-end", gap: 10,
+  display: "flex", alignItems: "center", gap: 10,
   background: "#FFFFFF", border: "1px solid #DBE5EF", borderRadius: 14,
   padding: 12, marginBottom: 14,
   boxShadow: "0 1px 2px rgba(15,23,42,0.04)",
 };
 const dateFilterFields: CSSProperties = { display: "flex", gap: 10, flex: 1 };
-const dateFieldLabel: CSSProperties = {
-  display: "flex", flexDirection: "column", gap: 5, flex: 1,
-};
-const dateFieldLabelText: CSSProperties = {
-  display: "flex", alignItems: "center", gap: 4,
-  fontSize: 10.5, fontWeight: 700, color: "#64748B",
-  textTransform: "uppercase", letterSpacing: 0.03,
-};
-const dateInput: CSSProperties = {
-  width: "100%", height: 36, border: "1px solid #DBE5EF", borderRadius: 9,
-  padding: "0 8px", fontSize: 12.5, fontWeight: 600, color: "#062B59",
-  background: "#F8FAFC", outline: "none", boxSizing: "border-box",
-};
 const clearDateBtn: CSSProperties = {
   display: "flex", alignItems: "center", gap: 4,
-  height: 36, padding: "0 10px", border: "1px solid #DBE5EF", borderRadius: 9,
+  height: 48, padding: "0 12px", border: "1px solid #DBE5EF", borderRadius: 12,
   background: "#F8FAFC", color: "#64748B", fontSize: 12, fontWeight: 700,
   cursor: "pointer", flexShrink: 0,
 };
@@ -544,12 +491,6 @@ const filterChip: CSSProperties = {
   paddingLeft: 16, paddingRight: 16, paddingTop: 7, paddingBottom: 7,
   borderRadius: 999, border: "none", cursor: "pointer",
   fontSize: 12, fontWeight: 700,
-};
-const rowBtn: CSSProperties = {
-  display: "block", width: "100%",
-  padding: "12px 16px",
-  border: "none", background: "none",
-  cursor: "pointer", textAlign: "left",
 };
 const overlayS: CSSProperties = {
   position: "fixed", inset: 0,

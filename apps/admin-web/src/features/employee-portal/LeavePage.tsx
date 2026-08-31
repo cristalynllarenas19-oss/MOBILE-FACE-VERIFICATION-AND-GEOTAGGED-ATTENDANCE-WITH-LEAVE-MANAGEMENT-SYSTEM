@@ -1,7 +1,7 @@
 
 
 import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, CheckCircle, ChevronDown, ChevronUp, FileText, Paperclip, Search, X, XCircle } from "lucide-react";
+import { AlertCircle, CheckCircle, ChevronDown, ChevronLeft, ChevronUp, FileText, Paperclip, Search, X, XCircle } from "lucide-react";
 import "./EmployeePortal.css";
 import {
   LeaveType, LeaveBalance, LeaveRequest, UndertimeEligibility, UndertimeFiling, MySchedule,
@@ -208,8 +208,9 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
   const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
   const [cancelReasonText, setCancelReasonText] = useState("");
 
-  // Inline "attach requirement & resubmit" — only one row can be expanded at a time.
-  const [resubmittingId,  setResubmittingId]  = useState<string | null>(null);
+  // Inline "attach requirement & resubmit" — shown unconditionally on a
+  // NEEDS_REVISION request's detail view (mirrors employee-mobile's
+  // LeaveScreen.tsx, which never gates this behind a separate toggle).
   const [resubmitNote,    setResubmitNote]    = useState("");
   const [resubmitFile,    setResubmitFile]    = useState<{ name: string; mimeType: string; sizeBytes: number; base64: string } | null>(null);
   const [resubmitErr,     setResubmitErr]     = useState<string | null>(null);
@@ -393,7 +394,6 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
     setTab("request");
     if (request) {
       setFocusedRequestId(request.id);
-      if (request.status === "NEEDS_REVISION") openResubmit(request.id);
       onFocusRequestHandled?.();
       return;
     }
@@ -457,12 +457,14 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
       });
   }
 
-  function openResubmit(requestId: string) {
-    setResubmittingId(requestId);
+  // Clears the resubmit form whenever a different request's detail view is
+  // opened, so switching between requests never leaks one's draft
+  // attachment/note into another's inline section below.
+  useEffect(() => {
     setResubmitNote("");
     setResubmitFile(null);
     setResubmitErr(null);
-  }
+  }, [focusedRequestId]);
 
   function handleResubmitFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -489,7 +491,6 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
         attachmentMimeType: resubmitFile.mimeType,
         attachmentData: resubmitFile.base64,
       });
-      setResubmittingId(null);
       // Only `requests` actually changed (status PENDING again) — the other
       // four caches (leave types, balances, undertime) are untouched by a
       // resubmit, so refetching them here would just be wasted round trips.
@@ -831,7 +832,6 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
     // getCancellationEligibility already refuses once this note exists).
     const cancellationDenied =
       r.status === "APPROVED" ? [...(r.notes ?? [])].reverse().find((n) => n.type === "CANCELLATION_DENIED") : undefined;
-    const isExpanded = resubmittingId === r.id;
     return (
       <div key={r.id} style={{ background: "#F8FAFC", borderRadius: 12, padding: 14, marginBottom: 10 }}>
         <p style={{ fontWeight: 700, marginBottom: 3 }}>{r.leaveType.name}</p>
@@ -902,18 +902,6 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
           }}>
             {statusLabel(r.status)}
           </span>
-          {needsRevision && (
-            <button
-              onClick={() => (isExpanded ? setResubmittingId(null) : openResubmit(r.id))}
-              style={{
-                border: "1px solid #93C5FD", background: "#EFF6FF", color: "#1680D8",
-                fontWeight: 700, fontSize: 11, borderRadius: 999, padding: "3px 10px",
-                cursor: "pointer",
-              }}
-            >
-              {isExpanded ? "Cancel" : "Attach & Resubmit"}
-            </button>
-          )}
         </div>
 
         <LeaveTimeline history={r.history} status={r.status} />
@@ -947,7 +935,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
           </div>
         )}
 
-        {needsRevision && isExpanded && (
+        {needsRevision && (
           <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #E2E8F0" }}>
             {resubmitFile ? (
               <div style={{ display: "flex", alignItems: "center", gap: 8, border: "1px solid #E2E8F0", borderRadius: 10, padding: "8px 10px", background: "#FFFFFF" }}>
@@ -1109,7 +1097,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                       style={searchInp}
                     />
                   </div>
-                  <div style={{ maxHeight: 158, overflowY: "auto" }}>
+                  <div className="emp-scroll-thin" style={{ maxHeight: 158, overflowY: "auto" }}>
                     {filteredTypes.length === 0
                       ? <p style={{ padding: 14, textAlign: "center", color: "#94A3B8", fontSize: 13, margin: 0 }}>No leave types found</p>
                       : filteredTypes.map((t) => {
@@ -1342,7 +1330,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
       {/* ── Pending requests modal ───────────────────────────────────────────── */}
       {showPending && (
         <div style={overlayNoBg}>
-          <div style={modalCardFloating}>
+          <div className="emp-scroll-thin" style={modalCardFloating}>
             <h3 style={{ color: "#062B59", fontWeight: 700, marginBottom: 14 }}>My Leave Requests</h3>
 
             <SegmentedControl
@@ -1411,7 +1399,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
               )}
             </div>
 
-            <div style={{ maxHeight: 280, overflowY: "auto" }}>
+            <div className="emp-scroll-thin" style={{ maxHeight: 280, overflowY: "auto" }}>
               {(requestsListTab === "current" ? currentRequests : pastRequests).length === 0 ? (
                 <p style={{ color: "#94A3B8", fontSize: 13, textAlign: "center" }}>
                   {requestsDateFrom || requestsDateTo || requestsStatusFilter !== "ALL"
@@ -1424,25 +1412,32 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                 (requestsListTab === "current" ? currentRequests : pastRequests).map(renderRequestSummary)
               )}
             </div>
-            <button onClick={() => { setShowPending(false); setResubmittingId(null); }} style={{ ...primBtn, marginTop: 10 }}>Close</button>
+            <button onClick={() => setShowPending(false)} style={{ ...primBtn, marginTop: 10 }}>Close</button>
           </div>
         </div>
       )}
 
       {focusedRequest && (
         <div style={overlayNoBg}>
-          <div style={modalCardFloating}>
+          <div className="emp-scroll-thin" style={modalCardFloating}>
+            {/* Mirrors employee-mobile's LeaveScreen.tsx back row — this
+                detail view is reached from the requests list, so "back" reads
+                clearer here than a dead-end "Close". */}
+            <button
+              type="button"
+              onClick={() => setFocusedRequestId(null)}
+              style={{
+                display: "flex", alignItems: "center", gap: 4,
+                border: "none", background: "none", cursor: "pointer",
+                padding: 0, marginBottom: 10,
+                color: "#1680D8", fontWeight: 700, fontSize: 13,
+              }}
+            >
+              <ChevronLeft size={16} color="#1680D8" />
+              All requests
+            </button>
             <h3 style={{ color: "#062B59", fontWeight: 700, marginBottom: 14 }}>Leave Request Details</h3>
             {renderRequestCard(focusedRequest)}
-            <button
-              onClick={() => {
-                setFocusedRequestId(null);
-                setResubmittingId(null);
-              }}
-              style={{ ...primBtn, marginTop: 10 }}
-            >
-              Close
-            </button>
           </div>
         </div>
       )}

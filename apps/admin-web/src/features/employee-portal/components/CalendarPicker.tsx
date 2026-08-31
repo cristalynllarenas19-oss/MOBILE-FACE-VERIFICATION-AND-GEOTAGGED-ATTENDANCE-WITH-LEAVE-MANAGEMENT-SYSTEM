@@ -170,10 +170,12 @@ export function CalendarPicker({ value, onChange, min, max, isDateDisabled, isDa
             })}
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10 }}>
-            <span style={{ width: 9, height: 9, borderRadius: 3, background: "#FEE2E2", display: "inline-block" }} />
-            <span style={{ fontSize: 10.5, color: "#64748B" }}>Already filed for this leave type</span>
-          </div>
+          {isDateDisabled && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10 }}>
+              <span style={{ width: 9, height: 9, borderRadius: 3, background: "#FEE2E2", display: "inline-block" }} />
+              <span style={{ fontSize: 10.5, color: "#64748B" }}>Already filed for this leave type</span>
+            </div>
+          )}
           {isDateNonWorking && (
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
               <span style={{ width: 9, height: 9, borderRadius: 3, background: "#FEF3C7", display: "inline-block" }} />
