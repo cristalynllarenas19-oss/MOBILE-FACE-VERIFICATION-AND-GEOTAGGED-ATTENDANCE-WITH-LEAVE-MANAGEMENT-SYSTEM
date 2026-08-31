@@ -11,6 +11,7 @@ import {
 import { LeaveBalanceChart } from "./components/LeaveBalanceChart";
 import { CalendarPicker } from "./components/CalendarPicker";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
+import { LeaveTimeline } from "../../components/ui/LeaveTimeline";
 import type { AuthUser } from "../../lib/api";
 import { CACHE_KEYS, useCachedData } from "../../lib/dataCache";
 
@@ -72,6 +73,11 @@ function fmtBytes(b: number) {
   if (b < 1024)         return `${b} B`;
   if (b < 1024 * 1024)  return `${(b / 1024).toFixed(0)} KB`;
   return `${(b / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function attachmentSrc(mimeType: string | null | undefined, data: string | null | undefined) {
+  if (!mimeType || !data) return null;
+  return `data:${mimeType};base64,${data}`;
 }
 
 export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }: Props) {
@@ -203,6 +209,10 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
   const [resubmitFile,    setResubmitFile]    = useState<{ name: string; mimeType: string; sizeBytes: number; base64: string } | null>(null);
   const [resubmitErr,     setResubmitErr]     = useState<string | null>(null);
   const [isResubmitting,  setIsResubmitting]  = useState(false);
+
+  // Lets the employee view a submitted attachment (their own initial upload
+  // or a resubmitted requirement) full-size instead of only seeing its file name.
+  const [previewAttachment, setPreviewAttachment] = useState<{ src: string; name: string; mimeType: string } | null>(null);
 
   // Undertime filing
   const [undertimeReason,      setUndertimeReason]      = useState("");
@@ -815,15 +825,37 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
           {new Date(r.startDate).toLocaleDateString()} – {new Date(r.endDate).toLocaleDateString()}
         </p>
         {r.attachmentName && (
-          <p
-            title={r.attachmentName}
-            style={{
-              color: "#64748B", fontSize: 12, margin: "3px 0",
-              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-            }}
-          >
-            📎 {r.attachmentName}
-          </p>
+          attachmentSrc(r.attachmentMimeType, r.attachmentData) ? (
+            <button
+              type="button"
+              onClick={() =>
+                setPreviewAttachment({
+                  src: attachmentSrc(r.attachmentMimeType, r.attachmentData)!,
+                  name: r.attachmentName!,
+                  mimeType: r.attachmentMimeType!,
+                })
+              }
+              title={r.attachmentName}
+              style={{
+                display: "block", width: "100%", textAlign: "left",
+                border: "none", background: "none", padding: 0, cursor: "pointer",
+                color: "#1680D8", fontSize: 12, fontWeight: 600, margin: "3px 0",
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              }}
+            >
+              📎 {r.attachmentName}
+            </button>
+          ) : (
+            <p
+              title={r.attachmentName}
+              style={{
+                color: "#64748B", fontSize: 12, margin: "3px 0",
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              }}
+            >
+              📎 {r.attachmentName}
+            </p>
+          )
         )}
         {lastRejection && (
           <div style={{ background: "#FEF3C7", border: "1px solid #FCD34D", borderRadius: 8, padding: "8px 10px", margin: "6px 0" }}>
@@ -869,6 +901,8 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
             </button>
           )}
         </div>
+
+        <LeaveTimeline history={r.history} status={r.status} />
 
         {canShowCancelSection && (
           <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #E2E8F0" }}>
@@ -1461,6 +1495,55 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
               Done
             </button>
           </div>
+        </div>
+      )}
+
+      {/* ── Attachment preview lightbox ─────────────────────────────────────── */}
+      {previewAttachment && (
+        <div
+          role="presentation"
+          onClick={() => setPreviewAttachment(null)}
+          style={{
+            position: "fixed", inset: 0, zIndex: 2100,
+            display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
+            background: "rgba(15, 23, 42, 0.82)", cursor: "zoom-out",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setPreviewAttachment(null)}
+            aria-label="Close attachment preview"
+            style={{
+              position: "fixed", top: 20, right: 24, width: 40, height: 40,
+              display: "inline-flex", alignItems: "center", justifyContent: "center",
+              border: "1px solid rgba(255,255,255,0.3)", borderRadius: 999,
+              background: "rgba(255,255,255,0.1)", color: "#fff", cursor: "pointer",
+            }}
+          >
+            <X size={20} />
+          </button>
+          {previewAttachment.mimeType.startsWith("image/") ? (
+            <img
+              src={previewAttachment.src}
+              alt={previewAttachment.name}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                maxWidth: "min(90vw, 900px)", maxHeight: "88vh",
+                borderRadius: 10, boxShadow: "0 24px 60px rgba(0,0,0,0.4)", cursor: "default",
+              }}
+            />
+          ) : (
+            <iframe
+              src={previewAttachment.src}
+              title={previewAttachment.name}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                width: "min(92vw, 980px)", height: "min(88vh, 900px)",
+                border: "none", borderRadius: 10, background: "#fff",
+                boxShadow: "0 24px 60px rgba(0,0,0,0.4)", cursor: "default",
+              }}
+            />
+          )}
         </div>
       )}
     </div>

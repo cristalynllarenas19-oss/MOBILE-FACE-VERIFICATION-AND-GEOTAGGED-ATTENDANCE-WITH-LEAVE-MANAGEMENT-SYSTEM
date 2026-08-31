@@ -269,6 +269,33 @@ export type LeaveBalance = {
   remainingDays: number;
 };
 
+// One step in a request's approval timeline — reconstructed server-side from
+// the AuditLog rows every status change already writes (see buildHistory in
+// leave.service.ts). "FILED" is always first; everything after it reflects
+// whatever actually happened (approval is single-step today, so most
+// requests only ever get one more event after FILED).
+export type LeaveRequestHistoryEvent = {
+  action:
+    | "FILED"
+    | "SUPERVISOR_APPROVE_LEAVE"
+    | "APPROVE_LEAVE"
+    | "REJECT_LEAVE"
+    | "RESUBMIT_LEAVE"
+    | "CANCEL_LEAVE"
+    | "REQUEST_CANCEL_LEAVE"
+    | "APPROVE_CANCEL_LEAVE"
+    | "DENY_CANCEL_LEAVE";
+  status: string | null;
+  actorName: string | null;
+  occurredAt: string;
+  // Normalized from whichever of remarks/note the underlying action wrote
+  // (see buildHistory in leave.service.ts) — the reviewer's remarks on a
+  // REJECT_LEAVE/DENY_CANCEL_LEAVE, or the employee's note on a
+  // RESUBMIT_LEAVE/REQUEST_CANCEL_LEAVE.
+  remarks: string | null;
+  requirementDetails: string | null;
+};
+
 export type LeaveRequestNote = {
   id: string;
   type: "REJECTED" | "RESUBMITTED" | "CANCELLED" | "CANCELLATION_DENIED";
@@ -276,6 +303,10 @@ export type LeaveRequestNote = {
   requiresAdditionalRequirements?: boolean;
   requirementDetails?: string | null;
   attachmentName?: string | null;
+  // Only populated by getLeaveRequestDetail — the list poll (getLeaveRequests)
+  // omits these to keep its payload light.
+  attachmentMimeType?: string | null;
+  attachmentData?: string | null;
   createdAt: string;
 };
 
@@ -288,8 +319,13 @@ export type LeaveRequest = {
   reason: string;
   createdAt: string;
   attachmentName?: string | null;
+  // Only populated by getLeaveRequestDetail — the list poll (getLeaveRequests)
+  // omits these to keep its payload light.
+  attachmentMimeType?: string | null;
+  attachmentData?: string | null;
   adminRemarks?: { remarks?: string } | null;
   notes?: LeaveRequestNote[];
+  history?: LeaveRequestHistoryEvent[];
   leaveType: {
     id: string;
     name: string;
@@ -626,6 +662,13 @@ export async function getLeaveRequests(employeeId: string) {
   return apiRequest<LeaveRequest[]>(`/leave-requests?employeeId=${employeeId}&includeAttachments=false`);
 }
 
+// Fetches a single request with its attachment data — called on demand
+// (e.g. tapping "view attachment") instead of through the list poll above,
+// so viewing a file never bloats that poll's payload.
+export async function getLeaveRequestDetail(id: string) {
+  return apiRequest<LeaveRequest>(`/leave-requests/${id}`);
+}
+
 export async function createLeaveRequest(input: CreateLeaveRequestInput) {
   return apiRequest<LeaveRequest>("/leave-requests", {
     method: "POST",
@@ -839,6 +882,7 @@ export type TeamLeaveRequest = {
   attachmentName?: string | null;
   extensionRequested?: boolean;
   extensionApproved?: boolean | null;
+  history?: LeaveRequestHistoryEvent[];
   employee: {
     id: string;
     firstName: string;

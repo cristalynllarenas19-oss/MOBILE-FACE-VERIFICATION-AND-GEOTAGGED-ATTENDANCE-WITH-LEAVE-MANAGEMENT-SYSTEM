@@ -34,6 +34,16 @@ export class LeaveController {
     return this.leaveService.findAll(scopedEmployeeId, departmentId, shouldIncludeAttachments);
   }
 
+  @Get(":id")
+  @RequirePermissions("leave:read")
+  findOne(@Param("id") id: string, @Req() request: Request) {
+    const user = (request as any).user;
+    const roles: string[] = user.roles ?? [user.role];
+    const hasElevatedRole = roles.includes("ADMIN") || roles.includes("SUPERVISOR");
+    const departmentId = getSupervisorDepartmentScope(user);
+    return this.leaveService.findOne(id, hasElevatedRole ? undefined : user.employeeId, hasElevatedRole ? departmentId : undefined);
+  }
+
   @Post()
   @RequirePermissions("leave:write")
   create(@Body() dto: CreateLeaveRequestDto, @Req() request: Request) {

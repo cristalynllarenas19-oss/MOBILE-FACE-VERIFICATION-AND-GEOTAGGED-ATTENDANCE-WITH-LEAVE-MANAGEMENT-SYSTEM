@@ -63,6 +63,11 @@ type Props = {
   // employee. Optional since only the Supervisor portal ever receives this
   // notification type.
   onEvaluateEmployee?: (employeeId: string) => void;
+  // Backs the "View Leave Request" button shown on any LEAVE_* notification
+  // — jumps to that request's detail on the Leave tab (employee-mobile) or
+  // the team review modal (supervisor portal). Optional since a caller with
+  // no leave view to jump into (there isn't one currently) can just omit it.
+  onViewLeaveRequest?: (requestId: string) => void;
 };
 
 type PickedAttachment = {
@@ -204,7 +209,7 @@ function PulsingDot() {
   );
 }
 
-export default function NotificationsScreen({ visible, onClose, onUnreadCountChange, employeeId, onLogRealAttendance, canReviewTeamRequests, onEvaluateEmployee }: Props) {
+export default function NotificationsScreen({ visible, onClose, onUnreadCountChange, employeeId, onLogRealAttendance, canReviewTeamRequests, onEvaluateEmployee, onViewLeaveRequest }: Props) {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Keyed on `visible` so nothing is fetched until the panel opens; while
@@ -557,6 +562,20 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                   <FormattedAnnouncementText message={detailNotification.message} textStyle={styles.detailMessage} />
                 ) : (
                   <Text style={styles.detailMessage}>{detailNotification.message}</Text>
+                )}
+
+                {detailNotification.type?.startsWith("LEAVE_") && detailNotification.entityId && onViewLeaveRequest && (
+                  <Pressable
+                    style={({ pressed }) => [styles.viewLeaveButton, pressed && styles.viewLeaveButtonPressed]}
+                    onPress={() => {
+                      const targetRequestId = detailNotification.entityId!;
+                      handleCloseDetail();
+                      onViewLeaveRequest(targetRequestId);
+                    }}
+                  >
+                    <Ionicons name="document-text-outline" size={18} color="#1680D8" />
+                    <Text style={styles.viewLeaveButtonText}>View Leave Request</Text>
+                  </Pressable>
                 )}
 
                 {detailTeamRequest && !detailIsOwnRequest && (detailCanReview || detailCanDecideCancellation) && (
@@ -1147,6 +1166,26 @@ const styles = StyleSheet.create({
   },
   evaluateButtonText: {
     color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  viewLeaveButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    height: 46,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#BFDBFE",
+    backgroundColor: "#EFF6FF",
+    marginTop: 16,
+  },
+  viewLeaveButtonPressed: {
+    opacity: 0.85,
+  },
+  viewLeaveButtonText: {
+    color: "#1680D8",
     fontSize: 14,
     fontWeight: "700",
   },

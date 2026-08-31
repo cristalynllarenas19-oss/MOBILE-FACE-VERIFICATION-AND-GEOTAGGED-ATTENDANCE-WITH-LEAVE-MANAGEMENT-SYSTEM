@@ -163,7 +163,36 @@ export type LeaveRequestNote = {
   requiresAdditionalRequirements?: boolean;
   requirementDetails?: string | null;
   attachmentName?: string | null;
+  attachmentMimeType?: string | null;
+  attachmentData?: string | null;
   createdAt: string;
+};
+
+// One step in a request's approval timeline — reconstructed server-side from
+// the AuditLog rows every status change already writes (see buildHistory in
+// leave.service.ts). "FILED" is always first; everything after it reflects
+// whatever actually happened (approval is single-step today, so most
+// requests only ever get one more event after FILED).
+export type LeaveRequestHistoryEvent = {
+  action:
+    | "FILED"
+    | "SUPERVISOR_APPROVE_LEAVE"
+    | "APPROVE_LEAVE"
+    | "REJECT_LEAVE"
+    | "RESUBMIT_LEAVE"
+    | "CANCEL_LEAVE"
+    | "REQUEST_CANCEL_LEAVE"
+    | "APPROVE_CANCEL_LEAVE"
+    | "DENY_CANCEL_LEAVE";
+  status: string | null;
+  actorName: string | null;
+  occurredAt: string;
+  // Normalized from whichever of remarks/note the underlying action wrote
+  // (see buildHistory in leave.service.ts) — the reviewer's remarks on a
+  // REJECT_LEAVE/DENY_CANCEL_LEAVE, or the employee's note on a
+  // RESUBMIT_LEAVE/REQUEST_CANCEL_LEAVE.
+  remarks: string | null;
+  requirementDetails: string | null;
 };
 
 export type LeaveRequest = {
@@ -175,8 +204,11 @@ export type LeaveRequest = {
   reason: string;
   createdAt: string;
   attachmentName?: string | null;
+  attachmentMimeType?: string | null;
+  attachmentData?: string | null;
   adminRemarks?: { remarks?: string } | null;
   notes?: LeaveRequestNote[];
+  history?: LeaveRequestHistoryEvent[];
   leaveType: {
     id: string;
     name: string;

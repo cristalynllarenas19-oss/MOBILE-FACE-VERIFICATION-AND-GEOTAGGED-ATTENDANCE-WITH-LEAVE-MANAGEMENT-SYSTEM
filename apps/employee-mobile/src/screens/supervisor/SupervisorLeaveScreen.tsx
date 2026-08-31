@@ -17,6 +17,7 @@ import EmptyState from "../../components/EmptyState";
 import Avatar from "../../components/Avatar";
 import StatusPill from "../../components/StatusPill";
 import SegmentedControl from "../../components/SegmentedControl";
+import LeaveTimeline from "../../components/LeaveTimeline";
 import AestheticScrollView from "../../components/AestheticScrollView";
 import {
   TeamLeaveRequest,
@@ -37,9 +38,15 @@ const LEAVE_POLL_MS = 3000;
 
 type Props = {
   currentEmployeeId?: string;
+  // Set when arriving here from a leave notification's "View Leave Request"
+  // button — opens straight into that request's review modal once it's in
+  // the (already-cached) team list. onFocusRequestHandled clears it on the
+  // parent's side once consumed.
+  initialFocusRequestId?: string | null;
+  onFocusRequestHandled?: () => void;
 };
 
-export default function SupervisorLeaveScreen({ currentEmployeeId }: Props) {
+export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusRequestId, onFocusRequestHandled }: Props) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [filter, setFilter] = useState<"PENDING" | "ALL">("PENDING");
 
@@ -93,6 +100,17 @@ export default function SupervisorLeaveScreen({ currentEmployeeId }: Props) {
     setReviewMode("reject");
     setRequirementDetails("");
   }
+
+  // Arriving here from a leave notification's "View Leave Request" button —
+  // waits for the request to actually be in the (already-cached) team list
+  // before opening its review modal.
+  useEffect(() => {
+    if (!initialFocusRequestId) return;
+    const match = requests.find((r) => r.id === initialFocusRequestId);
+    if (!match) return;
+    openReview(match);
+    onFocusRequestHandled?.();
+  }, [initialFocusRequestId, requests]);
 
   const isOwnRequest = reviewRequest?.employee.id === currentEmployeeId;
   // Approval is single-step and final (see leave.controller.ts's /approve) —
@@ -266,6 +284,8 @@ export default function SupervisorLeaveScreen({ currentEmployeeId }: Props) {
                     {new Date(reviewRequest.startDate).toLocaleDateString()} - {new Date(reviewRequest.endDate).toLocaleDateString()}
                   </Text>
                   <Text style={styles.reasonText}>{reviewRequest.reason}</Text>
+
+                  <LeaveTimeline history={reviewRequest.history} status={reviewRequest.status} />
 
                   {isOwnRequest && (
                     <Text style={styles.warningText}>This is your own leave request — you cannot approve or reject it.</Text>

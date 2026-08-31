@@ -31,6 +31,9 @@ export default function SupervisorMainScreen({ user, onLogout, canSwitchToEmploy
   const [unreadCount, setUnreadCount] = useState(0);
   const [notificationsVisible, setNotificationsVisible] = useState(false);
   const [evaluatingEmployeeId, setEvaluatingEmployeeId] = useState<string | null>(null);
+  // Set when "View Leave Request" is tapped on a leave notification — tells
+  // SupervisorLeaveScreen which request to open its review modal for.
+  const [focusedLeaveRequestId, setFocusedLeaveRequestId] = useState<string | null>(null);
   const { data: profile } = useCachedData<EmployeeProfile>(CACHE_KEYS.myProfile, getMyProfile);
   const { data: teamRoster } = useCachedData<TeamEmployee[]>(CACHE_KEYS.teamEmployees, getTeamEmployees);
 
@@ -87,6 +90,11 @@ export default function SupervisorMainScreen({ user, onLogout, canSwitchToEmploy
         employeeId={user?.employeeId}
         canReviewTeamRequests
         onEvaluateEmployee={setEvaluatingEmployeeId}
+        onViewLeaveRequest={(requestId) => {
+          setNotificationsVisible(false);
+          setTab("leave");
+          setFocusedLeaveRequestId(requestId);
+        }}
       />
 
       {evaluatingEmployeeId && (
@@ -103,7 +111,13 @@ export default function SupervisorMainScreen({ user, onLogout, canSwitchToEmploy
 
         {tab === "team" && <TeamScreen departmentName={user?.department} currentEmployeeId={user?.employeeId} />}
 
-        {tab === "leave" && <SupervisorLeaveScreen currentEmployeeId={user?.employeeId} />}
+        {tab === "leave" && (
+          <SupervisorLeaveScreen
+            currentEmployeeId={user?.employeeId}
+            initialFocusRequestId={focusedLeaveRequestId}
+            onFocusRequestHandled={() => setFocusedLeaveRequestId(null)}
+          />
+        )}
 
         {tab === "attendance" && <SupervisorAttendanceScreen />}
 

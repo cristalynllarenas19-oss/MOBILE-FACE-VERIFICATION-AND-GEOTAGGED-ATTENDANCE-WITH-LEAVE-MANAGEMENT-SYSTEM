@@ -62,6 +62,9 @@ export default function MainScreen({
 
   const [unreadCount, setUnreadCount] = useState(0);
   const [notificationsVisible, setNotificationsVisible] = useState(false);
+  // Set when "View Leave Request" is tapped on a leave notification — tells
+  // LeaveScreen which request to jump straight into once it mounts.
+  const [focusedLeaveRequestId, setFocusedLeaveRequestId] = useState<string | null>(null);
 
   // Same cache key as ViewProfileScreen, so a photo change there is
   // reflected here instantly on the next mount without a refetch.
@@ -142,6 +145,11 @@ export default function MainScreen({
           setTab("attendance");
           onLogRealAttendance();
         }}
+        onViewLeaveRequest={(requestId) => {
+          setNotificationsVisible(false);
+          setTab("leave");
+          setFocusedLeaveRequestId(requestId);
+        }}
       />
 
       <View
@@ -165,7 +173,11 @@ export default function MainScreen({
         )}
 
         {tab === "leave" && (
-          <LeaveScreen employeeId={user?.employeeId} />
+          <LeaveScreen
+            employeeId={user?.employeeId}
+            initialFocusRequestId={focusedLeaveRequestId}
+            onFocusRequestHandled={() => setFocusedLeaveRequestId(null)}
+          />
         )}
 
         {tab === "dtr" && (

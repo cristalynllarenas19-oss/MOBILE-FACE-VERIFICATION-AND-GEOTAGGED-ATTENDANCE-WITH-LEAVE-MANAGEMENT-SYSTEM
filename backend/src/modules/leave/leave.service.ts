@@ -25,6 +25,22 @@ const CANCELLATION_CUTOFF_UNITS = {
   HOURS_BEFORE_SHIFT_START: "HOURS_BEFORE_SHIFT_START",
 } as const;
 
+// Audit actions that represent a step in a request's approval timeline —
+// everything updateStatus/reject/cancel/resubmit/approveCancellation/
+// denyCancellation already writes to AuditLog. Kept separate from other
+// "Leave" module actions (e.g. leave type CRUD) so buildHistory() only ever
+// surfaces events that belong to this one request's lifecycle.
+const TIMELINE_ACTIONS = new Set([
+  "SUPERVISOR_APPROVE_LEAVE",
+  "APPROVE_LEAVE",
+  "REJECT_LEAVE",
+  "RESUBMIT_LEAVE",
+  "CANCEL_LEAVE",
+  "REQUEST_CANCEL_LEAVE",
+  "APPROVE_CANCEL_LEAVE",
+  "DENY_CANCEL_LEAVE",
+]);
+
 // Local-midnight truncation, matching the same toDateString()-based same-day
 // comparisons already used elsewhere in this file (see isSingleDayOnly check
 // in create()) — keeps "today"/"already started" comparisons independent of
@@ -99,8 +115,20 @@ export class LeaveService {
 
     const remarks = await this.prisma.auditLog.findMany({
       where: { entityType: "LeaveRequest", entityId: { in: requests.map((request) => request.id) } },
+      include: { actor: { include: { employee: true } } },
       orderBy: { createdAt: "desc" },
     });
+
+    // Same rows as `remarks` above, just grouped per request — reused to
+    // reconstruct each request's approval timeline (see buildHistory) without
+    // a second query.
+    const auditLogsByRequestId = new Map<string, typeof remarks>();
+    for (const log of remarks) {
+      if (!log.entityId) continue;
+      const list = auditLogsByRequestId.get(log.entityId) ?? [];
+      list.push(log);
+      auditLogsByRequestId.set(log.entityId, list);
+    }
 
     // The cutoff math below only ever runs for APPROVED requests (see the
     // early-return in getCancellationEligibility), so the schedule/shift join
@@ -132,7 +160,89 @@ export class LeaveService {
       // cancel() endpoint enforces, computed here so the client never has to
       // duplicate the cutoff math (which needs the employee's shift).
       cancellation: this.getCancellationEligibility(request, schedulesByEmployeeId.get(request.employeeId) ?? [], request.notes),
+      history: this.buildHistory(request, auditLogsByRequestId.get(request.id) ?? []),
     }));
+  }
+
+  // Fetches a single request with its attachment data included — unlike
+  // findAll's employee-mobile poll (includeAttachments=false), this is only
+  // called on demand (e.g. when an employee taps "view attachment"), so the
+  // base64 payload here never bloats a recurring list poll.
+  async findOne(id: string, requestingEmployeeId?: string, scopeDepartmentId?: string) {
+    const request = await this.prisma.leaveRequest.findUniqueOrThrow({
+      where: { id },
+      include: {
+        employee: { include: { department: true } },
+        leaveType: true,
+        reviewer: { include: { employee: true } },
+        notes: { orderBy: { createdAt: "asc" } },
+      },
+    });
+
+    if (requestingEmployeeId && request.employeeId !== requestingEmployeeId) {
+      throw new ForbiddenException("You can only view your own leave request.");
+    }
+    if (scopeDepartmentId && request.employee.departmentId !== scopeDepartmentId) {
+      throw new ForbiddenException("You can only view leave requests from your own department.");
+    }
+
+    const logs = await this.prisma.auditLog.findMany({
+      where: { entityType: "LeaveRequest", entityId: id },
+      include: { actor: { include: { employee: true } } },
+      orderBy: { createdAt: "asc" },
+    });
+
+    return { ...request, history: this.buildHistory(request, logs) };
+  }
+
+  // Reconstructs a request's approval timeline — Filed, then whatever
+  // review/cancel actions actually happened — straight from the AuditLog
+  // rows every transition above already writes. Avoids adding dedicated
+  // per-stage timestamp columns (SUPERVISOR_APPROVED is a single-tier
+  // approval today — see the controller's approve() — so there's no fixed
+  // number of stages to model; this just replays whatever really occurred).
+  private buildHistory(
+    request: { createdAt: Date; employee: { firstName: string; lastName: string } },
+    logs: Array<{
+      action: string;
+      createdAt: Date;
+      newValues: unknown;
+      actor: { email: string; employee: { firstName: string; lastName: string } | null } | null;
+    }>,
+  ) {
+    const actorName = (log: (typeof logs)[number]) =>
+      log.actor?.employee ? `${log.actor.employee.firstName} ${log.actor.employee.lastName}` : (log.actor?.email ?? null);
+
+    const events = logs
+      .filter((log) => TIMELINE_ACTIONS.has(log.action))
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+      .map((log) => {
+        // REJECT_LEAVE/DENY_CANCEL_LEAVE write `remarks`; RESUBMIT_LEAVE and
+        // REQUEST_CANCEL_LEAVE write `note` for the same "message from the
+        // actor" purpose — normalized to one field so the client doesn't need
+        // to know which action used which key.
+        const values = (log.newValues ?? {}) as { status?: string; remarks?: string; note?: string; requirementDetails?: string };
+        return {
+          action: log.action,
+          status: values.status ?? null,
+          actorName: actorName(log),
+          occurredAt: log.createdAt,
+          remarks: values.remarks || values.note || null,
+          requirementDetails: values.requirementDetails || null,
+        };
+      });
+
+    return [
+      {
+        action: "FILED",
+        status: "PENDING",
+        actorName: `${request.employee.firstName} ${request.employee.lastName}`,
+        occurredAt: request.createdAt,
+        remarks: null,
+        requirementDetails: null,
+      },
+      ...events,
+    ];
   }
 
   // Whether an EMPLOYEE (not an ADMIN override) could cancel this request

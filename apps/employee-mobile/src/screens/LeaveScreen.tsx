@@ -10,13 +10,17 @@ import {
   SafeAreaView,
   Dimensions,
   ActivityIndicator,
+  Animated,
+  PanResponder,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import * as DocumentPicker from "expo-document-picker";
 import { File } from "expo-file-system";
+import { WebView } from "react-native-webview";
 import ResultModal, { ResultModalStatus } from "../components/ResultModal";
 import LeaveBalanceChart from "../components/LeaveBalanceChart";
+import LeaveTimeline from "../components/LeaveTimeline";
 import CalendarPickerModal from "../components/CalendarPickerModal";
 import SegmentedControl from "../components/SegmentedControl";
 import {
@@ -30,6 +34,7 @@ import {
   getLeaveTypes,
   getLeaveBalances,
   getLeaveRequests,
+  getLeaveRequestDetail,
   createLeaveRequest,
   cancelLeaveRequest,
   resubmitLeaveRequest,
@@ -69,7 +74,104 @@ type PickedAttachment = {
 
 type Props = {
   employeeId?: string;
+  // Set when arriving here from a leave-related notification (see
+  // NotificationsScreen's "View Leave Request" button) — opens straight to
+  // that request's detail instead of the balance tab. onFocusRequestHandled
+  // clears it on the parent's side once consumed, so switching away and back
+  // to this tab doesn't keep reopening the same request.
+  initialFocusRequestId?: string | null;
+  onFocusRequestHandled?: () => void;
 };
+
+// Pinch-to-zoom + pan for a viewed attachment image. Deliberately a plain RN
+// <Image> (not a WebView with the base64 embedded in an html string) — a
+// multi-MB attachment blown up as an inline data: URI inside html source
+// silently fails to render on Android (WebView's loadDataWithBaseURL has a
+// low size ceiling), where a plain <Image source={{ uri }}> has no such
+// limit. RN's own ScrollView zoom props (minimumZoomScale etc.) are iOS-only,
+// hence this hand-rolled PanResponder version instead.
+function ZoomableImage({ uri, style }: { uri: string; style?: any }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const translateX = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(0)).current;
+  const currentScale = useRef(1);
+  const currentTranslate = useRef({ x: 0, y: 0 });
+  const gestureStartDistance = useRef<number | null>(null);
+  const gestureStartScale = useRef(1);
+  const gestureStartTranslate = useRef({ x: 0, y: 0 });
+
+  useEffect(() => {
+    const scaleSub = scale.addListener(({ value }) => { currentScale.current = value; });
+    const xSub = translateX.addListener(({ value }) => { currentTranslate.current.x = value; });
+    const ySub = translateY.addListener(({ value }) => { currentTranslate.current.y = value; });
+    return () => {
+      scale.removeListener(scaleSub);
+      translateX.removeListener(xSub);
+      translateY.removeListener(ySub);
+    };
+  }, []);
+
+  function distanceBetween(touches: { pageX: number; pageY: number }[]) {
+    const [a, b] = touches;
+    return Math.hypot(a.pageX - b.pageX, a.pageY - b.pageY);
+  }
+
+  function resetZoom() {
+    Animated.parallel([
+      Animated.spring(scale, { toValue: 1, useNativeDriver: false }),
+      Animated.spring(translateX, { toValue: 0, useNativeDriver: false }),
+      Animated.spring(translateY, { toValue: 0, useNativeDriver: false }),
+    ]).start();
+  }
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponderCapture: (evt) =>
+        evt.nativeEvent.touches.length === 2 || currentScale.current > 1,
+      onPanResponderGrant: (evt) => {
+        gestureStartScale.current = currentScale.current;
+        gestureStartTranslate.current = { ...currentTranslate.current };
+        gestureStartDistance.current = evt.nativeEvent.touches.length === 2 ? distanceBetween(evt.nativeEvent.touches) : null;
+      },
+      onPanResponderMove: (evt, gesture) => {
+        const touches = evt.nativeEvent.touches;
+        if (touches.length === 2) {
+          if (!gestureStartDistance.current) {
+            gestureStartDistance.current = distanceBetween(touches);
+            return;
+          }
+          const nextScale = Math.min(
+            4,
+            Math.max(1, gestureStartScale.current * (distanceBetween(touches) / gestureStartDistance.current)),
+          );
+          scale.setValue(nextScale);
+        } else if (touches.length === 1 && gestureStartScale.current > 1) {
+          translateX.setValue(gestureStartTranslate.current.x + gesture.dx);
+          translateY.setValue(gestureStartTranslate.current.y + gesture.dy);
+        }
+      },
+      onPanResponderRelease: () => {
+        gestureStartDistance.current = null;
+        if (currentScale.current <= 1) resetZoom();
+      },
+    }),
+  ).current;
+
+  return (
+    <View style={[style, { overflow: "hidden" }]} {...panResponder.panHandlers}>
+      <Animated.Image
+        source={{ uri }}
+        resizeMode="contain"
+        style={{
+          width: "100%",
+          height: "100%",
+          transform: [{ scale }, { translateX }, { translateY }],
+        }}
+      />
+    </View>
+  );
+}
 
 function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -138,7 +240,7 @@ function statusLabel(status: string) {
   return status.replace(/_/g, " ");
 }
 
-export default function LeaveScreen({ employeeId }: Props) {
+export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocusRequestHandled }: Props) {
   const leaveTypesCache = useCachedData<LeaveType[]>(CACHE_KEYS.leaveTypes, getLeaveTypes);
   // Same cache key as MainScreen/ViewProfileScreen, so this reuses whatever
   // profile is already in cache instead of firing a redundant fetch.
@@ -224,6 +326,11 @@ export default function LeaveScreen({ employeeId }: Props) {
   // until explicitly closed, and shows on every tab so a failed leave
   // request filed optimistically is never silently missed.
   const [submissionAlert, setSubmissionAlert] = useState<{ title: string; message: string } | null>(null);
+  // Viewing an already-submitted attachment (own or a resubmission) — fetched
+  // on demand via getLeaveRequestDetail since the list poll above never
+  // carries the base64 attachmentData.
+  const [viewingAttachment, setViewingAttachment] = useState<{ name: string; mimeType: string; dataUri: string } | null>(null);
+  const [loadingAttachmentId, setLoadingAttachmentId] = useState<string | null>(null);
 
   // Undertime filing
   const undertimeEligibilityCache = useCachedData<UndertimeEligibility>(
@@ -425,6 +532,17 @@ export default function LeaveScreen({ employeeId }: Props) {
     setResubmitAttachmentError(null);
     setResubmitNote("");
   }, [expandedRequestId]);
+
+  // Arriving here from a leave notification's "View Leave Request" button —
+  // waits for the request to actually be in the cache (it may still be
+  // loading on first mount) before opening straight to its detail.
+  useEffect(() => {
+    if (!initialFocusRequestId) return;
+    if (!requests.some((r) => r.id === initialFocusRequestId)) return;
+    openPendingModal();
+    setExpandedRequestId(initialFocusRequestId);
+    onFocusRequestHandled?.();
+  }, [initialFocusRequestId, requests]);
 
   // Mirrors the backend's same-type check (leave.service.ts) — a leave type
   // with an active request can't be selected again until that one is
@@ -714,6 +832,30 @@ export default function LeaveScreen({ employeeId }: Props) {
       setResubmitAttachmentError(error instanceof Error ? error.message : "Failed to attach file.");
     } finally {
       setIsPickingResubmitFile(false);
+    }
+  }
+
+  async function openAttachment(requestId: string, fallbackName: string) {
+    setLoadingAttachmentId(requestId);
+    try {
+      const detail = await getLeaveRequestDetail(requestId);
+      if (!detail.attachmentMimeType || !detail.attachmentData) {
+        setResultModal({ status: "error", title: "Attachment Unavailable", message: "This attachment is no longer available." });
+        return;
+      }
+      setViewingAttachment({
+        name: detail.attachmentName ?? fallbackName,
+        mimeType: detail.attachmentMimeType,
+        dataUri: `data:${detail.attachmentMimeType};base64,${detail.attachmentData}`,
+      });
+    } catch (error) {
+      setResultModal({
+        status: "error",
+        title: "Attachment Failed",
+        message: error instanceof Error ? error.message : "Failed to load attachment.",
+      });
+    } finally {
+      setLoadingAttachmentId(null);
     }
   }
 
@@ -1286,14 +1428,25 @@ export default function LeaveScreen({ employeeId }: Props) {
                           {new Date(request.startDate).toLocaleDateString()} - {new Date(request.endDate).toLocaleDateString()}
                         </Text>
                         {request.attachmentName && (
-                          <View style={styles.requestAttachmentRow}>
-                            <Ionicons name="attach-outline" size={13} color="#64748B" />
-                            <Text style={styles.requestAttachmentText}>{request.attachmentName}</Text>
-                          </View>
+                          <Pressable
+                            style={styles.requestAttachmentRow}
+                            onPress={() => openAttachment(request.id, request.attachmentName!)}
+                            disabled={loadingAttachmentId === request.id}
+                          >
+                            {loadingAttachmentId === request.id ? (
+                              <ActivityIndicator size="small" color="#64748B" />
+                            ) : (
+                              <Ionicons name="attach-outline" size={13} color="#1680D8" />
+                            )}
+                            <Text style={[styles.requestAttachmentText, styles.requestAttachmentLink]}>
+                              {request.attachmentName}
+                            </Text>
+                          </Pressable>
                         )}
                         <Text style={[styles.pendingText, { color: tone.color, backgroundColor: tone.bg }]} numberOfLines={1}>
                           {statusLabel(request.status)}
                         </Text>
+                        <LeaveTimeline history={request.history} status={request.status} />
                         {request.status === "NEEDS_REVISION" && (() => {
                           const requirementNote = [...(request.notes ?? [])].reverse().find((n) => n.type === "REJECTED");
                           return (
@@ -1569,6 +1722,25 @@ export default function LeaveScreen({ employeeId }: Props) {
               </Pressable>
             </View>
           </View>
+        </View>
+      </Modal>
+
+      <Modal visible={!!viewingAttachment} transparent animationType="fade" onRequestClose={() => setViewingAttachment(null)}>
+        <View style={styles.attachmentViewerOverlay}>
+          <BlurView
+            intensity={65}
+            tint="dark"
+            experimentalBlurMethod="dimezisBlurView"
+            style={StyleSheet.absoluteFillObject}
+          />
+          {viewingAttachment?.mimeType.startsWith("image/") ? (
+            <ZoomableImage uri={viewingAttachment.dataUri} style={styles.attachmentViewerMedia} />
+          ) : viewingAttachment ? (
+            <WebView source={{ uri: viewingAttachment.dataUri }} style={styles.attachmentViewerMedia} />
+          ) : null}
+          <Pressable style={styles.attachmentViewerCloseButton} onPress={() => setViewingAttachment(null)} hitSlop={10}>
+            <Ionicons name="close" size={22} color="#FFFFFF" />
+          </Pressable>
         </View>
       </Modal>
 
@@ -1910,6 +2082,7 @@ const styles = StyleSheet.create({
   requestTitle: { fontWeight: "700", marginBottom: 4, flexShrink: 1 },
   requestAttachmentRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
   requestAttachmentText: { fontSize: 12, color: "#64748B" },
+  requestAttachmentLink: { color: "#1680D8", fontWeight: "600", textDecorationLine: "underline" },
   pendingText: { fontWeight: "700", marginTop: 8, alignSelf: "flex-start", fontSize: 11, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, overflow: "hidden" },
   cancelLeaveButton: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7,
@@ -1951,4 +2124,19 @@ const styles = StyleSheet.create({
   cancellationDeniedText: { color: "#B91C1C", fontSize: 12, marginTop: 3 },
   closeButton: { backgroundColor: "#062B59", borderRadius: 12, padding: 12, marginTop: 12 },
   closeText: { color: "#FFFFFF", textAlign: "center", fontWeight: "700" },
+  attachmentViewerOverlay: { flex: 1, alignItems: "center", justifyContent: "center", padding: 20 },
+  attachmentViewerMedia: { width: "100%", height: "78%", borderRadius: 12, backgroundColor: "#FFFFFF" },
+  attachmentViewerCloseButton: {
+    position: "absolute",
+    top: 50,
+    right: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.3)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
 });

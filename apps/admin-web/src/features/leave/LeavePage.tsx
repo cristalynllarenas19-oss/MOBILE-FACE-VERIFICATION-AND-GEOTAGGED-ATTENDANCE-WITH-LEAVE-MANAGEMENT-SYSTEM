@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
+import { LeaveTimeline, type LeaveRequestHistoryEvent } from "../../components/ui/LeaveTimeline";
 import { apiRequest } from "../../lib/api";
 import { useActiveDepartments } from "../../lib/departments";
 import { useCachedData } from "../../lib/dataCache";
@@ -59,6 +60,7 @@ type LeaveRequest = {
   createdAt: string;
   adminRemarks?: { remarks?: string } | null;
   notes?: LeaveRequestNote[];
+  history?: LeaveRequestHistoryEvent[];
   attachmentName?: string | null;
   attachmentMimeType?: string | null;
   attachmentData?: string | null;
@@ -1943,6 +1945,8 @@ export function LeavePage({
 
               <div><span>Reason</span><strong>{reviewRequest.reason}</strong></div>
             </div>
+
+            <LeaveTimeline history={reviewRequest.history} status={reviewRequest.status} />
 
             {reviewRequest.notes && reviewRequest.notes.length > 0 && (
               <div className="leave-notes-thread">
