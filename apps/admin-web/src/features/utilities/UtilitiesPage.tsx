@@ -1,15 +1,16 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, Building2, CalendarClock, CheckCircle2, ClipboardList, History, Megaphone } from "lucide-react";
+import { AlertTriangle, Building2, CalendarClock, CheckCircle2, ClipboardList, DatabaseBackup, History, Megaphone } from "lucide-react";
 import { PermissionCode, permissions } from "../../types/rbac";
 import { LeaveTypesTab } from "./LeaveTypesTab";
 import { ShiftsTab } from "./ShiftsTab";
 import { AuditLogsTab } from "./AuditLogsTab";
 import { DepartmentsTab } from "./DepartmentsTab";
 import { AnnouncementsTab } from "./AnnouncementsTab";
+import { BackupRestoreTab } from "./BackupRestoreTab";
 import "./UtilitiesPage.css";
 
 export type Notification = { type: "success" | "error"; message: string } | null;
-type UtilTab = "leave-types" | "shifts" | "departments" | "announcements" | "audit-logs";
+type UtilTab = "leave-types" | "shifts" | "departments" | "announcements" | "backup-restore" | "audit-logs";
 
 export function UtilitiesPage({ user }: { user?: { permissions: PermissionCode[] } }) {
   const canManageLeaveTypes = user?.permissions.includes(permissions.leaveTypesWrite) ?? true;
@@ -45,6 +46,9 @@ export function UtilitiesPage({ user }: { user?: { permissions: PermissionCode[]
         <button className={tab === "announcements" ? "active" : ""} onClick={() => setTab("announcements")}>
           <Megaphone size={14} /> Announcements
         </button>
+        <button className={tab === "backup-restore" ? "active" : ""} onClick={() => setTab("backup-restore")}>
+          <DatabaseBackup size={14} /> Backup & Restore
+        </button>
         <button className={tab === "audit-logs" ? "active" : ""} onClick={() => setTab("audit-logs")}>
           <History size={14} /> Audit Logs
         </button>
@@ -54,6 +58,7 @@ export function UtilitiesPage({ user }: { user?: { permissions: PermissionCode[]
       {tab === "shifts" && <ShiftsTab canManageShifts={canManageShifts} notify={setNotification} />}
       {tab === "departments" && <DepartmentsTab user={user} notify={setNotification} />}
       {tab === "announcements" && <AnnouncementsTab user={user} notify={setNotification} />}
+      {tab === "backup-restore" && <BackupRestoreTab notify={setNotification} />}
       {tab === "audit-logs" && <AuditLogsTab notify={setNotification} />}
     </>
   );

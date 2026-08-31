@@ -8,6 +8,7 @@ import { AnnouncementsModule } from "./modules/announcements/announcements.modul
 import { AttendanceModule } from "./modules/attendance/attendance.module";
 import { AuditLogsModule } from "./modules/audit-logs/audit-logs.module";
 import { AuthModule } from "./modules/auth/auth.module";
+import { BackupModule } from "./modules/backup/backup.module";
 import { DepartmentsModule } from "./modules/departments/departments.module";
 import { EmployeesModule } from "./modules/employees/employees.module";
 import { EvaluationsModule } from "./modules/evaluations/evaluations.module";
@@ -53,6 +54,7 @@ import { HealthController } from "./health.controller";
     ReportsModule,
     AuditLogsModule,
     AnnouncementsModule,
+    BackupModule,
   ],
   controllers: [HealthController],
   providers: [
