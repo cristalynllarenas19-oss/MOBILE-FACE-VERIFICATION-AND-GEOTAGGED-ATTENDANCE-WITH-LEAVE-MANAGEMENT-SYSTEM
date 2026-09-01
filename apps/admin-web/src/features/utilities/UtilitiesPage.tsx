@@ -20,7 +20,7 @@ export function UtilitiesPage({ user }: { user?: { permissions: PermissionCode[]
 
   useEffect(() => {
     if (!notification) return;
-    const id = window.setTimeout(() => setNotification(null), 3500);
+    const id = window.setTimeout(() => setNotification(null), 6000);
     return () => window.clearTimeout(id);
   }, [notification]);
 

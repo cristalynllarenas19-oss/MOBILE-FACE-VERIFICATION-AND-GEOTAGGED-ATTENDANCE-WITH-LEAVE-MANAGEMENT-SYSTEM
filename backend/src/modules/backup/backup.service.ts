@@ -28,6 +28,8 @@ function chunk<T>(items: T[], size: number): T[][] {
   return chunks;
 }
 
+type BackupTrigger = "manual" | "pre-restore";
+
 type BackupMeta = {
   name: string;
   createdAt: string;
@@ -35,6 +37,9 @@ type BackupMeta = {
   createdBy: string;
   status: "SUCCESS" | "FAILED";
   tableCount?: number;
+  // Absent on backups written before this field existed — the UI treats a
+  // missing trigger the same as "manual".
+  trigger?: BackupTrigger;
 };
 
 type BackupPayload = { createdAt: string; tableCount: number; tables: Record<string, unknown[]> };
@@ -117,7 +122,7 @@ export class BackupService {
   // photos and leave attachments, since those live in table columns, not on
   // disk — but it would miss any table that exists in the live database
   // outside schema.prisma (the DB has had drift/untracked tables before).
-  async createBackup(actorUserId?: string): Promise<BackupMeta> {
+  async createBackup(actorUserId?: string, trigger: BackupTrigger = "manual"): Promise<BackupMeta> {
     await this.ensureDir();
     const now = new Date();
     const name = await this.uniqueFilename(`Backup_${backupStamp(now)}.json`);
@@ -142,6 +147,7 @@ export class BackupService {
         createdBy,
         status: "SUCCESS",
         tableCount: modelNames.length,
+        trigger,
       };
       await fs.writeFile(path.join(BACKUP_DIR, metaFilename(name)), JSON.stringify(meta), "utf-8");
       await this.prisma.auditLog.create({
@@ -150,12 +156,12 @@ export class BackupService {
           action: "CREATE_BACKUP",
           entityType: "Backup",
           entityId: name,
-          newValues: { filename: name, sizeBytes: meta.sizeBytes, tableCount: modelNames.length },
+          newValues: { filename: name, sizeBytes: meta.sizeBytes, tableCount: modelNames.length, trigger },
         },
       });
       return meta;
     } catch (error) {
-      const meta: BackupMeta = { name, createdAt: now.toISOString(), sizeBytes: 0, createdBy, status: "FAILED" };
+      const meta: BackupMeta = { name, createdAt: now.toISOString(), sizeBytes: 0, createdBy, status: "FAILED", trigger };
       await fs.writeFile(path.join(BACKUP_DIR, metaFilename(name)), JSON.stringify(meta), "utf-8").catch(() => undefined);
       await this.prisma.auditLog
         .create({
@@ -224,7 +230,7 @@ export class BackupService {
   // restore that turns out to be wrong can itself be undone.
   private async restoreFromPayload(payload: BackupPayload, actorUserId?: string, sourceLabel?: string) {
     this.validatePayload(payload);
-    const preRestoreSnapshot = await this.createBackup(actorUserId);
+    const preRestoreSnapshot = await this.createBackup(actorUserId, "pre-restore");
     const tableNames = Object.keys(payload.tables);
 
     try {

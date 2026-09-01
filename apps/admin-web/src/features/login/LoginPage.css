@@ -62,13 +62,13 @@
   font-size: 25px;
   font-weight: 700;
   color: #062b59;
-  margin-bottom: 4px;
+  margin: 0 0 18px;
 }
 
 .login-header-divider {
-  width: 480px;
+  width: 100%;
   height: 2px;
-  margin: 10px auto 14px;
+  margin: 0 auto 14px;
   border: none;
   border-radius: 2px;
   background: #1a3a5c;

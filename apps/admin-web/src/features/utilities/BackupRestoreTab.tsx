@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  CheckCircle2,
   CloudDownload,
   CloudUpload,
   Download,
-  MoreVertical,
-  RotateCcw,
+  FileJson,
+  Info,
   Search,
   ShieldCheck,
   Trash2,
@@ -17,6 +18,7 @@ import { apiRequest, API_BASE_URL } from "../../lib/api";
 import type { Notification } from "./UtilitiesPage";
 
 type BackupStatus = "SUCCESS" | "FAILED";
+type BackupTrigger = "manual" | "pre-restore";
 
 type BackupRecord = {
   name: string;
@@ -24,6 +26,8 @@ type BackupRecord = {
   sizeBytes: number;
   createdBy: string;
   status: BackupStatus;
+  // Absent on backups made before this field existed — treated as "manual".
+  trigger?: BackupTrigger;
 };
 
 const PAGE_SIZE = 10;
@@ -34,6 +38,15 @@ function formatDateTime(value: string) {
 
 function formatSize(sizeBytes: number) {
   return sizeBytes > 0 ? `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB` : "—";
+}
+
+// A missing trigger (backups made before this field existed) reads as "Backup".
+function actionLabel(trigger?: BackupTrigger) {
+  return trigger === "pre-restore" ? "Restored" : "Backup";
+}
+
+function actionTone(trigger?: BackupTrigger): "role" | "warning" {
+  return trigger === "pre-restore" ? "warning" : "role";
 }
 
 // Backend streams the file as a blob (not JSON), so this bypasses apiRequest
@@ -55,6 +68,19 @@ async function downloadBackupFile(filename: string) {
 }
 
 type RestoreResult = { restoredTables: number; preRestoreSnapshot: string };
+type FileValidation = "checking" | "valid" | "invalid";
+
+// Same shape check as the backend's validatePayload — catches an obviously
+// wrong file client-side before the admin can even click Restore Data,
+// rather than only finding out after a round trip to the server.
+async function looksLikeBackupFile(file: File): Promise<boolean> {
+  try {
+    const parsed = JSON.parse(await file.text());
+    return !!parsed && typeof parsed === "object" && typeof parsed.tables === "object" && parsed.tables !== null;
+  } catch {
+    return false;
+  }
+}
 
 // Multipart upload, so this bypasses apiRequest the same way the download
 // helper does — a FormData body needs the browser to set its own
@@ -79,26 +105,18 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [page, setPage] = useState(1);
   const [isCreating, setIsCreating] = useState(false);
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [restoringLabel, setRestoringLabel] = useState<string | null>(null);
   const [confirmConfig, setConfirmConfig] = useState<ConfirmDialogConfig | null>(null);
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [fileValidation, setFileValidation] = useState<FileValidation | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
 
   const loadBackups = () => {
     apiRequest<BackupRecord[]>("/backups").then(setBackups).catch(() => undefined);
   };
 
   useEffect(loadBackups, []);
-
-  useEffect(() => {
-    if (!openMenuId) return;
-    function handleClickOutside(event: MouseEvent) {
-      if (menuRef.current?.contains(event.target as Node)) return;
-      setOpenMenuId(null);
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [openMenuId]);
 
   useEffect(() => {
     setPage(1);
@@ -126,54 +144,48 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
     }
   };
 
-  const requestUpload = () => fileInputRef.current?.click();
-
-  const handleFileSelected = (file: File | null) => {
-    if (!file) return;
-    setConfirmConfig({
-      title: "Restore from this backup file?",
-      description: `This will replace current data with the contents of "${file.name}". A safety backup of your current data is taken automatically first.`,
-      confirmLabel: "Restore",
-      tone: "danger",
-      onConfirm: async () => {
-        try {
-          const result = await uploadRestoreFile(file);
-          notify({
-            type: "success",
-            message: `Restore complete. A safety backup of the data it replaced was saved as "${result.preRestoreSnapshot}".`,
-          });
-          loadBackups();
-        } catch (err) {
-          notify({ type: "error", message: err instanceof Error ? err.message : "Restore failed." });
-        }
-      },
-    });
+  const openUploadModal = () => {
+    setSelectedFile(null);
+    setFileValidation(null);
+    setUploadModalOpen(true);
   };
 
-  const requestRestore = (backup: BackupRecord) => {
-    setOpenMenuId(null);
-    setConfirmConfig({
-      title: `Restore "${backup.name}"?`,
-      description: "This will replace current data with the contents of this backup. A safety backup of your current data is taken automatically first.",
-      confirmLabel: "Restore",
-      tone: "danger",
-      onConfirm: async () => {
-        try {
-          const result = await apiRequest<RestoreResult>(`/backups/${encodeURIComponent(backup.name)}/restore`, { method: "POST" });
-          notify({
-            type: "success",
-            message: `Restored from "${backup.name}". A safety backup of the data it replaced was saved as "${result.preRestoreSnapshot}".`,
-          });
-          loadBackups();
-        } catch (err) {
-          notify({ type: "error", message: err instanceof Error ? err.message : "Restore failed." });
-        }
-      },
-    });
+  const closeUploadModal = () => {
+    setUploadModalOpen(false);
+    setSelectedFile(null);
+    setFileValidation(null);
+  };
+
+  const chooseFile = () => fileInputRef.current?.click();
+
+  const handleFileSelected = async (file: File | null) => {
+    if (!file) return;
+    setSelectedFile(file);
+    setFileValidation("checking");
+    const isValid = await looksLikeBackupFile(file);
+    setFileValidation(isValid ? "valid" : "invalid");
+  };
+
+  const confirmUploadRestore = async () => {
+    if (!selectedFile || fileValidation !== "valid") return;
+    const file = selectedFile;
+    closeUploadModal();
+    setRestoringLabel(file.name);
+    try {
+      const result = await uploadRestoreFile(file);
+      notify({
+        type: "success",
+        message: `Restore complete. A safety backup of the data it replaced was saved as "${result.preRestoreSnapshot}".`,
+      });
+      loadBackups();
+    } catch (err) {
+      notify({ type: "error", message: err instanceof Error ? err.message : "Restore failed." });
+    } finally {
+      setRestoringLabel(null);
+    }
   };
 
   const requestDelete = (backup: BackupRecord) => {
-    setOpenMenuId(null);
     setConfirmConfig({
       title: `Delete "${backup.name}"?`,
       description: "This backup file will be permanently removed from backup history.",
@@ -208,6 +220,13 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
       </div>
       <p className="backup-restore-subtitle">Manage system data backups and restore when needed.</p>
 
+      {restoringLabel && (
+        <div className="backup-restore-progress-banner" role="status">
+          <span className="utilities-loading-dot" />
+          Restoring from &quot;{restoringLabel}&quot;… this may take a moment. Please don&apos;t close this page.
+        </div>
+      )}
+
       <div className="backup-restore-action-grid">
         <section className="backup-restore-action-card">
           <div className="backup-restore-action-icon backup-restore-action-icon--create">
@@ -215,7 +234,7 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
           </div>
           <h4>Create a Backup</h4>
           <p>Download a backup of your system data. The backup file will include all important records.</p>
-          <button className="primary-button" onClick={createBackup} disabled={isCreating}>
+          <button className="primary-button" onClick={createBackup} disabled={isCreating || !!restoringLabel}>
             {isCreating ? "Creating…" : "+ Create Backup"}
           </button>
           <span className="backup-restore-action-note">
@@ -229,13 +248,13 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
           </div>
           <h4>Restore Data</h4>
           <p>Restore your system data from a previously saved backup file.</p>
-          <button className="outline-button" onClick={requestUpload}>
+          <button className="outline-button" onClick={openUploadModal} disabled={!!restoringLabel}>
             <CloudUpload size={14} /> Upload Backup File
           </button>
           <input
             ref={fileInputRef}
             type="file"
-            accept=".sql,.zip,.bak"
+            accept=".json"
             hidden
             onChange={(e) => {
               handleFileSelected(e.target.files?.[0] ?? null);
@@ -299,24 +318,33 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
               <tr>
                 <th>BACKUP NAME</th>
                 <th>DATE &amp; TIME</th>
+                <th>ACTION</th>
                 <th>SIZE</th>
                 <th>CREATED BY</th>
                 <th>STATUS</th>
-                <th>ACTIONS</th>
+                <th>OPTIONS</th>
               </tr>
             </thead>
             <tbody>
               {pagedBackups.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="utilities-empty-state">
+                  <td colSpan={7} className="utilities-empty-state">
                     {backups.length === 0 ? "No backups have been created yet." : "No backups match your current filters."}
                   </td>
                 </tr>
               ) : (
                 pagedBackups.map((backup) => (
                   <tr key={backup.name}>
-                    <td data-label="Backup Name">{backup.name}</td>
+                    <td data-label="Backup Name">
+                      <span className="backup-restore-name-cell">
+                        <FileJson size={14} />
+                        {backup.name}
+                      </span>
+                    </td>
                     <td data-label="Date & Time">{formatDateTime(backup.createdAt)}</td>
+                    <td data-label="Action">
+                      <Badge tone={actionTone(backup.trigger)}>{actionLabel(backup.trigger)}</Badge>
+                    </td>
                     <td data-label="Size">{formatSize(backup.sizeBytes)}</td>
                     <td data-label="Created By">{backup.createdBy}</td>
                     <td data-label="Status">
@@ -324,41 +352,26 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
                         {backup.status === "SUCCESS" ? "Success" : "Failed"}
                       </Badge>
                     </td>
-                    <td data-label="Actions">
+                    <td data-label="Options">
                       <div className="backup-restore-row-actions">
                         <button
                           type="button"
                           className="backup-restore-icon-button"
-                          disabled={backup.status !== "SUCCESS"}
+                          disabled={backup.status !== "SUCCESS" || !!restoringLabel}
                           onClick={() => downloadBackup(backup)}
                           aria-label={`Download ${backup.name}`}
                         >
                           <Download size={15} />
                         </button>
-                        <div className="backup-restore-menu-wrap" ref={openMenuId === backup.name ? menuRef : undefined}>
-                          <button
-                            type="button"
-                            className="backup-restore-icon-button"
-                            onClick={() => setOpenMenuId((current) => (current === backup.name ? null : backup.name))}
-                            aria-label={`More actions for ${backup.name}`}
-                          >
-                            <MoreVertical size={15} />
-                          </button>
-                          {openMenuId === backup.name && (
-                            <div className="backup-restore-menu">
-                              <button
-                                type="button"
-                                disabled={backup.status !== "SUCCESS"}
-                                onClick={() => requestRestore(backup)}
-                              >
-                                <RotateCcw size={13} /> Restore
-                              </button>
-                              <button type="button" className="danger" onClick={() => requestDelete(backup)}>
-                                <Trash2 size={13} /> Delete
-                              </button>
-                            </div>
-                          )}
-                        </div>
+                        <button
+                          type="button"
+                          className="backup-restore-icon-button backup-restore-icon-button--danger"
+                          disabled={!!restoringLabel}
+                          onClick={() => requestDelete(backup)}
+                          aria-label={`Delete ${backup.name}`}
+                        >
+                          <Trash2 size={15} />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -377,6 +390,93 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
           </button>
         </div>
       </section>
+
+      {uploadModalOpen && (
+        <div className="utilities-modal-backdrop" role="presentation">
+          <section
+            className="utilities-modal utilities-modal--sm backup-restore-upload-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="restore-upload-title"
+          >
+            <div className="utilities-modal-header">
+              <div>
+                <h2 id="restore-upload-title">Restore from Backup</h2>
+                <p>Select a backup file to restore your system data.</p>
+              </div>
+              <button className="icon-button" onClick={closeUploadModal} aria-label="Close">
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="utilities-modal-body">
+              {!selectedFile ? (
+                <div className="backup-restore-dropzone">
+                  <CloudUpload size={28} />
+                  <button type="button" className="primary-button" onClick={chooseFile}>
+                    Choose Backup File
+                  </button>
+                  <p className="backup-restore-dropzone-hint">Select a valid JSON backup file.</p>
+                  <span className="backup-restore-filetype-chip">JSON (.json)</span>
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <span className="utilities-field-label">Selected Backup File</span>
+                    <div className={`backup-restore-selected-file ${fileValidation === "invalid" ? "invalid" : ""}`}>
+                      <div className={`backup-restore-file-icon ${fileValidation === "invalid" ? "invalid" : ""}`}>
+                        <FileJson size={20} />
+                      </div>
+                      <div className="backup-restore-selected-file-info">
+                        <strong>{selectedFile.name}</strong>
+                        <span>
+                          {formatDateTime(new Date(selectedFile.lastModified).toISOString())} · {formatSize(selectedFile.size)}
+                        </span>
+                      </div>
+                      {fileValidation === "checking" && <Badge tone="neutral">Checking…</Badge>}
+                      {fileValidation === "valid" && <Badge tone="success">Ready</Badge>}
+                      {fileValidation === "invalid" && <Badge tone="danger">Invalid</Badge>}
+                    </div>
+                    <button type="button" className="backup-restore-change-file" onClick={chooseFile}>
+                      Change File
+                    </button>
+                    {fileValidation === "invalid" && (
+                      <p className="utilities-field-error">This doesn&apos;t look like a valid ETALA backup file.</p>
+                    )}
+                  </div>
+
+                  <div className="backup-restore-info-box">
+                    <span className="backup-restore-info-box-title">What will happen?</span>
+                    <ul>
+                      <li>
+                        <CheckCircle2 size={13} /> Your current system data will be replaced with the data from this backup.
+                      </li>
+                      <li>
+                        <CheckCircle2 size={13} /> This action cannot be undone.
+                      </li>
+                      <li>
+                        <CheckCircle2 size={13} /> A safety backup of your current data is taken automatically first.
+                      </li>
+                    </ul>
+                  </div>
+                  <p className="backup-restore-dropzone-hint">
+                    <Info size={13} /> This process may take a few minutes depending on the backup size.
+                  </p>
+                </>
+              )}
+            </div>
+
+            <div className="utilities-modal-actions">
+              <button className="outline-button" onClick={closeUploadModal}>
+                Cancel
+              </button>
+              <button className="primary-button" disabled={fileValidation !== "valid"} onClick={confirmUploadRestore}>
+                Restore Data
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {confirmConfig && <ConfirmDialog config={confirmConfig} onCancel={() => setConfirmConfig(null)} />}
     </>

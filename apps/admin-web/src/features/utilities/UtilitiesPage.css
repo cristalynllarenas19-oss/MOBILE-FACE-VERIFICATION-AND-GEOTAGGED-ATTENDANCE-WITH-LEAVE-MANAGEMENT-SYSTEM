@@ -1452,6 +1452,25 @@
   margin-top: -6px;
 }
 
+.backup-restore-progress-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.backup-restore-progress-banner .utilities-loading-dot {
+  background: #1d4ed8;
+  flex-shrink: 0;
+}
+
 .backup-restore-action-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1557,64 +1576,182 @@
   cursor: not-allowed;
 }
 
-.backup-restore-menu-wrap {
-  position: relative;
-}
-
-.backup-restore-menu {
-  position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
-  display: flex;
-  flex-direction: column;
-  min-width: 150px;
-  padding: 6px;
-  background: #ffffff;
-  border: 1px solid #dbe5ef;
-  border-radius: 10px;
-  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.18);
-  z-index: 20;
-}
-
-.backup-restore-menu button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 34px;
-  padding: 0 10px;
-  border: none;
-  border-radius: 7px;
-  background: none;
-  color: #41536b;
-  font-size: 12.5px;
-  font-weight: 600;
-  font-family: inherit;
-  cursor: pointer;
-  text-align: left;
-  white-space: nowrap;
-}
-
-.backup-restore-menu button:hover:not(:disabled) {
-  background: #eef4fb;
-}
-
-.backup-restore-menu button:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.backup-restore-menu button.danger {
+.backup-restore-icon-button--danger {
   color: #b91c1c;
 }
 
-.backup-restore-menu button.danger:hover {
+.backup-restore-icon-button--danger:hover:not(:disabled) {
   background: #fef2f2;
+  border-color: #f3b4b4;
+  color: #b91c1c;
 }
 
 @media (max-width: 720px) {
   .backup-restore-action-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* ── Backup History: name cell with file icon ── */
+
+.backup-restore-name-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: #1a3a5c;
+}
+
+.backup-restore-name-cell svg {
+  flex-shrink: 0;
+  color: #7b8794;
+}
+
+/* ── Restore from Backup modal ── */
+
+.backup-restore-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 32px 20px;
+  border: 1.5px dashed #cbd8e6;
+  border-radius: 12px;
+  background: #f7fafd;
+  color: #94a3b8;
+  text-align: center;
+}
+
+.backup-restore-dropzone-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #7b8794;
+  font-size: 11.5px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.backup-restore-filetype-chip {
+  display: inline-flex;
+  align-items: center;
+  background: #eef3f8;
+  color: #4a6480;
+  font-size: 10.5px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 3px 10px;
+  letter-spacing: 0.2px;
+}
+
+.backup-restore-selected-file {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 7px;
+  padding: 12px;
+  border: 1px solid #dbe5ef;
+  border-radius: 10px;
+  background: #f7fafd;
+}
+
+.backup-restore-selected-file.invalid {
+  border-color: #f3b4b4;
+  background: #fef7f7;
+}
+
+.backup-restore-file-icon {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  background: #eafaf0;
+  color: #157a5c;
+}
+
+.backup-restore-file-icon.invalid {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.backup-restore-selected-file-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.backup-restore-selected-file-info strong {
+  color: #1a3a5c;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backup-restore-selected-file-info span {
+  color: #7b8794;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.backup-restore-change-file {
+  display: inline-flex;
+  margin-top: 8px;
+  border: none;
+  background: none;
+  padding: 0;
+  color: #2979d0;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.backup-restore-change-file:hover {
+  text-decoration: underline;
+}
+
+.backup-restore-info-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #eff6ff;
+}
+
+.backup-restore-info-box-title {
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.backup-restore-info-box ul {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.backup-restore-info-box li {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  color: #1e3a8a;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.backup-restore-info-box li svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: #2563eb;
 }
 
 /* ── Print view (Audit Logs "Print" button) ── */
