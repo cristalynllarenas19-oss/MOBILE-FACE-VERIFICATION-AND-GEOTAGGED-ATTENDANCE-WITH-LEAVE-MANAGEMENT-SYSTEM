@@ -344,20 +344,27 @@ export class GeolocationService {
     return this.scopeLocationEmployees(updated, scope.departmentId);
   }
 
-  // Auto-assigns a Fixed-mode employee to whichever geotagged area is
-  // currently the active Office (type: "OFFICE") — never a hardcoded name,
-  // so renaming/replacing the Office area needs no code change. Prefers an
-  // Office area scoped to the employee's own department, falling back to a
-  // shared/global one (departmentId null), same precedence findAllLocations
-  // and assertWithinDepartmentScope already use elsewhere in this file.
-  // Called by EmployeesService on hire and on a mode switch into Fixed —
-  // not exposed as an endpoint, since it's system-triggered, not a manual
-  // Supervisor action (see addEmployee for that).
+  // Auto-assigns a new/Fixed-mode employee to whichever geotagged area is
+  // the active Office for their department (type: "OFFICE", scoped to their
+  // departmentId) — never a hardcoded name, so a department with its own
+  // dedicated Office area needs no code change. Falling back to a
+  // shared/global Office (departmentId null), we match the canonical
+  // "Universal Leaf Philippines Inc. - Agoo" company HQ by name first —
+  // with several other unrelated global Office areas also active (e.g.
+  // "SLC"), a plain alphabetical pick landed on whichever name happened to
+  // sort first rather than the intended company-wide default. Alphabetical
+  // order remains only as a last resort if that named area is ever removed.
+  // Called by EmployeesService on hire — not exposed as an endpoint, since
+  // it's system-triggered, not a manual Supervisor action (see addEmployee
+  // for that).
   async assignDefaultOfficeLocation(employeeId: string, employeeDepartmentId: string, context: AuditLogContext = {}) {
     const officeLocation =
       (await this.prisma.workLocation.findFirst({
         where: { type: "OFFICE", isActive: true, departmentId: employeeDepartmentId },
         orderBy: { name: "asc" },
+      })) ??
+      (await this.prisma.workLocation.findFirst({
+        where: { type: "OFFICE", isActive: true, departmentId: null, name: "Universal Leaf Philippines Inc. - Agoo" },
       })) ??
       (await this.prisma.workLocation.findFirst({
         where: { type: "OFFICE", isActive: true, departmentId: null },

@@ -50,6 +50,13 @@ function isGlobalZoneLocation(location?: GeotaggedLocation | null) {
   return Boolean(location?.name && location.name.toLowerCase().includes("global zone"));
 }
 
+// Same name GeolocationService.assignDefaultOfficeLocation matches on when
+// auto-assigning a new employee — kept in sync there, not derived from a
+// schema flag, since WorkLocation has no isDefault column.
+function isDefaultOfficeLocation(location?: GeotaggedLocation | null) {
+  return location?.name === "Universal Leaf Philippines Inc. - Agoo";
+}
+
 const initialForm = {
   name: "",
   latitude: "16.3222",
@@ -245,7 +252,7 @@ function ViewAreaEmployeesModal({
                     <span>{employee.department?.name ?? "No department"}</span>
                   </div>
                   <div className="geotagging-modal-employee-meta">
-                    {employee.employeeNo && <span>{employee.employeeNo}</span>}
+                    <span>{employee.attendanceMode === "FIELD" ? "Field" : "Non-Field"}</span>
                     {employee.position?.title && <span>{employee.position.title}</span>}
                     {employee.user?.email && <span>{employee.user.email}</span>}
                   </div>
@@ -526,12 +533,19 @@ function GeotaggingPageContent({
       })
       .sort((a, b) => {
         // Office areas are pinned above Field areas — an Office area is the
-        // default auto-assignment target for Fixed employees (see
+        // default auto-assignment target for new employees (see
         // GeolocationService.assignDefaultOfficeLocation), so it should
         // always be easy to find regardless of what it's named.
         const aOffice = a.type === "OFFICE";
         const bOffice = b.type === "OFFICE";
         if (aOffice !== bOffice) return aOffice ? -1 : 1;
+        // Within Office areas, the canonical default itself is pinned first
+        // — same name assignDefaultOfficeLocation matches on — so admins
+        // land on it immediately instead of it sorting wherever its name
+        // happens to fall alphabetically among other Office areas.
+        const aDefault = a.name === "Universal Leaf Philippines Inc. - Agoo";
+        const bDefault = b.name === "Universal Leaf Philippines Inc. - Agoo";
+        if (aDefault !== bDefault) return aDefault ? -1 : 1;
         return a.name.localeCompare(b.name);
       });
   }, [areaSearchQuery, areaStatusFilter, locations]);
@@ -1165,6 +1179,7 @@ function GeotaggingPageContent({
               filteredLocations.map((location) => {
                 const locationEmployees = getLocationEmployees(location);
                 const isGlobal = isGlobalZoneLocation(location);
+                const isDefault = isDefaultOfficeLocation(location);
                 const isActive = location.isActive !== false;
                 const empName =
                   locationEmployees.length > 0
@@ -1173,7 +1188,7 @@ function GeotaggingPageContent({
 
                 return (
                   <article
-                    className={`assigned-location ${selectedLocationId === location.id ? "selected" : ""}${isActive ? "" : " is-inactive"}`}
+                    className={`assigned-location ${selectedLocationId === location.id ? "selected" : ""}${isActive ? "" : " is-inactive"}${isDefault ? " is-default" : ""}`}
                     key={location.id}
                   >
                     <button
@@ -1181,18 +1196,46 @@ function GeotaggingPageContent({
                       type="button"
                       onClick={() => focusLocation(location)}
                     >
-                      <div className="assigned-location-name-row">
-                        <strong>{location.name}</strong>
-                        <span
-                          className="assigned-location-count"
-                          title={`${locationEmployees.length} employee${locationEmployees.length === 1 ? "" : "s"} assigned`}
-                        >
-                          <Users size={12} />
-                          {isGlobal ? "All" : locationEmployees.length}
-                        </span>
-                      </div>
-                      <span>{empName}</span>
-                      <small>
+                      {isDefault ? (
+                        <>
+                          <div className="assigned-location-name-row">
+                            <span className="assigned-location-default-badge-group">
+                              <span className="assigned-location-default-icon">
+                                <MapPin size={12} />
+                              </span>
+                              <span className="assigned-location-default-badge">Default</span>
+                            </span>
+                            <span
+                              className="assigned-location-count"
+                              title={`${locationEmployees.length} employee${locationEmployees.length === 1 ? "" : "s"} assigned`}
+                            >
+                              <Users size={12} />
+                              {isGlobal ? "All" : locationEmployees.length}
+                            </span>
+                          </div>
+                          <strong>{location.name}</strong>
+                          <span className="assigned-location-default-summary">
+                            <Users size={12} />
+                            All Employees ({locationEmployees.length})
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <div className="assigned-location-name-row">
+                            <strong>{location.name}</strong>
+                            <span
+                              className="assigned-location-count"
+                              title={`${locationEmployees.length} employee${locationEmployees.length === 1 ? "" : "s"} assigned`}
+                            >
+                              <Users size={12} />
+                              {isGlobal ? "All" : locationEmployees.length}
+                            </span>
+                          </div>
+                          <span>{empName}</span>
+                        </>
+                      )}
+                      <small className="assigned-location-coords">
+                        <MapPin size={11} />
                         {Number(location.latitude).toFixed(5)}, {Number(location.longitude).toFixed(5)} · {location.radiusMeters}
                         m
                       </small>

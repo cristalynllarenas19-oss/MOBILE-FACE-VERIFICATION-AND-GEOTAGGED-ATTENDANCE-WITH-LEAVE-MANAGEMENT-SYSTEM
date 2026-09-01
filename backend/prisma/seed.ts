@@ -195,16 +195,19 @@ async function main() {
   const supervisorPosition = await prisma.position.upsert({ where: { id: "22222222-2222-4222-8222-222222222222" }, update: { title: "Department Supervisor" }, create: { id: "22222222-2222-4222-8222-222222222222", title: "Department Supervisor" } });
   const employeePosition = await prisma.position.upsert({ where: { id: "33333333-3333-4333-8333-333333333333" }, update: { title: "Leaf Processor" }, create: { id: "33333333-3333-4333-8333-333333333333", title: "Leaf Processor" } });
 
+  // id/coordinates match the canonical Office record already live in
+  // production — a since-deleted duplicate was previously seeded at a
+  // different id ("44444444-...") with stale placeholder coordinates.
   await prisma.workLocation.upsert({
-    where: { id: "44444444-4444-4444-8444-444444444444" },
+    where: { id: "1b8ef888-fd79-4778-b5da-272a7b2160f8" },
     update: {},
     create: {
-      id: "44444444-4444-4444-8444-444444444444",
+      id: "1b8ef888-fd79-4778-b5da-272a7b2160f8",
       name: "Universal Leaf Philippines Inc. - Agoo",
-      latitude: 16.3226,
-      longitude: 120.3659,
-      radiusMeters: 150,
-      allowedAccuracyMeters: 60,
+      latitude: 16.358048,
+      longitude: 120.353511,
+      radiusMeters: 1000,
+      allowedAccuracyMeters: 50,
     },
   });
 
