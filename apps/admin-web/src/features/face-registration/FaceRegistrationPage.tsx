@@ -6,7 +6,7 @@ import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { Badge } from "../../components/ui/Badge";
 import { useActiveDepartments } from "../../lib/departments";
 import { formatAttendanceMode, useAttendanceModeOptions } from "../../lib/attendanceModes";
-import { EMPLOYMENT_STATUS_LABELS } from "../../types/employment";
+import { EMPLOYMENT_STATUS_LABELS, formatEmploymentStatus } from "../../types/employment";
 import "./FaceRegistrationPage.css";
 
 type Enrollment = {
@@ -1122,7 +1122,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
               the mobile app and accept the consent before proceeding with face registration.
             </p>
             <p className="consent-modal-sub">
-              {employeeLabel(selectedEmployee)} · {selectedEmployee.employeeNo}
+              {employeeLabel(selectedEmployee)} · {formatEmploymentStatus(selectedEmployee.employmentStatus)}
             </p>
             <button
               className="primary-button consent-modal-btn"

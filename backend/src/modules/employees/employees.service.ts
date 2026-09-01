@@ -292,10 +292,12 @@ export class EmployeesService {
       include: { user: true, department: true, position: true, supervisor: true },
     });
 
-    if (created.attendanceMode === "FIXED") {
-      await this.assignDefaultScheduleIfMissing(created.id);
-      await this.geolocation.assignDefaultOfficeLocation(created.id, created.departmentId, context);
-    }
+    // Every new hire gets a starting Standard Shift + Office geotag,
+    // regardless of attendance mode — Field employees can add/replace sites
+    // via Geotagging afterward same as anyone else, but they shouldn't have
+    // to be assigned one manually just to become eligible for attendance.
+    await this.assignDefaultScheduleIfMissing(created.id);
+    await this.geolocation.assignDefaultOfficeLocation(created.id, created.departmentId, context);
 
     await this.assignGenderLeaveType(created.id, dto.sex);
 

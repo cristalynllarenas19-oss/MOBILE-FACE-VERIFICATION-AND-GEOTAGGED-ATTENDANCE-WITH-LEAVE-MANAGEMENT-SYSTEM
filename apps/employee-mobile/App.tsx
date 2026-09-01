@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Alert } from "react-native";
+import { Alert, AppState } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import * as Location from "expo-location";
 
@@ -61,6 +61,10 @@ import { Portal, GeofenceStatus } from "./src/types";
 // assigned work location(s) while signed in — frequent enough that walking
 // into range flips the button on without needing to reopen the app.
 const GEOFENCE_POLL_MS = 15000;
+
+// How often to re-check face-registration status while it's still pending —
+// matches the admin-side consent poll interval in FaceRegistrationPage.tsx.
+const FACE_ENROLLMENT_POLL_MS = 5000;
 
 type ResultModalState = {
   status: ResultModalStatus;
@@ -195,6 +199,36 @@ export default function App() {
       refreshEligibility(user.employeeId, user.attendanceMode);
     }
   }, [user?.employeeId]);
+
+  // A poll's setInterval doesn't reliably keep firing while the app is
+  // backgrounded (the OS suspends JS timers), so re-check eligibility when
+  // the employee reopens the app — e.g. an admin finished face registration
+  // or assigned a work location while they had the app open in the
+  // background. Mirrors MainScreen's same foreground-refresh pattern for
+  // notifications/leave data.
+  useEffect(() => {
+    const employeeId = user?.employeeId;
+    if (!employeeId) return;
+    const appStateSub = AppState.addEventListener("change", (state) => {
+      if (state !== "active") return;
+      refreshTodayAttendance(employeeId);
+      refreshEligibility(employeeId, user.attendanceMode);
+    });
+    return () => appStateSub.remove();
+  }, [user?.employeeId, user?.attendanceMode]);
+
+  // While the employee's face isn't enrolled yet, poll for the admin having
+  // just finished registering it — so the Attendance screen unlocks on its
+  // own the moment it's done, without the employee needing to leave and
+  // reopen the app. Stops itself as soon as eligibility comes back enrolled.
+  useEffect(() => {
+    const employeeId = user?.employeeId;
+    if (!employeeId || !eligibility || eligibility.faceEnrolled) return;
+    const interval = setInterval(() => {
+      refreshEligibility(employeeId, user.attendanceMode);
+    }, FACE_ENROLLMENT_POLL_MS);
+    return () => clearInterval(interval);
+  }, [user?.employeeId, user?.attendanceMode, eligibility?.faceEnrolled]);
 
   // Live geofence tracking: while signed in, periodically re-fetch the
   // device's GPS position so the Time In/Out buttons can require the
@@ -553,20 +587,10 @@ export default function App() {
       }
     }
 
-    // The camera opens immediately, with no client-side geofence pre-check —
-    // the backend independently re-checks location (and identity) at
-    // submission regardless (see attendance.service.ts submit()), so this
-    // was purely a redundant round trip on top of that authoritative check.
+    
     setScanType(type);
   }
 
-  // FIELD employees have no single fixed time-in/out pair — sequencing
-  // (can't start a new visit while one's still open) is enforced by the
-  // server, not re-derived here. Starting a visit auto-detects which
-  // assigned site the technician is at from their current GPS position
-  // (closest assigned site wins) rather than asking them to pick one;
-  // ending one doesn't need this, since the server resolves the site from
-  // whichever visit is currently open.
   async function startFieldScan(type: "TIME_IN" | "TIME_OUT") {
     if (type === "TIME_OUT") {
       // Ending a visit resolves its site from whichever one is currently
@@ -617,24 +641,13 @@ export default function App() {
     setScanType("TIME_IN");
   }
 
-  // Called the instant CameraScanner has a captured, liveness-verified
-  // photo — before the GPS fix has even resolved, let alone identity match
-  // or submission. locationPromise is still in flight at this point; this
-  // function is what awaits it. scanType/selectedWorkLocation are captured
-  // into local consts up front because the very next line clears both —
-  // reading the state variables anywhere below this point would see null.
+
   async function handleScanComplete(locationPromise: Promise<Location.LocationObject>, faceBase64?: string) {
     if (!scanType || !user?.employeeId) return;
     const activeScanType = scanType;
     const activeWorkLocation = selectedWorkLocation;
 
     setIsLoading(true);
-    // Back to the attendance screen right away — everything below (the GPS
-    // fix, identity match, geofence check, and submission) now happens
-    // invisibly in the background instead of being watched on screen. The
-    // result modal (see ResultModal's own auto-dismiss) pops up over
-    // whichever screen the employee is on once it's actually ready, instead
-    // of making them wait for it before they can do anything else.
     setScanType(null);
     setSelectedWorkLocation(null);
 
@@ -770,12 +783,6 @@ export default function App() {
     void startScan(type, { bypassFlagLock: true });
   }
 
-  // Called by CameraScanner as soon as its fresh high-accuracy GPS fix
-  // resolves outside every assigned work location — before liveness/capture
-  // even finishes, let alone submission. The Time In/Out button that opened
-  // the camera was gated on a periodically-polled, lower-accuracy reading
-  // (see geofenceStatus above), so this can legitimately catch someone who
-  // was borderline when they tapped but whose precise position disagrees.
   function handleOutOfRange() {
     const actionLabel = scanType ? getActionLabel(scanType, user?.attendanceMode === "FIELD") : "Attendance";
 

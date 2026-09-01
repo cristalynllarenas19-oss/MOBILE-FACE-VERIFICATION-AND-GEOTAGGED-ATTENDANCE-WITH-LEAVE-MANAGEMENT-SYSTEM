@@ -375,7 +375,10 @@ export type AppNotification = {
   createdAt: string;
 };
 
-const REQUEST_TIMEOUT_MS = 15000;
+// 60s, not 15s — Render's free tier can take 50+ seconds to wake a cold
+// instance, and a shorter timeout was aborting the very first request after
+// any period of inactivity, well before the server actually responded.
+const REQUEST_TIMEOUT_MS = 60000;
 
 async function fetchFromApi(path: string, options: RequestInit, token?: string | null) {
   let response: Response | null = null;
