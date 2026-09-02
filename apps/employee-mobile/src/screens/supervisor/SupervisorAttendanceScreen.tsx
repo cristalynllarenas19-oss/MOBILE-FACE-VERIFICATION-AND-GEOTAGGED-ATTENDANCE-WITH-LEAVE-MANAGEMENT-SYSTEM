@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useState } from "react";
 import { View, Text, TextInput, Pressable, StyleSheet, SafeAreaView, ActivityIndicator, RefreshControl } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { Utensils } from "lucide-react-native";
 import { TeamAttendanceRecord, getTeamAttendance } from "../../api";
 import { useCachedData } from "../../utils/dataCache";
 import AestheticScrollView from "../../components/AestheticScrollView";
@@ -132,7 +133,7 @@ export default function SupervisorAttendanceScreen() {
                     </View>
                     {(record.lunchOutAt || record.lunchInAt) && (
                       <View style={styles.timeChip}>
-                        <Ionicons name="cafe-outline" size={13} color="#EA580C" />
+                        <Utensils size={13} color="#EA580C" />
                         <Text style={styles.timeText}>
                           {formatTime(record.lunchOutAt)} - {formatTime(record.lunchInAt)}
                         </Text>

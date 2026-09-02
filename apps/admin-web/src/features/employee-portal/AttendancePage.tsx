@@ -1,7 +1,7 @@
 
 import { CSSProperties, useEffect, useState } from "react";
 import {
-  AlertCircle, CheckCircle, Clock, Coffee, LogIn, LogOut, MapPin,
+  AlertCircle, CheckCircle, Clock, Flag, LogIn, LogOut, MapPin, Utensils,
 } from "lucide-react";
 import {
   TodayAttendance, WorkLocation, AttendanceSubmitResult, AttendanceEligibility, GeofenceStatus,
@@ -521,7 +521,7 @@ export function AttendancePage({ user }: Props) {
 
               <div className="att-stat-col" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
                 <div style={{ width: 36, height: 36, borderRadius: 18, background: "#F0FDF4", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 8 }}>
-                  <LogOut size={18} color="#17A34A" />
+                  <Flag size={18} color="#17A34A" />
                 </div>
                 <p style={{ color: "#64748B", fontSize: 13, marginBottom: 4 }}>Expected Time Out</p>
                 <p className="att-time-val" style={{ color: "#062B59", fontWeight: 700, fontSize: 16, margin: 0 }}>
@@ -535,9 +535,9 @@ export function AttendancePage({ user }: Props) {
             <div className="att-stats-row" style={{ display: "flex", alignItems: "center", paddingTop: 18, marginTop: 18, borderTop: "1px solid #EDF1F6" }}>
               <div className="att-stat-col" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
                 <div style={{ width: 36, height: 36, borderRadius: 18, background: "#FFF7ED", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 8 }}>
-                  <Coffee size={18} color="#EA580C" />
+                  <Utensils size={18} color="#EA580C" />
                 </div>
-                <p style={{ color: "#64748B", fontSize: 13, marginBottom: 4 }}>Lunch Out</p>
+                <p style={{ color: "#64748B", fontSize: 13, marginBottom: 4 }}>Start Lunch</p>
                 <p className="att-time-val" style={{ color: "#062B59", fontWeight: 700, fontSize: 16, margin: 0 }}>
                   {fmtTime(todayAtt?.lunchOutAt)}
                 </p>
@@ -547,9 +547,9 @@ export function AttendancePage({ user }: Props) {
 
               <div className="att-stat-col" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
                 <div style={{ width: 36, height: 36, borderRadius: 18, background: "#FFF7ED", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 8 }}>
-                  <Coffee size={18} color="#EA580C" />
+                  <Utensils size={18} color="#EA580C" />
                 </div>
-                <p style={{ color: "#64748B", fontSize: 13, marginBottom: 4 }}>Lunch In</p>
+                <p style={{ color: "#64748B", fontSize: 13, marginBottom: 4 }}>End Lunch</p>
                 <p className="att-time-val" style={{ color: "#062B59", fontWeight: 700, fontSize: 16, margin: 0 }}>
                   {fmtTime(todayAtt?.lunchInAt)}
                 </p>
@@ -620,7 +620,7 @@ export function AttendancePage({ user }: Props) {
               cursor:     lunchButtonDisabled ? "not-allowed" : "pointer",
             }}
           >
-            <Coffee size={18} color={lunchButtonDisabled ? "#94A3B8" : "#EA580C"} />
+            <Utensils size={18} color={lunchButtonDisabled ? "#94A3B8" : "#EA580C"} />
             <span style={{ color: lunchButtonDisabled ? "#94A3B8" : "#EA580C" }}>
               {isSubmitting ? "Processing..." : lunchButtonLabel}
             </span>

@@ -1171,13 +1171,16 @@ export default function CameraScanner({ logType, onComplete, onCancel, workLocat
   return (
     <View style={styles.container}>
       <View style={styles.topBar}>
-        <Pressable onPress={onCancel} style={styles.closeButton}>
+        <Pressable onPress={onCancel} style={styles.closeButton} hitSlop={8}>
           <View style={styles.iconButton}>
             <Ionicons name="close" size={20} color="#0F172A" />
           </View>
         </Pressable>
         <View style={styles.topBarTextWrap}>
-          <Text style={styles.title}>{LOG_TYPE_LABEL[logType]} Verification</Text>
+          <View style={styles.titleRow}>
+            <Ionicons name="shield-checkmark" size={14} color="#2563EB" />
+            <Text style={styles.title}>{LOG_TYPE_LABEL[logType]} Verification</Text>
+          </View>
           <Text style={styles.subtitle}>Secure face check with location confirmation</Text>
         </View>
         <View style={styles.topBarSpacer} />
@@ -1446,6 +1449,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     borderBottomWidth: 1,
     borderBottomColor: "#E2E8F0",
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
   },
   closeButton: {
     padding: 4,
@@ -1455,25 +1463,36 @@ const styles = StyleSheet.create({
     height: 38,
     borderRadius: 999,
     backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
     justifyContent: "center",
     alignItems: "center",
   },
   topBarTextWrap: {
     flex: 1,
     alignItems: "center",
+    paddingHorizontal: 8,
   },
   topBarSpacer: {
     width: 38,
+  },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
   },
   title: {
     color: "#0F172A",
     fontSize: 17,
     fontWeight: "700",
+    letterSpacing: 0.1,
   },
   subtitle: {
     color: "#64748B",
     fontSize: 12,
-    marginTop: 2,
+    marginTop: 3,
+    lineHeight: 16,
+    textAlign: "center",
   },
   stageWrapper: {
     flex: 1,

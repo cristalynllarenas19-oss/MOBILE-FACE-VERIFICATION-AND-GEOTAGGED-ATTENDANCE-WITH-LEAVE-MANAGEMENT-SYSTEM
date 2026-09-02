@@ -28,8 +28,8 @@ function fmtTime(v: string | null) {
   return new Date(v).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
 function photoTabLabel(tab: PhotoTab, isOffice: boolean) {
-  if (tab === "LUNCH_OUT") return "Lunch Out";
-  if (tab === "LUNCH_IN") return "Lunch In";
+  if (tab === "LUNCH_OUT") return "Start Lunch";
+  if (tab === "LUNCH_IN") return "End Lunch";
   if (tab === "TIME_IN") return isOffice ? "Time In" : "Visit Start";
   return isOffice ? "Time Out" : "Visit End";
 }
@@ -348,10 +348,10 @@ export function DtrPage({ user }: Props) {
                 { key: "TIME_IN", label: photoTabLabel("TIME_IN", isOffice) },
                 { key: "TIME_OUT", label: photoTabLabel("TIME_OUT", isOffice) },
                 ...(isOffice && selected.logs.some((l) => l.logType === "LUNCH_OUT")
-                  ? [{ key: "LUNCH_OUT", label: "Lunch Out" }]
+                  ? [{ key: "LUNCH_OUT", label: "Start Lunch" }]
                   : []),
                 ...(isOffice && selected.logs.some((l) => l.logType === "LUNCH_IN")
-                  ? [{ key: "LUNCH_IN", label: "Lunch In" }]
+                  ? [{ key: "LUNCH_IN", label: "End Lunch" }]
                   : []),
               ]}
               value={photoTab}

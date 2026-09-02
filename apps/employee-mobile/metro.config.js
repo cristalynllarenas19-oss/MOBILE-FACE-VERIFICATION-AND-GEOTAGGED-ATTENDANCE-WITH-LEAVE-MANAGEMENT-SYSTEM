@@ -6,6 +6,13 @@ const workspaceRoot = path.resolve(projectRoot, "../..");
 
 const config = getDefaultConfig(projectRoot);
 
+// lucide-react-native ships ESM-only (.mjs) internal imports (e.g.
+// dist/esm/lucide-react-native.mjs importing ./icons/*.mjs). Metro's file
+// crawler doesn't treat "mjs" as a source extension by default, so it can't
+// resolve those relative imports even though the path is explicit — add it
+// alongside the existing extensions rather than replacing them.
+config.resolver.sourceExts = [...config.resolver.sourceExts, "mjs"];
+
 // Monorepo: watch workspace root so Metro can resolve shared packages
 config.watchFolders = [workspaceRoot, ...config.watchFolders];
 

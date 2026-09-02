@@ -610,7 +610,10 @@ export default function CameraScanner({ logType, onComplete, onCancel }: Props) 
           <X size={20} color="#0F172A" />
         </button>
         <div style={S.topBarTextWrap}>
-          <span style={S.title}>{logTypeTitle(logType)} Verification</span>
+          <div style={S.titleRow}>
+            <ShieldCheck size={14} color="#2563EB" />
+            <span style={S.title}>{logTypeTitle(logType)} Verification</span>
+          </div>
           <span style={S.subtitle}>Secure face check with location confirmation</span>
         </div>
         <div style={{ width: 32 }} />
@@ -870,6 +873,7 @@ const S: Record<string, CSSProperties> = {
     display: "flex", alignItems: "center", justifyContent: "space-between",
     padding: "14px 20px",
     background: "#FFFFFF", borderBottom: "1px solid #E2E8F0",
+    boxShadow: "0 2px 6px rgba(15,23,42,0.04)",
     flexShrink: 0,
   },
   closeBtn: {
@@ -878,9 +882,10 @@ const S: Record<string, CSSProperties> = {
     display: "flex", alignItems: "center", justifyContent: "center",
     flexShrink: 0,
   },
-  topBarTextWrap: { display: "flex", flexDirection: "column", alignItems: "center", gap: 2 },
-  title: { fontSize: 15, fontWeight: 800, color: "#0F172A" },
-  subtitle: { fontSize: 11.5, fontWeight: 500, color: "#64748B" },
+  topBarTextWrap: { display: "flex", flexDirection: "column", alignItems: "center", gap: 2, padding: "0 8px" },
+  titleRow: { display: "flex", alignItems: "center", gap: 5 },
+  title: { fontSize: 15, fontWeight: 800, color: "#0F172A", letterSpacing: 0.1 },
+  subtitle: { fontSize: 11.5, fontWeight: 500, color: "#64748B", lineHeight: "16px", textAlign: "center" },
   stageWrapper: {
     flex: 1,
     padding: "16px 20px 8px",

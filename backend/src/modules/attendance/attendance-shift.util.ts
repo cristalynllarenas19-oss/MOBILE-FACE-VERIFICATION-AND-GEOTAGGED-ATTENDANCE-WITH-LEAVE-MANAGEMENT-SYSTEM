@@ -53,9 +53,19 @@ const RENDER_INTERVAL_MS = 30 * 60000;
 // change how the render/official start time itself is rounded.
 export function computeRenderTimeIn(shift: ShiftTimeFields, arrivalTime: Date, attendanceDate: Date): Date {
   const shiftStart = parseTimeOnDate(attendanceDate, shift.startTime);
-  if (arrivalTime.getTime() <= shiftStart.getTime()) return shiftStart;
+  // Compared at minute granularity, not raw milliseconds: shiftStart always
+  // lands exactly on the minute (see parseTimeOnDate), but arrivalTime is a
+  // real capture instant with seconds attached, and every time-in display
+  // truncates those seconds away. Without this truncation here, an arrival
+  // like 10:00:05 — shown everywhere as "10:00 AM", same as a 10:00 shift
+  // start — would still count as 5s after shiftStart and get bumped a full
+  // interval to 10:30, reading as a mismatch against the Time In shown right
+  // next to it.
+  const arrivalMinute = new Date(arrivalTime);
+  arrivalMinute.setSeconds(0, 0);
+  if (arrivalMinute.getTime() <= shiftStart.getTime()) return shiftStart;
 
-  const elapsedMs = arrivalTime.getTime() - shiftStart.getTime();
+  const elapsedMs = arrivalMinute.getTime() - shiftStart.getTime();
   const roundedMs = Math.ceil(elapsedMs / RENDER_INTERVAL_MS) * RENDER_INTERVAL_MS;
   return new Date(shiftStart.getTime() + roundedMs);
 }

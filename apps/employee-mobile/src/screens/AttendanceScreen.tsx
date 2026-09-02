@@ -7,6 +7,7 @@ import {
   StyleSheet,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { Utensils } from "lucide-react-native";
 import { AttendanceEligibility, TodayAttendance } from "../api";
 import { GeofenceStatus } from "../types";
 
@@ -230,7 +231,7 @@ export default function AttendanceScreen({
   const showLunchSection = !isField && hasTimedIn;
   const lunchCompleted = hasLunchOut && hasLunchIn;
   const lunchButtonDisabled = isLoading || !isEligible || hasTimedOut || lunchCompleted;
-  const lunchButtonLabel = lunchCompleted ? "LUNCH COMPLETED" : hasLunchOut ? "LUNCH END" : "LUNCH START";
+  const lunchButtonLabel = lunchCompleted ? "LUNCH COMPLETED" : hasLunchOut ? "END LUNCH" : "START LUNCH";
   const handleLunchPress = hasLunchOut && !hasLunchIn ? onLunchIn : onLunchOut;
 
   return (
@@ -400,15 +401,11 @@ export default function AttendanceScreen({
           <View style={styles.timeStatsRow}>
             <View style={styles.timeStatCard}>
               <View style={[styles.timeStatIcon, { backgroundColor: "#FFF7ED" }]}>
-                <Ionicons
-                  name="cafe-outline"
-                  size={18}
-                  color="#EA580C"
-                />
+                <Utensils size={18} color="#EA580C" />
               </View>
 
               <Text style={styles.timeLabel}>
-                Lunch Start
+                Start Lunch
               </Text>
 
               <Text style={styles.timeValue}>
@@ -420,15 +417,11 @@ export default function AttendanceScreen({
 
             <View style={styles.timeStatCard}>
               <View style={[styles.timeStatIcon, { backgroundColor: "#FFF7ED" }]}>
-                <Ionicons
-                  name="cafe"
-                  size={18}
-                  color="#EA580C"
-                />
+                <Utensils size={18} color="#EA580C" />
               </View>
 
               <Text style={styles.timeLabel}>
-                Lunch End
+                End Lunch
               </Text>
 
               <Text style={styles.timeValue}>
@@ -526,8 +519,7 @@ export default function AttendanceScreen({
             pressed && !lunchButtonDisabled && styles.buttonPressed,
           ]}
         >
-          <Ionicons
-            name="cafe-outline"
+          <Utensils
             size={20}
             color={lunchButtonDisabled ? "#94A3B8" : "#EA580C"}
           />

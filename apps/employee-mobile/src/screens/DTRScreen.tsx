@@ -138,8 +138,8 @@ function formatPhotoStampCoordinates(latitude: string | number, longitude: strin
 }
 
 function photoTabLabel(tab: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN", isOfficeTab: boolean) {
-  if (tab === "LUNCH_OUT") return "Lunch Start";
-  if (tab === "LUNCH_IN") return "Lunch End";
+  if (tab === "LUNCH_OUT") return "Start Lunch";
+  if (tab === "LUNCH_IN") return "End Lunch";
   if (tab === "TIME_IN") return isOfficeTab ? "Time In" : "Visit Start";
   return isOfficeTab ? "Time Out" : "Visit End";
 }
@@ -463,8 +463,8 @@ export default function DTRScreen({ employeeId }: Props) {
           <SegmentedControl
             segments={[
               { key: "TIME_IN", label: photoTabLabel("TIME_IN", isOfficeTab) },
-              ...(isOfficeTab ? [{ key: "LUNCH_OUT", label: "Lunch Start" }] : []),
-              ...(isOfficeTab ? [{ key: "LUNCH_IN", label: "Lunch End" }] : []),
+              ...(isOfficeTab ? [{ key: "LUNCH_OUT", label: "Start Lunch" }] : []),
+              ...(isOfficeTab ? [{ key: "LUNCH_IN", label: "End Lunch" }] : []),
               { key: "TIME_OUT", label: photoTabLabel("TIME_OUT", isOfficeTab) },
             ]}
             value={photoTab}
