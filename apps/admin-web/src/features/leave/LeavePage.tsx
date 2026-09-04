@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
+  Ban,
   Calendar as CalendarIcon,
   CheckCircle2,
   ChevronDown,
@@ -9,6 +10,7 @@ import {
   ChevronRight,
   Eye,
   FileText,
+  IdCard,
   Paperclip,
   Search,
   X,
@@ -535,7 +537,20 @@ function EmployeeListViewButton({
 
               <div className="employee-balance-modal-body">
                 {balances.length === 0 ? (
-                  <p className="leave-summary-empty">No leave balance records for this employee.</p>
+                  <div className="employee-balance-empty">
+                    <div className="employee-balance-empty-icon-wrap">
+                      <span className="employee-balance-empty-blob employee-balance-empty-blob--1" />
+                      <span className="employee-balance-empty-blob employee-balance-empty-blob--2" />
+                      <span className="employee-balance-empty-blob employee-balance-empty-blob--3" />
+                      <div className="employee-balance-empty-icon-circle">
+                        <IdCard size={30} strokeWidth={1.75} />
+                        <span className="employee-balance-empty-badge">
+                          <Ban size={14} strokeWidth={2} />
+                        </span>
+                      </div>
+                    </div>
+                    <p className="employee-balance-empty-text">No leave balance records for this employee.</p>
+                  </div>
                 ) : (
                   <>
                     <div className="employee-summary-row">

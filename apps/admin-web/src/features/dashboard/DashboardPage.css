@@ -126,6 +126,12 @@
   border-bottom: 1px solid #edf2f781;
 }
 
+/* Keeps the date pill pinned on the same line as "Attendance Details",
+   top-right, instead of wrapping below it at narrow card widths. */
+.day-detail-card .calendar-heading-row {
+  flex-wrap: nowrap;
+}
+
 
 .donut-card .side-card-header {
   margin-bottom: 6px;
@@ -244,6 +250,27 @@
   color: #1a6faf;
   font-size: 17px;
   font-weight: 800;
+}
+
+/* Same pill look as .cal-picker-trigger (the month/year picker above), for
+   visual consistency — but this one isn't a dropdown trigger, just a label,
+   so no cursor/hover affordance. */
+.cal-date-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 5px 12px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.cal-date-pill strong {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
 }
 
 .cal-nav-btn {

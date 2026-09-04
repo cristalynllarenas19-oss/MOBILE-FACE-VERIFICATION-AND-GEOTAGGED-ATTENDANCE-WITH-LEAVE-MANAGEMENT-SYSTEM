@@ -33,15 +33,17 @@
   min-height: 140px;
   display: flex;
   align-items: flex-end;
-  gap: 3px;
-  overflow-x: auto;
+  gap: 1.5px;
+  /* Columns below have min-width: 0, so flexbox always shrinks all 31 to
+     fit here — there's nothing left that can overflow. */
+  overflow-x: hidden;
   padding-bottom: 2px;
 }
 
 .mabar-col {
   position: relative;
   flex: 1 1 0;
-  min-width: 10px;
+  min-width: 0;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -56,10 +58,13 @@
 
 .mabar-stack {
   width: 100%;
-  max-width: 22px;
+  max-width: 10px;
   height: 100%;
   display: flex;
   flex-direction: column-reverse;
+  /* Small gap between the Present/Absent/On leave segments so each one
+     reads as its own piece instead of one solid-colored bar. */
+  gap: 1.5px;
   border-radius: 4px 4px 2px 2px;
   overflow: hidden;
   background: #eef2f7;
@@ -68,6 +73,7 @@
 
 .mabar-seg {
   width: 100%;
+  border-radius: 2px;
   transition: height 0.3s ease;
 }
 
@@ -78,10 +84,10 @@
 .mabar-seg-dayoff {
   background: repeating-linear-gradient(
     45deg,
-    #cbd5e1,
+    #94a3b8,
+    #94a3b8 4px,
     #cbd5e1 4px,
-    #e2e8f0 4px,
-    #e2e8f0 8px
+    #cbd5e1 8px
   );
 }
 
@@ -98,7 +104,7 @@
 }
 
 .mabar-col.day-off .mabar-stack {
-  opacity: 0.75;
+  opacity: 0.65;
 }
 
 .mabar-day-label {
@@ -161,6 +167,9 @@
 @media (max-width: 640px) {
   .mabar-track {
     justify-content: flex-start;
+    /* Narrow mobile viewports get real touch-sized bars instead of
+       shrinking them to near-nothing, so scrolling is restored just here. */
+    overflow-x: auto;
   }
   .mabar-col {
     min-width: 16px;

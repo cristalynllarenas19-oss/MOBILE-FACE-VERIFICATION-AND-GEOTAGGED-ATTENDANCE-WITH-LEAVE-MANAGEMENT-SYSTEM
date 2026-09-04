@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   BarChart3,
+  Calendar as CalendarIcon,
   CalendarOff,
   CheckCircle2,
   ChevronLeft,
@@ -21,7 +22,7 @@ import { prefetchCached, useCachedData } from "../../lib/dataCache";
 import { useActiveDepartments } from "../../lib/departments";
 import { AttendanceDonutChart, AttendanceDonutLegend } from "./AttendanceDonut";
 import { computeAttendanceRate, getRateTone, RATE_TONE_COLOR } from "./attendanceRate";
-import { formatFullDate } from "./dateUtils";
+import { formatShortDate } from "./dateUtils";
 import { DayDetailPanel } from "./DayDetailPanel";
 import { MonthlyAttendanceChart } from "./MonthlyAttendanceChart";
 import "./DashboardPage.css";
@@ -508,7 +509,10 @@ export function DashboardPage({
         <Card className="day-detail-card">
           <div className="card-heading calendar-heading-row">
             <h3>Attendance Details</h3>
-            <span className="cal-hint">{selectedDay ? formatFullDate(selectedDay.date) : "No date selected"}</span>
+            <span className="cal-date-pill">
+              <CalendarIcon size={14} />
+              <strong>{selectedDay ? formatShortDate(selectedDay.date) : "No date"}</strong>
+            </span>
           </div>
           <DayDetailPanel day={selectedDay} departmentFilter={departmentFilter} onNavigate={onNavigateToAttendance} />
         </Card>

@@ -84,7 +84,7 @@ type EmployeeOption = {
 
 type Notification = { type: "success" | "error"; message: string } | null;
 
-const statusOptions = ["PRESENT", "LATE", "ABSENT", "ON_LEAVE", "OFFICIAL_BUSINESS", "PENDING_REVIEW", "FLAGGED"];
+const statusOptions = ["PRESENT", "LATE", "ABSENT", "ON_LEAVE", "PENDING_REVIEW", "FLAGGED"];
 const recordTypeOptions = ["OFFICE", "FIELD"];
 
 function getRecordTypeLabel(recordType: string) {

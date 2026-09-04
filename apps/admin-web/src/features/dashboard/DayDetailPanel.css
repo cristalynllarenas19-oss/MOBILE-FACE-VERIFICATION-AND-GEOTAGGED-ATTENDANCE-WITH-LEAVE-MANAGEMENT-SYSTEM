@@ -25,13 +25,7 @@
 .ddp-body {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  /* No grow: stays its natural content size so the day-detail-card's
-     leftover space is free for .dashboard-inline-section's auto margins
-     to center it, instead of this box swallowing all of it. Shrink is
-     kept so a long department list still yields to the card's fixed
-     height and scrolls via .ddp-dept-list rather than overflowing. */
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-height: 0;
   animation: ddp-fade-in 0.3s ease;
 }
@@ -41,102 +35,125 @@
   to   { opacity: 1; transform: translateY(0); }
 }
 
-.ddp-dept-list {
+/* Compact department table — head and total rows share the grid column
+   template on .ddp-row so every column lines up, with only the department
+   rows in between scrolling once they exceed the card's fixed height. */
+.ddp-table {
   display: flex;
   flex-direction: column;
-  gap: 6px;
   flex: 1 1 auto;
   min-height: 0;
-  overflow-y: auto;
-  padding-right: 4px;
 }
 
-.ddp-dept-row {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+.ddp-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px 40px 52px 34px 16px;
+  align-items: center;
+  column-gap: 6px;
+  padding: 6px 0;
+}
+
+.ddp-head {
+  padding-top: 0;
   padding-bottom: 5px;
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--line);
 }
 
-.ddp-dept-row:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
-}
-
-.ddp-dept-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.ddp-dept-name {
-  font-size: 12.5px;
+.ddp-head .ddp-cell {
+  font-size: 9px;
   font-weight: 700;
-  color: var(--text);
-}
-
-.ddp-dept-link {
-  background: none;
-  border: none;
-  color: #1a6faf;
-  font-size: 10.5px;
-  font-weight: 700;
-  cursor: pointer;
-  padding: 0;
-  white-space: nowrap;
-}
-
-.ddp-dept-link:hover {
-  text-decoration: underline;
-}
-
-.ddp-dept-stats {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  font-size: 10px;
-  font-weight: 500;
-  color: var(--sub);
-}
-
-.ddp-dept-stats strong {
-  font-weight: 620;
-  color: var(--text);
-}
-
-.ddp-dept-stats span + span::before {
-  content: "|";
-  margin-right: 6px;
-  color: var(--line);
-}
-
-.ddp-rate-line {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 10px;
   color: var(--muted);
-}
-
-.ddp-rate-value {
-  font-weight: 700;
-  color: var(--text);
-}
-
-.ddp-rate-track {
-  height: 6px;
-  border-radius: 3px;
-  background: #eef2f7;
+  white-space: nowrap;
   overflow: hidden;
 }
 
-.ddp-rate-bar {
-  height: 100%;
-  border-radius: 3px;
-  transition: width 0.4s ease, background 0.2s ease;
+/* Attendance-category header labels only — the numbers below stay neutral
+   (Do not color the actual attendance numbers). */
+.ddp-head .ddp-col-present {
+  color: #1baf7a;
+}
+
+.ddp-head .ddp-col-absent {
+  color: #e34948;
+}
+
+.ddp-head .ddp-col-onleave {
+  color: #7c3aed;
+}
+
+.ddp-cell {
+  font-size: 11px;
+  color: var(--text);
+  min-width: 0;
+}
+
+.ddp-cell-dept {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
+.ddp-cell-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.ddp-col-total {
+  font-weight: 700;
+}
+
+.ddp-cell-arrow {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.ddp-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.ddp-scroll .ddp-row {
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.ddp-scroll .ddp-row:last-child {
+  border-bottom: none;
+}
+
+.ddp-arrow-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.ddp-arrow-button:hover {
+  background: #eef2f7;
+  color: var(--text);
+}
+
+.ddp-total {
+  padding-top: 6px;
+  padding-bottom: 0;
+  border-top: 1px solid var(--line);
+}
+
+.ddp-total .ddp-cell-dept,
+.ddp-total .ddp-cell-num {
+  font-weight: 700;
+  color: var(--text);
 }
 
 .ddp-empty {
@@ -144,4 +161,37 @@
   color: var(--muted);
   font-size: 12px;
   padding: 24px 0;
+}
+
+.ddp-dayoff-empty {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 20px;
+  text-align: center;
+  transform: translateY(-16px);
+}
+
+.ddp-dayoff-empty-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: #eaf3fc;
+  color: #1680d8;
+}
+
+.ddp-dayoff-empty-text {
+  margin: 0;
+  max-width: 220px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.5;
 }

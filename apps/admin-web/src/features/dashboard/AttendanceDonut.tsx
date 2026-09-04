@@ -10,12 +10,8 @@ const SIZE = 112;
 const STROKE = 20;
 const RADIUS = (SIZE - STROKE) / 2;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
-// Floating-point rounding in the fraction/offset math can leave a
-// sub-pixel gap where one segment's arc should meet the next one's —
-// extending each segment slightly past its exact boundary closes that
-// gap; the next segment is drawn after it, so the tiny overlap is
-// covered rather than visible.
-const SEGMENT_OVERLAP = 0.75;
+
+const SEGMENT_GAP = 1;
 
 type DonutValues = { present: number; absent: number; onLeave: number };
 
@@ -41,17 +37,13 @@ export function AttendanceDonutChart({ present, absent, onLeave }: DonutValues) 
             {SEGMENTS.map((segment) => {
               const value = values[segment.key];
               const fraction = total > 0 ? value / total : 0;
-              const dash = fraction * CIRCUMFERENCE + (fraction > 0 ? SEGMENT_OVERLAP : 0);
+              const dash = Math.max(0, fraction * CIRCUMFERENCE - (fraction > 0 ? SEGMENT_GAP : 0));
               const offset = -(cumulative * CIRCUMFERENCE);
               cumulative += fraction;
 
               if (value === 0) return null;
 
-              // A single category covering the whole total (e.g. everyone
-              // on leave on a day off) closes the dasharray with a
-              // zero-length gap exactly where it meets itself — some
-              // browsers render a hairline seam there. Drawing it as a
-              // plain, undashed circle avoids that seam entirely.
+
               if (value === total) {
                 return (
                   <circle
