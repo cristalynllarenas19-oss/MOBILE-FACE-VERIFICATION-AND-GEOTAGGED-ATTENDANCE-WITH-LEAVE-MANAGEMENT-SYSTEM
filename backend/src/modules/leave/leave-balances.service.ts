@@ -2,11 +2,6 @@ import { Injectable } from "@nestjs/common";
 import { EmploymentStatus, LeaveTypeKind, Sex } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 
-// Standard PH working-days-per-year reference (365 − 52 Sundays) — used as a
-// fixed denominator for the classification-level "days left" gauge instead of
-// summing every employee's individual balance into one ballooning total.
-const WORKING_DAYS_PER_YEAR = 313;
-
 // Maternity/Paternity-kind leave types are sex-restricted even though both
 // are listed as applicable to REGULAR employees on the leave type itself —
 // an employee with no sex on file is eligible for neither until HR fills it
@@ -168,136 +163,8 @@ export class LeaveBalancesService {
     return balance;
   }
 
- 
-  async getSummary(year: number, departmentId?: string) {
-    await this.ensureAutoCreditedBalances(year);
-
-    const [employees, leaveTypes, balances] = await Promise.all([
-      this.prisma.employee.findMany({
-        where: { employmentStatus: { not: "SEPARATED" }, ...(departmentId ? { departmentId } : {}) },
-        select: {
-          id: true,
-          employmentStatus: true,
-          sex: true,
-          departmentId: true,
-          department: { select: { name: true } },
-        },
-      }),
-      this.prisma.leaveType.findMany({ orderBy: { name: "asc" } }),
-      this.prisma.leaveBalance.findMany({ where: { year } }),
-    ]);
-
-    const balanceLookup = new Map<string, { earnedDays: number; usedDays: number }>();
-    for (const b of balances) {
-      balanceLookup.set(`${b.employeeId}::${b.leaveTypeId}`, {
-        earnedDays: Number(b.earnedDays),
-        usedDays: Number(b.usedDays),
-      });
-    }
-
-    const statusMap = new Map<EmploymentStatus, { usedDays: number; employeeIds: Set<string> }>();
-    // Pre-seed every non-separated classification so each always gets its own
-    // donut in the overview, even when no employee currently holds it yet.
-    for (const status of ["REGULAR", "PROBATIONARY", "CONTRACTUAL_SEASONAL", "PIECE_RATE"] as EmploymentStatus[]) {
-      statusMap.set(status, { usedDays: 0, employeeIds: new Set<string>() });
-    }
-    const typeMap = new Map<
-      string,
-      {
-        employmentStatus: EmploymentStatus;
-        leaveTypeId: string;
-        leaveTypeName: string;
-        earnedDays: number;
-        usedDays: number;
-      }
-    >();
-    const deptMap = new Map<
-      string,
-      { departmentId: string; departmentName: string; earnedDays: number; usedDays: number; employeeIds: Set<string> }
-    >();
-
-
-    // byLeaveType reflects each leave type's own configured entitlement (as
-    // set on the Leave Types page), not a sum across every employee in the
-    // classification — otherwise a type like Maternity Leave (105 days) would
-    // balloon to 105 × headcount instead of just showing 105.
-    for (const status of ["REGULAR", "PROBATIONARY", "CONTRACTUAL_SEASONAL", "PIECE_RATE"] as EmploymentStatus[]) {
-      for (const leaveType of leaveTypes) {
-        if (!leaveType.applicableStatuses.includes(status)) continue;
-        typeMap.set(`${status}::${leaveType.id}`, {
-          employmentStatus: status,
-          leaveTypeId: leaveType.id,
-          leaveTypeName: leaveType.name,
-          earnedDays: leaveType.requiresAdminGrant ? 0 : Number(leaveType.defaultDays),
-          usedDays: 0,
-        });
-      }
-    }
-
-    for (const employee of employees) {
-      const status = employee.employmentStatus;
-
-      for (const leaveType of leaveTypes) {
-        if (!leaveType.applicableStatuses.includes(status)) continue;
-        if (!isEligibleForLeaveType(leaveType.kind, employee.sex)) continue;
-
-        const existing = balanceLookup.get(`${employee.id}::${leaveType.id}`);
-        const earnedDays = existing ? existing.earnedDays : leaveType.requiresAdminGrant ? 0 : Number(leaveType.defaultDays);
-        const usedDays = existing ? existing.usedDays : 0;
-
-        const statusEntry = statusMap.get(status) ?? { usedDays: 0, employeeIds: new Set<string>() };
-        statusEntry.usedDays += usedDays;
-        statusEntry.employeeIds.add(employee.id);
-        statusMap.set(status, statusEntry);
-
-        const deptEntry =
-          deptMap.get(employee.departmentId) ?? {
-            departmentId: employee.departmentId,
-            departmentName: employee.department.name,
-            earnedDays: 0,
-            usedDays: 0,
-            employeeIds: new Set<string>(),
-          };
-        deptEntry.earnedDays += earnedDays;
-        deptEntry.usedDays += usedDays;
-        deptEntry.employeeIds.add(employee.id);
-        deptMap.set(employee.departmentId, deptEntry);
-      }
-    }
-
-    // The classification-level gauge is scaled against the fixed working-days-
-    // per-year reference, not a headcount-multiplied sum of every employee's
-    // individual entitlements — usedDays still reflects real, sex-aware usage.
-    const byEmploymentStatus = Array.from(statusMap.entries()).map(([employmentStatus, v]) => ({
-      employmentStatus,
-      earnedDays: WORKING_DAYS_PER_YEAR,
-      usedDays: v.usedDays,
-      remainingDays: Math.max(0, WORKING_DAYS_PER_YEAR - v.usedDays),
-      employeeCount: v.employeeIds.size,
-    }));
-
-    const byLeaveType = Array.from(typeMap.values()).map((v) => ({
-      ...v,
-      remainingDays: Math.max(0, v.earnedDays - v.usedDays),
-    }));
-
-    const byDepartment = Array.from(deptMap.values())
-      .map((v) => ({
-        departmentId: v.departmentId,
-        departmentName: v.departmentName,
-        earnedDays: v.earnedDays,
-        usedDays: v.usedDays,
-        remainingDays: Math.max(0, v.earnedDays - v.usedDays),
-        employeeCount: v.employeeIds.size,
-      }))
-      .sort((a, b) => a.departmentName.localeCompare(b.departmentName));
-
-    return { year, byEmploymentStatus, byLeaveType, byDepartment };
-  }
-
-  // One row per employee (not aggregated) for the Leave Balances Overview's
-  // classification drill-down list — same 3-query, no-N+1 shape getSummary
-  // uses, and the same per-type resolution findForEmployee uses, so a row
+  // One row per employee (not aggregated) for the Leave Balances tab's
+  // employee table — same per-type resolution findForEmployee uses, so a row
   // here always matches what that employee's own detail view (View button)
   // shows. Omitting employmentStatus returns every non-separated employee.
   async getByClassification(year: number, employmentStatus?: EmploymentStatus, departmentId?: string) {

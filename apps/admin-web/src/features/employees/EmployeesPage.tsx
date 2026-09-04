@@ -44,7 +44,7 @@ type Employee = {
   employeeNo: string;
   firstName: string;
   lastName: string;
-  employmentStatus: "REGULAR" | "PROBATIONARY" | "CONTRACTUAL_SEASONAL" | "PIECE_RATE" | "SEPARATED";
+  employmentStatus: "REGULAR" | "PROBATIONARY" | "PERMANENT_SEASONAL" | "PROBATIONARY_SEASONAL" | "SEPARATED";
   soloParentStatus: "NOT_APPLICABLE" | "ELIGIBLE" | "INELIGIBLE";
   sex?: "MALE" | "FEMALE" | null;
   attendanceMode: AttendanceMode;
@@ -81,7 +81,7 @@ type EmployeeForm = {
   department: string;
   position: string;
   hireDate: string;
-  employmentStatus: "REGULAR" | "PROBATIONARY" | "CONTRACTUAL_SEASONAL" | "PIECE_RATE";
+  employmentStatus: "REGULAR" | "PROBATIONARY" | "PERMANENT_SEASONAL" | "PROBATIONARY_SEASONAL";
   attendanceMode: AttendanceMode;
   soloParentStatus: "NOT_APPLICABLE" | "ELIGIBLE" | "INELIGIBLE";
   sex: "MALE" | "FEMALE";

@@ -42,7 +42,7 @@ export type FaceRegistrationEmployee = {
   user?: { email: string } | null;
   supervisor?: { firstName: string; lastName: string } | null;
   hireDate?: string;
-  employmentStatus?: "REGULAR" | "PROBATIONARY" | "CONTRACTUAL_SEASONAL" | "PIECE_RATE" | "SEPARATED";
+  employmentStatus?: "REGULAR" | "PROBATIONARY" | "PERMANENT_SEASONAL" | "PROBATIONARY_SEASONAL" | "SEPARATED";
   attendanceMode?: string;
   sex?: "MALE" | "FEMALE" | null;
   soloParentStatus?: "NOT_APPLICABLE" | "ELIGIBLE" | "INELIGIBLE";

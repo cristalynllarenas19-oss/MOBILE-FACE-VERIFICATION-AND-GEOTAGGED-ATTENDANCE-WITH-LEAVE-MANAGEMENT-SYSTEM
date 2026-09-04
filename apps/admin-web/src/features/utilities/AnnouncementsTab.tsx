@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Archive,
+  ArchiveRestore,
   CalendarClock,
   CheckCircle2,
   ChevronDown,
@@ -49,6 +51,7 @@ type AnnouncementListItem = {
   deliveredCount: number;
   viewedCount: number;
   notViewedCount: number;
+  archivedAt: string | null;
 };
 
 type EmployeeOption = {
@@ -145,6 +148,7 @@ export function AnnouncementsTab({
   const { departments: activeDepartments } = useActiveDepartments();
 
   const [announcements, setAnnouncements] = useState<AnnouncementListItem[]>([]);
+  const [showArchived, setShowArchived] = useState(false);
   const [search, setSearch] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -181,10 +185,12 @@ export function AnnouncementsTab({
   const [isViewLoading, setIsViewLoading] = useState(false);
 
   const loadAnnouncements = () => {
-    apiRequest<AnnouncementListItem[]>("/announcements").then(setAnnouncements).catch(() => undefined);
+    apiRequest<AnnouncementListItem[]>(`/announcements?archived=${showArchived}`)
+      .then(setAnnouncements)
+      .catch(() => undefined);
   };
 
-  useEffect(loadAnnouncements, []);
+  useEffect(loadAnnouncements, [showArchived]);
 
   useEffect(() => {
     apiRequest<EmployeeOption[]>("/employees").then(setEmployees).catch(() => undefined);
@@ -192,7 +198,7 @@ export function AnnouncementsTab({
 
   useEffect(() => {
     setPage(1);
-  }, [search, dateFrom, dateTo]);
+  }, [search, dateFrom, dateTo, showArchived]);
 
   // "Any time" (DropdownFilter's built-in allValue) clears the range
   // entirely — everything shows, same as no filter applied at all. Each
@@ -668,8 +674,39 @@ export function AnnouncementsTab({
     }
   }
 
+  async function archiveAnnouncement(id: string) {
+    try {
+      await apiRequest(`/announcements/${id}/archive`, { method: "PATCH" });
+      setViewId(null);
+      loadAnnouncements();
+      notify({ type: "success", message: "Announcement archived." });
+    } catch (err) {
+      notify({ type: "error", message: err instanceof Error ? err.message : "Failed to archive announcement." });
+    }
+  }
+
+  async function unarchiveAnnouncement(id: string) {
+    try {
+      await apiRequest(`/announcements/${id}/unarchive`, { method: "PATCH" });
+      setViewId(null);
+      loadAnnouncements();
+      notify({ type: "success", message: "Announcement unarchived." });
+    } catch (err) {
+      notify({ type: "error", message: err instanceof Error ? err.message : "Failed to unarchive announcement." });
+    }
+  }
+
   return (
     <>
+      <div className="filter-tabs announcement-archive-tabs">
+        <button className={!showArchived ? "active" : ""} onClick={() => setShowArchived(false)}>
+          Active
+        </button>
+        <button className={showArchived ? "active" : ""} onClick={() => setShowArchived(true)}>
+          Archived
+        </button>
+      </div>
+
       <div className="employees-filter-bar">
         <div className="employees-filter-group employees-filter-search-group">
           <label className="employees-filter-label">Search</label>
@@ -734,7 +771,7 @@ export function AnnouncementsTab({
                 <th>TARGET</th>
                 <th>RECIPIENTS</th>
                 <th>VIEWED</th>
-                <th>ACTIONS</th>
+                <th>ACTION</th>
               </tr>
             </thead>
             <tbody>
@@ -744,7 +781,7 @@ export function AnnouncementsTab({
                     {announcements.length === 0 ? (
                       <div className="utilities-empty-block">
                         <Megaphone size={28} />
-                        <p>No announcements have been sent yet.</p>
+                        <p>{showArchived ? "No archived announcements." : "No announcements have been sent yet."}</p>
                       </div>
                     ) : (
                       "No announcements match your current search."
@@ -1083,6 +1120,17 @@ export function AnnouncementsTab({
             </div>
 
             <div className="utilities-modal-actions">
+              {canManage && viewDetail && (
+                viewDetail.archivedAt ? (
+                  <button className="outline-button" onClick={() => unarchiveAnnouncement(viewDetail.id)}>
+                    <ArchiveRestore size={13} /> Unarchive
+                  </button>
+                ) : (
+                  <button className="outline-button outline-button--danger" onClick={() => archiveAnnouncement(viewDetail.id)}>
+                    <Archive size={13} /> Archive
+                  </button>
+                )
+              )}
               <button className="outline-button" onClick={() => setViewId(null)}>
                 Close
               </button>

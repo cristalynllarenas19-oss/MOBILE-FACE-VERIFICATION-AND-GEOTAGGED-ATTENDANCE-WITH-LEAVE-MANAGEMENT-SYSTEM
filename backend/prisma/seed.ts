@@ -246,7 +246,7 @@ async function main() {
     await prisma.employee.update({ where: { id: employee.id }, data: { supervisorId: supervisor.id } });
   }
 
-  const allClassifications = ["REGULAR", "CONTRACTUAL_SEASONAL", "PIECE_RATE", "SEPARATED"] as const;
+  const allClassifications = ["REGULAR", "PERMANENT_SEASONAL", "PROBATIONARY_SEASONAL", "SEPARATED"] as const;
 
   // Leave Types are HR/Admin-managed business data from here on (Utilities ->
   // Leave Types), not developer-seeded — this single row just keeps the page

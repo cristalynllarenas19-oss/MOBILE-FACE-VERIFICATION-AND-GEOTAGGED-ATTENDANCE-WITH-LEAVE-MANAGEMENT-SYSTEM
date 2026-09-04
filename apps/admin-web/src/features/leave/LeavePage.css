@@ -150,6 +150,14 @@
   scrollbar-color: #b8c7d8 #f4f7fb;
 }
 
+/* Same fixed box height as the Leave Balances table
+   (.employee-list-table-scroll) instead of the elastic max-height above, so
+   Requests/History don't grow and shrink with row count. */
+.leave-table-scroll-fixed {
+  height: 360px;
+  max-height: none;
+}
+
 .leave-table-scroll::-webkit-scrollbar {
   width: 7px;
   height: 7px;
@@ -1259,14 +1267,6 @@
   margin-bottom: 10px;
 }
 
-.employee-detail-context {
-  color: #1a3a5c;
-  font-size: 14px;
-  font-weight: 800;
-  margin: 0;
-}
-
-
 .employee-list-section {
   border-top: 1px solid #edf2f7;
   padding-top: 10px;
@@ -1305,42 +1305,14 @@
   max-width: 320px;
 }
 
-/* Groups the Field/Non-Field tabs with the department dropdown so they move
-   together as one unit, pushed to the right of the search box. */
+/* Groups the employee-type/department filters as one unit, pushed to the
+   right of the search box. */
 .employee-list-toolbar-right {
   display: flex;
   align-items: center;
   gap: 10px;
   margin-left: auto;
   flex-wrap: wrap;
-}
-
-.employee-list-mode-tabs.filter-tabs {
-  margin-bottom: 0;
-}
-
-.employee-list-mode-tabs button {
-  flex: 0 0 auto;
-  border: 1px solid transparent;
-  background: #ffffff;
-  color: #41536b;
-  padding: 9px 15px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-}
-
-.employee-list-mode-tabs button:hover {
-  border-color: #dbe5ef;
-}
-
-.employee-list-mode-tabs button.active {
-  background: #dbeafe;
-  border-color: #93c5fd;
-  color: #1a3a5c;
 }
 
 .employee-list-department-filter {
@@ -1356,7 +1328,6 @@
   padding: 0;
   color: inherit;
   font: inherit;
-  font-weight: 800;
   cursor: pointer;
 }
 
@@ -1373,11 +1344,23 @@
   border-bottom: 1px solid #edf2f7;
 }
 
+/* Ring + Remaining/Earned/Used readout — same block as the employee
+   portal's "My Leave Balance" card (LeaveBalanceChart.css). */
+.employee-summary-ring-block {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  flex-shrink: 0;
+}
+
 .employee-summary-donut-wrap {
   position: relative;
   flex-shrink: 0;
-  width: 64px;
-  height: 64px;
+  width: 106px;
+  height: 106px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .employee-summary-donut-wrap svg {
@@ -1386,100 +1369,59 @@
 
 .employee-summary-donut-center {
   position: absolute;
-  inset: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  text-align: center;
 }
 
-.employee-summary-donut-center strong {
-  color: #062b59;
-  font-size: 15px;
-  font-weight: 800;
-  line-height: 1.1;
-}
-
-.employee-summary-donut-center span {
-  color: #94a3b8;
-  font-size: 7.5px;
+.employee-summary-donut-percent {
+  font-size: 12px;
   font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.employee-summary-donut-center em {
-  margin-top: 2px;
-  border-radius: 999px;
-  background: #eaf3fc;
   color: #1680d8;
-  padding: 1px 6px;
-  font-size: 8px;
-  font-weight: 800;
-  font-style: normal;
 }
 
-.employee-summary-info {
+.employee-summary-stats {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  flex: 1 1 auto;
-  min-width: 0;
+  gap: 8px;
 }
 
-.employee-summary-info strong {
-  color: #062b59;
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.employee-summary-info .employee-summary-badge {
-  margin-top: 2px;
-}
-
-.employee-summary-total {
+.employee-summary-hero {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 3px;
-  flex-shrink: 0;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 4px;
 }
 
-.employee-summary-total span:first-child {
-  color: #7b8794;
-  font-size: 9px;
+.employee-summary-hero-value {
+  font-size: 28px;
   font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.employee-summary-total strong {
   color: #062b59;
-  font-size: 16px;
-  font-weight: 800;
+  letter-spacing: -0.3px;
 }
 
-.employee-summary-badge {
-  display: inline-flex;
+.employee-summary-hero-label {
+  font-size: 19px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.employee-summary-stat-row {
+  display: flex;
   align-items: center;
-  gap: 4px;
-  border: 1px solid #bfdcf5;
-  background: #eaf3fc;
-  color: #1680d8;
-  border-radius: 999px;
-  padding: 2px 8px;
-  font-size: 9.5px;
-  font-weight: 800;
+  gap: 20px;
 }
 
-.employee-summary-badge-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 999px;
-  background: #1680d8;
-  flex-shrink: 0;
+.employee-summary-stat-label {
+  color: #64748b;
+  font-size: 13px;
+  min-width: 46px;
+}
+
+.employee-summary-stat-value {
+  font-weight: 700;
+  color: #062b59;
+  font-size: 14px;
 }
 
 .employee-summary-caption {
@@ -1517,11 +1459,22 @@
 }
 
 .employee-leave-row-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   min-width: 0;
   color: #062b59;
   font-size: 12px;
   font-weight: 700;
   overflow-wrap: break-word;
+}
+
+/* Ties the row to its arc in the summary ring above — same per-type color. */
+.employee-leave-row-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .employee-leave-row-meta {
@@ -1655,8 +1608,8 @@
     flex-wrap: wrap;
   }
 
-  .employee-summary-total {
-    align-items: flex-start;
+  .employee-summary-ring-block {
+    gap: 18px;
   }
 
   /* Below this width even a wrapping label can't keep the row's other

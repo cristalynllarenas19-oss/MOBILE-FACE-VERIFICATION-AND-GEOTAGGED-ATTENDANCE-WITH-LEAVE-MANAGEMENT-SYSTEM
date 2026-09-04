@@ -805,7 +805,7 @@ export type CreateTeamEmployeeInput = {
   email: string;
   department: string;
   hireDate?: string;
-  employmentStatus: "REGULAR" | "PROBATIONARY" | "CONTRACTUAL_SEASONAL" | "PIECE_RATE";
+  employmentStatus: "REGULAR" | "PROBATIONARY" | "PERMANENT_SEASONAL" | "PROBATIONARY_SEASONAL";
   attendanceMode?: AttendanceMode;
   sex: "MALE" | "FEMALE";
   supervisorId?: string;

@@ -30,13 +30,13 @@ type Props = {
   currentEmployeeId?: string;
 };
 
-const EMPLOYMENT_STATUSES = ["REGULAR", "PROBATIONARY", "CONTRACTUAL_SEASONAL", "PIECE_RATE"] as const;
+const EMPLOYMENT_STATUSES = ["REGULAR", "PROBATIONARY", "PERMANENT_SEASONAL", "PROBATIONARY_SEASONAL"] as const;
 
 function getEmploymentStatusLabel(status: string) {
   if (status === "REGULAR") return "Regular";
   if (status === "PROBATIONARY") return "Probationary";
-  if (status === "CONTRACTUAL_SEASONAL") return "Contractual";
-  if (status === "PIECE_RATE") return "Piece-Rate";
+  if (status === "PERMANENT_SEASONAL") return "Permanent Seasonal";
+  if (status === "PROBATIONARY_SEASONAL") return "Probationary Seasonal";
   return status;
 }
 

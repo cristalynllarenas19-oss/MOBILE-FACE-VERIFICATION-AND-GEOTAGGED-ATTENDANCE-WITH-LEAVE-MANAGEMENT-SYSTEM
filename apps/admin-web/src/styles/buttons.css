@@ -56,6 +56,16 @@
   cursor: not-allowed;
 }
 
+.outline-button--danger {
+  border-color: #f3b4b4;
+  color: #b91c1c;
+}
+
+.outline-button--danger:hover:not(:disabled) {
+  background: #fef2f2;
+  border-color: #dc2626;
+}
+
 .header-button {
   border: none;
   background: white;

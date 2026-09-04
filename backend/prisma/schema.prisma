@@ -31,8 +31,8 @@ enum DefaultView {
 enum EmploymentStatus {
   REGULAR
   PROBATIONARY
-  CONTRACTUAL_SEASONAL
-  PIECE_RATE
+  PERMANENT_SEASONAL
+  PROBATIONARY_SEASONAL
   SEPARATED
 }
 
@@ -792,6 +792,10 @@ model Announcement {
   createdByUserId       String?            @map("created_by_user_id")
   createdBy             User?              @relation(fields: [createdByUserId], references: [id])
   createdAt             DateTime           @default(now()) @map("created_at")
+  // Archiving just moves an announcement out of the default list — the
+  // Notification rows (and their delivered/viewed counts) are untouched, so
+  // unarchiving brings it back exactly as it was.
+  archivedAt            DateTime?          @map("archived_at")
 
   @@map("announcements")
 }

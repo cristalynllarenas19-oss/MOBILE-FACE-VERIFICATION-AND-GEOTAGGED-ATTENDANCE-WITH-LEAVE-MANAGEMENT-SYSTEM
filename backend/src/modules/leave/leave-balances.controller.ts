@@ -22,18 +22,9 @@ export class GrantLeaveBalanceDto {
 export class LeaveBalancesController {
   constructor(private readonly leaveBalancesService: LeaveBalancesService) {}
 
-  // NOTE: this must come BEFORE ":employeeId" below, otherwise Nest will try
-  // to match "summary" as an employeeId and call findForEmployee instead.
-  @Get("summary")
-  getSummary(@Req() request: Request, @Query("year") year?: string) {
-    const resolvedYear = year ? Number(year) : new Date().getFullYear();
-    const departmentId = getSupervisorDepartmentScope((request as any).user);
-    return this.leaveBalancesService.getSummary(resolvedYear, departmentId);
-  }
-
-  // Per-employee balance rows for the Leave Balances Overview's
-  // classification drill-down list — same route-ordering reason as
-  // "summary" above, must come before ":employeeId".
+  // Per-employee balance rows for the Leave Balances tab's employee table —
+  // must come before ":employeeId" below, otherwise Nest will try to match
+  // "by-classification" as an employeeId and call findForEmployee instead.
   @Get("by-classification")
   getByClassification(
     @Req() request: Request,

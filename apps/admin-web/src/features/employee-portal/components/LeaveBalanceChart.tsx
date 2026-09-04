@@ -1,24 +1,11 @@
 import { CirclePlus } from "lucide-react";
 import { LeaveBalance } from "../api";
+import { colorForLeaveType } from "../../../lib/leaveTypeColors";
 import "./LeaveBalanceChart.css";
 
-// Mirrors employee-mobile's LeaveBalanceChart.tsx — same palette, same
-// per-type color assignment (by array index), same ring math — so the two
-// platforms read as the same feature, just laid out for a wider viewport.
-// Kept distinct from the summary ring's own legend colors (#062B59 Earned,
-// #1680D8 Used, #DCE7F5 Remaining) so no leave type visually collides with
-// them, and long enough that a typical leave-type list doesn't wrap back
-// onto its own first color.
-const LEAVE_TYPE_COLORS = ["#F97316", "#1BAF7A", "#EDA100", "#E34948", "#7C3AED", "#0EA5B8", "#D6336C", "#4A3AA7", "#65A30D"];
-
-// Overrides the index-based palette above for specific leave types.
-const LEAVE_TYPE_COLOR_OVERRIDES: Record<string, string> = {
-  "Bereavement Leave": "#C71585",
-};
-
-function colorForLeaveType(name: string, index: number): string {
-  return LEAVE_TYPE_COLOR_OVERRIDES[name] ?? LEAVE_TYPE_COLORS[index % LEAVE_TYPE_COLORS.length];
-}
+// Mirrors employee-mobile's LeaveBalanceChart.tsx — same palette (see
+// lib/leaveTypeColors), same ring math — so the two platforms read as the
+// same feature, just laid out for a wider viewport.
 
 const RING_SIZE = 106;
 const RING_STROKE = 11;

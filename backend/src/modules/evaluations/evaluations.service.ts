@@ -41,7 +41,11 @@ export class EvaluationsService {
     cutoff.setMonth(cutoff.getMonth() - PROBATION_MILESTONE_MONTHS);
 
     const dueEmployees = await this.prisma.employee.findMany({
-      where: { employmentStatus: "PROBATIONARY", hireDate: { lte: cutoff }, supervisorId: { not: null } },
+      where: {
+        employmentStatus: { in: ["PROBATIONARY", "PROBATIONARY_SEASONAL"] },
+        hireDate: { lte: cutoff },
+        supervisorId: { not: null },
+      },
       select: {
         id: true,
         firstName: true,
@@ -266,7 +270,12 @@ export class EvaluationsService {
   // Admin-facing PROBATION_REGULARIZATION_DUE notification/trigger; this is a
   // separate notification type to a separate recipient.
   async notifyOutcome(employee: { id: string; firstName: string; lastName: string; employmentStatus: string }) {
-    if (employee.employmentStatus !== "REGULAR" && employee.employmentStatus !== "SEPARATED") return;
+    if (
+      employee.employmentStatus !== "REGULAR" &&
+      employee.employmentStatus !== "PERMANENT_SEASONAL" &&
+      employee.employmentStatus !== "SEPARATED"
+    )
+      return;
 
     const evaluation = await this.prisma.probationaryEvaluation.findFirst({
       where: { employeeId: employee.id, status: "SUBMITTED" },
@@ -278,7 +287,9 @@ export class EvaluationsService {
     const outcomeLabel =
       employee.employmentStatus === "REGULAR"
         ? "converted to Regular status"
-        : "separated rather than converted to Regular";
+        : employee.employmentStatus === "PERMANENT_SEASONAL"
+          ? "converted to Permanent Seasonal status"
+          : "separated rather than converted";
 
     await this.notifications.notifyUsers([evaluation.supervisor.userId], {
       title: "Evaluation Outcome",

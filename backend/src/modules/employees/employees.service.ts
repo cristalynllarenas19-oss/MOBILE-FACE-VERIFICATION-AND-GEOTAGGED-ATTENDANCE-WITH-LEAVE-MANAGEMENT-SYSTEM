@@ -63,8 +63,8 @@ export class EmployeesService {
     cutoff.setMonth(cutoff.getMonth() - PROBATION_MILESTONE_MONTHS);
 
     const probationaryEmployees = await this.prisma.employee.findMany({
-      where: { employmentStatus: "PROBATIONARY", hireDate: { lte: cutoff } },
-      select: { id: true, firstName: true, lastName: true },
+      where: { employmentStatus: { in: ["PROBATIONARY", "PROBATIONARY_SEASONAL"] }, hireDate: { lte: cutoff } },
+      select: { id: true, firstName: true, lastName: true, employmentStatus: true },
     });
     if (probationaryEmployees.length === 0) return;
 
@@ -82,9 +82,10 @@ export class EmployeesService {
 
     const adminUserIds = await this.notifications.adminUserIds();
     for (const employee of dueEmployees) {
+      const targetStatus = employee.employmentStatus === "PROBATIONARY_SEASONAL" ? "Permanent Seasonal" : "Regular";
       await this.notifications.notifyUsers(adminUserIds, {
         title: "Regularization Review Recommended",
-        message: `${employee.firstName} ${employee.lastName} has completed six (6) months of probationary employment and may be ready for evaluation and conversion to Regular status.`,
+        message: `${employee.firstName} ${employee.lastName} has completed six (6) months of probationary employment and may be ready for evaluation and conversion to ${targetStatus} status.`,
         type: PROBATION_MILESTONE_NOTIFICATION_TYPE,
         entityId: employee.id,
       });
@@ -98,7 +99,7 @@ export class EmployeesService {
     employmentStatus: string;
     hireDate: Date;
   }) {
-    if (employee.employmentStatus !== "PROBATIONARY") return;
+    if (employee.employmentStatus !== "PROBATIONARY" && employee.employmentStatus !== "PROBATIONARY_SEASONAL") return;
 
     const cutoff = new Date();
     cutoff.setMonth(cutoff.getMonth() - PROBATION_MILESTONE_MONTHS);
@@ -111,9 +112,10 @@ export class EmployeesService {
     if (alreadyNotified) return;
 
     const adminUserIds = await this.notifications.adminUserIds();
+    const targetStatus = employee.employmentStatus === "PROBATIONARY_SEASONAL" ? "Permanent Seasonal" : "Regular";
     await this.notifications.notifyUsers(adminUserIds, {
       title: "Regularization Review Recommended",
-      message: `${employee.firstName} ${employee.lastName} has completed six (6) months of probationary employment and may be ready for evaluation and conversion to Regular status.`,
+      message: `${employee.firstName} ${employee.lastName} has completed six (6) months of probationary employment and may be ready for evaluation and conversion to ${targetStatus} status.`,
       type: PROBATION_MILESTONE_NOTIFICATION_TYPE,
       entityId: employee.id,
     });

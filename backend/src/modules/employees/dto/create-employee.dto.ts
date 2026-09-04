@@ -4,8 +4,8 @@ import { IsDateString, IsEmail, IsEnum, IsInt, IsOptional, IsString, Min } from 
 export enum CreateEmployeeEmploymentStatus {
   REGULAR = "REGULAR",
   PROBATIONARY = "PROBATIONARY",
-  CONTRACTUAL_SEASONAL = "CONTRACTUAL_SEASONAL",
-  PIECE_RATE = "PIECE_RATE",
+  PERMANENT_SEASONAL = "PERMANENT_SEASONAL",
+  PROBATIONARY_SEASONAL = "PROBATIONARY_SEASONAL",
 }
 
 export enum EmployeeSoloParentStatus {

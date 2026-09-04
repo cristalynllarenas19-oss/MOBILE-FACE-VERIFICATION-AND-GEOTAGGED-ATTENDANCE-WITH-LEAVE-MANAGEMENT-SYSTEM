@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
-  ArrowLeft,
   Calendar as CalendarIcon,
   CheckCircle2,
   ChevronDown,
@@ -20,9 +19,11 @@ import { LeaveTimeline, type LeaveRequestHistoryEvent } from "../../components/u
 import { apiRequest } from "../../lib/api";
 import { useActiveDepartments } from "../../lib/departments";
 import { useCachedData } from "../../lib/dataCache";
+import { colorForLeaveType } from "../../lib/leaveTypeColors";
 import {
   type EmploymentStatus,
   formatEmploymentStatus,
+  SELECTABLE_EMPLOYMENT_STATUS_OPTIONS,
 } from "../../types/employment";
 import "./LeavePage.css";
 
@@ -90,33 +91,6 @@ type LeaveBalance = {
   earnedDays: number;
   usedDays: number;
   remainingDays: number;
-};
-
-type LeaveBalanceSummary = {
-  year: number;
-  byEmploymentStatus: {
-    employmentStatus: EmploymentStatus;
-    earnedDays: number;
-    usedDays: number;
-    remainingDays: number;
-    employeeCount: number;
-  }[];
-  byLeaveType: {
-    employmentStatus: EmploymentStatus;
-    leaveTypeId: string;
-    leaveTypeName: string;
-    earnedDays: number;
-    usedDays: number;
-    remainingDays: number;
-  }[];
-  byDepartment: {
-    departmentId: string;
-    departmentName: string;
-    earnedDays: number;
-    usedDays: number;
-    remainingDays: number;
-    employeeCount: number;
-  }[];
 };
 
 type DirectoryEmployee = {
@@ -257,127 +231,85 @@ function getLatestResubmissionAttachment(request: LeaveRequest) {
   };
 }
 
-const EMPLOYMENT_STATUS_COLORS: Record<EmploymentStatus, string> = {
-  REGULAR: "#2979d0",
-  PROBATIONARY: "#0d9488",
-  CONTRACTUAL_SEASONAL: "#d97706",
-  PIECE_RATE: "#7c3aed",
-  SEPARATED: "#94a3b8",
-};
-
-// ─── Donut chart (plain SVG, no chart library) ───────────────────────────────
-
-function LeaveStatusDonut({
-  employmentStatus,
-  earnedDays,
-  usedDays,
-  remainingDays,
-  employeeCount,
-  isActive,
-  onSelect,
-}: {
-  employmentStatus: EmploymentStatus;
-  earnedDays: number;
-  usedDays: number;
-  remainingDays: number;
-  employeeCount: number;
-  isActive?: boolean;
-  onSelect?: (employmentStatus: EmploymentStatus) => void;
-}) {
-  const size = 104;
-  const stroke = 13;
-  const radius = (size - stroke) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const usedRatio = earnedDays > 0 ? Math.min(1, usedDays / earnedDays) : 0;
-  const usedLength = circumference * usedRatio;
-  const usedPercent = Math.round(usedRatio * 100);
-  const color = EMPLOYMENT_STATUS_COLORS[employmentStatus];
-
-  return (
-    <div
-      className={`leave-donut-card${onSelect ? " clickable" : ""}${isActive ? " active" : ""}`}
-      role={onSelect ? "button" : undefined}
-      tabIndex={onSelect ? 0 : undefined}
-      onClick={() => onSelect?.(employmentStatus)}
-      onKeyDown={(e) => {
-        if (onSelect && (e.key === "Enter" || e.key === " ")) {
-          e.preventDefault();
-          onSelect(employmentStatus);
-        }
-      }}
-    >
-      <div className="leave-donut-svg-wrap">
-        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-          <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#eef2f7" strokeWidth={stroke} />
-          {usedLength > 0 && (
-            <circle
-              cx={size / 2} cy={size / 2} r={radius}
-              fill="none" stroke={color} strokeWidth={stroke}
-              strokeDasharray={`${usedLength} ${circumference - usedLength}`}
-              strokeLinecap="round"
-              transform={`rotate(-90 ${size / 2} ${size / 2})`}
-            />
-          )}
-        </svg>
-        <div className="leave-donut-center">
-          <strong>{remainingDays.toFixed(0)}</strong>
-          <span>days left</span>
-          <em className="leave-donut-pct">{usedPercent}% used</em>
-        </div>
-      </div>
-      <div className="leave-donut-meta">
-        <div className="leave-donut-label">
-          <span className="leave-donut-dot" style={{ background: color }} />
-          {formatEmploymentStatus(employmentStatus)}
-        </div>
-        <div className="leave-donut-stats">
-          <span>{usedDays.toFixed(0)} used</span>
-          <span>·</span>
-          <span>{earnedDays.toFixed(0)} earned</span>
-          <span>·</span>
-          <span className="leave-donut-employee-count">
-            <strong>{employeeCount}</strong> {employeeCount === 1 ? "employee" : "employees"}
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Single-employee summary donut (for the detailed lookup view) ───────────
-// Single blue accent only — no per-status color.
+// Same ring as the employee portal's own "My Leave Balance" card
+// (features/employee-portal/components/LeaveBalanceChart) — one arc segment
+// per leave type in the shared per-type palette, the used percentage in the
+// middle, and Remaining/Earned/Used read out beside it — so an admin looking
+// up an employee sees the same picture that employee sees.
 
-function EmployeeSummaryDonut({ earnedDays, usedDays, remainingDays }: {
+const SUMMARY_RING_SIZE = 106;
+const SUMMARY_RING_STROKE = 11;
+const SUMMARY_RING_RADIUS = (SUMMARY_RING_SIZE - SUMMARY_RING_STROKE) / 2;
+const SUMMARY_RING_CIRCUMFERENCE = 2 * Math.PI * SUMMARY_RING_RADIUS;
+
+function EmployeeSummaryDonut({ earnedDays, usedDays, remainingDays, balances }: {
   earnedDays: number;
   usedDays: number;
   remainingDays: number;
+  // Same order the per-type rows below the ring are rendered in, so a
+  // segment's color always matches its row's dot/bar.
+  balances: { leaveTypeId: string; leaveTypeName: string; usedDays: number }[];
 }) {
-  const size = 64;
-  const stroke = 7;
-  const radius = (size - stroke) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const usedRatio = earnedDays > 0 ? Math.min(1, usedDays / earnedDays) : 0;
-  const usedLength = circumference * usedRatio;
-  const usedPercent = Math.round(usedRatio * 100);
+  const usedPercent = earnedDays > 0 ? Math.round((usedDays / earnedDays) * 100) : 0;
+
+  let cumulativeOffset = 0;
+  const ringSegments = earnedDays > 0
+    ? balances
+        .map((balance, index) => {
+          const length = (balance.usedDays / earnedDays) * SUMMARY_RING_CIRCUMFERENCE;
+          const offset = cumulativeOffset;
+          cumulativeOffset += length;
+          return { id: balance.leaveTypeId, color: colorForLeaveType(balance.leaveTypeName, index), length, offset };
+        })
+        .filter((segment) => segment.length > 0)
+    : [];
 
   return (
-    <div className="employee-summary-donut-wrap">
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#eef2f7" strokeWidth={stroke} />
-        {usedLength > 0 && (
+    <div className="employee-summary-ring-block">
+      <div className="employee-summary-donut-wrap">
+        <svg width={SUMMARY_RING_SIZE} height={SUMMARY_RING_SIZE}>
           <circle
-            cx={size / 2} cy={size / 2} r={radius}
-            fill="none" stroke="#1680d8" strokeWidth={stroke}
-            strokeDasharray={`${usedLength} ${circumference - usedLength}`}
-            strokeLinecap="round"
-            transform={`rotate(-90 ${size / 2} ${size / 2})`}
+            cx={SUMMARY_RING_SIZE / 2}
+            cy={SUMMARY_RING_SIZE / 2}
+            r={SUMMARY_RING_RADIUS}
+            fill="none"
+            stroke="#eef2f7"
+            strokeWidth={SUMMARY_RING_STROKE}
           />
-        )}
-      </svg>
-      <div className="employee-summary-donut-center">
-        <strong>{remainingDays.toFixed(0)}</strong>
-        <span>days left</span>
-        <em>{usedPercent}% used</em>
+          {ringSegments.map((segment) => (
+            <circle
+              key={segment.id}
+              cx={SUMMARY_RING_SIZE / 2}
+              cy={SUMMARY_RING_SIZE / 2}
+              r={SUMMARY_RING_RADIUS}
+              fill="none"
+              stroke={segment.color}
+              strokeWidth={SUMMARY_RING_STROKE}
+              strokeDasharray={`${segment.length} ${SUMMARY_RING_CIRCUMFERENCE - segment.length}`}
+              strokeDashoffset={-segment.offset}
+              transform={`rotate(-90 ${SUMMARY_RING_SIZE / 2} ${SUMMARY_RING_SIZE / 2})`}
+            />
+          ))}
+        </svg>
+        <div className="employee-summary-donut-center">
+          <span className="employee-summary-donut-percent">{usedPercent}% used</span>
+        </div>
+      </div>
+
+      <div className="employee-summary-stats">
+        <div className="employee-summary-hero">
+          <span className="employee-summary-hero-value">{remainingDays.toFixed(0)}</span>
+          <span className="employee-summary-hero-label">Remaining</span>
+        </div>
+        <div className="employee-summary-stat-row">
+          <span className="employee-summary-stat-label">Earned</span>
+          <span className="employee-summary-stat-value">{earnedDays.toFixed(0)}</span>
+        </div>
+        <div className="employee-summary-stat-row">
+          <span className="employee-summary-stat-label">Used</span>
+          <span className="employee-summary-stat-value">{usedDays.toFixed(0)}</span>
+        </div>
       </div>
     </div>
   );
@@ -419,6 +351,7 @@ const USED_BALANCE_STATUSES = new Set(["APPROVED", "CANCELLATION_PENDING"]);
 
 function EmployeeLeaveTypeRow({
   label,
+  color,
   earnedDays,
   usedDays,
   remainingDays,
@@ -428,6 +361,9 @@ function EmployeeLeaveTypeRow({
   allRequests,
 }: {
   label: string;
+  // The same color this leave type gets in the summary ring above, so a row
+  // can be matched to its arc segment.
+  color: string;
   earnedDays: number;
   usedDays: number;
   remainingDays: number;
@@ -455,7 +391,10 @@ function EmployeeLeaveTypeRow({
 
   return (
     <div className="employee-leave-row-card">
-      <span className="employee-leave-row-label">{label}</span>
+      <span className="employee-leave-row-label">
+        <span className="employee-leave-row-dot" style={{ background: color }} />
+        {label}
+      </span>
       <span className="employee-leave-row-meta">
         Earned: <b>{earnedDays.toFixed(0)}</b>
       </span>
@@ -463,7 +402,7 @@ function EmployeeLeaveTypeRow({
         Used: <b>{usedDays.toFixed(0)}</b>
       </span>
       <div className="employee-leave-row-track">
-        <div className="employee-leave-row-fill" style={{ width: `${pct}%` }} />
+        <div className="employee-leave-row-fill" style={{ width: `${pct}%`, background: color }} />
       </div>
       <div className="employee-leave-row-remaining">
         <strong>{remainingDays.toFixed(0)}</strong> remaining
@@ -604,29 +543,18 @@ function EmployeeListViewButton({
                         earnedDays={totalEarnedDays}
                         usedDays={totalUsedDays}
                         remainingDays={totalRemainingDays}
+                        balances={balances}
                       />
-
-                      <div className="employee-summary-info">
-                        <strong>{employee.firstName} {employee.lastName}</strong>
-                        <span className="employee-summary-badge">
-                          <span className="employee-summary-badge-dot" />
-                          {formatEmploymentStatus(employee.employmentStatus)}
-                        </span>
-                      </div>
-
-                      <div className="employee-summary-total">
-                        <span>Total Balance</span>
-                        <strong>{totalRemainingDays.toFixed(0)}/{totalEarnedDays.toFixed(0)}</strong>
-                      </div>
                     </div>
 
                     <p className="employee-summary-caption">{employee.firstName.toUpperCase()}'S BALANCE</p>
 
                     <div className="employee-leave-row-list">
-                      {balances.map((b) => (
+                      {balances.map((b, index) => (
                         <EmployeeLeaveTypeRow
                           key={b.leaveTypeId}
                           label={b.leaveTypeName}
+                          color={colorForLeaveType(b.leaveTypeName, index)}
                           earnedDays={b.earnedDays}
                           usedDays={b.usedDays}
                           remainingDays={b.remainingDays}
@@ -861,8 +789,12 @@ export function LeavePage({
   // also an Admin (or not a Supervisor at all) gets full, unscoped access.
   const isDepartmentLocked = roles.includes("SUPERVISOR") && !isAdmin;
 
-  const [topTab, setTopTab]                     = useState<"requests" | "history" | "undertime">("requests");
+  const [topTab, setTopTab]                     = useState<"requests" | "history" | "balances" | "undertime">("requests");
   const [statusFilter, setStatusFilter]         = useState("ALL");
+  // Requests tab filters by employee type; History tab still filters by
+  // leave type (typeFilter below) — separate state since the two tabs'
+  // dropdowns are independent, not the same control shown twice.
+  const [requestsClassificationFilter, setRequestsClassificationFilter] = useState("ALL");
   const [typeFilter, setTypeFilter]             = useState("ALL");
   const [historyDepartmentFilter, setHistoryDepartmentFilter] = useState("ALL");
   const [dateFiledFilter, setDateFiledFilter]   = useState<string | null>(null);
@@ -880,15 +812,12 @@ export function LeavePage({
 
   const [summaryYear, setSummaryYear]   = useState(new Date().getFullYear());
 
+  // Employee Type filter for the Leave Balances tab's employee table. "View"
+  // on a row opens EmployeeListViewButton's own modal for that employee's
+  // full balance breakdown — see that component.
   const [monitorClassification, setMonitorClassification] = useState("ALL");
-
-  // Drill-down list (classification card -> table of every employee in it).
-  // "View" on a row opens EmployeeListViewButton's own modal for that
-  // employee's full balance breakdown — see that component.
-  const [showEmployeeList, setShowEmployeeList] = useState(false);
   const [listSearch, setListSearch] = useState("");
   const [listDepartmentFilter, setListDepartmentFilter] = useState("");
-  const [listAttendanceModeFilter, setListAttendanceModeFilter] = useState<"ALL" | "FIELD" | "NON_FIELD">("ALL");
   const [listSort, setListSort] = useState<{ key: "name" | "remaining"; dir: "asc" | "desc" }>({
     key: "name",
     dir: "asc",
@@ -937,14 +866,6 @@ export function LeavePage({
   );
   const undertimeFilings = undertimeCache.data ?? [];
 
-  const summaryCache = useCachedData<LeaveBalanceSummary>(`leave-balance-summary:${summaryYear}`, () =>
-    apiRequest<LeaveBalanceSummary>(`/leave-balances/summary?year=${summaryYear}`),
-  );
-  const summary = summaryCache.data;
-  const loadSummary = () => {
-    summaryCache.refresh().catch(() => undefined);
-  };
-
   // Same "employees" cache key as the Employees/Attendance pages — one
   // fetched copy of GET /employees serves all three.
   const directoryCache = useCachedData<DirectoryEmployee[]>("employees", () =>
@@ -954,12 +875,12 @@ export function LeavePage({
 
   const { departmentNames: listDepartmentOptions } = useActiveDepartments();
 
-  // Per-employee balance rows for the classification drill-down list — keyed
-  // by year + classification so switching either automatically refetches
-  // (new hires/classification changes/balance updates all show up with no
-  // code change). Only fetched while the list is actually open.
+  // Per-employee balance rows for the Leave Balances tab's employee table —
+  // keyed by year + Employee Type so switching either automatically
+  // refetches (new hires/classification changes/balance updates all show up
+  // with no code change). Only fetched while the tab is actually open.
   const classificationBalancesCache = useCachedData<ClassificationBalanceRow[]>(
-    showEmployeeList ? `leave-balances-by-classification:${summaryYear}:${monitorClassification}` : null,
+    topTab === "balances" ? `leave-balances-by-classification:${summaryYear}:${monitorClassification}` : null,
     () =>
       apiRequest<ClassificationBalanceRow[]>(
         `/leave-balances/by-classification?year=${summaryYear}${
@@ -1056,19 +977,20 @@ export function LeavePage({
           r.status === statusFilter ||
           (statusFilter === "PENDING" && r.status === "CANCELLATION_PENDING") ||
           (statusFilter === "REJECTED" && r.status === "NEEDS_REVISION");
-        const matchesType =
-          typeFilter === "ALL" || r.leaveType.id === typeFilter;
+        const matchesClassification =
+          requestsClassificationFilter === "ALL" ||
+          r.employee.employmentStatus === requestsClassificationFilter;
         const matchesSearch =
           !searchTerm.trim() ||
           getEmployeeName(r)
             .toLowerCase()
             .includes(searchTerm.trim().toLowerCase());
-        return matchesStatus && matchesType && matchesSearch;
+        return matchesStatus && matchesClassification && matchesSearch;
       }),
-    [requests, statusFilter, typeFilter, searchTerm]
+    [requests, statusFilter, requestsClassificationFilter, searchTerm]
   );
 
-  useEffect(() => setRequestsPage(1), [statusFilter, typeFilter, searchTerm]);
+  useEffect(() => setRequestsPage(1), [statusFilter, requestsClassificationFilter, searchTerm]);
   const requestsPageCount = Math.max(1, Math.ceil(visibleRequests.length / LEAVE_TABLE_PAGE_SIZE));
   const requestsPageSafe = Math.min(requestsPage, requestsPageCount);
   const pagedRequests = visibleRequests.slice(
@@ -1179,34 +1101,17 @@ export function LeavePage({
   );
 
 
-  const openClassificationList = (employmentStatus: EmploymentStatus) => {
-    setMonitorClassification(employmentStatus);
-    setShowEmployeeList(true);
-    setEmployeeListPage(1);
-  };
-
-  const closeClassificationList = () => {
-    setShowEmployeeList(false);
-    setMonitorClassification("ALL");
-    setListSearch("");
-    setListDepartmentFilter("");
-    setEmployeeListPage(1);
-  };
-
   function toggleListSort(key: "name" | "remaining") {
     setListSort((current) =>
       current.key === key ? { key, dir: current.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" },
     );
   }
 
-  // Rows after department/search filtering but before the Field/Non-Field
-  // tabs are applied — shared by both the final list and the tab counts, so
-  // each tab's count reflects the current department/search filters too.
-  const classificationRowsBeforeModeFilter = useMemo(() => {
+  const classificationListRows = useMemo(() => {
     const directoryById = new Map(directory.map((e) => [e.id, e]));
     const query = listSearch.trim().toLowerCase();
 
-    return classificationBalances
+    const rows = classificationBalances
       .map((row) => {
         const employee = directoryById.get(row.employeeId);
         return employee ? { ...row, employee } : null;
@@ -1221,24 +1126,6 @@ export function LeavePage({
         const name = `${row.employee.firstName} ${row.employee.lastName}`.toLowerCase();
         return name.includes(query) || row.employee.employeeNo.toLowerCase().includes(query);
       });
-  }, [classificationBalances, directory, listDepartmentFilter, listSearch]);
-
-  const employeeListModeCounts = useMemo(
-    () => ({
-      all: classificationRowsBeforeModeFilter.length,
-      field: classificationRowsBeforeModeFilter.filter((row) => row.employee.attendanceMode === "FIELD").length,
-      nonField: classificationRowsBeforeModeFilter.filter((row) => row.employee.attendanceMode !== "FIELD").length,
-    }),
-    [classificationRowsBeforeModeFilter],
-  );
-
-  const classificationListRows = useMemo(() => {
-    const rows = classificationRowsBeforeModeFilter.filter((row) => {
-      if (listAttendanceModeFilter === "ALL") return true;
-      return listAttendanceModeFilter === "FIELD"
-        ? row.employee.attendanceMode === "FIELD"
-        : row.employee.attendanceMode !== "FIELD";
-    });
 
     const dir = listSort.dir === "asc" ? 1 : -1;
     rows.sort((a, b) => {
@@ -1249,9 +1136,12 @@ export function LeavePage({
     });
 
     return rows;
-  }, [classificationRowsBeforeModeFilter, listAttendanceModeFilter, listSort]);
+  }, [classificationBalances, directory, listDepartmentFilter, listSearch, listSort]);
 
-  useEffect(() => setEmployeeListPage(1), [listDepartmentFilter, listSearch, listSort, listAttendanceModeFilter]);
+  useEffect(
+    () => setEmployeeListPage(1),
+    [listDepartmentFilter, listSearch, listSort, monitorClassification],
+  );
   const employeeListPageCount = Math.max(1, Math.ceil(classificationListRows.length / EMPLOYEE_LIST_PAGE_SIZE));
   const employeeListPageSafe = Math.min(employeeListPage, employeeListPageCount);
   const pagedClassificationListRows = classificationListRows.slice(
@@ -1297,7 +1187,7 @@ export function LeavePage({
     })
       .then(() => {
         loadRequests();
-        loadSummary();
+        classificationBalancesCache.refresh().catch(() => undefined);
       })
       .catch((err) => {
         // The optimistic status above was wrong — re-sync with the real
@@ -1341,7 +1231,7 @@ export function LeavePage({
     })
       .then(() => {
         loadRequests();
-        loadSummary();
+        classificationBalancesCache.refresh().catch(() => undefined);
       })
       .catch((err) => {
         loadRequests();
@@ -1377,7 +1267,7 @@ export function LeavePage({
     })
       .then(() => {
         loadRequests();
-        loadSummary();
+        classificationBalancesCache.refresh().catch(() => undefined);
       })
       .catch((err) => {
         loadRequests();
@@ -1424,171 +1314,15 @@ export function LeavePage({
         </div>
       )}
 
-      <section className="leave-summary-card">
-        <div className="leave-summary-header">
-          <div>
-            <h2>Leave Balances Overview</h2>
-          </div>
-          <div className="leave-summary-controls">
-            <YearCalendarPicker value={summaryYear} onChange={setSummaryYear} />
-          </div>
-        </div>
-
-        {showEmployeeList ? (
-          <div className="employee-list-section">
-            <div className="employee-detail-context-row">
-              <button type="button" className="employee-detail-back" onClick={closeClassificationList}>
-                <ArrowLeft size={16} />
-                Back 
-              </button>
-              <p className="employee-detail-context">
-                {monitorClassification === "ALL" ? "All Classifications" : formatEmploymentStatus(monitorClassification as EmploymentStatus)}
-                {" "}· {classificationListRows.length} {classificationListRows.length === 1 ? "employee" : "employees"} · {summaryYear}
-              </p>
-            </div>
-
-            <div className="employee-list-toolbar">
-              <div className="leave-search employee-list-search">
-                <Search size={14} />
-                <input
-                  type="text"
-                  value={listSearch}
-                  onChange={(e) => setListSearch(e.target.value)}
-                  placeholder="Search…"
-                  aria-label="Search employees in the selected classification"
-                />
-              </div>
-
-              <div className="employee-list-toolbar-right">
-                <div className="employee-list-mode-tabs filter-tabs" role="tablist" aria-label="Filter employees by attendance mode">
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={listAttendanceModeFilter === "ALL"}
-                    className={listAttendanceModeFilter === "ALL" ? "active" : ""}
-                    onClick={() => setListAttendanceModeFilter("ALL")}
-                  >
-                    All ({employeeListModeCounts.all})
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={listAttendanceModeFilter === "FIELD"}
-                    className={listAttendanceModeFilter === "FIELD" ? "active" : ""}
-                    onClick={() => setListAttendanceModeFilter("FIELD")}
-                  >
-                    Field ({employeeListModeCounts.field})
-                  </button>
-                  <button
-                    type="button"
-                    role="tab"
-                    aria-selected={listAttendanceModeFilter === "NON_FIELD"}
-                    className={listAttendanceModeFilter === "NON_FIELD" ? "active" : ""}
-                    onClick={() => setListAttendanceModeFilter("NON_FIELD")}
-                  >
-                    Non-Field ({employeeListModeCounts.nonField})
-                  </button>
-                </div>
-
-                <DropdownFilter
-                  className="employee-list-department-filter"
-                  value={listDepartmentFilter}
-                  onChange={setListDepartmentFilter}
-                  options={listDepartmentOptions.map((name) => ({ value: name, label: name }))}
-                  allLabel="All Departments"
-                  allValue=""
-                  menuLabel="Filter by department"
-                  ariaLabel="Filter employees by department"
-                />
-              </div>
-            </div>
-
-            {!classificationBalancesCache.data ? (
-              <p className="leave-summary-empty">Loading employee balances…</p>
-            ) : classificationListRows.length === 0 ? (
-              <p className="leave-summary-empty">No employees match this filter.</p>
-            ) : (
-              <div className="leave-table-card">
-                <div className="leave-table-scroll employee-list-table-scroll">
-                <table className="employee-list-fixed-table">
-                  <colgroup>
-                    <col style={{ width: "26%" }} />
-                    <col style={{ width: "20%" }} />
-                    <col style={{ width: "20%" }} />
-                    <col style={{ width: "18%" }} />
-                    <col style={{ width: "16%" }} />
-                  </colgroup>
-                  <thead>
-                    <tr>
-                      <th>
-                        <button type="button" className="employee-list-sort-th" onClick={() => toggleListSort("name")}>
-                          Name {listSort.key === "name" ? (listSort.dir === "asc" ? "▲" : "▼") : ""}
-                        </button>
-                      </th>
-                      <th>Department</th>
-                      <th>Position</th>
-                      <th>
-                        <button type="button" className="employee-list-sort-th" onClick={() => toggleListSort("remaining")}>
-                          Total Remaining {listSort.key === "remaining" ? (listSort.dir === "asc" ? "▲" : "▼") : ""}
-                        </button>
-                      </th>
-                      <th>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pagedClassificationListRows.map((row) => (
-                      <tr key={row.employeeId}>
-                        <td data-label="Name" title={`${row.employee.firstName} ${row.employee.lastName}`}>{row.employee.firstName} {row.employee.lastName}</td>
-                        <td data-label="Department" title={row.employee.department?.name ?? "Unassigned"}>{row.employee.department?.name ?? "Unassigned"}</td>
-                        <td data-label="Position" title={row.employee.position?.title ?? "—"}>{row.employee.position?.title ?? "—"}</td>
-                        <td data-label="Total Remaining">{row.totalRemainingDays.toFixed(0)}</td>
-                        <td data-label="Action">
-                          <EmployeeListViewButton
-                            employee={row.employee}
-                            totalEarnedDays={row.totalEarnedDays}
-                            totalUsedDays={row.totalUsedDays}
-                            totalRemainingDays={row.totalRemainingDays}
-                            balances={row.balances}
-                            year={summaryYear}
-                            allRequests={requests}
-                          />
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                </div>
-                <LeaveTablePagination page={employeeListPageSafe} pageCount={employeeListPageCount} onChange={setEmployeeListPage} />
-              </div>
-            )}
-          </div>
-        ) : !summary || summary.byEmploymentStatus.length === 0 ? (
-          <p className="leave-summary-empty">No leave balance records yet for {summaryYear}.</p>
-        ) : (
-          <div className="leave-donut-row">
-            {summary.byEmploymentStatus.map((row) => (
-              <div key={row.employmentStatus} className="leave-donut-tile">
-                <LeaveStatusDonut
-                  employmentStatus={row.employmentStatus}
-                  earnedDays={row.earnedDays}
-                  usedDays={row.usedDays}
-                  remainingDays={row.remainingDays}
-                  employeeCount={row.employeeCount}
-                  isActive={monitorClassification === row.employmentStatus}
-                  onSelect={openClassificationList}
-                />
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
       <div className="leave-section-tabs">
         <button className={topTab === "requests" ? "active" : ""} onClick={() => setTopTab("requests")}>
           Leave Requests
         </button>
         <button className={topTab === "history" ? "active" : ""} onClick={() => setTopTab("history")}>
           Leave History
+        </button>
+        <button className={topTab === "balances" ? "active" : ""} onClick={() => setTopTab("balances")}>
+          Leave Balances
         </button>
         <button className={topTab === "undertime" ? "active" : ""} onClick={() => setTopTab("undertime")}>
           Undertime
@@ -1614,12 +1348,12 @@ export function LeavePage({
             <div className="leave-table-toolbar">
               <DropdownFilter
                 className="leave-select"
-                value={typeFilter}
-                onChange={setTypeFilter}
-                options={leaveTypes.map((t) => ({ value: t.id, label: t.name }))}
-                allLabel="All Leave Types"
-                menuLabel="Filter by leave type"
-                ariaLabel="Filter by leave type"
+                value={requestsClassificationFilter}
+                onChange={setRequestsClassificationFilter}
+                options={SELECTABLE_EMPLOYMENT_STATUS_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+                allLabel="All Employee Types"
+                menuLabel="Filter by employee type"
+                ariaLabel="Filter by employee type"
               />
               <div className="leave-search">
                 <Search size={14} />
@@ -1636,13 +1370,13 @@ export function LeavePage({
 
           {/* ── Table ── */}
           <section className="table-card leave-table-card">
-            <div className="leave-table-scroll">
+            <div className="leave-table-scroll leave-table-scroll-fixed">
             <table>
               <thead>
                 <tr>
                   <th>EMPLOYEE</th>
                   <th>DEPARTMENT</th>
-                  <th>CLASSIFICATION</th>
+                  <th>EMPLOYEE TYPE</th>
                   <th>LEAVE TYPE</th>
                   <th>DATES</th>
                   <th>DAYS</th>
@@ -1664,7 +1398,7 @@ export function LeavePage({
                     <tr key={r.id}>
                       <td data-label="Employee">{getEmployeeName(r)}</td>
                       <td data-label="Department">{r.employee.department?.name ?? "Unassigned"}</td>
-                      <td data-label="Classification">{formatEmploymentStatus(r.employee.employmentStatus)}</td>
+                      <td data-label="Employee Type">{formatEmploymentStatus(r.employee.employmentStatus)}</td>
                       <td data-label="Leave Type">{r.leaveType.name}</td>
                       <td data-label="Dates">
                         {formatDate(r.startDate)} – {formatDate(r.endDate)}
@@ -1735,13 +1469,13 @@ export function LeavePage({
 
           {/* ── History table ── */}
           <section className="table-card leave-table-card">
-            <div className="leave-table-scroll">
+            <div className="leave-table-scroll leave-table-scroll-fixed">
             <table>
               <thead>
                 <tr>
                   <th>EMPLOYEE</th>
                   <th>DEPARTMENT</th>
-                  <th>CLASSIFICATION</th>
+                  <th>EMPLOYEE TYPE</th>
                   <th>LEAVE TYPE</th>
                   <th>DATE FILED</th>
                   <th>DAYS</th>
@@ -1763,7 +1497,7 @@ export function LeavePage({
                     <tr key={r.id}>
                       <td data-label="Employee">{getEmployeeName(r)}</td>
                       <td data-label="Department">{r.employee.department?.name ?? "Unassigned"}</td>
-                      <td data-label="Classification">{formatEmploymentStatus(r.employee.employmentStatus)}</td>
+                      <td data-label="Employee Type">{formatEmploymentStatus(r.employee.employmentStatus)}</td>
                       <td data-label="Leave Type">{r.leaveType.name}</td>
                       <td data-label="Date Filed">{formatDate(r.createdAt)}</td>
                       <td data-label="Days">{r.totalDays}</td>
@@ -1787,6 +1521,108 @@ export function LeavePage({
             <LeaveTablePagination page={historyPageSafe} pageCount={historyPageCount} onChange={setHistoryPage} />
           </section>
         </>
+      )}
+
+      {topTab === "balances" && (
+        <div className="employee-list-section">
+          <div className="employee-list-toolbar">
+            <div className="leave-search employee-list-search">
+              <Search size={14} />
+              <input
+                type="text"
+                value={listSearch}
+                onChange={(e) => setListSearch(e.target.value)}
+                placeholder="Search…"
+                aria-label="Search employees"
+              />
+            </div>
+
+            <div className="employee-list-toolbar-right">
+              <DropdownFilter
+                className="employee-list-type-filter"
+                value={monitorClassification}
+                onChange={setMonitorClassification}
+                options={SELECTABLE_EMPLOYMENT_STATUS_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+                allLabel="All Employee Types"
+                allValue="ALL"
+                menuLabel="Filter by employee type"
+                ariaLabel="Filter employees by employee type"
+              />
+
+              <DropdownFilter
+                className="employee-list-department-filter"
+                value={listDepartmentFilter}
+                onChange={setListDepartmentFilter}
+                options={listDepartmentOptions.map((name) => ({ value: name, label: name }))}
+                allLabel="All Departments"
+                allValue=""
+                menuLabel="Filter by department"
+                ariaLabel="Filter employees by department"
+              />
+
+              <YearCalendarPicker value={summaryYear} onChange={setSummaryYear} />
+            </div>
+          </div>
+
+          {!classificationBalancesCache.data ? (
+            <p className="leave-summary-empty">Loading employee balances…</p>
+          ) : classificationListRows.length === 0 ? (
+            <p className="leave-summary-empty">No employees match this filter.</p>
+          ) : (
+            <div className="leave-table-card">
+              <div className="leave-table-scroll employee-list-table-scroll">
+              <table className="employee-list-fixed-table">
+                <colgroup>
+                  <col style={{ width: "26%" }} />
+                  <col style={{ width: "20%" }} />
+                  <col style={{ width: "20%" }} />
+                  <col style={{ width: "18%" }} />
+                  <col style={{ width: "16%" }} />
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th>
+                      <button type="button" className="employee-list-sort-th" onClick={() => toggleListSort("name")}>
+                        NAME {listSort.key === "name" ? (listSort.dir === "asc" ? "▲" : "▼") : ""}
+                      </button>
+                    </th>
+                    <th>DEPARTMENT</th>
+                    <th>EMPLOYEE TYPE</th>
+                    <th>
+                      <button type="button" className="employee-list-sort-th" onClick={() => toggleListSort("remaining")}>
+                        TOTAL REMAINING {listSort.key === "remaining" ? (listSort.dir === "asc" ? "▲" : "▼") : ""}
+                      </button>
+                    </th>
+                    <th>ACTION</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pagedClassificationListRows.map((row) => (
+                    <tr key={row.employeeId}>
+                      <td data-label="Name" title={`${row.employee.firstName} ${row.employee.lastName}`}>{row.employee.firstName} {row.employee.lastName}</td>
+                      <td data-label="Department" title={row.employee.department?.name ?? "Unassigned"}>{row.employee.department?.name ?? "Unassigned"}</td>
+                      <td data-label="Employee Type">{formatEmploymentStatus(row.employee.employmentStatus)}</td>
+                      <td data-label="Total Remaining">{row.totalRemainingDays.toFixed(0)}</td>
+                      <td data-label="Action">
+                        <EmployeeListViewButton
+                          employee={row.employee}
+                          totalEarnedDays={row.totalEarnedDays}
+                          totalUsedDays={row.totalUsedDays}
+                          totalRemainingDays={row.totalRemainingDays}
+                          balances={row.balances}
+                          year={summaryYear}
+                          allRequests={requests}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              </div>
+              <LeaveTablePagination page={employeeListPageSafe} pageCount={employeeListPageCount} onChange={setEmployeeListPage} />
+            </div>
+          )}
+        </div>
       )}
 
       {topTab === "undertime" && (
@@ -1892,7 +1728,7 @@ export function LeavePage({
             <div className="leave-detail-grid">
               <div><span>Employee</span><strong>{getEmployeeName(reviewRequest)}</strong></div>
               <div><span>Department</span><strong>{reviewRequest.employee.department?.name ?? "Unassigned"}</strong></div>
-              <div><span>Classification</span><strong>{formatEmploymentStatus(reviewRequest.employee.employmentStatus)}</strong></div>
+              <div><span>Employee Type</span><strong>{formatEmploymentStatus(reviewRequest.employee.employmentStatus)}</strong></div>
               <div><span>Leave Type</span><strong>{reviewRequest.leaveType.name}</strong></div>
               <div><span>Date Filed</span><strong>{formatDate(reviewRequest.createdAt)}</strong></div>
               <div>

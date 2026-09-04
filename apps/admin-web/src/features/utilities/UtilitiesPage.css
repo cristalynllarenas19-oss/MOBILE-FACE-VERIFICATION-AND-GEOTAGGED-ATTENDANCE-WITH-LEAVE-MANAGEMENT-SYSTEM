@@ -4,6 +4,32 @@
   gap: 6px;
 }
 
+.announcement-archive-tabs {
+  margin-bottom: 12px;
+}
+
+.announcement-archive-tabs button {
+  border: 1px solid transparent;
+  background: #ffffff;
+  color: #41536b;
+  padding: 9px 15px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.announcement-archive-tabs button:hover {
+  border-color: #dbe5ef;
+}
+
+.announcement-archive-tabs button.active {
+  background: #dbeafe;
+  border-color: #93c5fd;
+  color: #1a3a5c;
+}
+
 /* ── Pagination ── */
 
 .utilities-pagination {

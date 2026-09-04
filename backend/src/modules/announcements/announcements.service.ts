@@ -199,6 +199,16 @@ export class AnnouncementsService {
     return { success: true };
   }
 
+  async archive(id: string) {
+    await this.prisma.announcement.update({ where: { id }, data: { archivedAt: new Date() } });
+    return { success: true };
+  }
+
+  async unarchive(id: string) {
+    await this.prisma.announcement.update({ where: { id }, data: { archivedAt: null } });
+    return { success: true };
+  }
+
   // Runs every minute, publishing whatever SCHEDULED announcements are due.
   // Sequential (not Promise.all) so one bad recipient-resolution doesn't
   // interleave partial notifyUsers calls with the next announcement.
@@ -216,8 +226,9 @@ export class AnnouncementsService {
     }
   }
 
-  async findAll() {
+  async findAll(archived = false) {
     const announcements = await this.prisma.announcement.findMany({
+      where: archived ? { archivedAt: { not: null } } : { archivedAt: null },
       orderBy: { createdAt: "desc" },
       include: { createdBy: { include: { employee: true } } },
     });
