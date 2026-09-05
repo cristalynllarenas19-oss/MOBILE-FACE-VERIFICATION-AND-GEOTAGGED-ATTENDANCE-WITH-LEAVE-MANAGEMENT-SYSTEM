@@ -475,7 +475,7 @@
      page with fewer than SCHEDULES_PAGE_SIZE schedules still reserves the
      full area and the pagination bar stays anchored at the same position
      underneath it. */
-  --schedules-row-h: 60px;
+  --schedules-row-h: 48px;
   /* 1 header row + SCHEDULES_PAGE_SIZE (6) body rows */
   height: calc(var(--schedules-row-h) * 7);
   max-height: none;

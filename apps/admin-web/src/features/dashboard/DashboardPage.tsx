@@ -37,9 +37,7 @@ const WEEKDAY_FULL_NAME: Record<string, string> = {
   Fri: "Friday", Sat: "Saturday", Sun: "Sunday",
 };
 
-// Rounds the Absence Trends chart's max bar value up to a "nice" step (1/2/5/10
-// x a power of ten) so the y-axis reads 0/10/20/30/40 rather than an arbitrary
-// number — same rounding rule chart libraries like d3/Recharts use for ticks.
+
 function niceAxisTicks(maxValue: number): number[] {
   const target = Math.max(maxValue, 1) / 4;
   const magnitude = Math.pow(10, Math.floor(Math.log10(target)));
@@ -66,8 +64,6 @@ type CalendarDay = {
   absent: number;
   onLeave: number;
   officialBusiness: number;
-  // Sunday, a company-wide day off — lets the chart/detail panel distinguish
-  // it from a day that simply has no attendance data yet.
   isDayOff: boolean;
   departments: DeptAttendanceRow[];
 };
@@ -284,19 +280,14 @@ export function DashboardPage({
 
   const onLeaveToday = summary.departmentAttendance.today.reduce((sum, row) => sum + row.onLeave, 0);
 
-  // Sunday is a company-wide day off, so a 0% rate would misleadingly read
-  // as a bad day rather than an expected non-working day.
+  
   const todayAttendanceRateLabel = new Date().getDay() === 0
     ? "Day Off"
     : `${summary.stats.totalEmployees > 0
         ? Math.round(((summary.stats.presentToday + summary.stats.lateToday) / summary.stats.totalEmployees) * 100)
         : 0}%`;
 
-  // Sourced from GET /departments (all active departments), not from the
-  // calendar summary's per-day rows — those only include departments that
-  // had employees/attendance on that day, so an empty department would
-  // otherwise never appear as a filter option. filteredDays below already
-  // defaults a department with no matching row to all-zeros.
+
   const { departmentNames: departmentOptionNames } = useActiveDepartments();
   const departmentOptions = useMemo(
     () => departmentOptionNames.map((name) => ({ value: name, label: name })),
@@ -356,27 +347,11 @@ export function DashboardPage({
     };
   }, [selectedDay, departmentFilter]);
 
-  // Absence Trends: company-wide (not filtered by the Monthly Attendance
-  // department dropdown — that filter already applies to the calendar and
-  // Attendance Details, so applying it here too would just be the same
-  // information restated) weekday aggregate over whatever month/year is
-  // currently selected via the Monthly Attendance picker above — no
-  // separate month control of its own. Every occurrence of a given weekday
-  // in the visible month is summed (all Mondays together, etc.), so the
-  // chart reads as "which weekday tends to be worst," not a single day.
-  // The bars themselves follow the same departmentFilter as the Monthly
-  // Attendance dropdown (and Attendance Details, which already reacts to
-  // it) — picking a department there narrows this chart too. "Most Affected
-  // Department" stays company-wide regardless of that filter: once you've
-  // already drilled into one department, "which department is worst" isn't
-  // a question the chart can answer any more, so it keeps the full picture.
+  
   const trendChart = useMemo(() => {
     const weekdayTotals: Record<string, number> = Object.fromEntries(WEEKDAY_ORDER.map((d) => [d, 0]));
     const departmentTotals = new Map<string, number>();
-    // Per-department, per-weekday — feeds the "Highest Absence Day" card's
-    // click-to-drill-down (which department is worst on the clicked
-    // weekday), independent of departmentTotals above (that one stays
-    // company-wide for the "Department with Most Absences" card).
+    
     const departmentWeekdayTotals = new Map<string, Record<string, number>>();
     for (const day of summary.calendar.days) {
       const weekday = WEEKDAY_ORDER[(new Date(day.date).getDay() + 6) % 7];
@@ -413,15 +388,11 @@ export function DashboardPage({
     };
   }, [summary.calendar.days, departmentFilter]);
 
-  // Which weekday bar is currently selected/highlighted — defaults to the
-  // overall peak day until the admin clicks a different bar.
+  
   const [selectedTrendDay, setSelectedTrendDay] = useState<string | null>(null);
   const activeTrendDay = selectedTrendDay ?? trendChart.peakDay;
 
-  // The department with the most absences on just the active weekday
-  // (drives the "Highest Absence Day" card's content when a bar is clicked)
-  // — distinct from trendChart.topDepartment, which is always company-wide
-  // for the whole period regardless of which day is selected.
+  
   const topDepartmentForActiveDay = useMemo(() => {
     if (!activeTrendDay) return null;
     let top: { department: string; total: number } | null = null;
@@ -519,7 +490,7 @@ export function DashboardPage({
 
         <Card className="donut-card">
           <div className="card-heading calendar-heading-row">
-            <h3>Today's Summary</h3>
+            <h3>Daily Summary</h3>
             <span className="cal-hint cal-hint-rate">{todayAttendanceRateLabel}</span>
           </div>
           <div className="donut-summary-row">

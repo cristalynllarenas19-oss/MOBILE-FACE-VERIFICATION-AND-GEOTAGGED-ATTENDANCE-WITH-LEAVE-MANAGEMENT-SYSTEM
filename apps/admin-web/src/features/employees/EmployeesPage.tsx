@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } 
 import { AlertTriangle, Archive, ChevronsUpDown, CheckCircle2, Eye, Pencil, Plus, ScanFace, Search, UserCheck, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
+import { FormSelectDropdown } from "../../components/ui/FormSelectDropdown";
 import { EvaluationViewModal } from "../evaluations/EvaluationViewModal";
 import { apiRequest } from "../../lib/api";
 import { CACHE_KEYS, revalidateCached, useCachedData } from "../../lib/dataCache";
@@ -53,7 +54,7 @@ type Employee = {
   archiveReason?: string;
   archiveDate?: string;
   user?: { email: string } | null;
-  department: { name: string };
+  department: { name: string; attendanceMode: string };
   position: { title: string };
   supervisor?: { id: string; firstName: string; lastName: string } | null;
   faceConsentAcceptedAt?: string | null;
@@ -366,12 +367,13 @@ function AddEmployeeModal({
             {lockedDepartmentName ? (
               <input type="text" value={lockedDepartmentName} disabled readOnly />
             ) : (
-              <select value={form.department} onChange={updateField("department")} required>
-                <option value="" disabled>Select a department…</option>
-                {departments.map((department) => (
-                  <option key={department.name} value={department.name}>{department.name}</option>
-                ))}
-              </select>
+              <FormSelectDropdown
+                value={form.department}
+                onChange={(value) => setForm((current) => ({ ...current, department: value }))}
+                options={departments.map((department) => ({ value: department.name, label: department.name }))}
+                placeholder="Select a department…"
+                ariaLabel="Department"
+              />
             )}
           </label>
           {form.department.trim() && (
@@ -621,7 +623,7 @@ function EditEmployeeModal({
       firstName: form.firstName.trim(),
       lastName: form.lastName.trim(),
       user: employee.user ? { ...employee.user, email: form.email.trim() } : employee.user,
-      department: { name: form.department.trim() },
+      department: { name: form.department.trim(), attendanceMode: departmentMode ?? employee.department.attendanceMode },
       position: { title: form.position.trim() },
       employmentStatus: form.employmentStatus,
       attendanceMode: form.attendanceMode,
@@ -729,21 +731,19 @@ function EditEmployeeModal({
             {lockedDepartmentName ? (
               <input type="text" value={lockedDepartmentName} disabled readOnly />
             ) : (
-              <select
+              <FormSelectDropdown
                 value={form.department}
-                onChange={(event) =>
-                  setForm((current) => ({ ...current, department: event.target.value, supervisorId: "" }))
-                }
-                required
-              >
-                {/* Kept even if since archived so the currently-assigned department still displays correctly. */}
-                {!departments.some((department) => department.name === employee.department.name) && (
-                  <option value={employee.department.name}>{employee.department.name} (archived)</option>
-                )}
-                {departments.map((department) => (
-                  <option key={department.name} value={department.name}>{department.name}</option>
-                ))}
-              </select>
+                onChange={(value) => setForm((current) => ({ ...current, department: value, supervisorId: "" }))}
+                options={[
+                  // Kept even if since archived so the currently-assigned department still displays correctly.
+                  ...(!departments.some((department) => department.name === employee.department.name)
+                    ? [{ value: employee.department.name, label: `${employee.department.name} (archived)` }]
+                    : []),
+                  ...departments.map((department) => ({ value: department.name, label: department.name })),
+                ]}
+                placeholder="Select a department…"
+                ariaLabel="Department"
+              />
             )}
           </label>
           <label>
@@ -914,8 +914,29 @@ function ViewEmployeeModal({
   canViewPerformance: boolean;
   onViewPerformance: () => void;
 }) {
+  // Same condition the "Register Face" button below is hidden for — without
+  // this banner, the button just silently isn't there with no indication of
+  // why (see FaceRegistrationPage's own "Employee Consent Required" modal,
+  // which explains the same wait to an admin already on that page).
+  const consentPending = Boolean(
+    employee.requiresFaceConsent && !employee.faceConsentAcceptedAt && employee.employmentStatus !== "SEPARATED",
+  );
+
   return (
     <EmployeeModal title="Employee Details" description={getEmployeeName(employee)} onClose={onClose}>
+      {consentPending && (
+        <div className="employee-consent-banner" role="alert">
+          <AlertTriangle size={22} className="employee-consent-banner-icon" />
+          <div>
+            <strong>Face consent pending</strong>
+            <p>
+              This employee hasn't accepted the face-data consent on the mobile app yet. Face registration is
+              unavailable until they log in and accept it.
+            </p>
+          </div>
+        </div>
+      )}
+
       {isDueForRegularizationReview(employee) && (
         <div className="employee-regularization-banner" role="alert">
           <UserCheck size={22} className="employee-regularization-banner-icon" />
@@ -1175,7 +1196,7 @@ export function EmployeesPage({
   const lockedDepartmentName = isDepartmentLocked ? user?.department : undefined;
 
   const [departmentFilter, setDepartmentFilter] = useState("ALL");
-  const [modeFilter, setModeFilter] = useState<"ALL" | "FIELD" | "NON_FIELD">("ALL");
+  const [modeFilter, setModeFilter] = useState<"ALL" | "FIELD" | "NON_FIELD" | "BOTH">("ALL");
   const [nameSort, setNameSort] = useState<"asc" | "desc" | null>(null);
   const [showArchivedOnly, setShowArchivedOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -1204,7 +1225,7 @@ export function EmployeesPage({
   const registeredFaceEmployeeIds = new Set((faceProfilesCache.data ?? []).map((p) => p.employeeId));
 
   const { departments: activeDepartments, departmentNames: departments } = useActiveDepartments();
-  const { forEmployees: attendanceModeOptions } = useAttendanceModeOptions();
+  const { forEmployees: attendanceModeOptions, all: allAttendanceModeOptions } = useAttendanceModeOptions();
 
   useEffect(() => {
     if (!notification) return;
@@ -1226,8 +1247,9 @@ export function EmployeesPage({
 
   const visibleEmployees = employees.filter((employee) => {
     if (departmentFilter !== "ALL" && employee.department.name !== departmentFilter) return false;
-    if (modeFilter === "FIELD" && employee.attendanceMode !== "FIELD") return false;
-    if (modeFilter === "NON_FIELD" && employee.attendanceMode === "FIELD") return false;
+    if (modeFilter === "FIELD" && (employee.department.attendanceMode === "BOTH" || employee.attendanceMode !== "FIELD")) return false;
+    if (modeFilter === "NON_FIELD" && (employee.department.attendanceMode === "BOTH" || employee.attendanceMode === "FIELD")) return false;
+    if (modeFilter === "BOTH" && employee.department.attendanceMode !== "BOTH") return false;
     if (showArchivedOnly) {
       if (employee.employmentStatus !== "SEPARATED") return false;
     } else {
@@ -1327,10 +1349,11 @@ export function EmployeesPage({
           <DropdownFilter
             className="department-select"
             value={modeFilter}
-            onChange={(value) => setModeFilter(value as "ALL" | "FIELD" | "NON_FIELD")}
+            onChange={(value) => setModeFilter(value as "ALL" | "FIELD" | "NON_FIELD" | "BOTH")}
             options={[
               { value: "NON_FIELD", label: "Non-field" },
               { value: "FIELD", label: "Field" },
+              { value: "BOTH", label: "Both" },
             ]}
             allLabel="Non-field & Field"
             menuLabel="Filter by attendance mode"
@@ -1412,7 +1435,7 @@ export function EmployeesPage({
               <th>EMAIL</th>
               <th>DEPARTMENT</th>
               <th>POSITION</th>
-              <th>STATUS</th>
+              <th>EMPLOYEE TYPE</th>
               <th>MODE</th>
               <th>ACTION</th>
             </tr>
@@ -1431,14 +1454,14 @@ export function EmployeesPage({
                   <td data-label="Email">{employee.user?.email ?? "Unassigned"}</td>
                   <td data-label="Department">{employee.department.name}</td>
                   <td data-label="Position">{employee.position.title}</td>
-                  <td data-label="Status" className="employee-status-cell employee-employment-status-cell">
-                    <Badge tone={getStatusTone(employee.employmentStatus)}>
-                      {getStatusLabel(employee)}
-                    </Badge>
+                  <td data-label="Employee Type" className="employee-type-cell">
+                    {getStatusLabel(employee)}
                   </td>
                   <td data-label="Mode" className="employee-status-cell">
                     <Badge tone="neutral">
-                      {getAttendanceModeLabel(employee.attendanceMode, attendanceModeOptions)}
+                      {employee.department.attendanceMode === "BOTH"
+                        ? getAttendanceModeLabel("BOTH", allAttendanceModeOptions)
+                        : getAttendanceModeLabel(employee.attendanceMode, attendanceModeOptions)}
                     </Badge>
                   </td>
                   <td data-label="Action">

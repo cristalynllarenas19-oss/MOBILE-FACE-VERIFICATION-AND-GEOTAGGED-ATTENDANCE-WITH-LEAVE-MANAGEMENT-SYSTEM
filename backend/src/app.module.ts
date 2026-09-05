@@ -18,6 +18,7 @@ import { GeolocationModule } from "./modules/geolocation/geolocation.module";
 import { LeaveModule } from "./modules/leave/leave.module";
 import { LeaveTypesModule } from "./modules/leave/leave-types.module";
 import { LeaveBalancesModule } from "./modules/leave/leave-balances.module";
+import { LeaveAccrualModule } from "./modules/leave/leave-accrual.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { UsersModule } from "./modules/users/users.module";
@@ -48,6 +49,7 @@ import { HealthController } from "./health.controller";
     LeaveModule,
     LeaveTypesModule,
     LeaveBalancesModule,
+    LeaveAccrualModule,
     UndertimeModule,
     NotificationsModule,
     SchedulesModule,

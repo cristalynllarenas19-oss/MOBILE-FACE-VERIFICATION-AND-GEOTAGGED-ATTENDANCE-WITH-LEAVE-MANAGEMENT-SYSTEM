@@ -261,6 +261,7 @@ async function main() {
       defaultDays: 15,
       requiresDocument: false,
       isAutoCredited: true,
+      isSeasonalAccrualEligible: true,
       applicableStatuses: [...allClassifications],
     },
   });

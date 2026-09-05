@@ -1,0 +1,103 @@
+.form-select-dropdown {
+  position: relative;
+  width: 100%;
+}
+
+/* Matches .employee-form select exactly (border, height, radius, padding,
+   font) so swapping the native <select> for this component changes no
+   visible styling — only the dropdown's own positioning behavior. */
+.form-select-dropdown-trigger {
+  width: 100%;
+  height: 38px;
+  border: 1px solid #dbe5ef;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #0f172a;
+  padding: 0 11px;
+  outline: none;
+  font-size: 13px;
+  font-family: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.form-select-dropdown-trigger:focus {
+  border-color: #1a3a5c;
+  box-shadow: 0 0 0 3px rgba(26, 58, 92, 0.1);
+}
+
+.form-select-dropdown-trigger:disabled {
+  background: #f4f7fb;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.form-select-dropdown-trigger span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.form-select-dropdown-placeholder {
+  color: #94a3b8;
+}
+
+.form-select-dropdown-chevron {
+  color: #94a3b8;
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.form-select-dropdown-chevron.open {
+  transform: rotate(180deg);
+}
+
+/* A plain descendant of the field (not portaled) so it stays confined to
+   whichever scrollable ancestor the field itself sits in (the modal's
+   .employee-form) — opens downward only, and if the form is scrolled such
+   that there isn't room below, the menu is clipped by that same scroll
+   container instead of flipping upward over the fields above it. The
+   z-index only needs to clear this form's own fields/labels, not compete
+   with anything portaled to <body>. */
+.form-select-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background: #ffffff;
+  border: 1px solid #dbe5ef;
+  border-radius: 8px;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 6px;
+}
+
+.form-select-dropdown-option {
+  display: block;
+  width: 100%;
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  color: #1e293b;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  padding: 8px 10px;
+}
+
+.form-select-dropdown-option:hover {
+  background: #eef4fb;
+}
+
+.form-select-dropdown-option.active {
+  background: #1a3a5c;
+  color: #ffffff;
+}

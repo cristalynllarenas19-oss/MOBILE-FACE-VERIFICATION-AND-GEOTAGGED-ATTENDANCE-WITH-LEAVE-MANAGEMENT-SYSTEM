@@ -6,6 +6,7 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
 import { EvaluationsService } from "../evaluations/evaluations.service";
 import { GeolocationService } from "../geolocation/geolocation.service";
+import { LeaveAccrualService } from "../leave/leave-accrual.service";
 import { MailService } from "../mail/mail.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { CreateEmployeeDto, CreateEmployeeSex, UpdateEmployeeDto } from "./dto/create-employee.dto";
@@ -29,6 +30,7 @@ export class EmployeesService {
     private readonly geolocation: GeolocationService,
     private readonly notifications: NotificationsService,
     private readonly evaluations: EvaluationsService,
+    private readonly leaveAccrual: LeaveAccrualService,
   ) {}
 
   
@@ -284,10 +286,15 @@ export class EmployeesService {
         positionId: position.id,
         hireDate,
         employmentStatus: dto.employmentStatus,
+        // Hired directly as Permanent Seasonal (no probationary stretch to
+        // skip) starts the accrual clock at hireDate itself — the usual case
+        // (converted later from PROBATIONARY_SEASONAL) sets this in update()
+        // instead, anchored to the conversion date.
+        ...(dto.employmentStatus === "PERMANENT_SEASONAL" ? { permanentSeasonalSince: hireDate } : {}),
         attendanceMode,
         sex: dto.sex,
         soloParentStatus: dto.soloParentStatus ?? "NOT_APPLICABLE",
-       
+
         requiresFaceConsent: true,
         ...(resolvedSupervisorId !== undefined ? { supervisorId: resolvedSupervisorId } : {}),
       },
@@ -302,6 +309,10 @@ export class EmployeesService {
     await this.geolocation.assignDefaultOfficeLocation(created.id, created.departmentId, context);
 
     await this.assignGenderLeaveType(created.id, dto.sex);
+
+    if (created.employmentStatus === "PERMANENT_SEASONAL") {
+      await this.leaveAccrual.startAccrualForNewlyPermanentSeasonal(created.id);
+    }
 
     // Delivery failure shouldn't roll back an otherwise-successful hire —
     // the account and temporary password already exist either way.
@@ -464,6 +475,13 @@ export class EmployeesService {
         ...(position ? { positionId: position.id } : {}),
         ...(dto.hireDate ? { hireDate: new Date(dto.hireDate) } : {}),
         ...(dto.employmentStatus ? { employmentStatus: dto.employmentStatus } : {}),
+        // Anchors LeaveAccrualService's monthly qualifying-period grid to the
+        // conversion moment itself, never the original hireDate — the 6-month
+        // PROBATIONARY_SEASONAL stretch never earns anything (see
+        // checkProbationaryMilestones above), so the clock can't start until now.
+        ...(dto.employmentStatus === "PERMANENT_SEASONAL" && employee.employmentStatus !== "PERMANENT_SEASONAL"
+          ? { permanentSeasonalSince: new Date() }
+          : {}),
         ...(resolvedAttendanceMode !== undefined ? { attendanceMode: resolvedAttendanceMode } : {}),
         ...(dto.soloParentStatus ? { soloParentStatus: dto.soloParentStatus } : {}),
         ...(resolvedSupervisorId !== undefined ? { supervisorId: resolvedSupervisorId } : {}),
@@ -480,6 +498,10 @@ export class EmployeesService {
   
     if (dto.employmentStatus && dto.employmentStatus !== employee.employmentStatus) {
       await this.evaluations.notifyOutcome(updated);
+
+      if (dto.employmentStatus === "PERMANENT_SEASONAL") {
+        await this.leaveAccrual.startAccrualForNewlyPermanentSeasonal(id);
+      }
     }
 
   

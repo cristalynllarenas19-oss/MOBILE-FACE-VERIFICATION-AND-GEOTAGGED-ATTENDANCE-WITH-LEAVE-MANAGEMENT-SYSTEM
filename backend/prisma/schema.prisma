@@ -84,6 +84,11 @@ enum AttendanceStatus {
   FLAGGED
 }
 
+enum LeaveAccrualOutcome {
+  PERFECT
+  VIOLATED
+}
+
 enum AttendanceLogType {
   TIME_IN
   TIME_OUT
@@ -330,6 +335,13 @@ model Employee {
   departmentId         String                 @map("department_id")
   positionId           String                 @map("position_id")
   employmentStatus     EmploymentStatus       @default(REGULAR) @map("employment_status")
+  // Set once, the moment an Admin manually converts this employee from
+  // PROBATIONARY_SEASONAL to PERMANENT_SEASONAL (see EmployeesService.update)
+  // — anchors LeaveAccrualService's monthly qualifying-period grid. Never
+  // backdated to hireDate: the 6-month probationary stretch itself never
+  // earns anything (see checkProbationaryMilestones), so the accrual clock
+  // must start at conversion, not at original hire.
+  permanentSeasonalSince DateTime?            @map("permanent_seasonal_since")
   attendanceMode       String                 @default("FIXED") @map("attendance_mode")
   attendanceModeRef    AttendanceMode         @relation("EmployeeAttendanceMode", fields: [attendanceMode], references: [code])
   hireDate             DateTime               @map("hire_date")
@@ -386,6 +398,7 @@ model Employee {
   workLocations        WorkLocationEmployee[]
   evaluationsReceived  ProbationaryEvaluation[] @relation("EvaluatedEmployee")
   evaluationsAuthored  ProbationaryEvaluation[] @relation("EvaluatingSupervisor")
+  leaveAccrualRecords  LeaveAccrualRecord[]
 
   @@index([departmentId])
   @@index([supervisorId])
@@ -574,6 +587,13 @@ model LeaveType {
   cancellationAllowed          Boolean            @default(false) @map("cancellation_allowed")
   cancellationCutoffValue      Int?               @map("cancellation_cutoff_value")
   cancellationCutoffUnit       String?            @map("cancellation_cutoff_unit")
+  // True only for Sick Leave and Vacation Leave — the two types
+  // LeaveAccrualService credits +1.25 days each for a Permanent Seasonal
+  // employee's completed perfect-attendance month. Independent of
+  // isAutoCredited (that flat yearly grant is REGULAR-only); a seasonal
+  // employee's balance for these two types starts at 0 and is built up
+  // entirely through this flag instead.
+  isSeasonalAccrualEligible    Boolean            @default(false) @map("is_seasonal_accrual_eligible")
   createdAt                   DateTime           @default(now()) @map("created_at")
   updatedAt                   DateTime           @updatedAt @map("updated_at")
   createdBy                   String?            @map("created_by")
@@ -653,6 +673,31 @@ model LeaveBalance {
 
   @@unique([employeeId, leaveTypeId, year])
   @@map("leave_balances")
+}
+
+// One row per evaluated qualifying month for a Permanent Seasonal employee —
+// written by LeaveAccrualService whether that month was PERFECT (credited)
+// or VIOLATED (an ABSENT day broke the streak, 0 credit), so HR has a full
+// audit trail of every attempt, not just the successful ones. cycleStart is
+// unique per employee so the same qualifying period can never be double-
+// processed even if the daily cron reruns or catches up several days at
+// once. cycleEnd is either the day the full month completed (PERFECT) or
+// the date of the disqualifying absence itself (VIOLATED) — the next
+// cycle's cycleStart always picks up the day right after cycleEnd.
+model LeaveAccrualRecord {
+  id                  String              @id @default(uuid())
+  employeeId          String              @map("employee_id")
+  cycleStart          DateTime            @map("cycle_start")
+  cycleEnd            DateTime            @map("cycle_end")
+  outcome             LeaveAccrualOutcome
+  sickLeaveEarned     Decimal             @default(0) @map("sick_leave_earned")
+  vacationLeaveEarned Decimal             @default(0) @map("vacation_leave_earned")
+  creditedAt          DateTime            @default(now()) @map("credited_at")
+  employee            Employee            @relation(fields: [employeeId], references: [id])
+
+  @@unique([employeeId, cycleStart])
+  @@index([employeeId])
+  @@map("leave_accrual_records")
 }
 
 // A self-filed notice of intent to render undertime against a specific late

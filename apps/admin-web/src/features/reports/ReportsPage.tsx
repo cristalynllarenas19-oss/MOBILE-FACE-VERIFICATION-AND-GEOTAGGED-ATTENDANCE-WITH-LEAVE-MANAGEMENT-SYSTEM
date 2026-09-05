@@ -143,11 +143,26 @@ function statusTone(status: string) {
   return "warning";
 }
 
+// A plain "YYYY-MM-DD" filter value must be parsed as LOCAL midnight, not
+// `new Date(string)`'s UTC midnight — the backend's attendanceDate/startDate
+// values are themselves local-midnight instants (see ReportsService /
+// AttendanceService's own parseLocalDate), so on any timezone ahead of UTC
+// (e.g. PHT, UTC+8) the UTC parse put `from` several hours *after* today's
+// own records, excluding them the moment From/To both default to today.
+function parseLocalDateFilter(value: string, endOfDay = false): number {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return endOfDay ? Infinity : -Infinity;
+  const [, year, month, day] = match;
+  return endOfDay
+    ? new Date(Number(year), Number(month) - 1, Number(day), 23, 59, 59, 999).getTime()
+    : new Date(Number(year), Number(month) - 1, Number(day)).getTime();
+}
+
 function isInDateRange(dateStr: string, from: string, to: string) {
   if (!from && !to) return true;
   const date = new Date(dateStr).getTime();
-  const fromTime = from ? new Date(from).getTime() : -Infinity;
-  const toTime = to ? new Date(to + "T23:59:59").getTime() : Infinity;
+  const fromTime = from ? parseLocalDateFilter(from) : -Infinity;
+  const toTime = to ? parseLocalDateFilter(to, true) : Infinity;
   return date >= fromTime && date <= toTime;
 }
 
@@ -162,8 +177,13 @@ export function ReportsPage({
 
   const [data, setData] = useState<ReportData | null>(null);
   const [tab, setTab] = useState<ReportTab>("ALL");
+  // Both default to today (not month-start) — a same-day From/To range is
+  // what lets the backend reconstruct Absent/On-Leave rows (see
+  // ReportsService.summary's singleDay check), so today's report shows real
+  // Present/Absent/On Leave statuses by default instead of only whichever
+  // employees happen to already have a materialized attendance record.
   const [filters, setFilters] = useState({
-    from: new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10),
+    from: new Date().toISOString().slice(0, 10),
     to: new Date().toISOString().slice(0, 10),
     department: "ALL",
   });
@@ -200,8 +220,8 @@ export function ReportsPage({
       const startInRange = isInDateRange(request.startDate, filters.from, filters.to);
       const endInRange = isInDateRange(request.endDate, filters.from, filters.to);
       const spanRange =
-        new Date(request.startDate).getTime() <= new Date(filters.to + "T23:59:59").getTime() &&
-        new Date(request.endDate).getTime() >= new Date(filters.from).getTime();
+        new Date(request.startDate).getTime() <= parseLocalDateFilter(filters.to, true) &&
+        new Date(request.endDate).getTime() >= parseLocalDateFilter(filters.from);
       return deptMatch && (startInRange || endInRange || spanRange);
     });
   }, [data, filters]);
@@ -232,8 +252,8 @@ export function ReportsPage({
       const startInRange = isInDateRange(schedule.startsOn, filters.from, filters.to);
       const endsOnOrOngoing = !schedule.endsOn || isInDateRange(schedule.endsOn, filters.from, filters.to);
       const active =
-        new Date(schedule.startsOn).getTime() <= new Date(filters.to + "T23:59:59").getTime() &&
-        (!schedule.endsOn || new Date(schedule.endsOn).getTime() >= new Date(filters.from).getTime());
+        new Date(schedule.startsOn).getTime() <= parseLocalDateFilter(filters.to, true) &&
+        (!schedule.endsOn || new Date(schedule.endsOn).getTime() >= parseLocalDateFilter(filters.from));
       return deptMatch && (startInRange || endsOnOrOngoing || active);
     });
   }, [data, filters]);

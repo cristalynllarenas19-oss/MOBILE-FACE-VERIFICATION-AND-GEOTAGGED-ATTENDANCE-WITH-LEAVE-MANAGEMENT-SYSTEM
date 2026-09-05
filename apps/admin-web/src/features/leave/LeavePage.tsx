@@ -123,6 +123,19 @@ const LEAVE_TABLE_PAGE_SIZE = 10;
 // affected since they use LEAVE_TABLE_PAGE_SIZE directly.
 const EMPLOYEE_LIST_PAGE_SIZE = 5;
 
+type LeaveAccrualHistoryRow = {
+  id: string;
+  employeeName: string;
+  employeeType: string;
+  department: string;
+  cycleStart: string;
+  cycleEnd: string;
+  attendanceStatus: "PERFECT" | "VIOLATED";
+  sickLeaveEarned: number;
+  vacationLeaveEarned: number;
+  creditedAt: string;
+};
+
 type UndertimeFiling = {
   id: string;
   filingDate: string;
@@ -816,7 +829,7 @@ export function LeavePage({
   // also an Admin (or not a Supervisor at all) gets full, unscoped access.
   const isDepartmentLocked = roles.includes("SUPERVISOR") && !isAdmin;
 
-  const [topTab, setTopTab]                     = useState<"requests" | "history" | "balances" | "undertime">("requests");
+  const [topTab, setTopTab]                     = useState<"requests" | "history" | "balances" | "undertime" | "accrual">("requests");
   const [statusFilter, setStatusFilter]         = useState("ALL");
   // Requests tab filters by employee type; History tab still filters by
   // leave type (typeFilter below) — separate state since the two tabs'
@@ -855,6 +868,7 @@ export function LeavePage({
   const [requestsPage, setRequestsPage] = useState(1);
   const [historyPage, setHistoryPage] = useState(1);
   const [undertimePage, setUndertimePage] = useState(1);
+  const [accrualPage, setAccrualPage] = useState(1);
   const [employeeListPage, setEmployeeListPage] = useState(1);
 
   const requestsCache = useCachedData<LeaveRequest[]>("admin-leave-requests", () =>
@@ -894,6 +908,11 @@ export function LeavePage({
     apiRequest<UndertimeFiling[]>("/undertime-filings"),
   );
   const undertimeFilings = undertimeCache.data ?? [];
+
+  const accrualCache = useCachedData<LeaveAccrualHistoryRow[]>("leave-accrual-history", () =>
+    apiRequest<LeaveAccrualHistoryRow[]>("/leave-accrual/history"),
+  );
+  const accrualHistory = accrualCache.data ?? [];
 
   // Same "employees" cache key as the Employees/Attendance pages — one
   // fetched copy of GET /employees serves all three.
@@ -1080,6 +1099,13 @@ export function LeavePage({
   const pagedUndertimeFilings = undertimeFilings.slice(
     (undertimePageSafe - 1) * LEAVE_TABLE_PAGE_SIZE,
     undertimePageSafe * LEAVE_TABLE_PAGE_SIZE,
+  );
+
+  const accrualPageCount = Math.max(1, Math.ceil(accrualHistory.length / LEAVE_TABLE_PAGE_SIZE));
+  const accrualPageSafe = Math.min(accrualPage, accrualPageCount);
+  const pagedAccrualHistory = accrualHistory.slice(
+    (accrualPageSafe - 1) * LEAVE_TABLE_PAGE_SIZE,
+    accrualPageSafe * LEAVE_TABLE_PAGE_SIZE,
   );
 
   const selectedLeaveType = reviewRequest
@@ -1395,6 +1421,9 @@ export function LeavePage({
         </button>
         <button className={topTab === "undertime" ? "active" : ""} onClick={() => setTopTab("undertime")}>
           Undertime
+        </button>
+        <button className={topTab === "accrual" ? "active" : ""} onClick={() => setTopTab("accrual")}>
+          Accrual History
         </button>
       </div>
 
@@ -1738,6 +1767,50 @@ export function LeavePage({
           </table>
           </div>
           <LeaveTablePagination page={undertimePageSafe} pageCount={undertimePageCount} onChange={setUndertimePage} />
+        </section>
+      )}
+
+      {topTab === "accrual" && (
+        <section className="table-card leave-table-card">
+          <div className="leave-table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>EMPLOYEE</th>
+                <th>EMPLOYEE TYPE</th>
+                <th>QUALIFYING PERIOD</th>
+                <th>ATTENDANCE STATUS</th>
+                <th>SICK LEAVE EARNED</th>
+                <th>VACATION LEAVE EARNED</th>
+                <th>DATE CREDITED</th>
+              </tr>
+            </thead>
+            <tbody>
+              {accrualHistory.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="leave-empty-state">No leave accrual history yet.</td>
+                </tr>
+              ) : (
+                pagedAccrualHistory.map((row) => (
+                  <tr key={row.id}>
+                    <td data-label="Employee">{row.employeeName}</td>
+                    <td data-label="Employee Type">{formatEmploymentStatus(row.employeeType)}</td>
+                    <td data-label="Qualifying Period">{formatDate(row.cycleStart)} – {formatDate(row.cycleEnd)}</td>
+                    <td data-label="Attendance Status">
+                      <Badge tone={row.attendanceStatus === "PERFECT" ? "success" : "danger"}>
+                        {row.attendanceStatus === "PERFECT" ? "Perfect" : "Violated"}
+                      </Badge>
+                    </td>
+                    <td data-label="Sick Leave Earned">{row.sickLeaveEarned.toFixed(2)}</td>
+                    <td data-label="Vacation Leave Earned">{row.vacationLeaveEarned.toFixed(2)}</td>
+                    <td data-label="Date Credited">{formatDate(row.creditedAt)}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+          </div>
+          <LeaveTablePagination page={accrualPageSafe} pageCount={accrualPageCount} onChange={setAccrualPage} />
         </section>
       )}
 
