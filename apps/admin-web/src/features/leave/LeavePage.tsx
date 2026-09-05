@@ -127,9 +127,21 @@ type UndertimeFiling = {
   id: string;
   filingDate: string;
   reason: string | null;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  remarks: string | null;
   createdAt: string;
-  employee: { firstName: string; lastName: string; department: { name: string } | null };
+  employee: { id: string; firstName: string; lastName: string; department: { name: string } | null };
+  attendanceRecord?: { attendanceDate: string; lateMinutes: number } | null;
+  reviewer?: { email: string; employee?: { firstName: string; lastName: string } | null } | null;
 };
+
+function undertimeReviewerName(filing: UndertimeFiling) {
+  if (!filing.reviewer) return "—";
+  if (filing.reviewer.employee) {
+    return `${filing.reviewer.employee.firstName} ${filing.reviewer.employee.lastName}`;
+  }
+  return filing.reviewer.email;
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -824,6 +836,8 @@ export function LeavePage({
   const [isSaving, setIsSaving]                 = useState(false);
   const [notification, setNotification]         = useState<Notification>(null);
   const [reviewBalances, setReviewBalances]     = useState<LeaveBalance[] | null>(null);
+  const [reviewUndertime, setReviewUndertime]   = useState<UndertimeFiling | null>(null);
+  const [undertimeRemarks, setUndertimeRemarks] = useState("");
 
   const [summaryYear, setSummaryYear]   = useState(new Date().getFullYear());
 
@@ -1102,6 +1116,14 @@ export function LeavePage({
     reviewRequest && !(isOwnRequest && !isAdmin) && reviewRequest.status === "CANCELLATION_PENDING",
   );
 
+  // Same self-review pattern as leave requests — a Supervisor can never
+  // review their own filing, only HR/Admin can (mirrors undertime.service.ts's
+  // updateStatus guards).
+  const isOwnUndertime = Boolean(reviewUndertime && user?.employeeId && reviewUndertime.employee.id === user.employeeId);
+  const canReviewUndertime = Boolean(
+    reviewUndertime && !(isOwnUndertime && !isAdmin) && reviewUndertime.status === "PENDING",
+  );
+
   const matchingBalance =
     reviewRequest && reviewBalances
       ? reviewBalances.find((b) => b.leaveTypeId === reviewRequest.leaveType.id)
@@ -1215,6 +1237,38 @@ export function LeavePage({
             err instanceof Error
               ? `${action === "approve" ? "Approval" : "Rejection"} failed: ${err.message}`
               : "Unable to review leave.",
+        });
+      });
+  };
+
+  // Same optimistic pattern as reviewLeave above.
+  const reviewUndertimeFiling = (action: "approve" | "reject") => {
+    if (!reviewUndertime) return;
+    const targetId = reviewUndertime.id;
+    const newStatus = action === "approve" ? "APPROVED" : "REJECTED";
+    const remarksTrimmed = undertimeRemarks.trim();
+
+    undertimeCache.setData(undertimeFilings.map((f) => (f.id === targetId ? { ...f, status: newStatus } : f)));
+    setReviewUndertime(null);
+    setUndertimeRemarks("");
+    setNotification({
+      type: "success",
+      message: action === "approve" ? "Undertime filing was approved." : "Undertime filing was rejected.",
+    });
+
+    apiRequest(`/undertime-filings/${targetId}/${action}`, {
+      method: "PATCH",
+      body: JSON.stringify({ remarks: remarksTrimmed }),
+    })
+      .then(() => undertimeCache.refresh())
+      .catch((err) => {
+        undertimeCache.refresh().catch(() => undefined);
+        setNotification({
+          type: "error",
+          message:
+            err instanceof Error
+              ? `${action === "approve" ? "Approval" : "Rejection"} failed: ${err.message}`
+              : "Unable to review undertime filing.",
         });
       });
   };
@@ -1648,22 +1702,35 @@ export function LeavePage({
               <tr>
                 <th>EMPLOYEE</th>
                 <th>DEPARTMENT</th>
-                <th>DATE FILED</th>
-                <th>REASON</th>
+                <th>ATTENDANCE DATE</th>
+                <th>LATE MINUTES</th>
+                <th>STATUS</th>
+                <th>ACTIONS</th>
               </tr>
             </thead>
             <tbody>
               {undertimeFilings.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="leave-empty-state">No undertime filings found.</td>
+                  <td colSpan={6} className="leave-empty-state">No undertime filings found.</td>
                 </tr>
               ) : (
                 pagedUndertimeFilings.map((f) => (
                   <tr key={f.id}>
                     <td data-label="Employee">{f.employee.firstName} {f.employee.lastName}</td>
                     <td data-label="Department">{f.employee.department?.name ?? "Unassigned"}</td>
-                    <td data-label="Date Filed">{formatDate(f.filingDate)}</td>
-                    <td data-label="Reason">{f.reason ?? "—"}</td>
+                    <td data-label="Attendance Date">{f.attendanceRecord ? formatDate(f.attendanceRecord.attendanceDate) : formatDate(f.filingDate)}</td>
+                    <td data-label="Late Minutes">{f.attendanceRecord?.lateMinutes ?? "—"}</td>
+                    <td data-label="Status">
+                      <Badge tone={getLeaveTone(f.status)}>{getLeaveStatusLabel(f.status, isAdmin)}</Badge>
+                    </td>
+                    <td data-label="Action">
+                      <button
+                        className="leave-view-button"
+                        onClick={() => { setReviewUndertime(f); setUndertimeRemarks(""); }}
+                      >
+                        <Eye size={14} /> Review
+                      </button>
+                    </td>
                   </tr>
                 ))
               )}
@@ -1952,6 +2019,90 @@ export function LeavePage({
                 Close
               </button>
             </div>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {/* ── Undertime review modal ── */}
+      {reviewUndertime && (
+        <div className="leave-modal-backdrop" role="presentation">
+          <section
+            className="leave-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="undertime-review-title"
+          >
+            <div className="leave-modal-header">
+              <div>
+                <h2 id="undertime-review-title">Undertime Filing Details</h2>
+                <p>{reviewUndertime.employee.firstName} {reviewUndertime.employee.lastName}</p>
+              </div>
+              <button
+                className="icon-button"
+                onClick={() => setReviewUndertime(null)}
+                aria-label="Close undertime review"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="leave-modal-body">
+              <div className="leave-detail-grid">
+                <div><span>Employee</span><strong>{reviewUndertime.employee.firstName} {reviewUndertime.employee.lastName}</strong></div>
+                <div><span>Department</span><strong>{reviewUndertime.employee.department?.name ?? "Unassigned"}</strong></div>
+                {reviewUndertime.attendanceRecord && (
+                  <>
+                    <div><span>Attendance Date</span><strong>{formatDate(reviewUndertime.attendanceRecord.attendanceDate)}</strong></div>
+                    <div><span>Late Minutes</span><strong>{reviewUndertime.attendanceRecord.lateMinutes}</strong></div>
+                  </>
+                )}
+                <div><span>Date Filed</span><strong>{formatDate(reviewUndertime.createdAt)}</strong></div>
+                <div>
+                  <span>Status</span>
+                  <Badge tone={getLeaveTone(reviewUndertime.status)}>{getLeaveStatusLabel(reviewUndertime.status, isAdmin)}</Badge>
+                </div>
+                {reviewUndertime.status !== "PENDING" && (
+                  <div><span>Reviewed By</span><strong>{undertimeReviewerName(reviewUndertime)}</strong></div>
+                )}
+                <div><span>Reason</span><strong>{reviewUndertime.reason ?? "—"}</strong></div>
+                {reviewUndertime.status !== "PENDING" && reviewUndertime.remarks && (
+                  <div><span>Remarks</span><strong>{reviewUndertime.remarks}</strong></div>
+                )}
+              </div>
+
+              {isOwnUndertime && !isAdmin && (
+                <p className="leave-remarks-field">
+                  This is your own undertime filing — a Supervisor cannot approve or reject it. It stays pending until HR/Admin reviews it.
+                </p>
+              )}
+
+              {canReviewUndertime && (
+                <label className="leave-remarks-field">
+                  Add Remarks
+                  <textarea
+                    value={undertimeRemarks}
+                    onChange={(e) => setUndertimeRemarks(e.target.value)}
+                    placeholder="Optional review notes"
+                  />
+                </label>
+              )}
+
+              <div className="leave-detail-actions">
+                {canReviewUndertime && (
+                  <>
+                    <button className="leave-reject-button" onClick={() => reviewUndertimeFiling("reject")} disabled={isSaving}>
+                      Reject
+                    </button>
+                    <button className="primary-button" onClick={() => reviewUndertimeFiling("approve")} disabled={isSaving}>
+                      Approve
+                    </button>
+                  </>
+                )}
+                <button className="outline-button" onClick={() => setReviewUndertime(null)} disabled={isSaving}>
+                  Close
+                </button>
+              </div>
             </div>
           </section>
         </div>

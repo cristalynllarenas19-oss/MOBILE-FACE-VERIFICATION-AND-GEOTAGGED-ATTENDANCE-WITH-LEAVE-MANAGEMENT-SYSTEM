@@ -2,9 +2,9 @@ import * as SecureStore from "expo-secure-store";
 import Constants from "expo-constants";
 import { clearDataCache } from "./utils/dataCache";
 
-const DEFAULT_API_BASE_URL = "http://localhost:3001/api/v1";
+const DEFAULT_API_BASE_URL = "https://mobile-face-verification-and-geotagged.onrender.com/api/v1";
 // "https://mobile-face-verification-and-geotagged.onrender.com/api/v1"
-
+// "http://localhost:3001/api/v1"
 function getMetroHost() {
   const metroHost = (
     Constants as unknown as {
@@ -708,21 +708,33 @@ export async function cancelLeaveRequest(id: string, note: string) {
   });
 }
 
-export type UndertimeEligibility = {
-  isFilingDay: boolean;
-  filingDaysOfMonth: number[];
-  maxFilingsPerMonth: number;
-  filedThisMonth: number;
-  remaining: number;
-  alreadyFiledToday: boolean;
-  eligible: boolean;
+export type LateAttendanceRecord = {
+  id: string;
+  attendanceDate: string;
+  lateMinutes: number;
+  timeInAt: string | null;
 };
 
 export type UndertimeFiling = {
   id: string;
   filingDate: string;
+  attendanceRecordId: string;
+  cutoffStart: string;
+  cutoffEnd: string;
   reason: string | null;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  remarks: string | null;
   createdAt: string;
+  attendanceRecord?: LateAttendanceRecord;
+};
+
+export type UndertimeEligibility = {
+  isFilingDay: boolean;
+  filingDaysOfMonth: number[];
+  targetCutoff: { start: string; end: string };
+  lateRecords: LateAttendanceRecord[];
+  existingFiling: UndertimeFiling | null;
+  eligible: boolean;
 };
 
 export async function getUndertimeEligibility(employeeId: string) {
@@ -733,10 +745,10 @@ export async function getUndertimeFilings(employeeId: string) {
   return apiRequest<UndertimeFiling[]>(`/undertime-filings?employeeId=${employeeId}`);
 }
 
-export async function fileUndertime(employeeId: string, reason?: string) {
+export async function fileUndertime(employeeId: string, attendanceRecordId: string, reason: string) {
   return apiRequest<UndertimeFiling>("/undertime-filings", {
     method: "POST",
-    body: JSON.stringify({ employeeId, reason }),
+    body: JSON.stringify({ employeeId, attendanceRecordId, reason }),
   });
 }
 
@@ -938,6 +950,33 @@ export async function approveLeaveCancellation(id: string) {
 
 export async function denyLeaveCancellation(id: string, remarks?: string) {
   return apiRequest<TeamLeaveRequest>(`/leave-requests/${id}/deny-cancellation`, {
+    method: "PATCH",
+    body: JSON.stringify({ remarks: remarks?.trim() || undefined }),
+  });
+}
+
+export type TeamUndertimeFiling = UndertimeFiling & {
+  employee: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    department?: { name: string };
+  };
+};
+
+export async function getTeamUndertimeFilings() {
+  return apiRequest<TeamUndertimeFiling[]>("/undertime-filings");
+}
+
+export async function approveUndertimeFiling(id: string, remarks?: string) {
+  return apiRequest<TeamUndertimeFiling>(`/undertime-filings/${id}/approve`, {
+    method: "PATCH",
+    body: JSON.stringify({ remarks: remarks?.trim() || undefined }),
+  });
+}
+
+export async function rejectUndertimeFiling(id: string, remarks?: string) {
+  return apiRequest<TeamUndertimeFiling>(`/undertime-filings/${id}/reject`, {
     method: "PATCH",
     body: JSON.stringify({ remarks: remarks?.trim() || undefined }),
   });

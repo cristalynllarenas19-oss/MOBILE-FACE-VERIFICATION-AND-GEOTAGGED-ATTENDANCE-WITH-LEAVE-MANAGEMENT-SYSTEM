@@ -349,16 +349,37 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
   const undertimeEligibility = undertimeEligibilityCache.data;
   const undertimeFilings = undertimeFilingsCache.data ?? EMPTY_UNDERTIME_FILINGS;
   const [undertimeReason, setUndertimeReason] = useState("");
+  const [selectedLateRecordId, setSelectedLateRecordId] = useState<string | null>(null);
   const [isFilingUndertime, setIsFilingUndertime] = useState(false);
+  // A 3-step wizard (pick day -> reason -> review) rather than one long form —
+  // each step's Next is gated on that step's own requirement, so the
+  // employee can't reach Review without both a selected day and a reason.
+  const [undertimeStep, setUndertimeStep] = useState<1 | 2 | 3>(1);
+  const selectedLateRecord = undertimeEligibility?.lateRecords.find((r) => r.id === selectedLateRecordId) ?? null;
+
+  function goToUndertimeStep2() {
+    if (!selectedLateRecordId) return;
+    setUndertimeStep(2);
+  }
+  function goToUndertimeStep3() {
+    if (!undertimeReason.trim()) return;
+    setUndertimeStep(3);
+  }
+  function goToPreviousUndertimeStep() {
+    setUndertimeStep((step) => (step > 1 ? ((step - 1) as 1 | 2) : step));
+  }
 
   async function handleFileUndertime() {
-    if (!employeeId) return;
+    const trimmedReason = undertimeReason.trim();
+    if (!employeeId || !selectedLateRecordId || !trimmedReason) return;
     setIsFilingUndertime(true);
     try {
-      await fileUndertime(employeeId, undertimeReason.trim() || undefined);
+      await fileUndertime(employeeId, selectedLateRecordId, trimmedReason);
       setUndertimeReason("");
+      setSelectedLateRecordId(null);
+      setUndertimeStep(1);
       await Promise.all([undertimeEligibilityCache.refresh(), undertimeFilingsCache.refresh()]);
-      setResultModal({ status: "approved", title: "Undertime Filed", message: "Your undertime filing for today has been recorded." });
+      setResultModal({ status: "approved", title: "Undertime Filed", message: "Your undertime filing has been submitted for your supervisor's review." });
     } catch (err) {
       setResultModal({
         status: "error",
@@ -1112,54 +1133,209 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
             </View>
 
             {/* Mirrors whatever the backend's eligibility check returns — the
-                8th/23rd filing days and the 3-per-month cap are not hardcoded
+                8th/23rd filing days and the cutoff dates are not hardcoded
                 here, only reflected from the API. */}
             {undertimeEligibility && (
               <Text style={styles.pendingNoticeText}>
-                {undertimeEligibility.filedThisMonth}/{undertimeEligibility.maxFilingsPerMonth} filed this month.{" "}
-                {undertimeEligibility.alreadyFiledToday
-                  ? "You've already filed undertime today."
-                  : !undertimeEligibility.isFilingDay
-                    ? `Undertime can only be filed on the ${undertimeEligibility.filingDaysOfMonth.join(" or ")} of the month.`
-                    : undertimeEligibility.remaining <= 0
-                      ? "You've reached this month's filing limit."
-                      : "You're eligible to file undertime today."}
+                Cutoff: {new Date(undertimeEligibility.targetCutoff.start).toLocaleDateString()} - {new Date(undertimeEligibility.targetCutoff.end).toLocaleDateString()}.{" "}
+                {!undertimeEligibility.isFilingDay
+                  ? `Undertime can only be filed on the ${undertimeEligibility.filingDaysOfMonth.join(" or ")} of the month.`
+                  : undertimeEligibility.existingFiling
+                    ? "You've already filed undertime for this cutoff."
+                    : undertimeEligibility.lateRecords.length === 0
+                      ? "You have no late attendance within this cutoff to file."
+                      : "Select one late day below to file undertime for this cutoff."}
               </Text>
             )}
 
-            <Text style={styles.label}>Reason (optional)</Text>
-            <View style={styles.textAreaContainer}>
-              <TextInput
-                placeholder="Optional note for this filing"
-                multiline
-                value={undertimeReason}
-                onChangeText={setUndertimeReason}
-                style={styles.textAreaInput}
-              />
-            </View>
+            {undertimeEligibility?.existingFiling ? (
+              (() => {
+                const filing = undertimeEligibility.existingFiling;
+                const tone = statusTone(filing.status);
+                return (
+                  <View style={styles.requestCard}>
+                    <Text style={styles.requestTitle}>
+                      {filing.attendanceRecord ? new Date(filing.attendanceRecord.attendanceDate).toLocaleDateString() : "—"}
+                    </Text>
+                    {filing.attendanceRecord && <Text>{filing.attendanceRecord.lateMinutes} minute(s) late</Text>}
+                    {filing.reason && <Text>{filing.reason}</Text>}
+                    <Text style={[styles.pendingText, { color: tone.color, backgroundColor: tone.bg }]} numberOfLines={1}>
+                      {statusLabel(filing.status)}
+                    </Text>
+                    {filing.status === "REJECTED" && filing.remarks && (
+                      <Text style={styles.requirementNoteText}>Remarks: {filing.remarks}</Text>
+                    )}
+                  </View>
+                );
+              })()
+            ) : undertimeEligibility && undertimeEligibility.isFilingDay && undertimeEligibility.lateRecords.length > 0 ? (
+              <>
+                {/* Progress indicator */}
+                <View style={styles.wizardProgressRow}>
+                  {(["Pick Day", "Reason", "Review"] as const).map((label, index) => {
+                    const stepNumber = (index + 1) as 1 | 2 | 3;
+                    const done = stepNumber < undertimeStep;
+                    const current = stepNumber === undertimeStep;
+                    return (
+                      <React.Fragment key={label}>
+                        <View style={styles.wizardStep}>
+                          <View
+                            style={[
+                              styles.wizardCircle,
+                              done && styles.wizardCircleDone,
+                              current && styles.wizardCircleCurrent,
+                            ]}
+                          >
+                            {done ? (
+                              <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+                            ) : (
+                              <Text style={[styles.wizardCircleText, current && styles.wizardCircleTextCurrent]}>
+                                {stepNumber}
+                              </Text>
+                            )}
+                          </View>
+                          <Text
+                            style={[
+                              styles.wizardStepLabel,
+                              done && styles.wizardStepLabelDone,
+                              current && styles.wizardStepLabelCurrent,
+                            ]}
+                          >
+                            {label.toUpperCase()}
+                          </Text>
+                        </View>
+                        {stepNumber < 3 && (
+                          <View style={[styles.wizardConnector, stepNumber < undertimeStep && styles.wizardConnectorDone]} />
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </View>
 
-            <Pressable
-              style={[styles.button, (isFilingUndertime || !undertimeEligibility?.eligible) && styles.buttonDisabled]}
-              onPress={handleFileUndertime}
-              disabled={isFilingUndertime || !undertimeEligibility?.eligible}
-            >
-              {isFilingUndertime ? (
-                <ActivityIndicator color="#FFFFFF" />
-              ) : (
-                <Text style={styles.buttonText}>File Undertime for Today</Text>
-              )}
-            </Pressable>
+                {undertimeStep === 1 && (
+                  <>
+                    <Text style={[styles.cardTitle, { fontSize: 15, marginTop: 14, marginBottom: 6 }]}>Pick Your Late Day</Text>
+                    <View style={{ borderTopWidth: 1, borderTopColor: "#F1F5F9" }}>
+                      {undertimeEligibility.lateRecords.map((record) => {
+                        const selected = selectedLateRecordId === record.id;
+                        return (
+                          <Pressable
+                            key={record.id}
+                            style={[
+                              styles.inlineItem,
+                              { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+                              selected && { backgroundColor: "#FCE7F3" },
+                            ]}
+                            onPress={() => setSelectedLateRecordId(record.id)}
+                          >
+                            <Text style={[styles.inlineItemText, selected && styles.selectedItemText]}>
+                              {new Date(record.attendanceDate).toLocaleDateString()} — {record.lateMinutes} minute(s) late
+                            </Text>
+                            {selected && <Ionicons name="checkmark-circle" size={20} color="#DC2777" />}
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                    <Pressable
+                      style={[styles.button, !selectedLateRecordId && styles.buttonDisabled]}
+                      onPress={goToUndertimeStep2}
+                      disabled={!selectedLateRecordId}
+                    >
+                      <Text style={styles.buttonText}>Next</Text>
+                    </Pressable>
+                  </>
+                )}
 
-            <Text style={[styles.cardTitle, { fontSize: 15, marginTop: 20, marginBottom: 8 }]}>This Month's Filings</Text>
+                {undertimeStep === 2 && (
+                  <>
+                    <Text style={[styles.cardTitle, { fontSize: 15, marginTop: 14, marginBottom: 6 }]}>Add a Reason</Text>
+                    {selectedLateRecord && (
+                      <Text style={styles.wizardSummaryText}>
+                        {new Date(selectedLateRecord.attendanceDate).toLocaleDateString()} — {selectedLateRecord.lateMinutes} minute(s) late
+                      </Text>
+                    )}
+                    <View style={styles.wizardLabelRow}>
+                      <Text style={styles.label}>Reason</Text>
+                      <Text style={styles.wizardRequiredMark}>*</Text>
+                    </View>
+                    <View style={[styles.textAreaContainer, { height: 90 }]}>
+                      <TextInput
+                        placeholder="Why are you filing undertime for this day?"
+                        multiline
+                        value={undertimeReason}
+                        onChangeText={setUndertimeReason}
+                        style={styles.textAreaInput}
+                      />
+                    </View>
+                    <View style={styles.wizardButtonRow}>
+                      <Pressable style={styles.wizardBackButton} onPress={goToPreviousUndertimeStep}>
+                        <Text style={styles.wizardBackButtonText}>Back</Text>
+                      </Pressable>
+                      <Pressable
+                        style={[styles.button, { flex: 1, marginTop: 0 }, !undertimeReason.trim() && styles.buttonDisabled]}
+                        onPress={goToUndertimeStep3}
+                        disabled={!undertimeReason.trim()}
+                      >
+                        <Text style={styles.buttonText}>Next</Text>
+                      </Pressable>
+                    </View>
+                  </>
+                )}
+
+                {undertimeStep === 3 && selectedLateRecord && (
+                  <>
+                    <Text style={[styles.cardTitle, { fontSize: 15, marginTop: 14, marginBottom: 10 }]}>Review & Submit</Text>
+                    <View style={styles.wizardReviewCard}>
+                      <View style={styles.wizardReviewRow}>
+                        <Text style={styles.wizardReviewLabel}>Late Day</Text>
+                        <Text style={styles.wizardReviewValue}>
+                          {new Date(selectedLateRecord.attendanceDate).toLocaleDateString()} ({selectedLateRecord.lateMinutes} min)
+                        </Text>
+                      </View>
+                      <View style={[styles.wizardReviewRow, { borderBottomWidth: 0, marginBottom: 0, paddingBottom: 0 }]}>
+                        <Text style={styles.wizardReviewLabel}>Reason</Text>
+                        <Text style={[styles.wizardReviewValue, { flexShrink: 1, textAlign: "right" }]}>{undertimeReason}</Text>
+                      </View>
+                    </View>
+                    <View style={styles.wizardButtonRow}>
+                      <Pressable style={styles.wizardBackButton} onPress={goToPreviousUndertimeStep} disabled={isFilingUndertime}>
+                        <Text style={styles.wizardBackButtonText}>Back</Text>
+                      </Pressable>
+                      <Pressable
+                        style={[styles.button, { flex: 1, marginTop: 0 }, isFilingUndertime && styles.buttonDisabled]}
+                        onPress={handleFileUndertime}
+                        disabled={isFilingUndertime}
+                      >
+                        {isFilingUndertime ? (
+                          <ActivityIndicator color="#FFFFFF" />
+                        ) : (
+                          <Text style={styles.buttonText}>Submit</Text>
+                        )}
+                      </Pressable>
+                    </View>
+                  </>
+                )}
+              </>
+            ) : null}
+
+            <Text style={[styles.cardTitle, { fontSize: 15, marginTop: 20, marginBottom: 8 }]}>Recent Filings</Text>
             {undertimeFilings.length === 0 ? (
               <Text style={styles.modalEmptyText}>No undertime filings yet.</Text>
             ) : (
-              undertimeFilings.map((f) => (
-                <View key={f.id} style={styles.requestCard}>
-                  <Text style={styles.requestTitle}>{new Date(f.filingDate).toLocaleDateString()}</Text>
-                  {f.reason && <Text>{f.reason}</Text>}
-                </View>
-              ))
+              undertimeFilings.map((f) => {
+                const tone = statusTone(f.status);
+                return (
+                  <View key={f.id} style={styles.requestCard}>
+                    <Text style={styles.requestTitle}>
+                      {f.attendanceRecord ? new Date(f.attendanceRecord.attendanceDate).toLocaleDateString() : new Date(f.filingDate).toLocaleDateString()}
+                    </Text>
+                    {f.reason && <Text>{f.reason}</Text>}
+                    <Text style={[styles.pendingText, { color: tone.color, backgroundColor: tone.bg }]} numberOfLines={1}>
+                      {statusLabel(f.status)}
+                    </Text>
+                  </View>
+                );
+              })
             )}
           </View>
         </AestheticScrollView>
@@ -2024,6 +2200,29 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontWeight: "700"
   },
+  // Undertime's 3-step wizard (pick day -> reason -> review).
+  wizardProgressRow: { flexDirection: "row", alignItems: "center", marginTop: 16, marginBottom: 4 },
+  wizardStep: { alignItems: "center", width: 64 },
+  wizardCircle: { width: 28, height: 28, borderRadius: 14, backgroundColor: "#F1F5F9", alignItems: "center", justifyContent: "center" },
+  wizardCircleDone: { backgroundColor: "#062B59" },
+  wizardCircleCurrent: { backgroundColor: "#DC2777" },
+  wizardCircleText: { fontSize: 13, fontWeight: "700", color: "#94A3B8" },
+  wizardCircleTextCurrent: { color: "#FFFFFF" },
+  wizardStepLabel: { fontSize: 10, fontWeight: "700", color: "#94A3B8", marginTop: 5, textAlign: "center" },
+  wizardStepLabelDone: { color: "#062B59" },
+  wizardStepLabelCurrent: { color: "#DC2777" },
+  wizardConnector: { flex: 1, height: 2, backgroundColor: "#E2E8F0", marginBottom: 15 },
+  wizardConnectorDone: { backgroundColor: "#062B59" },
+  wizardSummaryText: { fontSize: 13, color: "#64748B", marginBottom: 10 },
+  wizardLabelRow: { flexDirection: "row", alignItems: "baseline", gap: 4 },
+  wizardRequiredMark: { color: "#DC2626", fontSize: 13, fontWeight: "700" },
+  wizardButtonRow: { flexDirection: "row", gap: 10, marginTop: 14 },
+  wizardBackButton: { flex: 1, height: SCREEN_HEIGHT < 700 ? 42 : 48, borderRadius: 14, borderWidth: 1, borderColor: "#E2E8F0", alignItems: "center", justifyContent: "center" },
+  wizardBackButtonText: { color: "#475569", fontWeight: "700" },
+  wizardReviewCard: { backgroundColor: "#FDF2F8", borderWidth: 1, borderColor: "#FBCFE8", borderRadius: 14, padding: 14 },
+  wizardReviewRow: { flexDirection: "row", justifyContent: "space-between", gap: 10, borderBottomWidth: 1, borderBottomColor: "#FBCFE8", marginBottom: 8, paddingBottom: 8 },
+  wizardReviewLabel: { fontSize: 12, color: "#9D174D", fontWeight: "600" },
+  wizardReviewValue: { fontSize: 12, color: "#831843", fontWeight: "700" },
   // No dimmed backdrop — just the floating card. The shadow/border below is
   // what gives it definition against the page instead of a dim overlay.
   modalOverlay: { flex: 1, backgroundColor: "transparent", justifyContent: "center", alignItems: "center" },

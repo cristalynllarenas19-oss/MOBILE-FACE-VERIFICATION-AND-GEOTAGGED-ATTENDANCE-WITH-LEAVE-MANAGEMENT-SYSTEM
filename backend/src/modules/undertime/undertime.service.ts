@@ -1,93 +1,246 @@
-import { BadRequestException, Injectable } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
+import { NotificationsService } from "../notifications/notifications.service";
+import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
+import { getFilingTargetCutoff, isFilingDay } from "../../common/utils/cutoff.util";
 
-// Semi-monthly cutoff dates undertime may be filed on, and the per-employee
-// monthly cap — fixed by HR policy rather than admin-configurable, since
-// nothing else in this schema exposes a global, admin-tunable settings value
-// (every other configurable rule lives on a specific model like LeaveType or
-// Shift). Revisit as a DB-driven setting if HR asks to change these later.
-const FILING_DAYS_OF_MONTH = [8, 23];
-const MAX_FILINGS_PER_MONTH = 3;
+type UndertimeStatus = "PENDING" | "APPROVED" | "REJECTED";
 
 function toDateOnly(value: Date): Date {
   return new Date(value.getFullYear(), value.getMonth(), value.getDate());
 }
 
-function monthRange(reference: Date) {
-  const start = new Date(reference.getFullYear(), reference.getMonth(), 1);
-  const end = new Date(reference.getFullYear(), reference.getMonth() + 1, 1);
-  return { start, end };
-}
-
 @Injectable()
 export class UndertimeService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+    private readonly auditLogs: AuditLogsService,
+  ) {}
 
-  // Filtering by filingDate within the current calendar month (rather than a
-  // stored counter) is what makes the monthly cap reset automatically at the
-  // start of the next month — there's nothing to manually zero out.
-  private async countThisMonth(employeeId: string, reference: Date) {
-    const { start, end } = monthRange(reference);
-    return this.prisma.undertimeFiling.count({
-      where: { employeeId, filingDate: { gte: start, lt: end } },
+  // Admin-editable filing days (default 8th/23rd) — lazily creates the
+  // singleton row on first access rather than requiring a seed.
+  async getSettings() {
+    return this.prisma.undertimeSettings.upsert({
+      where: { id: "singleton" },
+      update: {},
+      create: { id: "singleton" },
     });
   }
 
-  // Tells the frontend whether filing is currently allowed and why not, so
-  // the UI never has to hardcode the 8th/23rd or the 3-per-month cap itself —
-  // it just reflects whatever this returns.
+  async updateSettings(filingDaysOfMonth: number[], context: AuditLogContext = {}) {
+    const days = Array.from(new Set(filingDaysOfMonth)).sort((a, b) => a - b);
+    if (days.length === 0) {
+      throw new BadRequestException("At least one filing day is required.");
+    }
+    if (days.some((day) => !Number.isInteger(day) || day < 1 || day > 31)) {
+      throw new BadRequestException("Filing days must be whole numbers between 1 and 31.");
+    }
+
+    const existing = await this.getSettings();
+
+    const settings = await this.prisma.undertimeSettings.update({
+      where: { id: "singleton" },
+      data: { filingDaysOfMonth: days, updatedBy: context.actorUserId },
+    });
+
+    await this.auditLogs.record({
+      ...context,
+      action: "UPDATE_UNDERTIME_SETTINGS",
+      module: "Leave",
+      entityType: "UndertimeSettings",
+      entityId: settings.id,
+      description: `Updated undertime filing days to the ${days.join(" and ")} of the month.`,
+      oldValues: { filingDaysOfMonth: existing.filingDaysOfMonth },
+      newValues: { filingDaysOfMonth: days },
+    });
+
+    return settings;
+  }
+
+  // Tells the frontend whether filing is currently allowed, which cutoff it
+  // would file for, which late AttendanceRecords are pickable, and whether a
+  // filing already exists for that cutoff — the UI never has to hardcode the
+  // filing days or the 1-per-cutoff cap, it just reflects whatever this returns.
   async getEligibility(employeeId: string) {
     const today = new Date();
-    const filingDate = toDateOnly(today);
-    const isFilingDay = FILING_DAYS_OF_MONTH.includes(today.getDate());
+    const { filingDaysOfMonth } = await this.getSettings();
+    const todayIsFilingDay = isFilingDay(today, filingDaysOfMonth);
+    const targetCutoff = getFilingTargetCutoff(today);
 
-    const [filedThisMonth, filedToday] = await Promise.all([
-      this.countThisMonth(employeeId, today),
-      this.prisma.undertimeFiling.findFirst({ where: { employeeId, filingDate } }),
-    ]);
+    const existingFiling = await this.prisma.undertimeFiling.findUnique({
+      where: { employeeId_cutoffStart: { employeeId, cutoffStart: targetCutoff.start } },
+      include: { attendanceRecord: true },
+    });
 
-    const remaining = Math.max(0, MAX_FILINGS_PER_MONTH - filedThisMonth);
-    const alreadyFiledToday = Boolean(filedToday);
+    // Only surfaced when there's no existing filing for this cutoff yet — once
+    // filed, the client shows the filing's status instead of a picker.
+    const lateRecords = existingFiling
+      ? []
+      : await this.prisma.attendanceRecord.findMany({
+          where: {
+            employeeId,
+            attendanceDate: { gte: targetCutoff.start, lte: targetCutoff.end },
+            lateMinutes: { gt: 0 },
+          },
+          orderBy: { attendanceDate: "asc" },
+        });
 
     return {
-      isFilingDay,
-      filingDaysOfMonth: FILING_DAYS_OF_MONTH,
-      maxFilingsPerMonth: MAX_FILINGS_PER_MONTH,
-      filedThisMonth,
-      remaining,
-      alreadyFiledToday,
-      eligible: isFilingDay && remaining > 0 && !alreadyFiledToday,
+      isFilingDay: todayIsFilingDay,
+      filingDaysOfMonth,
+      targetCutoff,
+      lateRecords,
+      existingFiling,
+      eligible: todayIsFilingDay && !existingFiling && lateRecords.length > 0,
     };
   }
 
-  async file(employeeId: string, reason?: string) {
+  async file(employeeId: string, attendanceRecordId: string, reason: string, context: AuditLogContext = {}) {
+    const trimmedReason = reason?.trim();
+    if (!trimmedReason) {
+      throw new BadRequestException("A reason is required to file undertime.");
+    }
+
     const today = new Date();
+    const { filingDaysOfMonth } = await this.getSettings();
 
-    if (!FILING_DAYS_OF_MONTH.includes(today.getDate())) {
+    if (!isFilingDay(today, filingDaysOfMonth)) {
       throw new BadRequestException(
-        `Undertime can only be filed on the ${FILING_DAYS_OF_MONTH.join(" or ")} of the month.`,
+        `Undertime can only be filed on the ${filingDaysOfMonth.join(" or ")} of the month.`,
       );
     }
 
-    const filingDate = toDateOnly(today);
+    const targetCutoff = getFilingTargetCutoff(today);
 
-    const alreadyFiledToday = await this.prisma.undertimeFiling.findFirst({
-      where: { employeeId, filingDate },
+    const attendanceRecord = await this.prisma.attendanceRecord.findUnique({
+      where: { id: attendanceRecordId },
     });
-    if (alreadyFiledToday) {
-      throw new BadRequestException("You have already filed undertime today.");
+    if (!attendanceRecord || attendanceRecord.employeeId !== employeeId) {
+      throw new BadRequestException("Attendance record not found.");
+    }
+    if (attendanceRecord.lateMinutes <= 0) {
+      throw new BadRequestException("Only a late attendance record can be filed for undertime.");
+    }
+    if (attendanceRecord.attendanceDate < targetCutoff.start || attendanceRecord.attendanceDate > targetCutoff.end) {
+      throw new BadRequestException("This attendance record is outside the current filing cutoff.");
     }
 
-    const filedThisMonth = await this.countThisMonth(employeeId, today);
-    if (filedThisMonth >= MAX_FILINGS_PER_MONTH) {
-      throw new BadRequestException(
-        `You have reached the maximum of ${MAX_FILINGS_PER_MONTH} undertime filings for this month.`,
-      );
+    const existingFiling = await this.prisma.undertimeFiling.findUnique({
+      where: { employeeId_cutoffStart: { employeeId, cutoffStart: targetCutoff.start } },
+    });
+    if (existingFiling) {
+      throw new BadRequestException("You have already filed undertime for this cutoff.");
     }
 
-    return this.prisma.undertimeFiling.create({
-      data: { employeeId, filingDate, reason: reason?.trim() || undefined },
+    const filing = await this.prisma.undertimeFiling.create({
+      data: {
+        employeeId,
+        filingDate: toDateOnly(today),
+        attendanceRecordId,
+        cutoffStart: targetCutoff.start,
+        cutoffEnd: targetCutoff.end,
+        reason: trimmedReason,
+      },
+      include: {
+        // omit profilePhotoData — a base64 blob this response never uses;
+        // inlining it here has caused payload-size problems elsewhere in
+        // this codebase (see the DTR list endpoint).
+        employee: { include: { supervisor: true, department: true }, omit: { profilePhotoData: true } },
+        attendanceRecord: true,
+      },
     });
+
+    await this.notifySubmission(filing);
+
+    await this.auditLogs.record({
+      ...context,
+      action: "CREATE_UNDERTIME_FILING",
+      module: "Leave",
+      entityType: "UndertimeFiling",
+      entityId: filing.id,
+      description: `${filing.employee.firstName} ${filing.employee.lastName} filed undertime for ${filing.attendanceRecord.attendanceDate.toLocaleDateString()}.`,
+      newValues: { employeeId, attendanceRecordId, cutoffStart: targetCutoff.start, cutoffEnd: targetCutoff.end, status: filing.status },
+    });
+
+    return filing;
+  }
+
+  // Routing mirrors LeaveService.notifySubmission: a regular employee's
+  // filing goes to their direct supervisor; a supervisor's own filing has no
+  // supervisor above them, so it routes to HR/Admin instead.
+  private async notifySubmission(filing: {
+    id: string;
+    employee: { userId: string | null; firstName: string; lastName: string; supervisor: { userId: string | null } | null };
+    attendanceRecord: { attendanceDate: Date };
+  }) {
+    const filerIsSupervisor = await this.notifications.userHasRole(filing.employee.userId, "SUPERVISOR");
+    const candidateIds = filerIsSupervisor
+      ? await this.notifications.adminUserIds()
+      : [filing.employee.supervisor?.userId];
+    const recipientIds = candidateIds.filter((id): id is string => Boolean(id) && id !== filing.employee.userId);
+
+    const employeeName = `${filing.employee.firstName} ${filing.employee.lastName}`;
+
+    await this.notifications.notifyUsers(recipientIds, {
+      title: "New Undertime Filing",
+      message: `${employeeName} filed undertime for ${filing.attendanceRecord.attendanceDate.toLocaleDateString()}.`,
+      type: "UNDERTIME_SUBMITTED",
+      entityId: filing.id,
+    });
+  }
+
+  // Mirrors LeaveService.updateStatus's two guards exactly: a Supervisor may
+  // only manage filings from their own department, and never their own.
+  async updateStatus(
+    id: string,
+    status: Extract<UndertimeStatus, "APPROVED" | "REJECTED">,
+    remarks: string | undefined,
+    context: AuditLogContext = {},
+    scopeDepartmentId?: string,
+    selfReviewEmployeeId?: string,
+  ) {
+    const existing = await this.prisma.undertimeFiling.findUniqueOrThrow({
+      where: { id },
+      include: { employee: { select: { departmentId: true } } },
+    });
+
+    if (scopeDepartmentId && existing.employee.departmentId !== scopeDepartmentId) {
+      throw new ForbiddenException("You can only manage undertime filings from your own department.");
+    }
+    if (selfReviewEmployeeId && existing.employeeId === selfReviewEmployeeId) {
+      throw new ForbiddenException("You cannot approve or reject your own undertime filing — HR must review it.");
+    }
+
+    const trimmedRemarks = remarks?.trim();
+
+    const filing = await this.prisma.undertimeFiling.update({
+      where: { id },
+      data: { status, reviewedAt: new Date(), reviewedBy: context.actorUserId, remarks: trimmedRemarks || undefined },
+      include: { employee: { omit: { profilePhotoData: true } }, attendanceRecord: true },
+    });
+
+    if (filing.employee.userId) {
+      await this.notifications.notifyUsers([filing.employee.userId], {
+        title: status === "APPROVED" ? "Undertime Filing Approved" : "Undertime Filing Rejected",
+        message: `Your undertime filing for ${filing.attendanceRecord.attendanceDate.toLocaleDateString()} was ${status === "APPROVED" ? "approved" : "rejected"}.${trimmedRemarks ? ` Remarks: ${trimmedRemarks}` : ""}`,
+        type: status === "APPROVED" ? "UNDERTIME_APPROVED" : "UNDERTIME_REJECTED",
+        entityId: filing.id,
+      });
+    }
+
+    await this.auditLogs.record({
+      ...context,
+      action: status === "APPROVED" ? "APPROVE_UNDERTIME" : "REJECT_UNDERTIME",
+      module: "Leave",
+      entityType: "UndertimeFiling",
+      entityId: id,
+      description: `${status === "APPROVED" ? "Approved" : "Rejected"} ${filing.employee.firstName} ${filing.employee.lastName}'s undertime filing for ${filing.attendanceRecord.attendanceDate.toLocaleDateString()}.`,
+      oldValues: { status: existing.status },
+      newValues: { remarks: trimmedRemarks, status },
+    });
+
+    return filing;
   }
 
   async findAll(employeeId?: string, departmentId?: string) {
@@ -97,7 +250,9 @@ export class UndertimeService {
         ...(departmentId ? { employee: { departmentId } } : {}),
       },
       include: {
-        employee: { select: { firstName: true, lastName: true, department: { select: { name: true } } } },
+        employee: { select: { id: true, firstName: true, lastName: true, department: { select: { name: true } } } },
+        attendanceRecord: true,
+        reviewer: { include: { employee: { select: { firstName: true, lastName: true } } } },
       },
       orderBy: { filingDate: "desc" },
     });

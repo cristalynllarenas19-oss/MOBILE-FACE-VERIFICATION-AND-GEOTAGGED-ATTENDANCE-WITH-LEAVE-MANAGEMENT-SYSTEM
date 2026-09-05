@@ -1,7 +1,7 @@
 
 
 import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, CheckCircle, ChevronDown, ChevronLeft, ChevronUp, FileText, Paperclip, Search, X, XCircle } from "lucide-react";
+import { AlertCircle, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronUp, FileText, Paperclip, Search, X, XCircle } from "lucide-react";
 import "./EmployeePortal.css";
 import {
   LeaveType, LeaveBalance, LeaveRequest, UndertimeEligibility, UndertimeFiling, MySchedule,
@@ -220,13 +220,18 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
   // or a resubmitted requirement) full-size instead of only seeing its file name.
   const [previewAttachment, setPreviewAttachment] = useState<{ src: string; name: string; mimeType: string } | null>(null);
 
-  // Undertime filing
+  // Undertime filing — a 3-step wizard (pick day -> reason -> review), same
+  // shape as the mobile app's LeaveScreen.tsx, each step's Next gated on that
+  // step's own requirement.
   const [undertimeReason,      setUndertimeReason]      = useState("");
+  const [selectedLateRecordId, setSelectedLateRecordId] = useState<string | null>(null);
   const [isFilingUndertime,    setIsFilingUndertime]    = useState(false);
   const [undertimeErr,         setUndertimeErr]         = useState<string | null>(null);
+  const [undertimeStep,        setUndertimeStep]        = useState<1 | 2 | 3>(1);
 
   const fileRef = useRef<HTMLInputElement>(null);
 
+  const selectedLateRecordForReview = undertimeEligibility?.lateRecords.find((r) => r.id === selectedLateRecordId) ?? null;
   const selectedType    = leaveTypes.find((t) => t.id === leaveTypeId);
   const filteredTypes   = leaveTypes
     .filter((t) => t.isActive)
@@ -373,15 +378,30 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
     setTab("request");
   }
 
+  function goToUndertimeStep2() {
+    if (!selectedLateRecordId) return;
+    setUndertimeStep(2);
+  }
+  function goToUndertimeStep3() {
+    if (!undertimeReason.trim()) return;
+    setUndertimeStep(3);
+  }
+  function goToPreviousUndertimeStep() {
+    setUndertimeStep((step) => (step > 1 ? ((step - 1) as 1 | 2) : step));
+  }
+
   async function handleFileUndertime() {
-    if (!user.employeeId) return;
+    const trimmedReason = undertimeReason.trim();
+    if (!user.employeeId || !selectedLateRecordId || !trimmedReason) return;
     setIsFilingUndertime(true);
     setUndertimeErr(null);
     try {
-      await fileUndertime(user.employeeId, undertimeReason.trim() || undefined);
+      await fileUndertime(user.employeeId, selectedLateRecordId, trimmedReason);
       setUndertimeReason("");
+      setSelectedLateRecordId(null);
+      setUndertimeStep(1);
       await refreshAll();
-      setResultModal({ ok: true, title: "Undertime Filed", msg: "Your undertime filing for today has been recorded." });
+      setResultModal({ ok: true, title: "Undertime Filed", msg: "Your undertime filing has been submitted for your supervisor's review." });
     } catch (err) {
       setUndertimeErr(err instanceof Error ? err.message : "Unable to file undertime.");
     } finally { setIsFilingUndertime(false); }
@@ -1271,58 +1291,203 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
           </div>
 
           {/* Everything here mirrors whatever the backend's eligibility check
-              returns — the 8th/23rd filing days and the 3-per-month cap are
-              not hardcoded on this page, only reflected from the API. */}
+              returns — the 8th/23rd filing days and the cutoff dates are not
+              hardcoded on this page, only reflected from the API. */}
           {undertimeEligibility && (
             <p style={{ color: "#475569", fontSize: 13, marginTop: 0, marginBottom: 14, lineHeight: "18px" }}>
-              {undertimeEligibility.filedThisMonth}/{undertimeEligibility.maxFilingsPerMonth} filed this month.{" "}
-              {undertimeEligibility.alreadyFiledToday
-                ? "You've already filed undertime today."
-                : !undertimeEligibility.isFilingDay
-                  ? `Undertime can only be filed on the ${undertimeEligibility.filingDaysOfMonth.join(" or ")} of the month.`
-                  : undertimeEligibility.remaining <= 0
-                    ? "You've reached this month's filing limit."
-                    : "You're eligible to file undertime today."}
+              Cutoff: {new Date(undertimeEligibility.targetCutoff.start).toLocaleDateString()} - {new Date(undertimeEligibility.targetCutoff.end).toLocaleDateString()}.{" "}
+              {!undertimeEligibility.isFilingDay
+                ? `Undertime can only be filed on the ${undertimeEligibility.filingDaysOfMonth.join(" or ")} of the month.`
+                : undertimeEligibility.existingFiling
+                  ? "You've already filed undertime for this cutoff."
+                  : undertimeEligibility.lateRecords.length === 0
+                    ? "You have no late attendance within this cutoff to file."
+                    : "Select one late day below to file undertime for this cutoff."}
             </p>
           )}
 
-          <label style={fldLbl}>Reason (optional)</label>
-          <textarea
-            value={undertimeReason}
-            onChange={(e) => setUndertimeReason(e.target.value)}
-            placeholder="Optional note for this filing"
-            style={{ ...dateInp, height: 70, resize: "vertical", width: "100%", boxSizing: "border-box" }}
-          />
+          {undertimeEligibility?.existingFiling ? (
+            (() => {
+              const filing = undertimeEligibility.existingFiling;
+              const tone = statusTone(filing.status);
+              return (
+                <div style={{ background: "#F8FAFC", borderRadius: 12, padding: 12 }}>
+                  <p style={{ fontWeight: 700, margin: 0, fontSize: 13 }}>
+                    {filing.attendanceRecord ? new Date(filing.attendanceRecord.attendanceDate).toLocaleDateString() : "—"}
+                  </p>
+                  {filing.attendanceRecord && (
+                    <p style={{ color: "#64748B", fontSize: 12, margin: "3px 0 0" }}>{filing.attendanceRecord.lateMinutes} minute(s) late</p>
+                  )}
+                  {filing.reason && <p style={{ color: "#64748B", fontSize: 12, margin: "3px 0 0" }}>{filing.reason}</p>}
+                  <span style={{ display: "inline-block", marginTop: 8, fontSize: 11, fontWeight: 700, padding: "4px 9px", borderRadius: 999, color: tone.color, background: tone.bg }}>
+                    {statusLabel(filing.status)}
+                  </span>
+                  {filing.status === "REJECTED" && filing.remarks && (
+                    <p style={{ color: "#64748B", fontSize: 12, margin: "8px 0 0" }}>Remarks: {filing.remarks}</p>
+                  )}
+                </div>
+              );
+            })()
+          ) : undertimeEligibility && undertimeEligibility.isFilingDay && undertimeEligibility.lateRecords.length > 0 ? (
+            <>
+              {/* Progress indicator */}
+              <div style={{ display: "flex", alignItems: "center", marginTop: 4, marginBottom: 4 }}>
+                {(["Pick Day", "Reason", "Review"] as const).map((label, index) => {
+                  const stepNumber = (index + 1) as 1 | 2 | 3;
+                  const done = stepNumber < undertimeStep;
+                  const current = stepNumber === undertimeStep;
+                  return (
+                    <div key={label} style={{ display: "flex", alignItems: "center", flex: stepNumber < 3 ? 1 : undefined }}>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 64 }}>
+                        <div
+                          style={{
+                            width: 28, height: 28, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center",
+                            background: done ? "#062B59" : current ? "#DC2777" : "#F1F5F9",
+                          }}
+                        >
+                          {done ? (
+                            <Check size={14} color="#FFFFFF" />
+                          ) : (
+                            <span style={{ fontSize: 13, fontWeight: 700, color: current ? "#FFFFFF" : "#94A3B8" }}>{stepNumber}</span>
+                          )}
+                        </div>
+                        <span style={{ fontSize: 10, fontWeight: 700, marginTop: 5, textAlign: "center", color: done ? "#062B59" : current ? "#DC2777" : "#94A3B8" }}>
+                          {label.toUpperCase()}
+                        </span>
+                      </div>
+                      {stepNumber < 3 && (
+                        <div style={{ flex: 1, height: 2, marginBottom: 15, background: stepNumber < undertimeStep ? "#062B59" : "#E2E8F0" }} />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
 
-          {undertimeErr && (
-            <p style={{ color: "#DC2626", fontSize: 12, marginTop: 8 }}>{undertimeErr}</p>
-          )}
+              {undertimeStep === 1 && (
+                <>
+                  <p style={{ color: "#062B59", fontSize: 15, fontWeight: 700, margin: "14px 0 6px" }}>Pick Your Late Day</p>
+                  <div style={{ marginBottom: 12 }}>
+                    {undertimeEligibility.lateRecords.map((record) => {
+                      const selected = selectedLateRecordId === record.id;
+                      return (
+                        <div
+                          key={record.id}
+                          onClick={() => setSelectedLateRecordId(record.id)}
+                          style={{
+                            display: "flex", alignItems: "center", justifyContent: "space-between",
+                            padding: "10px 12px", borderRadius: 10, marginBottom: 6, cursor: "pointer",
+                            border: `1px solid ${selected ? "#DC2777" : "#E2E8F0"}`,
+                            background: selected ? "#FCE7F3" : "#FFFFFF",
+                          }}
+                        >
+                          <span style={{ fontSize: 13, color: "#334155", fontWeight: selected ? 700 : 400 }}>
+                            {new Date(record.attendanceDate).toLocaleDateString()} — {record.lateMinutes} minute(s) late
+                          </span>
+                          {selected && <CheckCircle size={16} color="#DC2777" />}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <button
+                    disabled={!selectedLateRecordId}
+                    onClick={goToUndertimeStep2}
+                    style={{ ...primBtn, opacity: !selectedLateRecordId ? 0.6 : 1, cursor: !selectedLateRecordId ? "not-allowed" : "pointer" }}
+                  >
+                    Next
+                  </button>
+                </>
+              )}
 
-          <button
-            disabled={isFilingUndertime || !undertimeEligibility?.eligible}
-            onClick={handleFileUndertime}
-            style={{
-              ...primBtn,
-              marginTop: 16,
-              opacity: isFilingUndertime || !undertimeEligibility?.eligible ? 0.6 : 1,
-              cursor: isFilingUndertime || !undertimeEligibility?.eligible ? "not-allowed" : "pointer",
-            }}
-          >
-            {isFilingUndertime ? "Filing…" : "File Undertime for Today"}
-          </button>
+              {undertimeStep === 2 && (
+                <>
+                  <p style={{ color: "#062B59", fontSize: 15, fontWeight: 700, margin: "14px 0 6px" }}>Add a Reason</p>
+                  {selectedLateRecordForReview && (
+                    <p style={{ color: "#64748B", fontSize: 13, margin: "0 0 10px" }}>
+                      {new Date(selectedLateRecordForReview.attendanceDate).toLocaleDateString()} — {selectedLateRecordForReview.lateMinutes} minute(s) late
+                    </p>
+                  )}
+                  <label style={{ ...fldLbl, display: "inline-flex", alignItems: "baseline", gap: 4 }}>
+                    Reason <span style={{ color: "#DC2626", fontWeight: 700 }}>*</span>
+                  </label>
+                  <textarea
+                    value={undertimeReason}
+                    onChange={(e) => setUndertimeReason(e.target.value)}
+                    placeholder="Why are you filing undertime for this day?"
+                    style={{ ...dateInp, height: 90, resize: "vertical", width: "100%", boxSizing: "border-box" }}
+                  />
+                  {undertimeErr && (
+                    <p style={{ color: "#DC2626", fontSize: 12, marginTop: 8 }}>{undertimeErr}</p>
+                  )}
+                  <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+                    <button onClick={goToPreviousUndertimeStep} style={{ ...outlineBtn, flex: 1, width: "auto" }}>
+                      Back
+                    </button>
+                    <button
+                      disabled={!undertimeReason.trim()}
+                      onClick={goToUndertimeStep3}
+                      style={{ ...primBtn, flex: 1, width: "auto", opacity: !undertimeReason.trim() ? 0.6 : 1, cursor: !undertimeReason.trim() ? "not-allowed" : "pointer" }}
+                    >
+                      Next
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {undertimeStep === 3 && selectedLateRecordForReview && (
+                <>
+                  <p style={{ color: "#062B59", fontSize: 15, fontWeight: 700, margin: "14px 0 10px" }}>Review &amp; Submit</p>
+                  <div style={{ background: "#FDF2F8", border: "1px solid #FBCFE8", borderRadius: 14, padding: 14 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, borderBottom: "1px solid #FBCFE8", marginBottom: 8, paddingBottom: 8 }}>
+                      <span style={{ fontSize: 12, color: "#9D174D", fontWeight: 600 }}>Late Day</span>
+                      <span style={{ fontSize: 12, color: "#831843", fontWeight: 700 }}>
+                        {new Date(selectedLateRecordForReview.attendanceDate).toLocaleDateString()} ({selectedLateRecordForReview.lateMinutes} min)
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                      <span style={{ fontSize: 12, color: "#9D174D", fontWeight: 600, whiteSpace: "nowrap" }}>Reason</span>
+                      <span style={{ fontSize: 12, color: "#831843", fontWeight: 700, textAlign: "right" }}>{undertimeReason}</span>
+                    </div>
+                  </div>
+                  {undertimeErr && (
+                    <p style={{ color: "#DC2626", fontSize: 12, marginTop: 8 }}>{undertimeErr}</p>
+                  )}
+                  <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+                    <button onClick={goToPreviousUndertimeStep} disabled={isFilingUndertime} style={{ ...outlineBtn, flex: 1, width: "auto" }}>
+                      Back
+                    </button>
+                    <button
+                      disabled={isFilingUndertime}
+                      onClick={handleFileUndertime}
+                      style={{ ...primBtn, flex: 1, width: "auto", opacity: isFilingUndertime ? 0.6 : 1, cursor: isFilingUndertime ? "not-allowed" : "pointer" }}
+                    >
+                      {isFilingUndertime ? "Filing…" : "Submit"}
+                    </button>
+                  </div>
+                </>
+              )}
+            </>
+          ) : null}
 
           <p style={{ color: "#062B59", fontSize: 13, fontWeight: 700, marginTop: 22, marginBottom: 8 }}>
-            This Month's Filings
+            Recent Filings
           </p>
           {undertimeFilings.length === 0 ? (
             <p style={{ color: "#94A3B8", fontSize: 13 }}>No undertime filings yet.</p>
           ) : (
-            undertimeFilings.map((f) => (
-              <div key={f.id} style={{ background: "#F8FAFC", borderRadius: 12, padding: 12, marginBottom: 8 }}>
-                <p style={{ fontWeight: 700, margin: 0, fontSize: 13 }}>{new Date(f.filingDate).toLocaleDateString()}</p>
-                {f.reason && <p style={{ color: "#64748B", fontSize: 12, margin: "3px 0 0" }}>{f.reason}</p>}
-              </div>
-            ))
+            undertimeFilings.map((f) => {
+              const tone = statusTone(f.status);
+              return (
+                <div key={f.id} style={{ background: "#F8FAFC", borderRadius: 12, padding: 12, marginBottom: 8 }}>
+                  <p style={{ fontWeight: 700, margin: 0, fontSize: 13 }}>
+                    {f.attendanceRecord ? new Date(f.attendanceRecord.attendanceDate).toLocaleDateString() : new Date(f.filingDate).toLocaleDateString()}
+                  </p>
+                  {f.reason && <p style={{ color: "#64748B", fontSize: 12, margin: "3px 0 0" }}>{f.reason}</p>}
+                  <span style={{ display: "inline-block", marginTop: 8, fontSize: 11, fontWeight: 700, padding: "4px 9px", borderRadius: 999, color: tone.color, background: tone.bg }}>
+                    {statusLabel(f.status)}
+                  </span>
+                </div>
+              );
+            })
           )}
         </div>
       )}
@@ -1595,6 +1760,12 @@ const primBtn: CSSProperties = {
   display: "block", width: "100%", height: 50,
   borderRadius: 14, border: "none",
   background: "#062B59", color: "#FFFFFF",
+  fontSize: 14, fontWeight: 700, cursor: "pointer",
+};
+const outlineBtn: CSSProperties = {
+  display: "block", width: "100%", height: 50,
+  borderRadius: 14, border: "1px solid #E2E8F0",
+  background: "#FFFFFF", color: "#475569",
   fontSize: 14, fontWeight: 700, cursor: "pointer",
 };
 const hiddenFileInput: CSSProperties = {

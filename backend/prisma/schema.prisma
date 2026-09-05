@@ -119,6 +119,12 @@ enum LeaveStatus {
   CANCELLATION_PENDING
 }
 
+enum UndertimeStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum LeaveRequestNoteType {
   REJECTED
   RESUBMITTED
@@ -191,6 +197,8 @@ model User {
   passwordResetOtps      PasswordResetOtp[]
   reviewedLeaveRequests  LeaveRequest[]
   reviewedAttendanceLogs AttendanceLog[]
+  reviewedUndertimeFilings UndertimeFiling[]
+  updatedUndertimeSettings UndertimeSettings[] @relation("UndertimeSettingsUpdatedBy")
   leaveRequestNotes      LeaveRequestNote[]
   createdLeaveTypes      LeaveType[]        @relation("LeaveTypeCreatedBy")
   updatedLeaveTypes      LeaveType[]        @relation("LeaveTypeUpdatedBy")
@@ -455,6 +463,7 @@ model AttendanceRecord {
   workLocation     WorkLocation?        @relation(fields: [workLocationId], references: [id])
   shift            Shift?               @relation(fields: [shiftId], references: [id])
   logs             AttendanceLog[]
+  undertimeFilings UndertimeFiling[]
 
   @@unique([employeeId, attendanceDate, recordType, visitNumber])
   @@index([attendanceDate])
@@ -646,23 +655,52 @@ model LeaveBalance {
   @@map("leave_balances")
 }
 
-// A self-filed notice of intent to render undertime, independent of the
-// automatic AttendanceRecord.undertimeMinutes computed from actual clock-out
-// vs. shift end. Filing is only permitted on the 8th/23rd of the month, capped
-// at 3 per employee per calendar month — both enforced in UndertimeService,
-// never trusted from the client. No approval workflow: filing itself is the
-// record, matching what HR described (no mention of a review step, unlike
-// leave requests).
+// A self-filed notice of intent to render undertime against a specific late
+// AttendanceRecord, requiring approval — a Supervisor approves an employee's
+// filing, while HR/Admin approves a Supervisor's own filing (same self-review
+// escalation as LeaveRequest, see leave.service.ts). Filing is only permitted
+// on the 8th/23rd of the month, capped at one filing per cutoff period per
+// employee — both enforced in UndertimeService, never trusted from the
+// client. cutoffStart/cutoffEnd are persisted (not re-derived from
+// filingDate via cutoff.util.ts at read time) so "already filed this cutoff"
+// stays a plain unique-constraint lookup even if the filing-day rules change
+// later.
 model UndertimeFiling {
-  id         String   @id @default(uuid())
-  employeeId String   @map("employee_id")
-  filingDate DateTime @map("filing_date")
-  reason     String?
-  createdAt  DateTime @default(now()) @map("created_at")
-  employee   Employee @relation(fields: [employeeId], references: [id])
+  id                 String          @id @default(uuid())
+  employeeId         String          @map("employee_id")
+  filingDate         DateTime        @map("filing_date")
+  attendanceRecordId String          @map("attendance_record_id")
+  cutoffStart        DateTime        @map("cutoff_start")
+  cutoffEnd          DateTime        @map("cutoff_end")
+  reason             String?
+  status             UndertimeStatus @default(PENDING)
+  reviewedBy         String?         @map("reviewed_by")
+  reviewedAt         DateTime?       @map("reviewed_at")
+  remarks            String?
+  createdAt          DateTime        @default(now()) @map("created_at")
+  employee           Employee         @relation(fields: [employeeId], references: [id])
+  attendanceRecord   AttendanceRecord @relation(fields: [attendanceRecordId], references: [id])
+  reviewer           User?            @relation(fields: [reviewedBy], references: [id])
 
+  @@unique([employeeId, cutoffStart])
   @@index([employeeId, filingDate])
+  @@index([attendanceRecordId])
   @@map("undertime_filings")
+}
+
+// Single-row config (id is always the literal "singleton") holding the
+// admin-editable days of the month undertime may be filed on — was a
+// hardcoded constant, now editable via UndertimeService.updateSettings.
+// Lazily created on first read/write rather than seeded, same as any other
+// upsert-on-access singleton.
+model UndertimeSettings {
+  id                String    @id @default("singleton")
+  filingDaysOfMonth Int[]     @default([8, 23]) @map("filing_days_of_month")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  updatedBy         String?   @map("updated_by")
+  updatedByUser     User?     @relation("UndertimeSettingsUpdatedBy", fields: [updatedBy], references: [id])
+
+  @@map("undertime_settings")
 }
 
 model Shift {

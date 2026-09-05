@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, Building2, CalendarClock, CheckCircle2, ClipboardList, DatabaseBackup, History, Megaphone } from "lucide-react";
+import { AlertTriangle, Building2, CalendarClock, CheckCircle2, ClipboardList, DatabaseBackup, History, Megaphone, Timer } from "lucide-react";
 import { PermissionCode, permissions } from "../../types/rbac";
 import { LeaveTypesTab } from "./LeaveTypesTab";
+import { UndertimeSettingsCard } from "./UndertimeSettingsCard";
 import { ShiftsTab } from "./ShiftsTab";
 import { AuditLogsTab } from "./AuditLogsTab";
 import { DepartmentsTab } from "./DepartmentsTab";
@@ -10,7 +11,7 @@ import { BackupRestoreTab } from "./BackupRestoreTab";
 import "./UtilitiesPage.css";
 
 export type Notification = { type: "success" | "error"; message: string } | null;
-type UtilTab = "leave-types" | "shifts" | "departments" | "announcements" | "backup-restore" | "audit-logs";
+type UtilTab = "leave-types" | "undertime" | "shifts" | "departments" | "announcements" | "backup-restore" | "audit-logs";
 
 export function UtilitiesPage({ user }: { user?: { permissions: PermissionCode[] } }) {
   const canManageLeaveTypes = user?.permissions.includes(permissions.leaveTypesWrite) ?? true;
@@ -37,6 +38,9 @@ export function UtilitiesPage({ user }: { user?: { permissions: PermissionCode[]
         <button className={tab === "leave-types" ? "active" : ""} onClick={() => setTab("leave-types")}>
           <ClipboardList size={14} /> Leave Types
         </button>
+        <button className={tab === "undertime" ? "active" : ""} onClick={() => setTab("undertime")}>
+          <Timer size={14} /> Undertime
+        </button>
         <button className={tab === "shifts" ? "active" : ""} onClick={() => setTab("shifts")}>
           <CalendarClock size={14} /> Shifts
         </button>
@@ -55,6 +59,7 @@ export function UtilitiesPage({ user }: { user?: { permissions: PermissionCode[]
       </div>
 
       {tab === "leave-types" && <LeaveTypesTab canManage={canManageLeaveTypes} notify={setNotification} />}
+      {tab === "undertime" && <UndertimeSettingsCard canManage={canManageLeaveTypes} notify={setNotification} />}
       {tab === "shifts" && <ShiftsTab canManageShifts={canManageShifts} notify={setNotification} />}
       {tab === "departments" && <DepartmentsTab user={user} notify={setNotification} />}
       {tab === "announcements" && <AnnouncementsTab user={user} notify={setNotification} />}

@@ -21,11 +21,15 @@ import LeaveTimeline from "../../components/LeaveTimeline";
 import AestheticScrollView from "../../components/AestheticScrollView";
 import {
   TeamLeaveRequest,
+  TeamUndertimeFiling,
   getTeamLeaveRequests,
   approveLeaveRequest,
   rejectLeaveRequest,
   approveLeaveCancellation,
   denyLeaveCancellation,
+  getTeamUndertimeFilings,
+  approveUndertimeFiling,
+  rejectUndertimeFiling,
 } from "../../api";
 import { useCachedData } from "../../utils/dataCache";
 
@@ -49,11 +53,15 @@ type Props = {
 export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusRequestId, onFocusRequestHandled }: Props) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [filter, setFilter] = useState<"PENDING" | "ALL">("PENDING");
+  const [requestType, setRequestType] = useState<"leave" | "undertime">("leave");
 
   const [reviewRequest, setReviewRequest] = useState<TeamLeaveRequest | null>(null);
   const [remarks, setRemarks] = useState("");
   const [reviewMode, setReviewMode] = useState<"reject" | "resubmit">("reject");
   const [requirementDetails, setRequirementDetails] = useState("");
+
+  const [reviewUndertime, setReviewUndertime] = useState<TeamUndertimeFiling | null>(null);
+  const [undertimeRemarks, setUndertimeRemarks] = useState("");
 
   const [resultModal, setResultModal] = useState<{ status: ResultModalStatus; title: string; message: string } | null>(null);
 
@@ -63,36 +71,53 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
   );
   const requests = data ?? [];
 
+  const {
+    data: undertimeData,
+    isLoading: isUndertimeLoading,
+    refresh: refreshUndertime,
+    setData: setUndertimeData,
+  } = useCachedData<TeamUndertimeFiling[]>("team-undertime-filings", getTeamUndertimeFilings);
+  const undertimeFilings = undertimeData ?? [];
+
   const load = useCallback(
     async (isRefresh = false) => {
       if (isRefresh) setIsRefreshing(true);
       try {
-        await refresh();
+        await Promise.all([refresh(), refreshUndertime()]);
       } catch (error) {
         console.error("Failed to load leave requests", error);
       } finally {
         setIsRefreshing(false);
       }
     },
-    [refresh],
+    [refresh, refreshUndertime],
   );
 
   // Keeps newly filed / updated team requests showing up here without the
-  // supervisor having to leave and reopen the tab.
+  // supervisor having to leave and reopen the tab. Both lists are polled
+  // together regardless of which segment is active, so switching segments
+  // never shows stale data.
   useEffect(() => {
-    const interval = setInterval(() => { refresh().catch(() => undefined); }, LEAVE_POLL_MS);
+    const interval = setInterval(() => {
+      refresh().catch(() => undefined);
+      refreshUndertime().catch(() => undefined);
+    }, LEAVE_POLL_MS);
     const appStateSub = AppState.addEventListener("change", (state) => {
-      if (state === "active") refresh().catch(() => undefined);
+      if (state === "active") {
+        refresh().catch(() => undefined);
+        refreshUndertime().catch(() => undefined);
+      }
     });
     return () => {
       clearInterval(interval);
       appStateSub.remove();
     };
-  }, [refresh]);
+  }, [refresh, refreshUndertime]);
 
   const visibleRequests = requests.filter((r) =>
     filter === "PENDING" ? r.status === "PENDING" || r.status === "CANCELLATION_PENDING" : true,
   );
+  const visibleUndertimeFilings = undertimeFilings.filter((f) => (filter === "PENDING" ? f.status === "PENDING" : true));
 
   function openReview(request: TeamLeaveRequest) {
     setReviewRequest(request);
@@ -111,6 +136,44 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
     openReview(match);
     onFocusRequestHandled?.();
   }, [initialFocusRequestId, requests]);
+
+  function openUndertimeReview(filing: TeamUndertimeFiling) {
+    setReviewUndertime(filing);
+    setUndertimeRemarks("");
+  }
+
+  function closeUndertimeReview() {
+    setReviewUndertime(null);
+    setUndertimeRemarks("");
+  }
+
+  const isOwnUndertime = reviewUndertime?.employee.id === currentEmployeeId;
+  // Same self-review rule as leave requests — a Supervisor's own filing must
+  // sit PENDING until HR/Admin reviews it directly (enforced server-side too,
+  // see undertime.service.ts's updateStatus).
+  const canReviewUndertime = reviewUndertime?.status === "PENDING" && !isOwnUndertime;
+
+  function handleUndertimeReview(action: "approve" | "reject") {
+    if (!reviewUndertime) return;
+    const targetId = reviewUndertime.id;
+    const newStatus = action === "approve" ? "APPROVED" : "REJECTED";
+    const remarksTrimmed = undertimeRemarks.trim();
+
+    setUndertimeData(undertimeFilings.map((f) => (f.id === targetId ? { ...f, status: newStatus } : f)));
+    setReviewUndertime(null);
+    setResultModal({
+      status: "approved",
+      title: action === "approve" ? "Approved" : "Rejected",
+      message: action === "approve" ? "This undertime filing has been approved." : "Undertime filing was rejected.",
+    });
+
+    (action === "approve" ? approveUndertimeFiling(targetId, remarksTrimmed) : rejectUndertimeFiling(targetId, remarksTrimmed))
+      .then(() => refreshUndertime())
+      .catch((error) => {
+        refreshUndertime().catch(() => undefined);
+        setResultModal({ status: "error", title: "Action Failed", message: error instanceof Error ? error.message : "Unable to review undertime filing." });
+      });
+  }
 
   const isOwnRequest = reviewRequest?.employee.id === currentEmployeeId;
   // Approval is single-step and final (see leave.controller.ts's /approve) —
@@ -211,6 +274,15 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
     <SafeAreaView style={styles.safeArea}>
       <SegmentedControl
         segments={[
+          { key: "leave", label: "Leave" },
+          { key: "undertime", label: "Undertime" },
+        ]}
+        value={requestType}
+        onChange={(key) => setRequestType(key as "leave" | "undertime")}
+        style={styles.tabSwitcher}
+      />
+      <SegmentedControl
+        segments={[
           { key: "PENDING", label: "Pending" },
           { key: "ALL", label: "All" },
         ]}
@@ -219,7 +291,46 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
         style={styles.tabSwitcher}
       />
 
-      {isLoading ? (
+      {requestType === "leave" ? (
+        isLoading ? (
+          <View style={styles.centered}>
+            <ActivityIndicator color="#062B59" size="large" />
+          </View>
+        ) : (
+          <AestheticScrollView
+            contentContainerStyle={styles.list}
+            refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => load(true)} tintColor="#062B59" />}
+          >
+            {visibleRequests.length === 0 ? (
+              <EmptyState
+                icon="calendar-outline"
+                title={filter === "PENDING" ? "No pending requests" : "No leave requests"}
+                message={filter === "PENDING" ? "You're all caught up." : "Requests from your team will show up here."}
+              />
+            ) : (
+              visibleRequests.map((request) => (
+                <Pressable key={request.id} style={({ pressed }) => [styles.card, pressed && styles.cardPressed]} onPress={() => openReview(request)}>
+                  <Avatar firstName={request.employee.firstName} lastName={request.employee.lastName} size={38} />
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.cardHeader}>
+                      <Text style={styles.employeeName} numberOfLines={1}>
+                        {request.employee.firstName} {request.employee.lastName}
+                      </Text>
+                      <StatusPill status={request.status} />
+                    </View>
+                    <Text style={styles.leaveType}>{request.leaveType.name}</Text>
+                    <Text style={styles.dateRange}>
+                      {new Date(request.startDate).toLocaleDateString()} - {new Date(request.endDate).toLocaleDateString()} · {request.totalDays} day
+                      {Number(request.totalDays) === 1 ? "" : "s"}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color="#CBD5E1" />
+                </Pressable>
+              ))
+            )}
+          </AestheticScrollView>
+        )
+      ) : isUndertimeLoading ? (
         <View style={styles.centered}>
           <ActivityIndicator color="#062B59" size="large" />
         </View>
@@ -228,27 +339,27 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
           contentContainerStyle={styles.list}
           refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => load(true)} tintColor="#062B59" />}
         >
-          {visibleRequests.length === 0 ? (
+          {visibleUndertimeFilings.length === 0 ? (
             <EmptyState
-              icon="calendar-outline"
-              title={filter === "PENDING" ? "No pending requests" : "No leave requests"}
-              message={filter === "PENDING" ? "You're all caught up." : "Requests from your team will show up here."}
+              icon="time-outline"
+              title={filter === "PENDING" ? "No pending filings" : "No undertime filings"}
+              message={filter === "PENDING" ? "You're all caught up." : "Undertime filings from your team will show up here."}
             />
           ) : (
-            visibleRequests.map((request) => (
-              <Pressable key={request.id} style={({ pressed }) => [styles.card, pressed && styles.cardPressed]} onPress={() => openReview(request)}>
-                <Avatar firstName={request.employee.firstName} lastName={request.employee.lastName} size={38} />
+            visibleUndertimeFilings.map((filing) => (
+              <Pressable key={filing.id} style={({ pressed }) => [styles.card, pressed && styles.cardPressed]} onPress={() => openUndertimeReview(filing)}>
+                <Avatar firstName={filing.employee.firstName} lastName={filing.employee.lastName} size={38} />
                 <View style={{ flex: 1 }}>
                   <View style={styles.cardHeader}>
                     <Text style={styles.employeeName} numberOfLines={1}>
-                      {request.employee.firstName} {request.employee.lastName}
+                      {filing.employee.firstName} {filing.employee.lastName}
                     </Text>
-                    <StatusPill status={request.status} />
+                    <StatusPill status={filing.status} />
                   </View>
-                  <Text style={styles.leaveType}>{request.leaveType.name}</Text>
                   <Text style={styles.dateRange}>
-                    {new Date(request.startDate).toLocaleDateString()} - {new Date(request.endDate).toLocaleDateString()} · {request.totalDays} day
-                    {Number(request.totalDays) === 1 ? "" : "s"}
+                    {filing.attendanceRecord
+                      ? `${new Date(filing.attendanceRecord.attendanceDate).toLocaleDateString()} · ${filing.attendanceRecord.lateMinutes} minute(s) late`
+                      : new Date(filing.filingDate).toLocaleDateString()}
                   </Text>
                 </View>
                 <Ionicons name="chevron-forward" size={18} color="#CBD5E1" />
@@ -373,6 +484,73 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
                           </Pressable>
                         </View>
                       )}
+                    </>
+                  )}
+                </>
+              )}
+            </AestheticScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={!!reviewUndertime} transparent animationType="fade" onRequestClose={closeUndertimeReview}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Pressable style={styles.modalCloseButton} onPress={closeUndertimeReview} hitSlop={10}>
+              <Ionicons name="close" size={20} color="#64748B" />
+            </Pressable>
+
+            <AestheticScrollView keyboardShouldPersistTaps="handled">
+              {reviewUndertime && (
+                <>
+                  <View style={styles.modalHeaderRow}>
+                    <Avatar firstName={reviewUndertime.employee.firstName} lastName={reviewUndertime.employee.lastName} size={46} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.modalTitle}>
+                        {reviewUndertime.employee.firstName} {reviewUndertime.employee.lastName}
+                      </Text>
+                      <Text style={styles.modalSubtitle}>Undertime Filing</Text>
+                    </View>
+                  </View>
+                  <View style={styles.modalStatusRow}>
+                    <StatusPill status={reviewUndertime.status} />
+                  </View>
+                  {reviewUndertime.attendanceRecord && (
+                    <Text style={styles.modalMeta}>
+                      {new Date(reviewUndertime.attendanceRecord.attendanceDate).toLocaleDateString()} · {reviewUndertime.attendanceRecord.lateMinutes} minute(s) late
+                    </Text>
+                  )}
+                  {reviewUndertime.reason && <Text style={styles.reasonText}>{reviewUndertime.reason}</Text>}
+                  {reviewUndertime.status !== "PENDING" && reviewUndertime.remarks && (
+                    <Text style={styles.reasonText}>Remarks: {reviewUndertime.remarks}</Text>
+                  )}
+
+                  {isOwnUndertime && (
+                    <Text style={styles.warningText}>This is your own undertime filing — HR must review it.</Text>
+                  )}
+                  {!isOwnUndertime && reviewUndertime.status !== "PENDING" && (
+                    <Text style={styles.warningText}>This filing has already been reviewed.</Text>
+                  )}
+
+                  {canReviewUndertime && (
+                    <>
+                      <Text style={styles.label}>Remarks</Text>
+                      <TextInput
+                        style={styles.textArea}
+                        multiline
+                        placeholder="Optional remarks"
+                        value={undertimeRemarks}
+                        onChangeText={setUndertimeRemarks}
+                      />
+
+                      <View style={styles.modalActions}>
+                        <Pressable style={styles.rejectButton} onPress={() => handleUndertimeReview("reject")}>
+                          <Text style={styles.rejectText}>Reject</Text>
+                        </Pressable>
+                        <Pressable style={styles.approveButton} onPress={() => handleUndertimeReview("approve")}>
+                          <Text style={styles.approveText}>Approve</Text>
+                        </Pressable>
+                      </View>
                     </>
                   )}
                 </>

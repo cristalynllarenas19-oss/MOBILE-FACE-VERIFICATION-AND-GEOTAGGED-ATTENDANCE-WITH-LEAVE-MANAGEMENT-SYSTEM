@@ -322,21 +322,33 @@ export function resubmitLeaveRequest(id: string, input: ResubmitLeaveRequestInpu
   });
 }
 
-export type UndertimeEligibility = {
-  isFilingDay: boolean;
-  filingDaysOfMonth: number[];
-  maxFilingsPerMonth: number;
-  filedThisMonth: number;
-  remaining: number;
-  alreadyFiledToday: boolean;
-  eligible: boolean;
+export type LateAttendanceRecord = {
+  id: string;
+  attendanceDate: string;
+  lateMinutes: number;
+  timeInAt: string | null;
 };
 
 export type UndertimeFiling = {
   id: string;
   filingDate: string;
+  attendanceRecordId: string;
+  cutoffStart: string;
+  cutoffEnd: string;
   reason: string | null;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  remarks: string | null;
   createdAt: string;
+  attendanceRecord?: LateAttendanceRecord;
+};
+
+export type UndertimeEligibility = {
+  isFilingDay: boolean;
+  filingDaysOfMonth: number[];
+  targetCutoff: { start: string; end: string };
+  lateRecords: LateAttendanceRecord[];
+  existingFiling: UndertimeFiling | null;
+  eligible: boolean;
 };
 
 export function getUndertimeEligibility(employeeId: string) {
@@ -347,10 +359,10 @@ export function getUndertimeFilings(employeeId: string) {
   return apiRequest<UndertimeFiling[]>(`/undertime-filings?employeeId=${employeeId}`);
 }
 
-export function fileUndertime(employeeId: string, reason?: string) {
+export function fileUndertime(employeeId: string, attendanceRecordId: string, reason: string) {
   return apiRequest<UndertimeFiling>("/undertime-filings", {
     method: "POST",
-    body: JSON.stringify({ employeeId, reason }),
+    body: JSON.stringify({ employeeId, attendanceRecordId, reason }),
   });
 }
 

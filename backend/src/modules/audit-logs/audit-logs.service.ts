@@ -41,7 +41,7 @@ const EXPORT_MAX_ROWS = 5000;
 // without needing a schema change to track a module on each log row.
 const MODULE_ENTITY_TYPES: Record<string, string[]> = {
   Authentication: ["User"],
-  Leave: ["LeaveType", "LeaveRequest", "LeaveBalance"],
+  Leave: ["LeaveType", "LeaveRequest", "LeaveBalance", "UndertimeFiling", "UndertimeSettings"],
   Schedules: ["Shift", "EmployeeSchedule"],
   Employees: ["Employee"],
   Attendance: ["AttendanceRecord"],
@@ -169,6 +169,16 @@ export class AuditLogsService {
             });
             for (const row of rows) {
               names.set(row.id, `${row.employee.firstName} ${row.employee.lastName} — ${row.leaveType.name}`);
+            }
+            break;
+          }
+          case "UndertimeFiling": {
+            const rows = await this.prisma.undertimeFiling.findMany({
+              where: { id: { in: ids } },
+              select: { id: true, employee: { select: { firstName: true, lastName: true } }, attendanceRecord: { select: { attendanceDate: true } } },
+            });
+            for (const row of rows) {
+              names.set(row.id, `${row.employee.firstName} ${row.employee.lastName} — ${row.attendanceRecord.attendanceDate.toLocaleDateString()}`);
             }
             break;
           }

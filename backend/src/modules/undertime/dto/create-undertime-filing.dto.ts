@@ -1,10 +1,13 @@
-import { IsOptional, IsString } from "class-validator";
+import { IsNotEmpty, IsString } from "class-validator";
 
 export class CreateUndertimeFilingDto {
   @IsString()
   employeeId!: string;
 
-  @IsOptional()
   @IsString()
-  reason?: string;
+  attendanceRecordId!: string;
+
+  @IsString()
+  @IsNotEmpty({ message: "A reason is required to file undertime." })
+  reason!: string;
 }
