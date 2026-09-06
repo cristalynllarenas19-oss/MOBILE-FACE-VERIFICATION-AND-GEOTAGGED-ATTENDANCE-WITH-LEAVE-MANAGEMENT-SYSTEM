@@ -130,7 +130,6 @@ export default function LeaveBalanceChart({ balances, loading, pendingCount, onP
   return (
     <View style={styles.card}>
       {header}
-      {viewAllButton}
 
       <View style={styles.summaryRow}>
         <View style={styles.ringWrap}>
@@ -180,6 +179,8 @@ export default function LeaveBalanceChart({ balances, loading, pendingCount, onP
         </View>
       </View>
 
+      {viewAllButton}
+
       <View style={styles.divider} />
 
       <AestheticScrollView style={styles.barsScroll} nestedScrollEnabled>
@@ -223,7 +224,6 @@ const styles = StyleSheet.create({
     padding: 14,
     borderWidth: 1,
     borderColor: "#E2E8F0",
-    marginBottom: 12,
   },
   centered: {
     alignItems: "center",
@@ -270,6 +270,7 @@ const styles = StyleSheet.create({
     borderColor: "#BFDBFE",
     borderRadius: 10,
     paddingVertical: 8,
+    marginTop: 12,
     marginBottom: 12,
   },
   viewAllButtonText: {

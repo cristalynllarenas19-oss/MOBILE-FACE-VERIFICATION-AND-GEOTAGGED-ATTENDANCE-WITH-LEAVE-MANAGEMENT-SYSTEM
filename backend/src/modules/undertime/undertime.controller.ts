@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Patch, Post, Query, Req } from "@nestjs/c
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
 import { getAuditContext } from "../../common/utils/audit-context.util";
 import { getSupervisorDepartmentScope } from "../../common/utils/supervisor-scope.util";
+import { CutoffBounds } from "../../common/utils/cutoff.util";
 import { CreateUndertimeFilingDto } from "./dto/create-undertime-filing.dto";
 import { UndertimeService } from "./undertime.service";
 
@@ -44,6 +45,12 @@ export class UndertimeController {
   @RequirePermissions("leave-types:write")
   updateSettings(@Body() body: { filingDaysOfMonth: number[] }, @Req() request: Request) {
     return this.undertimeService.updateSettings(body.filingDaysOfMonth, getAuditContext(request));
+  }
+
+  @Patch("settings/cutoffs")
+  @RequirePermissions("leave-types:write")
+  updateCutoffBounds(@Body() body: CutoffBounds, @Req() request: Request) {
+    return this.undertimeService.updateCutoffBounds(body, getAuditContext(request));
   }
 
   @Post()

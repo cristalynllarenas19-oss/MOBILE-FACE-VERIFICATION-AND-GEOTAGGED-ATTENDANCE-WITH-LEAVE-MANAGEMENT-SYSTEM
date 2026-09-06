@@ -741,6 +741,10 @@ model UndertimeFiling {
 model UndertimeSettings {
   id                String    @id @default("singleton")
   filingDaysOfMonth Int[]     @default([8, 23]) @map("filing_days_of_month")
+  cutoff1Start      Int       @default(11) @map("cutoff1_start")
+  cutoff1End        Int       @default(25) @map("cutoff1_end")
+  cutoff2Start      Int       @default(26) @map("cutoff2_start")
+  cutoff2End        Int       @default(10) @map("cutoff2_end")
   updatedAt         DateTime  @updatedAt @map("updated_at")
   updatedBy         String?   @map("updated_by")
   updatedByUser     User?     @relation("UndertimeSettingsUpdatedBy", fields: [updatedBy], references: [id])

@@ -1,7 +1,7 @@
 
 
 import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronUp, FileText, Paperclip, Search, X, XCircle } from "lucide-react";
+import { AlertCircle, Calendar, CalendarClock, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronUp, FileText, Lock as LockIcon, Paperclip, Search, X, XCircle } from "lucide-react";
 import "./EmployeePortal.css";
 import {
   LeaveType, LeaveBalance, LeaveRequest, UndertimeEligibility, UndertimeFiling, MySchedule,
@@ -72,6 +72,54 @@ function statusLabel(s: string) {
   // see the same status for this request.
   if (s === "CANCELLATION_PENDING") return "PENDING CANCELLATION";
   return s.replace(/_/g, " ");
+}
+
+// Same visual language as components/ui/LeaveTimeline.tsx (label, node/line
+// rail, tone colors/symbols) but with its own tiny step-builder — undertime's
+// Filed/Review/Approved/Rejected vocabulary doesn't fit LeaveTimeline's
+// leave-specific action union, so this mirrors the style rather than the
+// component.
+type UndertimeTimelineTone = "done" | "current" | "danger";
+type UndertimeTimelineStep = { key: string; tone: UndertimeTimelineTone; title: string; when: string; detail: string };
+
+const UNDERTIME_TIMELINE_TONE_STYLE: Record<UndertimeTimelineTone, { bg: string; fg: string; border: string; line: string }> = {
+  done: { bg: "#1680D8", fg: "#FFFFFF", border: "#1680D8", line: "#1680D8" },
+  current: { bg: "#E6F2FC", fg: "#1680D8", border: "#1680D8", line: "#E2E8F0" },
+  danger: { bg: "#FEE2E2", fg: "#B91C1C", border: "#FEE2E2", line: "#E2E8F0" },
+};
+const UNDERTIME_TIMELINE_TONE_SYMBOL: Record<UndertimeTimelineTone, string> = {
+  done: "✓",
+  current: "···",
+  danger: "×",
+};
+
+function formatUndertimeTimelineDate(iso: string) {
+  const date = new Date(iso);
+  return (
+    date.toLocaleDateString(undefined, { month: "short", day: "numeric" }) +
+    ", " +
+    date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+  );
+}
+
+function buildUndertimeTimelineSteps(filing: UndertimeFiling): UndertimeTimelineStep[] {
+  const steps: UndertimeTimelineStep[] = [
+    { key: "filed", tone: "done", title: "Filed", when: formatUndertimeTimelineDate(filing.createdAt), detail: "Submitted." },
+  ];
+  if (filing.reviewedAt) {
+    steps.push({
+      key: "reviewed",
+      tone: filing.status === "REJECTED" ? "danger" : "done",
+      title: filing.status === "APPROVED" ? "Approved" : filing.status === "REJECTED" ? "Rejected" : "Reviewed",
+      when: formatUndertimeTimelineDate(filing.reviewedAt),
+      detail: filing.status === "REJECTED"
+        ? `Rejected.${filing.remarks ? ` "${filing.remarks}"` : ""}`
+        : "Approved.",
+    });
+  } else {
+    steps.push({ key: "review-current", tone: "current", title: "Review", when: "In progress", detail: "Awaiting review from the supervisor or HR." });
+  }
+  return steps;
 }
 
 function fmtBytes(b: number) {
@@ -229,9 +277,33 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
   const [undertimeErr,         setUndertimeErr]         = useState<string | null>(null);
   const [undertimeStep,        setUndertimeStep]        = useState<1 | 2 | 3>(1);
 
+  // Filing history — a button + filter modal (status chips, filed-from/to
+  // calendar range) instead of an always-inline list, mirroring "My Leave
+  // Requests" above and employee-mobile's LeaveScreen.tsx.
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyStatusFilter, setHistoryStatusFilter] = useState<"ALL" | "PENDING" | "APPROVED" | "REJECTED">("ALL");
+  const [historyDateFrom, setHistoryDateFrom] = useState("");
+  const [historyDateTo, setHistoryDateTo] = useState("");
+  const [expandedHistoryFilingId, setExpandedHistoryFilingId] = useState<string | null>(null);
+
   const fileRef = useRef<HTMLInputElement>(null);
 
   const selectedLateRecordForReview = undertimeEligibility?.lateRecords.find((r) => r.id === selectedLateRecordId) ?? null;
+
+  const visibleHistoryFilings = undertimeFilings.filter((f) => {
+    if (historyStatusFilter !== "ALL" && f.status !== historyStatusFilter) return false;
+    const recordDate = f.attendanceRecord ? new Date(f.attendanceRecord.attendanceDate) : new Date(f.filingDate);
+    if (historyDateFrom) {
+      const [y, m, d] = historyDateFrom.split("-").map(Number);
+      if (recordDate < new Date(y, m - 1, d)) return false;
+    }
+    if (historyDateTo) {
+      const [y, m, d] = historyDateTo.split("-").map(Number);
+      if (recordDate > new Date(y, m - 1, d, 23, 59, 59, 999)) return false;
+    }
+    return true;
+  });
+  const expandedHistoryFiling = undertimeFilings.find((f) => f.id === expandedHistoryFilingId) ?? null;
   const selectedType    = leaveTypes.find((t) => t.id === leaveTypeId);
   const filteredTypes   = leaveTypes
     .filter((t) => t.isActive)
@@ -1306,189 +1378,438 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
             </p>
           )}
 
-          {undertimeEligibility?.existingFiling ? (
-            (() => {
-              const filing = undertimeEligibility.existingFiling;
-              const tone = statusTone(filing.status);
-              return (
-                <div style={{ background: "#F8FAFC", borderRadius: 12, padding: 12 }}>
-                  <p style={{ fontWeight: 700, margin: 0, fontSize: 13 }}>
-                    {filing.attendanceRecord ? new Date(filing.attendanceRecord.attendanceDate).toLocaleDateString() : "—"}
-                  </p>
-                  {filing.attendanceRecord && (
-                    <p style={{ color: "#64748B", fontSize: 12, margin: "3px 0 0" }}>{filing.attendanceRecord.lateMinutes} minute(s) late</p>
-                  )}
-                  {filing.reason && <p style={{ color: "#64748B", fontSize: 12, margin: "3px 0 0" }}>{filing.reason}</p>}
-                  <span style={{ display: "inline-block", marginTop: 8, fontSize: 11, fontWeight: 700, padding: "4px 9px", borderRadius: 999, color: tone.color, background: tone.bg }}>
-                    {statusLabel(filing.status)}
-                  </span>
-                  {filing.status === "REJECTED" && filing.remarks && (
-                    <p style={{ color: "#64748B", fontSize: 12, margin: "8px 0 0" }}>Remarks: {filing.remarks}</p>
-                  )}
-                </div>
-              );
-            })()
-          ) : undertimeEligibility && undertimeEligibility.isFilingDay && undertimeEligibility.lateRecords.length > 0 ? (
-            <>
-              {/* Progress indicator */}
-              <div style={{ display: "flex", alignItems: "center", marginTop: 4, marginBottom: 4 }}>
-                {(["Pick Day", "Reason", "Review"] as const).map((label, index) => {
-                  const stepNumber = (index + 1) as 1 | 2 | 3;
-                  const done = stepNumber < undertimeStep;
-                  const current = stepNumber === undertimeStep;
-                  return (
-                    <div key={label} style={{ display: "flex", alignItems: "center", flex: stepNumber < 3 ? 1 : undefined }}>
-                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 64 }}>
-                        <div
-                          style={{
-                            width: 28, height: 28, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center",
-                            background: done ? "#062B59" : current ? "#DC2777" : "#F1F5F9",
-                          }}
-                        >
-                          {done ? (
-                            <Check size={14} color="#FFFFFF" />
-                          ) : (
-                            <span style={{ fontSize: 13, fontWeight: 700, color: current ? "#FFFFFF" : "#94A3B8" }}>{stepNumber}</span>
-                          )}
-                        </div>
-                        <span style={{ fontSize: 10, fontWeight: 700, marginTop: 5, textAlign: "center", color: done ? "#062B59" : current ? "#DC2777" : "#94A3B8" }}>
-                          {label.toUpperCase()}
-                        </span>
+          {/* Fixed height, regardless of state — the card must never resize
+              as the wizard moves between steps, resolves to a locked state,
+              or has nothing to show. */}
+          <div style={{ height: 310, overflow: "hidden", marginTop: 4 }}>
+            {!undertimeEligibility ? null : undertimeEligibility.existingFiling ? (
+              (() => {
+                const filing = undertimeEligibility.existingFiling;
+                const lockedTone =
+                  filing.status === "APPROVED"
+                    ? { bg: "#DCFCE7", color: "#15803D", title: "Approved for this cutoff" }
+                    : filing.status === "REJECTED"
+                      ? { bg: "#FEE2E2", color: "#B91C1C", title: "Rejected for this cutoff" }
+                      : { bg: "#FEF3C7", color: "#B45309", title: "Awaiting your supervisor's review" };
+                const lockedBody =
+                  filing.status === "PENDING"
+                    ? "This card will unlock again once the next filing window opens."
+                    : `One filing is allowed per cutoff. You can file again once the next filing window opens — the ${undertimeEligibility.filingDaysOfMonth.join(" or ")} of the month.`;
+                return (
+                  <div style={{ height: "100%" }}>
+                    <div style={{ borderRadius: 12, padding: 10, background: lockedTone.bg }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <LockIcon size={16} color={lockedTone.color} />
+                        <span style={{ fontSize: 12.5, fontWeight: 700, color: lockedTone.color }}>{lockedTone.title}</span>
                       </div>
-                      {stepNumber < 3 && (
-                        <div style={{ flex: 1, height: 2, marginBottom: 15, background: stepNumber < undertimeStep ? "#062B59" : "#E2E8F0" }} />
+                      <p style={{ fontSize: 11.5, color: lockedTone.color, margin: "4px 0 0", lineHeight: "15px" }}>{lockedBody}</p>
+                      {filing.status === "REJECTED" && filing.remarks && (
+                        <p style={{ fontSize: 11, color: lockedTone.color, margin: "4px 0 0", fontStyle: "italic" }}>Remarks: {filing.remarks}</p>
                       )}
                     </div>
-                  );
-                })}
-              </div>
+                    {/* Frozen preview of the same wizard chrome (progress
+                        steps + review card + button), dimmed and
+                        non-interactive — this is "the filing UI," just
+                        disabled, not a different, simplified summary. */}
+                    <div style={{ opacity: 0.45, pointerEvents: "none" }}>
+                      <div style={{ display: "flex", alignItems: "center", marginTop: 10, marginBottom: 4 }}>
+                        {(["Pick Day", "Reason", "Review"] as const).map((label, index) => (
+                          <div key={label} style={{ display: "flex", alignItems: "center", flex: index < 2 ? 1 : undefined }}>
+                            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 64 }}>
+                              <div style={{ width: 28, height: 28, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center", background: "#062B59" }}>
+                                <Check size={14} color="#FFFFFF" />
+                              </div>
+                              <span style={{ fontSize: 10, fontWeight: 700, marginTop: 5, textAlign: "center", color: "#062B59" }}>{label.toUpperCase()}</span>
+                            </div>
+                            {index < 2 && <div style={{ flex: 1, height: 2, marginBottom: 15, background: "#062B59" }} />}
+                          </div>
+                        ))}
+                      </div>
+                      <p style={{ color: "#062B59", fontSize: 14, fontWeight: 700, margin: "8px 0 6px" }}>Review</p>
+                      <div style={{ border: "1px solid #E2E8F0", background: "#F8FAFC", borderRadius: 14, padding: 12 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, borderBottom: "1px solid #E2E8F0", marginBottom: 8, paddingBottom: 8 }}>
+                          <span style={{ fontSize: 12, color: "#64748B", fontWeight: 600 }}>Late Day</span>
+                          <span style={{ fontSize: 12, color: "#334155", fontWeight: 700 }}>
+                            {filing.attendanceRecord
+                              ? `${new Date(filing.attendanceRecord.attendanceDate).toLocaleDateString()} (${filing.attendanceRecord.lateMinutes} min)`
+                              : "—"}
+                          </span>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                          <span style={{ fontSize: 12, color: "#64748B", fontWeight: 600, whiteSpace: "nowrap" }}>Reason</span>
+                          <span style={{ fontSize: 12, color: "#334155", fontWeight: 700, textAlign: "right" }}>{filing.reason ?? "—"}</span>
+                        </div>
+                      </div>
+                      <button style={{ ...primBtn, marginTop: 16, background: "#94A3B8", cursor: "not-allowed" }}>Submit</button>
+                    </div>
+                  </div>
+                );
+              })()
+            ) : undertimeEligibility.isFilingDay && undertimeEligibility.lateRecords.length > 0 ? (
+              <div style={{ height: "100%", display: "flex", flexDirection: "column" }}>
+                {/* Progress indicator */}
+                <div style={{ display: "flex", alignItems: "center", marginBottom: 4 }}>
+                  {(["Pick Day", "Reason", "Review"] as const).map((label, index) => {
+                    const stepNumber = (index + 1) as 1 | 2 | 3;
+                    const done = stepNumber < undertimeStep;
+                    const current = stepNumber === undertimeStep;
+                    return (
+                      <div key={label} style={{ display: "flex", alignItems: "center", flex: stepNumber < 3 ? 1 : undefined }}>
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 64 }}>
+                          <div
+                            style={{
+                              width: 28, height: 28, borderRadius: 999, display: "flex", alignItems: "center", justifyContent: "center",
+                              background: done ? "#062B59" : current ? "#DC2777" : "#F1F5F9",
+                            }}
+                          >
+                            {done ? (
+                              <Check size={14} color="#FFFFFF" />
+                            ) : (
+                              <span style={{ fontSize: 13, fontWeight: 700, color: current ? "#FFFFFF" : "#94A3B8" }}>{stepNumber}</span>
+                            )}
+                          </div>
+                          <span style={{ fontSize: 10, fontWeight: 700, marginTop: 5, textAlign: "center", color: done ? "#062B59" : current ? "#DC2777" : "#94A3B8" }}>
+                            {label.toUpperCase()}
+                          </span>
+                        </div>
+                        {stepNumber < 3 && (
+                          <div style={{ flex: 1, height: 2, marginBottom: 15, background: stepNumber < undertimeStep ? "#062B59" : "#E2E8F0" }} />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
 
-              {undertimeStep === 1 && (
-                <>
-                  <p style={{ color: "#062B59", fontSize: 15, fontWeight: 700, margin: "14px 0 6px" }}>Pick Your Late Day</p>
-                  <div style={{ marginBottom: 12 }}>
-                    {undertimeEligibility.lateRecords.map((record) => {
-                      const selected = selectedLateRecordId === record.id;
+                {/* Each step fills the remaining height and pins its action
+                    row to the bottom, so Next/Back/Submit sits at the same
+                    vertical position across all three steps. */}
+                <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+                  {undertimeStep === 1 && (
+                    <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+                      <div style={{ flex: 1 }}>
+                        <p style={{ color: "#062B59", fontSize: 15, fontWeight: 700, margin: "8px 0 6px" }}>Pick Your Late Day</p>
+                        {undertimeEligibility.lateRecords.map((record) => {
+                          const selected = selectedLateRecordId === record.id;
+                          return (
+                            <div
+                              key={record.id}
+                              onClick={() => setSelectedLateRecordId(record.id)}
+                              style={{
+                                display: "flex", alignItems: "center", justifyContent: "space-between",
+                                padding: "10px 12px", borderRadius: 10, marginBottom: 6, cursor: "pointer",
+                                border: `1px solid ${selected ? "#DC2777" : "#E2E8F0"}`,
+                                background: selected ? "#FCE7F3" : "#FFFFFF",
+                              }}
+                            >
+                              <span style={{ fontSize: 13, color: "#334155", fontWeight: selected ? 700 : 400 }}>
+                                {new Date(record.attendanceDate).toLocaleDateString()} — {record.lateMinutes} minute(s) late
+                              </span>
+                              {selected && <CheckCircle size={16} color="#DC2777" />}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <button
+                        disabled={!selectedLateRecordId}
+                        onClick={goToUndertimeStep2}
+                        style={{ ...primBtn, opacity: !selectedLateRecordId ? 0.6 : 1, cursor: !selectedLateRecordId ? "not-allowed" : "pointer" }}
+                      >
+                        Next
+                      </button>
+                    </div>
+                  )}
+
+                  {undertimeStep === 2 && (
+                    <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+                      <div style={{ flex: 1 }}>
+                        <p style={{ color: "#062B59", fontSize: 15, fontWeight: 700, margin: "8px 0 6px" }}>Add a Reason</p>
+                        {selectedLateRecordForReview && (
+                          <p style={{ color: "#64748B", fontSize: 13, margin: "0 0 10px" }}>
+                            {new Date(selectedLateRecordForReview.attendanceDate).toLocaleDateString()} — {selectedLateRecordForReview.lateMinutes} minute(s) late
+                          </p>
+                        )}
+                        <label style={{ ...fldLbl, display: "inline-flex", alignItems: "baseline", gap: 4 }}>
+                          Reason <span style={{ color: "#DC2626", fontWeight: 700 }}>*</span>
+                        </label>
+                        <textarea
+                          value={undertimeReason}
+                          onChange={(e) => setUndertimeReason(e.target.value)}
+                          placeholder="Why are you filing undertime for this day?"
+                          style={{ ...dateInp, height: 90, resize: "vertical", width: "100%", boxSizing: "border-box" }}
+                        />
+                        {undertimeErr && (
+                          <p style={{ color: "#DC2626", fontSize: 12, marginTop: 8 }}>{undertimeErr}</p>
+                        )}
+                      </div>
+                      <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+                        <button onClick={goToPreviousUndertimeStep} style={{ ...outlineBtn, flex: 1, width: "auto" }}>
+                          Back
+                        </button>
+                        <button
+                          disabled={!undertimeReason.trim()}
+                          onClick={goToUndertimeStep3}
+                          style={{ ...primBtn, flex: 1, width: "auto", opacity: !undertimeReason.trim() ? 0.6 : 1, cursor: !undertimeReason.trim() ? "not-allowed" : "pointer" }}
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {undertimeStep === 3 && selectedLateRecordForReview && (
+                    <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+                      <div style={{ flex: 1 }}>
+                        <p style={{ color: "#062B59", fontSize: 15, fontWeight: 700, margin: "8px 0 10px" }}>Review &amp; Submit</p>
+                        <div style={{ background: "#FDF2F8", border: "1px solid #FBCFE8", borderRadius: 14, padding: 14 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, borderBottom: "1px solid #FBCFE8", marginBottom: 8, paddingBottom: 8 }}>
+                            <span style={{ fontSize: 12, color: "#9D174D", fontWeight: 600 }}>Late Day</span>
+                            <span style={{ fontSize: 12, color: "#831843", fontWeight: 700 }}>
+                              {new Date(selectedLateRecordForReview.attendanceDate).toLocaleDateString()} ({selectedLateRecordForReview.lateMinutes} min)
+                            </span>
+                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                            <span style={{ fontSize: 12, color: "#9D174D", fontWeight: 600, whiteSpace: "nowrap" }}>Reason</span>
+                            <span style={{ fontSize: 12, color: "#831843", fontWeight: 700, textAlign: "right" }}>{undertimeReason}</span>
+                          </div>
+                        </div>
+                        {undertimeErr && (
+                          <p style={{ color: "#DC2626", fontSize: 12, marginTop: 8 }}>{undertimeErr}</p>
+                        )}
+                      </div>
+                      <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+                        <button onClick={goToPreviousUndertimeStep} disabled={isFilingUndertime} style={{ ...outlineBtn, flex: 1, width: "auto" }}>
+                          Back
+                        </button>
+                        <button
+                          disabled={isFilingUndertime}
+                          onClick={handleFileUndertime}
+                          style={{ ...primBtn, flex: 1, width: "auto", opacity: isFilingUndertime ? 0.6 : 1, cursor: isFilingUndertime ? "not-allowed" : "pointer" }}
+                        >
+                          {isFilingUndertime ? "Filing…" : "Submit"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div style={{ height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+                <CalendarClock size={28} color="#CBD5E1" />
+                <p style={{ color: "#94A3B8", fontSize: 13, marginTop: 8 }}>Nothing to file right now.</p>
+              </div>
+            )}
+          </div>
+
+          <button
+            onClick={() => setHistoryOpen(true)}
+            style={{
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%",
+              background: "#F8FAFF", border: "1px solid #BFDBFE", borderRadius: 10, padding: "10px 0",
+              marginTop: 20, cursor: "pointer", color: "#1680D8", fontSize: 12, fontWeight: 700,
+            }}
+          >
+            <Calendar size={14} color="#1680D8" /> View Filing History
+          </button>
+        </div>
+      )}
+
+      {/* ── Undertime filing history modal ──────────────────────────────────── */}
+      {historyOpen && (
+        <div style={overlayNoBg}>
+          <div className="emp-scroll-thin" style={{ ...modalCardFloating, height: 560, maxHeight: "85vh", overflowY: "auto" }}>
+            {expandedHistoryFiling ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setExpandedHistoryFilingId(null)}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 4,
+                    border: "none", background: "none", cursor: "pointer",
+                    padding: 0, marginBottom: 10,
+                    color: "#1680D8", fontWeight: 700, fontSize: 13,
+                  }}
+                >
+                  <ChevronLeft size={16} color="#1680D8" />
+                  All filings
+                </button>
+                <h3 style={{ color: "#062B59", fontWeight: 700, marginBottom: 14 }}>Undertime Filing Details</h3>
+                {(() => {
+                  const filing = expandedHistoryFiling;
+                  const tone = statusTone(filing.status);
+                  const steps = buildUndertimeTimelineSteps(filing);
+                  return (
+                    <div style={{ background: "#F8FAFC", borderRadius: 12, padding: 14 }}>
+                      <p style={{ fontWeight: 700, margin: 0, fontSize: 14 }}>
+                        {filing.attendanceRecord
+                          ? `${new Date(filing.attendanceRecord.attendanceDate).toLocaleDateString()} · ${filing.attendanceRecord.lateMinutes} min late`
+                          : new Date(filing.filingDate).toLocaleDateString()}
+                      </p>
+                      {filing.reason && <p style={{ color: "#64748B", fontSize: 13, margin: "4px 0 0" }}>{filing.reason}</p>}
+                      <span style={{ display: "inline-block", marginTop: 8, fontSize: 11, fontWeight: 700, padding: "4px 9px", borderRadius: 999, color: tone.color, background: tone.bg }}>
+                        {statusLabel(filing.status)}
+                      </span>
+                      {filing.status === "REJECTED" && filing.remarks && (
+                        <p style={{ color: "#64748B", fontSize: 12, margin: "8px 0 0" }}>Remarks: {filing.remarks}</p>
+                      )}
+                      {/* Same visual language as components/ui/LeaveTimeline.tsx
+                          — a dedicated step-builder rather than reusing that
+                          component, since its action vocabulary is leave-specific. */}
+                      <div style={{ marginTop: 14, padding: "12px 0 0", borderTop: "1px solid #E2E8F0" }}>
+                        <p style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.4, color: "#94A3B8", margin: "0 0 10px" }}>
+                          APPROVAL PROGRESS
+                        </p>
+                        {steps.map((step, index) => {
+                          const toneStyle = UNDERTIME_TIMELINE_TONE_STYLE[step.tone];
+                          return (
+                            <div key={step.key} style={{ display: "flex", gap: 10, paddingBottom: 14 }}>
+                              <div style={{ width: 18, position: "relative" }}>
+                                <div
+                                  style={{
+                                    width: 18, height: 18, borderRadius: 9, flexShrink: 0, position: "relative", zIndex: 1,
+                                    display: "flex", alignItems: "center", justifyContent: "center",
+                                    background: toneStyle.bg, border: `2px solid ${toneStyle.border}`,
+                                    color: toneStyle.fg, fontSize: 10, fontWeight: 700, lineHeight: 1,
+                                  }}
+                                >
+                                  {UNDERTIME_TIMELINE_TONE_SYMBOL[step.tone]}
+                                </div>
+                                {index < steps.length - 1 && (
+                                  <div style={{ position: "absolute", top: 18, bottom: -14, left: 8, width: 2, background: toneStyle.line }} />
+                                )}
+                              </div>
+                              <div style={{ flex: 1, paddingTop: 1 }}>
+                                <div style={{ fontSize: 10.5, color: "#94A3B8", marginBottom: 2 }}>{step.when}</div>
+                                <div style={{ fontSize: 12.5, fontWeight: 700, color: "#0F172A" }}>{step.title}</div>
+                                {!!step.detail && (
+                                  <p style={{ fontSize: 11.5, margin: "2px 0 0", lineHeight: "15px", color: step.tone === "danger" ? toneStyle.fg : "#64748B" }}>
+                                    {step.detail}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </>
+            ) : (
+              <>
+                <h3 style={{ color: "#062B59", fontWeight: 700, marginBottom: 14 }}>Filing History</h3>
+
+                <div style={{ display: "flex", gap: 5, marginBottom: 10 }}>
+                  {(["PENDING", "APPROVED", "REJECTED"] as const).map((key) => {
+                    const active = historyStatusFilter === key;
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setHistoryStatusFilter(active ? "ALL" : key)}
+                        style={{
+                          flex: 1, border: "none", borderRadius: 999, padding: "7px 4px", cursor: "pointer",
+                          fontSize: 11, fontWeight: 700,
+                          background: active ? "#062B59" : "#F1F5F9",
+                          color: active ? "#FFFFFF" : "#64748B",
+                        }}
+                      >
+                        {key.charAt(0) + key.slice(1).toLowerCase()}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                  <CalendarPicker
+                    value={historyDateFrom}
+                    onChange={setHistoryDateFrom}
+                    max={historyDateTo || undefined}
+                    placeholder="Filed from"
+                  />
+                  <CalendarPicker
+                    value={historyDateTo}
+                    onChange={setHistoryDateTo}
+                    min={historyDateFrom || undefined}
+                    placeholder="Filed to"
+                    align="right"
+                  />
+                  {(historyDateFrom || historyDateTo) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setHistoryDateFrom("");
+                        setHistoryDateTo("");
+                      }}
+                      aria-label="Clear date filter"
+                      style={{
+                        border: "none", background: "#F1F5F9", borderRadius: 10, width: 32, height: 32,
+                        cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
+                      }}
+                    >
+                      <X size={14} color="#64748B" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="emp-scroll-thin" style={{ maxHeight: 280, overflowY: "auto" }}>
+                  {visibleHistoryFilings.length === 0 ? (
+                    <p style={{ color: "#94A3B8", fontSize: 13, textAlign: "center" }}>
+                      {historyDateFrom || historyDateTo || historyStatusFilter !== "ALL"
+                        ? "No filings match these filters."
+                        : "No undertime filings yet."}
+                    </p>
+                  ) : (
+                    visibleHistoryFilings.map((filing) => {
+                      const tone = statusTone(filing.status);
                       return (
-                        <div
-                          key={record.id}
-                          onClick={() => setSelectedLateRecordId(record.id)}
+                        <button
+                          key={filing.id}
+                          type="button"
+                          onClick={() => setExpandedHistoryFilingId(filing.id)}
                           style={{
-                            display: "flex", alignItems: "center", justifyContent: "space-between",
-                            padding: "10px 12px", borderRadius: 10, marginBottom: 6, cursor: "pointer",
-                            border: `1px solid ${selected ? "#DC2777" : "#E2E8F0"}`,
-                            background: selected ? "#FCE7F3" : "#FFFFFF",
+                            display: "block", width: "100%", textAlign: "left",
+                            background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 12,
+                            padding: 14, marginBottom: 10, cursor: "pointer",
                           }}
                         >
-                          <span style={{ fontSize: 13, color: "#334155", fontWeight: selected ? 700 : 400 }}>
-                            {new Date(record.attendanceDate).toLocaleDateString()} — {record.lateMinutes} minute(s) late
-                          </span>
-                          {selected && <CheckCircle size={16} color="#DC2777" />}
-                        </div>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                            <p style={{
+                              fontWeight: 700, margin: 0, flex: 1, minWidth: 0,
+                              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+                            }}>
+                              {filing.attendanceRecord
+                                ? `${new Date(filing.attendanceRecord.attendanceDate).toLocaleDateString()} · ${filing.attendanceRecord.lateMinutes} min late`
+                                : new Date(filing.filingDate).toLocaleDateString()}
+                            </p>
+                            <span style={{
+                              display: "inline-block", flexShrink: 0, whiteSpace: "nowrap",
+                              background: tone.bg, color: tone.color,
+                              fontWeight: 700, fontSize: 10,
+                              borderRadius: 999, padding: "3px 7px",
+                            }}>
+                              {statusLabel(filing.status)}
+                            </span>
+                          </div>
+                          {filing.reason && (
+                            <p style={{ color: "#475569", fontSize: 13, margin: "4px 0 0" }}>{filing.reason}</p>
+                          )}
+                        </button>
                       );
-                    })}
-                  </div>
-                  <button
-                    disabled={!selectedLateRecordId}
-                    onClick={goToUndertimeStep2}
-                    style={{ ...primBtn, opacity: !selectedLateRecordId ? 0.6 : 1, cursor: !selectedLateRecordId ? "not-allowed" : "pointer" }}
-                  >
-                    Next
-                  </button>
-                </>
-              )}
-
-              {undertimeStep === 2 && (
-                <>
-                  <p style={{ color: "#062B59", fontSize: 15, fontWeight: 700, margin: "14px 0 6px" }}>Add a Reason</p>
-                  {selectedLateRecordForReview && (
-                    <p style={{ color: "#64748B", fontSize: 13, margin: "0 0 10px" }}>
-                      {new Date(selectedLateRecordForReview.attendanceDate).toLocaleDateString()} — {selectedLateRecordForReview.lateMinutes} minute(s) late
-                    </p>
+                    })
                   )}
-                  <label style={{ ...fldLbl, display: "inline-flex", alignItems: "baseline", gap: 4 }}>
-                    Reason <span style={{ color: "#DC2626", fontWeight: 700 }}>*</span>
-                  </label>
-                  <textarea
-                    value={undertimeReason}
-                    onChange={(e) => setUndertimeReason(e.target.value)}
-                    placeholder="Why are you filing undertime for this day?"
-                    style={{ ...dateInp, height: 90, resize: "vertical", width: "100%", boxSizing: "border-box" }}
-                  />
-                  {undertimeErr && (
-                    <p style={{ color: "#DC2626", fontSize: 12, marginTop: 8 }}>{undertimeErr}</p>
-                  )}
-                  <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
-                    <button onClick={goToPreviousUndertimeStep} style={{ ...outlineBtn, flex: 1, width: "auto" }}>
-                      Back
-                    </button>
-                    <button
-                      disabled={!undertimeReason.trim()}
-                      onClick={goToUndertimeStep3}
-                      style={{ ...primBtn, flex: 1, width: "auto", opacity: !undertimeReason.trim() ? 0.6 : 1, cursor: !undertimeReason.trim() ? "not-allowed" : "pointer" }}
-                    >
-                      Next
-                    </button>
-                  </div>
-                </>
-              )}
-
-              {undertimeStep === 3 && selectedLateRecordForReview && (
-                <>
-                  <p style={{ color: "#062B59", fontSize: 15, fontWeight: 700, margin: "14px 0 10px" }}>Review &amp; Submit</p>
-                  <div style={{ background: "#FDF2F8", border: "1px solid #FBCFE8", borderRadius: 14, padding: 14 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10, borderBottom: "1px solid #FBCFE8", marginBottom: 8, paddingBottom: 8 }}>
-                      <span style={{ fontSize: 12, color: "#9D174D", fontWeight: 600 }}>Late Day</span>
-                      <span style={{ fontSize: 12, color: "#831843", fontWeight: 700 }}>
-                        {new Date(selectedLateRecordForReview.attendanceDate).toLocaleDateString()} ({selectedLateRecordForReview.lateMinutes} min)
-                      </span>
-                    </div>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                      <span style={{ fontSize: 12, color: "#9D174D", fontWeight: 600, whiteSpace: "nowrap" }}>Reason</span>
-                      <span style={{ fontSize: 12, color: "#831843", fontWeight: 700, textAlign: "right" }}>{undertimeReason}</span>
-                    </div>
-                  </div>
-                  {undertimeErr && (
-                    <p style={{ color: "#DC2626", fontSize: 12, marginTop: 8 }}>{undertimeErr}</p>
-                  )}
-                  <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
-                    <button onClick={goToPreviousUndertimeStep} disabled={isFilingUndertime} style={{ ...outlineBtn, flex: 1, width: "auto" }}>
-                      Back
-                    </button>
-                    <button
-                      disabled={isFilingUndertime}
-                      onClick={handleFileUndertime}
-                      style={{ ...primBtn, flex: 1, width: "auto", opacity: isFilingUndertime ? 0.6 : 1, cursor: isFilingUndertime ? "not-allowed" : "pointer" }}
-                    >
-                      {isFilingUndertime ? "Filing…" : "Submit"}
-                    </button>
-                  </div>
-                </>
-              )}
-            </>
-          ) : null}
-
-          <p style={{ color: "#062B59", fontSize: 13, fontWeight: 700, marginTop: 22, marginBottom: 8 }}>
-            Recent Filings
-          </p>
-          {undertimeFilings.length === 0 ? (
-            <p style={{ color: "#94A3B8", fontSize: 13 }}>No undertime filings yet.</p>
-          ) : (
-            undertimeFilings.map((f) => {
-              const tone = statusTone(f.status);
-              return (
-                <div key={f.id} style={{ background: "#F8FAFC", borderRadius: 12, padding: 12, marginBottom: 8 }}>
-                  <p style={{ fontWeight: 700, margin: 0, fontSize: 13 }}>
-                    {f.attendanceRecord ? new Date(f.attendanceRecord.attendanceDate).toLocaleDateString() : new Date(f.filingDate).toLocaleDateString()}
-                  </p>
-                  {f.reason && <p style={{ color: "#64748B", fontSize: 12, margin: "3px 0 0" }}>{f.reason}</p>}
-                  <span style={{ display: "inline-block", marginTop: 8, fontSize: 11, fontWeight: 700, padding: "4px 9px", borderRadius: 999, color: tone.color, background: tone.bg }}>
-                    {statusLabel(f.status)}
-                  </span>
                 </div>
-              );
-            })
-          )}
+              </>
+            )}
+            <button
+              onClick={() => {
+                setHistoryOpen(false);
+                setExpandedHistoryFilingId(null);
+              }}
+              style={{ ...primBtn, marginTop: 10 }}
+            >
+              Close
+            </button>
+          </div>
         </div>
       )}
 

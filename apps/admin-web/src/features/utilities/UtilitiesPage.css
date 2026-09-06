@@ -1604,19 +1604,253 @@
   margin: 0 0 18px;
 }
 
-.undertime-settings-fields {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.undertime-settings-fields .utilities-field {
-  flex: 1;
-  max-width: 140px;
-}
-
 .undertime-settings-card .primary-button {
   align-self: flex-start;
+}
+
+.undertime-unified-card {
+  max-width: none;
+  width: 100%;
+  height: 420px;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.undertime-unified-card .undertime-settings-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  margin-bottom: 6px;
+  flex-shrink: 0;
+}
+
+.undertime-unified-card h4 {
+  font-size: 15.5px;
+  margin-bottom: 2px;
+  flex-shrink: 0;
+}
+
+.undertime-unified-card > p {
+  font-size: 12px;
+  margin-bottom: 10px;
+  flex-shrink: 0;
+}
+
+.undertime-unified-card .primary-button {
+  padding: 9px 18px;
+  font-size: 12.5px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.undertime-unified-card .backup-restore-action-note {
+  font-size: 11px;
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+
+.undertime-unified-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-content: start;
+  gap: 24px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+  margin-bottom: 10px;
+  scrollbar-width: thin;
+  scrollbar-color: #b8c7d8 #f4f7fb;
+}
+
+.undertime-unified-grid::-webkit-scrollbar {
+  width: 7px;
+}
+
+.undertime-unified-grid::-webkit-scrollbar-track {
+  background: #f4f7fb;
+  border-radius: 999px;
+}
+
+.undertime-unified-grid::-webkit-scrollbar-thumb {
+  background: #b8c7d8;
+  border-radius: 999px;
+}
+
+.filing-day-grid {
+  display: grid;
+  grid-template-columns: repeat(16, 1fr);
+  gap: 3px;
+  width: 100%;
+  margin-bottom: 6px;
+}
+
+.filing-day-cell {
+  aspect-ratio: 1;
+  border: 1px solid #dbe5ef;
+  border-radius: 5px;
+  background: #ffffff;
+  color: #334155;
+  font-size: 10.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.filing-day-cell:hover:not(:disabled) {
+  border-color: #2979d0;
+  color: #1a3a5c;
+}
+
+.filing-day-cell:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.filing-day-cell-selected {
+  background: #062b59;
+  border-color: #062b59;
+  color: #ffffff;
+}
+
+.filing-day-cell-cutoff-one {
+  background: #062b59;
+  border-color: #062b59;
+  color: #ffffff;
+  cursor: inherit;
+}
+
+.filing-day-cell-cutoff-two {
+  background: #fce7f3;
+  border-color: #fbcfe8;
+  color: #9d174d;
+  cursor: inherit;
+}
+
+.filing-day-cell-cutoff-pending {
+  background: #dbeafe;
+  border-color: #2979d0;
+  color: #1a3a5c;
+  cursor: inherit;
+}
+
+.undertime-panel-col {
+  min-width: 0;
+}
+
+.undertime-panel-title {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  color: #062b59;
+  margin-bottom: 6px;
+}
+
+.undertime-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.undertime-panel-actions .primary-button {
+  padding: 8px 16px;
+  font-size: 12px;
+  border-radius: 8px;
+}
+
+.cutoff-edit-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid #dbe5ef;
+  background: #ffffff;
+  color: #1a3a5c;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color 0.12s ease;
+}
+
+.cutoff-edit-button:hover {
+  border-color: #2979d0;
+}
+
+.cutoff-edit-button-cancel {
+  color: #b91c1c;
+}
+
+.cutoff-edit-button-cancel:hover {
+  border-color: #b91c1c;
+}
+
+.cutoff-picker-hint {
+  margin: 0 0 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #94a3b8;
+  min-height: 13px;
+}
+
+.cutoff-group {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid #e3e9f0;
+  border-radius: 10px;
+  padding: 10px;
+}
+
+.cutoff-group-caption {
+  margin: 6px 0 0;
+  font-size: 10.5px;
+  color: #64748b;
+}
+
+.cutoff-summary-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 6px;
+}
+
+.cutoff-summary-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.cutoff-summary-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.cutoff-summary-dot-one {
+  background: #062b59;
+}
+
+.cutoff-summary-dot-two {
+  background: #db2777;
+}
+
+@media (max-width: 640px) {
+  .undertime-unified-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ── Row actions: download + kebab menu ── */

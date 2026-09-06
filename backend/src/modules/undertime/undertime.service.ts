@@ -2,7 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/com
 import { PrismaService } from "../../prisma/prisma.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
-import { getFilingTargetCutoff, isFilingDay } from "../../common/utils/cutoff.util";
+import { CutoffBounds, getFilingTargetCutoff, isFilingDay, validateCutoffBounds } from "../../common/utils/cutoff.util";
 
 type UndertimeStatus = "PENDING" | "APPROVED" | "REJECTED";
 
@@ -58,15 +58,57 @@ export class UndertimeService {
     return settings;
   }
 
+  // Admin-editable cutoff period boundaries (default 11-25 / 26-10) — kept
+  // as its own endpoint/method so the two settings cards on the admin side
+  // can save independently of each other.
+  async updateCutoffBounds(bounds: CutoffBounds, context: AuditLogContext = {}) {
+    const error = validateCutoffBounds(bounds);
+    if (error) {
+      throw new BadRequestException(error);
+    }
+
+    const existing = await this.getSettings();
+
+    const settings = await this.prisma.undertimeSettings.update({
+      where: { id: "singleton" },
+      data: {
+        cutoff1Start: bounds.cutoff1Start,
+        cutoff1End: bounds.cutoff1End,
+        cutoff2Start: bounds.cutoff2Start,
+        cutoff2End: bounds.cutoff2End,
+        updatedBy: context.actorUserId,
+      },
+    });
+
+    await this.auditLogs.record({
+      ...context,
+      action: "UPDATE_UNDERTIME_SETTINGS",
+      module: "Leave",
+      entityType: "UndertimeSettings",
+      entityId: settings.id,
+      description: `Updated undertime cutoff periods to ${bounds.cutoff1Start}-${bounds.cutoff1End} and ${bounds.cutoff2Start}-${bounds.cutoff2End}.`,
+      oldValues: {
+        cutoff1Start: existing.cutoff1Start,
+        cutoff1End: existing.cutoff1End,
+        cutoff2Start: existing.cutoff2Start,
+        cutoff2End: existing.cutoff2End,
+      },
+      newValues: bounds,
+    });
+
+    return settings;
+  }
+
   // Tells the frontend whether filing is currently allowed, which cutoff it
   // would file for, which late AttendanceRecords are pickable, and whether a
   // filing already exists for that cutoff — the UI never has to hardcode the
-  // filing days or the 1-per-cutoff cap, it just reflects whatever this returns.
+  // filing days, the cutoff boundaries, or the 1-per-cutoff cap, it just
+  // reflects whatever this returns.
   async getEligibility(employeeId: string) {
     const today = new Date();
-    const { filingDaysOfMonth } = await this.getSettings();
-    const todayIsFilingDay = isFilingDay(today, filingDaysOfMonth);
-    const targetCutoff = getFilingTargetCutoff(today);
+    const settings = await this.getSettings();
+    const todayIsFilingDay = isFilingDay(today, settings.filingDaysOfMonth);
+    const targetCutoff = getFilingTargetCutoff(today, settings);
 
     const existingFiling = await this.prisma.undertimeFiling.findUnique({
       where: { employeeId_cutoffStart: { employeeId, cutoffStart: targetCutoff.start } },
@@ -88,7 +130,7 @@ export class UndertimeService {
 
     return {
       isFilingDay: todayIsFilingDay,
-      filingDaysOfMonth,
+      filingDaysOfMonth: settings.filingDaysOfMonth,
       targetCutoff,
       lateRecords,
       existingFiling,
@@ -103,15 +145,15 @@ export class UndertimeService {
     }
 
     const today = new Date();
-    const { filingDaysOfMonth } = await this.getSettings();
+    const settings = await this.getSettings();
 
-    if (!isFilingDay(today, filingDaysOfMonth)) {
+    if (!isFilingDay(today, settings.filingDaysOfMonth)) {
       throw new BadRequestException(
-        `Undertime can only be filed on the ${filingDaysOfMonth.join(" or ")} of the month.`,
+        `Undertime can only be filed on the ${settings.filingDaysOfMonth.join(" or ")} of the month.`,
       );
     }
 
-    const targetCutoff = getFilingTargetCutoff(today);
+    const targetCutoff = getFilingTargetCutoff(today, settings);
 
     const attendanceRecord = await this.prisma.attendanceRecord.findUnique({
       where: { id: attendanceRecordId },

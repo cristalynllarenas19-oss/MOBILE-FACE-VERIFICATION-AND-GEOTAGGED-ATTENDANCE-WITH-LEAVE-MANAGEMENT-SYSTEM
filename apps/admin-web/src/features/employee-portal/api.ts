@@ -339,6 +339,7 @@ export type UndertimeFiling = {
   status: "PENDING" | "APPROVED" | "REJECTED";
   remarks: string | null;
   createdAt: string;
+  reviewedAt: string | null;
   attendanceRecord?: LateAttendanceRecord;
 };
 

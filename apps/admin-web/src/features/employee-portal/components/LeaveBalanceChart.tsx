@@ -92,7 +92,6 @@ export function LeaveBalanceChart({ balances, loading, pendingCount, needsRevisi
   return (
     <div className="lbc-card">
       {header}
-      {viewAllButton}
 
       <div className="lbc-summary-row">
         <div className="lbc-ring-wrap">
@@ -141,6 +140,8 @@ export function LeaveBalanceChart({ balances, loading, pendingCount, needsRevisi
           </div>
         </div>
       </div>
+
+      {viewAllButton}
 
       <div className="lbc-divider" />
 

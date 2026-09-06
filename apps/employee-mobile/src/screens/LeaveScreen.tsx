@@ -56,6 +56,10 @@ const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 // pragmatic way to make that feel near-instant without adding real-time
 // transport.
 const LEAVE_POLL_MS = 3000;
+// Fixed height for the undertime card's step/status area — it must never
+// resize as the wizard moves between steps, resolves to a locked state, or
+// has nothing to show, or the card visibly jumps around.
+const UNDERTIME_STEP_AREA_HEIGHT = SCREEN_HEIGHT < 700 ? 285 : 320;
 
 // Stable fallbacks so useMemo filters don't recompute on every render while
 // the cache/network is still empty.
@@ -245,6 +249,54 @@ function statusLabel(status: string) {
   return status.replace(/_/g, " ");
 }
 
+// Same visual language as components/LeaveTimeline.tsx (label, node/line
+// rail, tone colors) but with its own tiny step-builder — undertime's
+// Filed/Review/Approved/Rejected vocabulary doesn't fit LeaveTimeline's
+// leave-specific action union, so this mirrors the style rather than the
+// component.
+type UndertimeTimelineTone = "done" | "current" | "danger";
+type UndertimeTimelineStep = { key: string; tone: UndertimeTimelineTone; title: string; when: string; detail: string };
+
+const UNDERTIME_TIMELINE_TONE_STYLE: Record<UndertimeTimelineTone, { bg: string; fg: string; border: string; line: string }> = {
+  done: { bg: "#1680D8", fg: "#FFFFFF", border: "#1680D8", line: "#1680D8" },
+  current: { bg: "#E6F2FC", fg: "#1680D8", border: "#1680D8", line: "#E2E8F0" },
+  danger: { bg: "#FEE2E2", fg: "#B91C1C", border: "#FEE2E2", line: "#E2E8F0" },
+};
+const UNDERTIME_TIMELINE_TONE_ICON: Record<UndertimeTimelineTone, keyof typeof Ionicons.glyphMap> = {
+  done: "checkmark",
+  current: "time-outline",
+  danger: "close",
+};
+
+function formatUndertimeTimelineDate(iso: string) {
+  const date = new Date(iso);
+  return (
+    date.toLocaleDateString(undefined, { month: "short", day: "numeric" }) +
+    ", " +
+    date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+  );
+}
+
+function buildUndertimeTimelineSteps(filing: UndertimeFiling): UndertimeTimelineStep[] {
+  const steps: UndertimeTimelineStep[] = [
+    { key: "filed", tone: "done", title: "Filed", when: formatUndertimeTimelineDate(filing.createdAt), detail: "Submitted." },
+  ];
+  if (filing.reviewedAt) {
+    steps.push({
+      key: "reviewed",
+      tone: filing.status === "REJECTED" ? "danger" : "done",
+      title: filing.status === "APPROVED" ? "Approved" : filing.status === "REJECTED" ? "Rejected" : "Reviewed",
+      when: formatUndertimeTimelineDate(filing.reviewedAt),
+      detail: filing.status === "REJECTED"
+        ? `Rejected.${filing.remarks ? ` "${filing.remarks}"` : ""}`
+        : "Approved.",
+    });
+  } else {
+    steps.push({ key: "review-current", tone: "current", title: "Review", when: "In progress", detail: "Awaiting review from your supervisor or HR." });
+  }
+  return steps;
+}
+
 export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocusRequestHandled }: Props) {
   const leaveTypesCache = useCachedData<LeaveType[]>(CACHE_KEYS.leaveTypes, getLeaveTypes);
   // Same cache key as MainScreen/ViewProfileScreen, so this reuses whatever
@@ -325,6 +377,12 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
   const [isPickingResubmitFile, setIsPickingResubmitFile] = useState(false);
   const [resubmitNote, setResubmitNote] = useState("");
   const [activeTab, setActiveTab] = useState<"balance" | "request" | "undertime">("balance");
+  // Measured (not guessed) from the actual Undertime card's rendered height,
+  // via onLayout on its <View style={styles.card}> below — Balance and
+  // Request pin to this exact value so all three tab cards are the same
+  // size. Falls back to flex:1 (each tab's original sizing) until the
+  // employee has visited the Undertime tab at least once this session.
+  const [matchedCardHeight, setMatchedCardHeight] = useState<number | null>(null);
   const [resultModal, setResultModal] = useState<{ status: ResultModalStatus; title: string; message: string } | null>(null);
   // Sticks around (independent of resultModal, which the user may have
   // already dismissed by the time a background submission actually fails)
@@ -356,6 +414,32 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
   // employee can't reach Review without both a selected day and a reason.
   const [undertimeStep, setUndertimeStep] = useState<1 | 2 | 3>(1);
   const selectedLateRecord = undertimeEligibility?.lateRecords.find((r) => r.id === selectedLateRecordId) ?? null;
+
+  // Filing history — a button + filter modal (status chips, filed-from/to
+  // calendar range) instead of an always-inline list, same pattern as the
+  // "My Leave Requests" modal above.
+  const [isHistoryModalVisible, setIsHistoryModalVisible] = useState(false);
+  const [historyStatusFilter, setHistoryStatusFilter] = useState<"ALL" | "PENDING" | "APPROVED" | "REJECTED">("ALL");
+  const [historyDateFrom, setHistoryDateFrom] = useState<Date | null>(null);
+  const [historyDateTo, setHistoryDateTo] = useState<Date | null>(null);
+  const [isHistoryFromPickerVisible, setHistoryFromPickerVisibility] = useState(false);
+  const [isHistoryToPickerVisible, setHistoryToPickerVisibility] = useState(false);
+  const [expandedHistoryFilingId, setExpandedHistoryFilingId] = useState<string | null>(null);
+
+  const visibleHistoryFilings = undertimeFilings.filter((f) => {
+    if (historyStatusFilter !== "ALL" && f.status !== historyStatusFilter) return false;
+    const recordDate = f.attendanceRecord ? new Date(f.attendanceRecord.attendanceDate) : new Date(f.filingDate);
+    if (historyDateFrom) {
+      const from = new Date(historyDateFrom.getFullYear(), historyDateFrom.getMonth(), historyDateFrom.getDate());
+      if (recordDate < from) return false;
+    }
+    if (historyDateTo) {
+      const to = new Date(historyDateTo.getFullYear(), historyDateTo.getMonth(), historyDateTo.getDate(), 23, 59, 59, 999);
+      if (recordDate > to) return false;
+    }
+    return true;
+  });
+  const expandedHistoryFiling = undertimeFilings.find((f) => f.id === expandedHistoryFilingId) ?? null;
 
   function goToUndertimeStep2() {
     if (!selectedLateRecordId) return;
@@ -1111,22 +1195,30 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
 
       {activeTab === "balance" ? (
         <View style={[styles.tabContentPad, { flex: 1 }]}>
-          <LeaveBalanceChart
-            balances={visibleBalances}
-            loading={isBalanceLoading}
-            pendingCount={pendingRequests.length}
-            needsRevisionCount={needsRevisionCount}
-            onPressPending={openPendingModal}
-            onPressViewAll={openPendingModal}
-            onRequestLeave={handleRequestFromBalance}
-          />
+          <View style={matchedCardHeight ? { height: matchedCardHeight } : { flex: 1 }}>
+            <LeaveBalanceChart
+              balances={visibleBalances}
+              loading={isBalanceLoading}
+              pendingCount={pendingRequests.length}
+              needsRevisionCount={needsRevisionCount}
+              onPressPending={openPendingModal}
+              onPressViewAll={openPendingModal}
+              onRequestLeave={handleRequestFromBalance}
+            />
+          </View>
         </View>
       ) : activeTab === "undertime" ? (
         <AestheticScrollView
           contentContainerStyle={[styles.tabContentPad, { flexGrow: 1 }]}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={styles.card}>
+          <View
+            style={styles.card}
+            onLayout={(e) => {
+              const h = e.nativeEvent.layout.height;
+              setMatchedCardHeight((prev) => (prev === h ? prev : h));
+            }}
+          >
             <View style={styles.formHeader}>
               <Ionicons color="#DC2777" name="document-text-outline" size={32} />
               <Text style={styles.cardTitle}>File Undertime</Text>
@@ -1148,212 +1240,262 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
               </Text>
             )}
 
-            {undertimeEligibility?.existingFiling ? (
-              (() => {
-                const filing = undertimeEligibility.existingFiling;
-                const tone = statusTone(filing.status);
-                return (
-                  <View style={styles.requestCard}>
-                    <Text style={styles.requestTitle}>
-                      {filing.attendanceRecord ? new Date(filing.attendanceRecord.attendanceDate).toLocaleDateString() : "—"}
-                    </Text>
-                    {filing.attendanceRecord && <Text>{filing.attendanceRecord.lateMinutes} minute(s) late</Text>}
-                    {filing.reason && <Text>{filing.reason}</Text>}
-                    <Text style={[styles.pendingText, { color: tone.color, backgroundColor: tone.bg }]} numberOfLines={1}>
-                      {statusLabel(filing.status)}
-                    </Text>
-                    {filing.status === "REJECTED" && filing.remarks && (
-                      <Text style={styles.requirementNoteText}>Remarks: {filing.remarks}</Text>
-                    )}
-                  </View>
-                );
-              })()
-            ) : undertimeEligibility && undertimeEligibility.isFilingDay && undertimeEligibility.lateRecords.length > 0 ? (
-              <>
-                {/* Progress indicator */}
-                <View style={styles.wizardProgressRow}>
-                  {(["Pick Day", "Reason", "Review"] as const).map((label, index) => {
-                    const stepNumber = (index + 1) as 1 | 2 | 3;
-                    const done = stepNumber < undertimeStep;
-                    const current = stepNumber === undertimeStep;
-                    return (
-                      <React.Fragment key={label}>
-                        <View style={styles.wizardStep}>
-                          <View
-                            style={[
-                              styles.wizardCircle,
-                              done && styles.wizardCircleDone,
-                              current && styles.wizardCircleCurrent,
-                            ]}
-                          >
-                            {done ? (
-                              <Ionicons name="checkmark" size={14} color="#FFFFFF" />
-                            ) : (
-                              <Text style={[styles.wizardCircleText, current && styles.wizardCircleTextCurrent]}>
-                                {stepNumber}
-                              </Text>
-                            )}
-                          </View>
-                          <Text
-                            style={[
-                              styles.wizardStepLabel,
-                              done && styles.wizardStepLabelDone,
-                              current && styles.wizardStepLabelCurrent,
-                            ]}
-                          >
-                            {label.toUpperCase()}
-                          </Text>
-                        </View>
-                        {stepNumber < 3 && (
-                          <View style={[styles.wizardConnector, stepNumber < undertimeStep && styles.wizardConnectorDone]} />
-                        )}
-                      </React.Fragment>
-                    );
-                  })}
+            {/* Fixed height, regardless of state — the card must never
+                resize as the wizard moves between steps, resolves to a
+                locked state, or has nothing to show. */}
+            <View style={{ height: UNDERTIME_STEP_AREA_HEIGHT, marginTop: 4 }}>
+              {!undertimeEligibility ? (
+                <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+                  <ActivityIndicator color="#94A3B8" />
                 </View>
-
-                {undertimeStep === 1 && (
-                  <>
-                    <Text style={[styles.cardTitle, { fontSize: 15, marginTop: 14, marginBottom: 6 }]}>Pick Your Late Day</Text>
-                    <View style={{ borderTopWidth: 1, borderTopColor: "#F1F5F9" }}>
-                      {undertimeEligibility.lateRecords.map((record) => {
-                        const selected = selectedLateRecordId === record.id;
-                        return (
-                          <Pressable
-                            key={record.id}
-                            style={[
-                              styles.inlineItem,
-                              { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-                              selected && { backgroundColor: "#FCE7F3" },
-                            ]}
-                            onPress={() => setSelectedLateRecordId(record.id)}
-                          >
-                            <Text style={[styles.inlineItemText, selected && styles.selectedItemText]}>
-                              {new Date(record.attendanceDate).toLocaleDateString()} — {record.lateMinutes} minute(s) late
-                            </Text>
-                            {selected && <Ionicons name="checkmark-circle" size={20} color="#DC2777" />}
-                          </Pressable>
-                        );
-                      })}
-                    </View>
-                    <Pressable
-                      style={[styles.button, !selectedLateRecordId && styles.buttonDisabled]}
-                      onPress={goToUndertimeStep2}
-                      disabled={!selectedLateRecordId}
-                    >
-                      <Text style={styles.buttonText}>Next</Text>
-                    </Pressable>
-                  </>
-                )}
-
-                {undertimeStep === 2 && (
-                  <>
-                    <Text style={[styles.cardTitle, { fontSize: 15, marginTop: 14, marginBottom: 6 }]}>Add a Reason</Text>
-                    {selectedLateRecord && (
-                      <Text style={styles.wizardSummaryText}>
-                        {new Date(selectedLateRecord.attendanceDate).toLocaleDateString()} — {selectedLateRecord.lateMinutes} minute(s) late
-                      </Text>
-                    )}
-                    <View style={styles.wizardLabelRow}>
-                      <Text style={styles.label}>Reason</Text>
-                      <Text style={styles.wizardRequiredMark}>*</Text>
-                    </View>
-                    <View style={[styles.textAreaContainer, { height: 90 }]}>
-                      <TextInput
-                        placeholder="Why are you filing undertime for this day?"
-                        multiline
-                        value={undertimeReason}
-                        onChangeText={setUndertimeReason}
-                        style={styles.textAreaInput}
-                      />
-                    </View>
-                    <View style={styles.wizardButtonRow}>
-                      <Pressable style={styles.wizardBackButton} onPress={goToPreviousUndertimeStep}>
-                        <Text style={styles.wizardBackButtonText}>Back</Text>
-                      </Pressable>
-                      <Pressable
-                        style={[styles.button, { flex: 1, marginTop: 0 }, !undertimeReason.trim() && styles.buttonDisabled]}
-                        onPress={goToUndertimeStep3}
-                        disabled={!undertimeReason.trim()}
-                      >
-                        <Text style={styles.buttonText}>Next</Text>
-                      </Pressable>
-                    </View>
-                  </>
-                )}
-
-                {undertimeStep === 3 && selectedLateRecord && (
-                  <>
-                    <Text style={[styles.cardTitle, { fontSize: 15, marginTop: 14, marginBottom: 10 }]}>Review & Submit</Text>
-                    <View style={styles.wizardReviewCard}>
-                      <View style={styles.wizardReviewRow}>
-                        <Text style={styles.wizardReviewLabel}>Late Day</Text>
-                        <Text style={styles.wizardReviewValue}>
-                          {new Date(selectedLateRecord.attendanceDate).toLocaleDateString()} ({selectedLateRecord.lateMinutes} min)
-                        </Text>
-                      </View>
-                      <View style={[styles.wizardReviewRow, { borderBottomWidth: 0, marginBottom: 0, paddingBottom: 0 }]}>
-                        <Text style={styles.wizardReviewLabel}>Reason</Text>
-                        <Text style={[styles.wizardReviewValue, { flexShrink: 1, textAlign: "right" }]}>{undertimeReason}</Text>
-                      </View>
-                    </View>
-                    <View style={styles.wizardButtonRow}>
-                      <Pressable style={styles.wizardBackButton} onPress={goToPreviousUndertimeStep} disabled={isFilingUndertime}>
-                        <Text style={styles.wizardBackButtonText}>Back</Text>
-                      </Pressable>
-                      <Pressable
-                        style={[styles.button, { flex: 1, marginTop: 0 }, isFilingUndertime && styles.buttonDisabled]}
-                        onPress={handleFileUndertime}
-                        disabled={isFilingUndertime}
-                      >
-                        {isFilingUndertime ? (
-                          <ActivityIndicator color="#FFFFFF" />
-                        ) : (
-                          <Text style={styles.buttonText}>Submit</Text>
+              ) : undertimeEligibility.existingFiling ? (
+                (() => {
+                  const filing = undertimeEligibility.existingFiling;
+                  const lockedTone =
+                    filing.status === "APPROVED"
+                      ? { bg: "#DCFCE7", color: "#15803D", title: "Approved for this cutoff" }
+                      : filing.status === "REJECTED"
+                        ? { bg: "#FEE2E2", color: "#B91C1C", title: "Rejected for this cutoff" }
+                        : { bg: "#FEF3C7", color: "#B45309", title: "Awaiting your supervisor's review" };
+                  const lockedBody =
+                    filing.status === "PENDING"
+                      ? "This card will unlock again once the next filing window opens."
+                      : `One filing is allowed per cutoff. You can file again once the next filing window opens — the ${undertimeEligibility.filingDaysOfMonth.join(" or ")} of the month.`;
+                  return (
+                    <View style={{ flex: 1 }}>
+                      <View style={[styles.undertimeLockedBanner, { backgroundColor: lockedTone.bg }]}>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                          <Ionicons name="lock-closed-outline" size={16} color={lockedTone.color} />
+                          <Text style={{ fontSize: 12.5, fontWeight: "700", color: lockedTone.color }}>{lockedTone.title}</Text>
+                        </View>
+                        <Text style={{ fontSize: 11.5, color: lockedTone.color, marginTop: 4, lineHeight: 15 }}>{lockedBody}</Text>
+                        {filing.status === "REJECTED" && filing.remarks && (
+                          <Text style={{ fontSize: 11, color: lockedTone.color, marginTop: 4, fontStyle: "italic" }}>Remarks: {filing.remarks}</Text>
                         )}
-                      </Pressable>
-                    </View>
-                  </>
-                )}
-              </>
-            ) : null}
+                      </View>
 
-            <Text style={[styles.cardTitle, { fontSize: 15, marginTop: 20, marginBottom: 8 }]}>Recent Filings</Text>
-            {undertimeFilings.length === 0 ? (
-              <Text style={styles.modalEmptyText}>No undertime filings yet.</Text>
-            ) : (
-              undertimeFilings.map((f) => {
-                const tone = statusTone(f.status);
-                return (
-                  <View key={f.id} style={styles.requestCard}>
-                    <Text style={styles.requestTitle}>
-                      {f.attendanceRecord ? new Date(f.attendanceRecord.attendanceDate).toLocaleDateString() : new Date(f.filingDate).toLocaleDateString()}
-                    </Text>
-                    {f.reason && <Text>{f.reason}</Text>}
-                    <Text style={[styles.pendingText, { color: tone.color, backgroundColor: tone.bg }]} numberOfLines={1}>
-                      {statusLabel(f.status)}
-                    </Text>
+                      {/* Frozen preview of the same wizard chrome (progress
+                          steps + review card + button), dimmed and
+                          non-interactive — this is "the filing UI," just
+                          disabled, not a different, simplified summary. */}
+                      <View style={{ opacity: 0.45 }} pointerEvents="none">
+                        <View style={styles.wizardProgressRow}>
+                          {(["Pick Day", "Reason", "Review"] as const).map((label, index) => (
+                            <React.Fragment key={label}>
+                              <View style={styles.wizardStep}>
+                                <View style={[styles.wizardCircle, styles.wizardCircleDone]}>
+                                  <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+                                </View>
+                                <Text style={[styles.wizardStepLabel, styles.wizardStepLabelDone]}>{label.toUpperCase()}</Text>
+                              </View>
+                              {index < 2 && <View style={[styles.wizardConnector, styles.wizardConnectorDone]} />}
+                            </React.Fragment>
+                          ))}
+                        </View>
+                        <Text style={[styles.cardTitle, { fontSize: 14, marginTop: 8, marginBottom: 6 }]}>Review</Text>
+                        <View style={styles.wizardReviewCard}>
+                          <View style={styles.wizardReviewRow}>
+                            <Text style={styles.wizardReviewLabel}>Late Day</Text>
+                            <Text style={styles.wizardReviewValue}>
+                              {filing.attendanceRecord
+                                ? `${new Date(filing.attendanceRecord.attendanceDate).toLocaleDateString()} (${filing.attendanceRecord.lateMinutes} min)`
+                                : "—"}
+                            </Text>
+                          </View>
+                          <View style={[styles.wizardReviewRow, { borderBottomWidth: 0, marginBottom: 0, paddingBottom: 0 }]}>
+                            <Text style={styles.wizardReviewLabel}>Reason</Text>
+                            <Text style={[styles.wizardReviewValue, { flexShrink: 1, textAlign: "right" }]}>{filing.reason ?? "—"}</Text>
+                          </View>
+                        </View>
+                        <View style={[styles.button, { backgroundColor: "#94A3B8" }]}>
+                          <Text style={styles.buttonText}>Submit</Text>
+                        </View>
+                      </View>
+                    </View>
+                  );
+                })()
+              ) : undertimeEligibility.isFilingDay && undertimeEligibility.lateRecords.length > 0 ? (
+                <View style={{ flex: 1 }}>
+                  {/* Progress indicator */}
+                  <View style={styles.wizardProgressRow}>
+                    {(["Pick Day", "Reason", "Review"] as const).map((label, index) => {
+                      const stepNumber = (index + 1) as 1 | 2 | 3;
+                      const done = stepNumber < undertimeStep;
+                      const current = stepNumber === undertimeStep;
+                      return (
+                        <React.Fragment key={label}>
+                          <View style={styles.wizardStep}>
+                            <View
+                              style={[
+                                styles.wizardCircle,
+                                done && styles.wizardCircleDone,
+                                current && styles.wizardCircleCurrent,
+                              ]}
+                            >
+                              {done ? (
+                                <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+                              ) : (
+                                <Text style={[styles.wizardCircleText, current && styles.wizardCircleTextCurrent]}>
+                                  {stepNumber}
+                                </Text>
+                              )}
+                            </View>
+                            <Text
+                              style={[
+                                styles.wizardStepLabel,
+                                done && styles.wizardStepLabelDone,
+                                current && styles.wizardStepLabelCurrent,
+                              ]}
+                            >
+                              {label.toUpperCase()}
+                            </Text>
+                          </View>
+                          {stepNumber < 3 && (
+                            <View style={[styles.wizardConnector, stepNumber < undertimeStep && styles.wizardConnectorDone]} />
+                          )}
+                        </React.Fragment>
+                      );
+                    })}
                   </View>
-                );
-              })
-            )}
+
+                  {/* Each step fills the remaining height and pins its
+                      action row to the bottom, so Next/Back/Submit sits at
+                      the same vertical position across all three steps. */}
+                  <View style={{ flex: 1 }}>
+                    {undertimeStep === 1 && (
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.cardTitle, { fontSize: 15, marginTop: 8, marginBottom: 6 }]}>Pick Your Late Day</Text>
+                          <View style={{ borderTopWidth: 1, borderTopColor: "#F1F5F9" }}>
+                            {undertimeEligibility.lateRecords.map((record) => {
+                              const selected = selectedLateRecordId === record.id;
+                              return (
+                                <Pressable
+                                  key={record.id}
+                                  style={[
+                                    styles.inlineItem,
+                                    { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+                                    selected && { backgroundColor: "#FCE7F3" },
+                                  ]}
+                                  onPress={() => setSelectedLateRecordId(record.id)}
+                                >
+                                  <Text style={[styles.inlineItemText, selected && styles.selectedItemText]}>
+                                    {new Date(record.attendanceDate).toLocaleDateString()} — {record.lateMinutes} minute(s) late
+                                  </Text>
+                                  {selected && <Ionicons name="checkmark-circle" size={20} color="#DC2777" />}
+                                </Pressable>
+                              );
+                            })}
+                          </View>
+                        </View>
+                        <Pressable
+                          style={[styles.button, !selectedLateRecordId && styles.buttonDisabled]}
+                          onPress={goToUndertimeStep2}
+                          disabled={!selectedLateRecordId}
+                        >
+                          <Text style={styles.buttonText}>Next</Text>
+                        </Pressable>
+                      </View>
+                    )}
+
+                    {undertimeStep === 2 && (
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.cardTitle, { fontSize: 15, marginTop: 8, marginBottom: 6 }]}>Add a Reason</Text>
+                          {selectedLateRecord && (
+                            <Text style={styles.wizardSummaryText}>
+                              {new Date(selectedLateRecord.attendanceDate).toLocaleDateString()} — {selectedLateRecord.lateMinutes} minute(s) late
+                            </Text>
+                          )}
+                          <View style={styles.wizardLabelRow}>
+                            <Text style={styles.label}>Reason</Text>
+                            <Text style={styles.wizardRequiredMark}>*</Text>
+                          </View>
+                          <View style={[styles.textAreaContainer, { height: 90 }]}>
+                            <TextInput
+                              placeholder="Why are you filing undertime for this day?"
+                              multiline
+                              value={undertimeReason}
+                              onChangeText={setUndertimeReason}
+                              style={styles.textAreaInput}
+                            />
+                          </View>
+                        </View>
+                        <View style={styles.wizardButtonRow}>
+                          <Pressable style={styles.wizardBackButton} onPress={goToPreviousUndertimeStep}>
+                            <Text style={styles.wizardBackButtonText}>Back</Text>
+                          </Pressable>
+                          <Pressable
+                            style={[styles.button, { flex: 1, marginTop: 0 }, !undertimeReason.trim() && styles.buttonDisabled]}
+                            onPress={goToUndertimeStep3}
+                            disabled={!undertimeReason.trim()}
+                          >
+                            <Text style={styles.buttonText}>Next</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    )}
+
+                    {undertimeStep === 3 && selectedLateRecord && (
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.cardTitle, { fontSize: 15, marginTop: 8, marginBottom: 10 }]}>Review & Submit</Text>
+                          <View style={styles.wizardReviewCard}>
+                            <View style={styles.wizardReviewRow}>
+                              <Text style={styles.wizardReviewLabel}>Late Day</Text>
+                              <Text style={styles.wizardReviewValue}>
+                                {new Date(selectedLateRecord.attendanceDate).toLocaleDateString()} ({selectedLateRecord.lateMinutes} min)
+                              </Text>
+                            </View>
+                            <View style={[styles.wizardReviewRow, { borderBottomWidth: 0, marginBottom: 0, paddingBottom: 0 }]}>
+                              <Text style={styles.wizardReviewLabel}>Reason</Text>
+                              <Text style={[styles.wizardReviewValue, { flexShrink: 1, textAlign: "right" }]}>{undertimeReason}</Text>
+                            </View>
+                          </View>
+                        </View>
+                        <View style={styles.wizardButtonRow}>
+                          <Pressable style={styles.wizardBackButton} onPress={goToPreviousUndertimeStep} disabled={isFilingUndertime}>
+                            <Text style={styles.wizardBackButtonText}>Back</Text>
+                          </Pressable>
+                          <Pressable
+                            style={[styles.button, { flex: 1, marginTop: 0 }, isFilingUndertime && styles.buttonDisabled]}
+                            onPress={handleFileUndertime}
+                            disabled={isFilingUndertime}
+                          >
+                            {isFilingUndertime ? (
+                              <ActivityIndicator color="#FFFFFF" />
+                            ) : (
+                              <Text style={styles.buttonText}>Submit</Text>
+                            )}
+                          </Pressable>
+                        </View>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              ) : (
+                <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+                  <Ionicons name="calendar-clear-outline" size={28} color="#CBD5E1" />
+                  <Text style={[styles.modalEmptyText, { marginTop: 8 }]}>Nothing to file right now.</Text>
+                </View>
+              )}
+            </View>
+
+            <Pressable style={styles.viewHistoryButton} onPress={() => setIsHistoryModalVisible(true)}>
+              <Ionicons name="calendar-outline" size={14} color="#1680D8" />
+              <Text style={styles.viewHistoryButtonText}>View Filing History</Text>
+            </Pressable>
           </View>
         </AestheticScrollView>
       ) : (
         <View style={[styles.tabContentPad, { flex: 1 }]}>
-          <View style={styles.card}>
+          <View style={[styles.card, matchedCardHeight ? { height: matchedCardHeight } : { flex: 1 }]}>
             <View style={styles.formHeader}>
               <Ionicons color="#DC2777" name="document-text-outline" size={28} />
               <Text style={styles.cardTitle}>Leave Request</Text>
             </View>
 
-            {pendingRequests.length > 0 && (
-              <Pressable onPress={openPendingModal}>
-                <Text style={styles.pendingNoticeText}>
-                  You have {pendingRequests.length} leave request{pendingRequests.length === 1 ? "" : "s"} awaiting review (tap to view). You can still file for a different leave type.
-                </Text>
-              </Pressable>
-            )}
+            <AestheticScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 8 }} keyboardShouldPersistTaps="handled">
 
             <Text style={styles.label}>Leave Type</Text>
             <View style={styles.dropdownWrapper}>
@@ -1566,6 +1708,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
             <Pressable style={styles.button} onPress={handleSubmit}>
               <Text style={styles.buttonText}>Submit Leave Request</Text>
             </Pressable>
+            </AestheticScrollView>
           </View>
         </View>
       )}
@@ -1882,6 +2025,195 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
           setRequestsToPickerVisibility(false);
         }}
         onClose={() => setRequestsToPickerVisibility(false)}
+      />
+
+      <Modal visible={isHistoryModalVisible} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <BlurView
+            intensity={45}
+            tint="dark"
+            experimentalBlurMethod="dimezisBlurView"
+            style={StyleSheet.absoluteFillObject}
+          />
+          <View style={[styles.modalCard, { height: 540, maxHeight: "80%" }]}>
+            {expandedHistoryFiling ? (
+              <>
+                <Pressable style={styles.backRow} onPress={() => setExpandedHistoryFilingId(null)}>
+                  <Ionicons name="chevron-back" size={16} color="#1680D8" />
+                  <Text style={styles.backText}>All filings</Text>
+                </Pressable>
+                <Text style={styles.modalTitle}>Undertime Filing Details</Text>
+                <AestheticScrollView style={{ flex: 1 }}>
+                  {(() => {
+                    const filing = expandedHistoryFiling;
+                    const tone = statusTone(filing.status);
+                    const timelineSteps = buildUndertimeTimelineSteps(filing);
+                    return (
+                      <View style={styles.requestCard}>
+                        <Text style={styles.requestTitle}>
+                          {filing.attendanceRecord
+                            ? `${new Date(filing.attendanceRecord.attendanceDate).toLocaleDateString()} · ${filing.attendanceRecord.lateMinutes} min late`
+                            : new Date(filing.filingDate).toLocaleDateString()}
+                        </Text>
+                        {filing.reason && <Text>{filing.reason}</Text>}
+                        <Text style={[styles.pendingText, { color: tone.color, backgroundColor: tone.bg }]} numberOfLines={1}>
+                          {statusLabel(filing.status)}
+                        </Text>
+                        {filing.status === "REJECTED" && filing.remarks && (
+                          <Text style={styles.requirementNoteText}>Remarks: {filing.remarks}</Text>
+                        )}
+                        {/* Same visual language as LeaveTimeline.tsx (label,
+                            node/line rail, tone colors) — a dedicated
+                            step-builder rather than reusing that component,
+                            since its action vocabulary is leave-specific. */}
+                        <View style={styles.timelineWrap}>
+                          <Text style={styles.timelineLabel}>APPROVAL PROGRESS</Text>
+                          {timelineSteps.map((step, index) => {
+                            const toneStyle = UNDERTIME_TIMELINE_TONE_STYLE[step.tone];
+                            return (
+                              <View key={step.key} style={styles.timelineStep}>
+                                <View style={styles.timelineRail}>
+                                  <View style={[styles.timelineNode, { backgroundColor: toneStyle.bg, borderColor: toneStyle.border }]}>
+                                    <Ionicons name={UNDERTIME_TIMELINE_TONE_ICON[step.tone]} size={11} color={toneStyle.fg} />
+                                  </View>
+                                  {index < timelineSteps.length - 1 && (
+                                    <View style={[styles.timelineLine, { backgroundColor: toneStyle.line }]} />
+                                  )}
+                                </View>
+                                <View style={styles.timelineBody}>
+                                  <Text style={styles.timelineWhen}>{step.when}</Text>
+                                  <Text style={styles.timelineTitle}>{step.title}</Text>
+                                  {!!step.detail && (
+                                    <Text style={[styles.timelineDetail, step.tone === "danger" && { color: toneStyle.fg }]}>
+                                      {step.detail}
+                                    </Text>
+                                  )}
+                                </View>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      </View>
+                    );
+                  })()}
+                </AestheticScrollView>
+              </>
+            ) : (
+              <>
+                <Text style={styles.modalTitle}>Filing History</Text>
+
+                <View style={styles.statusFilterRow}>
+                  {(["PENDING", "APPROVED", "REJECTED"] as const).map((key) => {
+                    const active = historyStatusFilter === key;
+                    return (
+                      <Pressable
+                        key={key}
+                        style={[styles.statusFilterChip, active && styles.statusFilterChipActive]}
+                        onPress={() => setHistoryStatusFilter(active ? "ALL" : key)}
+                      >
+                        <Text style={[styles.statusFilterChipText, active && styles.statusFilterChipTextActive]} numberOfLines={1}>
+                          {key.charAt(0) + key.slice(1).toLowerCase()}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                <View style={styles.filedDateRow}>
+                  <Pressable style={styles.filedDateBox} onPress={() => setHistoryFromPickerVisibility(true)}>
+                    <Text style={[styles.filedDateText, !historyDateFrom && styles.filedDateTextPlaceholder]} numberOfLines={1}>
+                      {historyDateFrom ? formatDate(historyDateFrom) : "Filed from"}
+                    </Text>
+                    <Ionicons name="calendar-outline" size={14} color="#64748B" />
+                  </Pressable>
+                  <Pressable style={styles.filedDateBox} onPress={() => setHistoryToPickerVisibility(true)}>
+                    <Text style={[styles.filedDateText, !historyDateTo && styles.filedDateTextPlaceholder]} numberOfLines={1}>
+                      {historyDateTo ? formatDate(historyDateTo) : "Filed to"}
+                    </Text>
+                    <Ionicons name="calendar-outline" size={14} color="#64748B" />
+                  </Pressable>
+                  {(historyDateFrom || historyDateTo) && (
+                    <Pressable
+                      style={styles.dateFilterClear}
+                      onPress={() => {
+                        setHistoryDateFrom(null);
+                        setHistoryDateTo(null);
+                      }}
+                    >
+                      <Ionicons name="close" size={16} color="#94A3B8" />
+                    </Pressable>
+                  )}
+                </View>
+
+                <AestheticScrollView style={{ maxHeight: 280 }}>
+                  {visibleHistoryFilings.length === 0 ? (
+                    <Text style={styles.modalEmptyText}>
+                      {historyDateFrom || historyDateTo || historyStatusFilter !== "ALL"
+                        ? "No filings match these filters."
+                        : "No undertime filings yet."}
+                    </Text>
+                  ) : (
+                    visibleHistoryFilings.map((filing) => {
+                      const tone = statusTone(filing.status);
+                      return (
+                        <Pressable
+                          key={filing.id}
+                          style={styles.summaryCard}
+                          onPress={() => setExpandedHistoryFilingId(filing.id)}
+                        >
+                          <View style={styles.summaryTopRow}>
+                            <Text style={[styles.requestTitle, { flex: 1 }]} numberOfLines={1}>
+                              {filing.attendanceRecord
+                                ? `${new Date(filing.attendanceRecord.attendanceDate).toLocaleDateString()} · ${filing.attendanceRecord.lateMinutes} min late`
+                                : new Date(filing.filingDate).toLocaleDateString()}
+                            </Text>
+                            <Text
+                              style={[styles.pendingText, { marginTop: 0, fontSize: 10, color: tone.color, backgroundColor: tone.bg }]}
+                              numberOfLines={1}
+                            >
+                              {statusLabel(filing.status)}
+                            </Text>
+                          </View>
+                          {filing.reason && <Text numberOfLines={1}>{filing.reason}</Text>}
+                        </Pressable>
+                      );
+                    })
+                  )}
+                </AestheticScrollView>
+              </>
+            )}
+            {!expandedHistoryFiling && (
+              <Pressable style={styles.closeButton} onPress={() => setIsHistoryModalVisible(false)}>
+                <Text style={styles.closeText}>Close</Text>
+              </Pressable>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      <CalendarPickerModal
+        visible={isHistoryFromPickerVisible}
+        title="Filed From"
+        selectedDate={historyDateFrom ?? undefined}
+        maximumDate={historyDateTo ?? todayStart}
+        onSelect={(value) => {
+          setHistoryDateFrom(value);
+          setHistoryFromPickerVisibility(false);
+        }}
+        onClose={() => setHistoryFromPickerVisibility(false)}
+      />
+
+      <CalendarPickerModal
+        visible={isHistoryToPickerVisible}
+        title="Filed To"
+        selectedDate={historyDateTo ?? undefined}
+        minimumDate={historyDateFrom ?? undefined}
+        maximumDate={todayStart}
+        onSelect={(value) => {
+          setHistoryDateTo(value);
+          setHistoryToPickerVisibility(false);
+        }}
+        onClose={() => setHistoryToPickerVisibility(false)}
       />
 
       <Modal visible={!!confirmCancelId} transparent animationType="fade">
@@ -2201,7 +2533,7 @@ const styles = StyleSheet.create({
     fontWeight: "700"
   },
   // Undertime's 3-step wizard (pick day -> reason -> review).
-  wizardProgressRow: { flexDirection: "row", alignItems: "center", marginTop: 16, marginBottom: 4 },
+  wizardProgressRow: { flexDirection: "row", alignItems: "center", marginTop: 10, marginBottom: 4 },
   wizardStep: { alignItems: "center", width: 64 },
   wizardCircle: { width: 28, height: 28, borderRadius: 14, backgroundColor: "#F1F5F9", alignItems: "center", justifyContent: "center" },
   wizardCircleDone: { backgroundColor: "#062B59" },
@@ -2219,10 +2551,36 @@ const styles = StyleSheet.create({
   wizardButtonRow: { flexDirection: "row", gap: 10, marginTop: 14 },
   wizardBackButton: { flex: 1, height: SCREEN_HEIGHT < 700 ? 42 : 48, borderRadius: 14, borderWidth: 1, borderColor: "#E2E8F0", alignItems: "center", justifyContent: "center" },
   wizardBackButtonText: { color: "#475569", fontWeight: "700" },
-  wizardReviewCard: { backgroundColor: "#FDF2F8", borderWidth: 1, borderColor: "#FBCFE8", borderRadius: 14, padding: 14 },
+  wizardReviewCard: { backgroundColor: "#FDF2F8", borderWidth: 1, borderColor: "#FBCFE8", borderRadius: 14, padding: 12 },
   wizardReviewRow: { flexDirection: "row", justifyContent: "space-between", gap: 10, borderBottomWidth: 1, borderBottomColor: "#FBCFE8", marginBottom: 8, paddingBottom: 8 },
   wizardReviewLabel: { fontSize: 12, color: "#9D174D", fontWeight: "600" },
   wizardReviewValue: { fontSize: 12, color: "#831843", fontWeight: "700" },
+  undertimeLockedBanner: { borderRadius: 12, padding: 10 },
+  // Same tokens as components/LeaveTimeline.tsx — see buildUndertimeTimelineSteps.
+  timelineWrap: { marginTop: 14, paddingTop: 12, borderTopWidth: 1, borderTopColor: "#E2E8F0" },
+  timelineLabel: { fontSize: 10.5, fontWeight: "700", letterSpacing: 0.4, color: "#94A3B8", marginBottom: 10 },
+  timelineStep: { flexDirection: "row", gap: 10, paddingBottom: 14 },
+  timelineRail: { width: 18, alignItems: "center", position: "relative" },
+  timelineNode: { width: 18, height: 18, borderRadius: 9, borderWidth: 2, alignItems: "center", justifyContent: "center", zIndex: 1 },
+  timelineLine: { position: "absolute", top: 18, bottom: -14, width: 2 },
+  timelineBody: { flex: 1, paddingTop: 1 },
+  timelineWhen: { fontSize: 10.5, color: "#94A3B8", marginBottom: 2 },
+  timelineTitle: { fontSize: 12.5, fontWeight: "700", color: "#0F172A" },
+  timelineDetail: { fontSize: 11.5, color: "#64748B", marginTop: 2, lineHeight: 15 },
+  // Same "View Filed Leave" pattern as LeaveBalanceChart.tsx's viewAllButton.
+  viewHistoryButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: "#F8FAFF",
+    borderWidth: 1,
+    borderColor: "#BFDBFE",
+    borderRadius: 10,
+    paddingVertical: 10,
+    marginTop: 20,
+  },
+  viewHistoryButtonText: { color: "#1680D8", fontSize: 12, fontWeight: "700" },
   // No dimmed backdrop — just the floating card. The shadow/border below is
   // what gives it definition against the page instead of a dim overlay.
   modalOverlay: { flex: 1, backgroundColor: "transparent", justifyContent: "center", alignItems: "center" },
