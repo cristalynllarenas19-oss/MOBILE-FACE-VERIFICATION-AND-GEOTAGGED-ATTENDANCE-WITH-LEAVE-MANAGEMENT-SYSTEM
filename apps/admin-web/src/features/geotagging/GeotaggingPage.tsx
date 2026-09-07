@@ -382,15 +382,24 @@ function GeotaggingPageContent({
     [latitude, longitude],
   );
 
+  // Cross-referenced against `employees` (already active-only, see loadData
+  // above) rather than trusting each location's embedded assignment rows —
+  // an archived/separated employee's WorkLocationEmployee row can outlive
+  // their archive, and would otherwise inflate this count past the real
+  // active headcount (same rule the Dashboard's "Geotagged Areas" stat uses).
+  const activeEmployeeIds = useMemo(() => new Set(employees.map((employee) => employee.id)), [employees]);
+
   const assignedEmployees = useMemo(
     () =>
       new Set(
-        locations.flatMap(
-          (location) =>
-            location.employees?.map((entry) => entry.employee.id) ?? (location.employeeId ? [location.employeeId] : []),
-        ),
+        locations
+          .flatMap(
+            (location) =>
+              location.employees?.map((entry) => entry.employee.id) ?? (location.employeeId ? [location.employeeId] : []),
+          )
+          .filter((employeeId) => activeEmployeeIds.has(employeeId)),
       ),
-    [locations],
+    [locations, activeEmployeeIds],
   );
 
   const currentLocationAssignedIds = useMemo(() => new Set(form.employeeIds), [form.employeeIds]);

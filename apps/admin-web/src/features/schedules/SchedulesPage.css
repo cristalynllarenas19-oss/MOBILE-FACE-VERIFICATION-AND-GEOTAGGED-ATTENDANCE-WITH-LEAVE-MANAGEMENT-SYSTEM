@@ -284,6 +284,41 @@
   color: #9aa9bb;
 }
 
+.sfd-option-label-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+/* Already has an active schedule — greyed out (not disabled: a second
+   concurrent assignment may be intentional) so the admin can spot who's
+   still unassigned at a glance instead of clicking through the list. */
+.sfd-option-muted {
+  color: #9aa9bb;
+}
+
+.sfd-option-muted .sfd-option-sub {
+  color: #c3cdd8;
+}
+
+.sfd-option-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #92400e;
+  background: #fef3c7;
+  border-radius: 999px;
+  padding: 2px 7px;
+}
+
+.sfd-option.selected .sfd-option-badge {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.22);
+}
+
 .wd-option {
   display: flex;
   align-items: center;

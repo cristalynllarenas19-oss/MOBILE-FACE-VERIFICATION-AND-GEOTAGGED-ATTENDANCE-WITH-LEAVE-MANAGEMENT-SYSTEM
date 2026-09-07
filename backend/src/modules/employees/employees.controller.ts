@@ -71,4 +71,11 @@ export class EmployeesController {
     const departmentId = getSupervisorDepartmentScope((request as any).user);
     return this.employeesService.archive(id, dto, getAuditContext(request), departmentId);
   }
+
+  @Patch(":id/restore")
+  @RequirePermissions("employees:write")
+  restore(@Param("id") id: string, @Req() request: Request) {
+    const departmentId = getSupervisorDepartmentScope((request as any).user);
+    return this.employeesService.restore(id, getAuditContext(request), departmentId);
+  }
 }

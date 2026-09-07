@@ -1,7 +1,8 @@
 import axios from "axios";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { AlertTriangle, Archive, ChevronsUpDown, CheckCircle2, Eye, Pencil, Plus, ScanFace, Search, UserCheck, X } from "lucide-react";
+import { AlertTriangle, Archive, ChevronsUpDown, CheckCircle2, Eye, Pencil, Plus, RotateCcw, ScanFace, Search, UserCheck, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
+import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { FormSelectDropdown } from "../../components/ui/FormSelectDropdown";
 import { EvaluationViewModal } from "../evaluations/EvaluationViewModal";
@@ -897,6 +898,7 @@ function ViewEmployeeModal({
   onClose,
   onEdit,
   onArchive,
+  onRestore,
   canWrite,
   canRegisterFace,
   onRegisterFace,
@@ -908,6 +910,7 @@ function ViewEmployeeModal({
   onClose: () => void;
   onEdit: () => void;
   onArchive: () => void;
+  onRestore: () => void;
   canWrite: boolean;
   canRegisterFace: boolean;
   onRegisterFace?: () => void;
@@ -1042,6 +1045,12 @@ function ViewEmployeeModal({
           <button type="button" className="employee-archive-action" onClick={onArchive}>
             <Archive size={14} />
             Archive Employee
+          </button>
+        )}
+        {canWrite && employee.employmentStatus === "SEPARATED" && (
+          <button type="button" className="primary-button" onClick={onRestore}>
+            <RotateCcw size={14} />
+            Restore Employee
           </button>
         )}
         {canRegisterFace && onRegisterFace && (
@@ -1206,6 +1215,7 @@ export function EmployeesPage({
   const [viewingPerformanceEmployee, setViewingPerformanceEmployee] = useState<Employee | null>(null);
   const [editEmployee, setEditEmployee] = useState<Employee | null>(null);
   const [archiveEmployee, setArchiveEmployee] = useState<Employee | null>(null);
+  const [restoreTarget, setRestoreTarget] = useState<Employee | null>(null);
   const [notification, setNotification] = useState<Notification>(null);
 
 
@@ -1313,6 +1323,20 @@ export function EmployeesPage({
     setViewEmployee((current) => (current?.id === employee.id ? employee : current));
     setArchiveEmployee(null);
     setNotification({ type: "success", message: "Employee was archived and their login was deactivated." });
+  };
+
+  const handleRestoreEmployee = async (employee: Employee) => {
+    try {
+      const restored = await apiRequest<Employee>(`/employees/${employee.id}/restore`, { method: "PATCH" });
+      employeesCache.setData(employees.map((item) => (item.id === restored.id ? restored : item)));
+      setViewEmployee((current) => (current?.id === restored.id ? restored : current));
+      setNotification({ type: "success", message: "Employee was restored and their login was reactivated." });
+    } catch (err) {
+      setNotification({
+        type: "error",
+        message: err instanceof Error ? err.message : "Unable to restore employee.",
+      });
+    }
   };
 
   const openEditEmployee = (employee: Employee) => {
@@ -1504,6 +1528,10 @@ export function EmployeesPage({
             setArchiveEmployee(viewEmployee);
             setViewEmployee(null);
           }}
+          onRestore={() => {
+            setRestoreTarget(viewEmployee);
+            setViewEmployee(null);
+          }}
           canWrite={canWrite}
           canRegisterFace={Boolean(
             onRegisterFace &&
@@ -1564,6 +1592,19 @@ export function EmployeesPage({
           employee={archiveEmployee}
           onClose={() => setArchiveEmployee(null)}
           onArchived={handleEmployeeArchived}
+        />
+      )}
+
+      {restoreTarget && (
+        <ConfirmDialog
+          config={{
+            title: "Restore Employee",
+            description: `${getEmployeeName(restoreTarget)} will be reactivated and can log in again. They'll reappear in the active employee list.`,
+            confirmLabel: "Restore Employee",
+            tone: "primary",
+            onConfirm: () => handleRestoreEmployee(restoreTarget),
+          }}
+          onCancel={() => setRestoreTarget(null)}
         />
       )}
     </>

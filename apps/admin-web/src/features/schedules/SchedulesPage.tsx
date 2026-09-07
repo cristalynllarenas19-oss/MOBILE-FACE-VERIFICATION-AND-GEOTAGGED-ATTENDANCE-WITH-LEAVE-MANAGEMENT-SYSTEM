@@ -88,7 +88,7 @@ function FormDropdown({
   label: string;
   placeholder: string;
   value: string;
-  options: { value: string; label: string; sub?: string }[];
+  options: { value: string; label: string; sub?: string; badge?: string }[];
   onChange: (value: string) => void;
   required?: boolean;
   clearValue?: string;
@@ -197,13 +197,16 @@ function FormDropdown({
                   type="button"
                   role="option"
                   aria-selected={opt.value === value}
-                  className={`sfd-option ${opt.value === value ? "selected" : ""}`}
+                  className={`sfd-option ${opt.value === value ? "selected" : ""} ${opt.badge ? "sfd-option-muted" : ""}`}
                   onClick={() => {
                     onChange(opt.value);
                     setOpen(false);
                   }}
                 >
-                  {opt.label}
+                  <span className="sfd-option-label-row">
+                    {opt.label}
+                    {opt.badge && <span className="sfd-option-badge">{opt.badge}</span>}
+                  </span>
                   {opt.sub && <span className="sfd-option-sub">{opt.sub}</span>}
                 </button>
               ))
@@ -356,6 +359,15 @@ export function SchedulesPage({
   const [isEditSaving, setIsEditSaving] = useState(false);
   const [notification, setNotification] = useState<Notification>(null);
   const [confirmConfig, setConfirmConfig] = useState<ConfirmDialogConfig | null>(null);
+  // Employees with a currently active schedule — flags them in the "Assign
+  // Shift to Employee" dropdown below so the admin doesn't have to click
+  // through the whole list to find who's still unassigned. Fetched
+  // unfiltered (independent of departmentFilter/shiftFilter/statusFilter
+  // on the table above), since the Employee dropdown itself always lists
+  // every employee regardless of those filters — using the table's own
+  // filtered `schedules` state here would wrongly show an out-of-filter
+  // employee as unassigned.
+  const [assignedEmployeeIds, setAssignedEmployeeIds] = useState<Set<string>>(new Set());
 
   const loadData = () => {
     const params = new URLSearchParams();
@@ -368,13 +380,15 @@ export function SchedulesPage({
       apiRequest<Schedule[]>(`/schedules${query ? `?${query}` : ""}`),
       apiRequest<Employee[]>("/employees"),
       apiRequest<Shift[]>("/schedules/shifts"),
+      apiRequest<Schedule[]>("/schedules?status=ACTIVE"),
     ])
-      .then(([scheduleRows, employeeRows, shiftRows]) => {
+      .then(([scheduleRows, employeeRows, shiftRows, activeScheduleRows]) => {
         setSchedules(scheduleRows);
         // A separated employee can't be assigned a new shift — same rule
         // already applied to the schedules list itself.
         setEmployees(employeeRows.filter((emp) => emp.employmentStatus !== "SEPARATED"));
         setShifts(shiftRows);
+        setAssignedEmployeeIds(new Set(activeScheduleRows.map((s) => s.employee.id)));
       })
       .catch(() => undefined);
   };
@@ -422,6 +436,7 @@ export function SchedulesPage({
         }),
       });
       setSchedules((current) => [created, ...current]);
+      setAssignedEmployeeIds((current) => new Set(current).add(created.employee.id));
       setForm(emptyForm);
       setNotification({ type: "success", message: "Schedule assignment added successfully." });
     } catch (err) {
@@ -544,6 +559,7 @@ export function SchedulesPage({
                 value: emp.id,
                 label: getName(emp),
                 sub: `${emp.department.name} · ${emp.position.title}`,
+                badge: assignedEmployeeIds.has(emp.id) ? "Assigned" : undefined,
               }))}
             />
 
@@ -692,8 +708,7 @@ export function SchedulesPage({
         <table className="schedules-fixed-table">
           <colgroup>
             <col style={{ width: "18%" }} />
-            <col style={{ width: "14%" }} />
-            <col style={{ width: "14%" }} />
+            <col style={{ width: "28%" }} />
             <col style={{ width: "12%" }} />
             <col style={{ width: "11%" }} />
             <col style={{ width: "15%" }} />
@@ -703,7 +718,6 @@ export function SchedulesPage({
             <tr>
               <th>Employee</th>
               <th>Department</th>
-              <th>Position</th>
               <th>Shift</th>
               <th>Time</th>
               <th>Effective Dates</th>
@@ -713,7 +727,7 @@ export function SchedulesPage({
           <tbody>
             {visibleSchedules.length === 0 ? (
               <tr>
-                <td colSpan={7} className="schedules-empty-state">
+                <td colSpan={6} className="schedules-empty-state">
                   No schedule assignments found.
                 </td>
               </tr>
@@ -722,7 +736,6 @@ export function SchedulesPage({
                 <tr key={schedule.id}>
                   <td data-label="Employee" title={getName(schedule.employee)}>{getName(schedule.employee)}</td>
                   <td data-label="Department" title={schedule.employee.department.name}>{schedule.employee.department.name}</td>
-                  <td data-label="Position" title={schedule.employee.position.title}>{schedule.employee.position.title}</td>
                   <td data-label="Shift" title={schedule.shift.name}>{schedule.shift.name}</td>
                   <td data-label="Time">
                     {schedule.shift.startTime} – {schedule.shift.endTime}

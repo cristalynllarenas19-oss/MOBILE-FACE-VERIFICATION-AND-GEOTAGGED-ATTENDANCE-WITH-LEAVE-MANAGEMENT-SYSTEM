@@ -621,4 +621,49 @@ export class EmployeesService {
 
     return archived;
   }
+
+  // Counterpart to archive() above — reactivates both halves that archive()
+  // deactivated (employmentStatus and the linked login account). Restoring
+  // via the generic update() path alone left the login permanently locked
+  // out, since update() never touches user.status.
+  async restore(id: string, context: AuditLogContext = {}, scopeDepartmentId?: string) {
+    const employee = await this.prisma.employee.findUniqueOrThrow({
+      where: { id },
+      include: { user: true },
+    });
+
+    if (scopeDepartmentId && employee.departmentId !== scopeDepartmentId) {
+      throw new ForbiddenException("You can only manage employees in your own department.");
+    }
+
+    if (employee.employmentStatus !== "SEPARATED") {
+      throw new BadRequestException("This employee is not archived.");
+    }
+
+    if (employee.userId) {
+      await this.prisma.user.update({
+        where: { id: employee.userId },
+        data: { status: "ACTIVE" },
+      });
+    }
+
+    const restored = await this.prisma.employee.update({
+      where: { id },
+      data: { employmentStatus: "REGULAR" },
+      include: { user: true, department: true, position: true },
+    });
+
+    await this.auditLogs.record({
+      ...context,
+      action: "RESTORE_EMPLOYEE",
+      module: "Employees",
+      entityType: "Employee",
+      entityId: id,
+      description: `Restored employee record for ${restored.firstName} ${restored.lastName}.`,
+      oldValues: { employmentStatus: employee.employmentStatus, userStatus: employee.user?.status },
+      newValues: { employmentStatus: "REGULAR", userStatus: "ACTIVE" },
+    });
+
+    return restored;
+  }
 }
