@@ -26,24 +26,29 @@ export default function FaceConsentScreen({ onAccepted }: Props) {
   return (
     <SafeAreaView style={styles.container}>
       <AestheticScrollView contentContainerStyle={styles.content}>
-        <Ionicons name="scan-outline" size={48} color="#062B59" style={{ marginBottom: 12 }} />
-        <Text style={styles.title}>Face Data Consent</Text>
+        <Ionicons name="shield-checkmark-outline" size={48} color="#062B59" style={{ marginBottom: 12 }} />
+        <Text style={styles.title}>Data Privacy Consent</Text>
         <Text style={styles.subtitle}>
-          Before your account can be used for attendance, we need your consent to collect and use your facial
-          data.
+          Before your account can be used for attendance and other employee services, we need your consent to
+          collect and use your personal information.
         </Text>
 
         <View style={styles.card}>
           <Text style={styles.cardHeading}>What this means</Text>
-          <ConsentPoint text="Your facial data will be captured by an administrator and stored securely for face verification purposes." />
-          <ConsentPoint text="Every time you time in or time out, your face will be scanned and matched against this data to confirm it's really you." />
-          <ConsentPoint text="This data is used only for attendance authentication and will not be shared with third parties." />
-          <ConsentPoint text="You are not required to capture your own face on this app — an administrator handles face registration on your behalf, but only after you accept this consent." />
+          <ConsentPoint text="Your facial biometric data will be captured by an authorized administrator during face registration and stored securely for attendance verification." />
+          <ConsentPoint text="Your face may be scanned during time in and time out to verify your identity and confirm that the attendance action belongs to you." />
+          <ConsentPoint text="Your location is collected when you perform an attendance action to verify that you are within an authorized work area. The location is associated with your attendance record for geotagged attendance verification." />
+          <ConsentPoint text="Your attendance information — including time in, time out, date, location, and related records — will be recorded for attendance monitoring and reporting." />
+          <ConsentPoint text="Your leave applications and related records may be collected and processed for leave management and administrative purposes." />
+          <ConsentPoint text="Your personal information will only be accessed and used by authorized personnel such as your supervisor and HR administrator for legitimate attendance monitoring, and leave management purposes." />
+          <ConsentPoint text="Your data will not be sold, rented, or disclosed to any third party outside the company without your consent, except when required by law." />
         </View>
 
         <Text style={styles.disclaimer}>
-          By tapping "I Accept", you consent to the collection, storage, and use of your facial data for
-          attendance verification, in accordance with the Data Privacy Act of 2012.
+          By tapping "I Agree", you consent to the collection, processing, and storage of your personal
+          information including facial biometric data, geolocation, attendance, and leave records  in
+          accordance with the Data Privacy Act of 2012 (Republic Act No. 10173). You may review this consent
+          again anytime from Settings.
         </Text>
 
         <Pressable style={[styles.button, isLoading && styles.buttonDisabled]} onPress={handleAccept} disabled={isLoading}>

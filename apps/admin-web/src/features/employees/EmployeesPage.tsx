@@ -174,10 +174,36 @@ function getTenure(hireDate?: string) {
   return { months, days };
 }
 
-function isDueForRegularizationReview(employee: Employee) {
-  if (employee.employmentStatus !== "PROBATIONARY") return false;
+// What a PROBATIONARY-track employee graduates into once eligible — mirrors
+// backend/src/modules/employees/employees.service.ts's REGULARIZATION_TARGET_STATUS.
+// Only these two source statuses are gated by the probation period.
+const REGULARIZATION_TARGET_STATUS: Partial<Record<Employee["employmentStatus"], Employee["employmentStatus"]>> = {
+  PROBATIONARY: "REGULAR",
+  PROBATIONARY_SEASONAL: "PERMANENT_SEASONAL",
+};
+
+// Single source of truth for "can this employee be promoted off probation
+// yet" — used both for the disabled dropdown option in Edit Employee and for
+// the "due for regularization review" banner, so the two never disagree.
+function getRegularizationEligibility(employee: Employee) {
+  const targetStatus = REGULARIZATION_TARGET_STATUS[employee.employmentStatus] ?? null;
+  if (!targetStatus) return { targetStatus: null as Employee["employmentStatus"] | null, isEligible: true, eligibleDate: null as Date | null };
+
   const tenure = getTenure(employee.hireDate);
-  return Boolean(tenure && tenure.months >= PROBATION_MILESTONE_MONTHS);
+  const isEligible = Boolean(tenure && tenure.months >= PROBATION_MILESTONE_MONTHS);
+
+  let eligibleDate: Date | null = null;
+  if (employee.hireDate) {
+    eligibleDate = new Date(employee.hireDate);
+    eligibleDate.setMonth(eligibleDate.getMonth() + PROBATION_MILESTONE_MONTHS);
+  }
+
+  return { targetStatus, isEligible, eligibleDate };
+}
+
+function isDueForRegularizationReview(employee: Employee) {
+  const { targetStatus, isEligible } = getRegularizationEligibility(employee);
+  return Boolean(targetStatus) && isEligible;
 }
 
 function getStatusLabel(employee: Employee) {
@@ -697,6 +723,9 @@ function EditEmployeeModal({
       .catch((err) => onSaveFailed(extractErrorMessage(err, "Unable to update employee.")));
   };
 
+  const regularization = getRegularizationEligibility(employee);
+  const restrictedStatus = regularization.targetStatus && !regularization.isEligible ? regularization.targetStatus : null;
+
   return (
     <EmployeeModal title="Edit Employee" description={getEmployeeName(employee)} onClose={onClose}>
       <form className="employee-form" onSubmit={handleSubmit}>
@@ -720,7 +749,9 @@ function EditEmployeeModal({
             Employment Status
             <select value={form.employmentStatus} onChange={updateField("employmentStatus")}>
               {SELECTABLE_EMPLOYMENT_STATUSES.map((status) => (
-                <option key={status} value={status}>{EMPLOYMENT_STATUS_LABELS[status]}</option>
+                <option key={status} value={status} disabled={status === restrictedStatus}>
+                  {EMPLOYMENT_STATUS_LABELS[status]}
+                </option>
               ))}
             </select>
           </label>
@@ -808,7 +839,11 @@ function EditEmployeeModal({
           )}
         </div>
 
-        {adminGrantTypes.length > 0 && (
+        {/* Only a Regular employee is eligible for these admin-granted leave
+            types — reacts to the form's own employmentStatus so toggling the
+            dropdown in this same modal shows/hides it immediately, without
+            requiring a save. Doesn't touch grant/allocation logic itself. */}
+        {form.employmentStatus === "REGULAR" && adminGrantTypes.length > 0 && (
           <div className="employee-leave-grants">
             <p className="employee-leave-grants-title">
               Additional Leave Types{isGrantsLoading ? " (loading…)" : ""}
@@ -1551,10 +1586,6 @@ export function EmployeesPage({
           employeeName={getEmployeeName(viewingPerformanceEmployee)}
           onClose={() => setViewingPerformanceEmployee(null)}
           onApproved={handleEmployeeUpdated}
-          onRequestArchive={() => {
-            setArchiveEmployee(viewingPerformanceEmployee);
-            setViewingPerformanceEmployee(null);
-          }}
         />
       )}
 

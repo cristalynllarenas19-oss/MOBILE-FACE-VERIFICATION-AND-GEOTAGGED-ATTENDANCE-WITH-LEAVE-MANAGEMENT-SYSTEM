@@ -52,7 +52,6 @@ export type AttendanceSummary = {
   absences: number;
   lateOccurrences: number;
   undertimeOccurrences: number;
-  leaveDaysUsed: number;
   attendanceRating: number;
   attendanceRatingLabel: string;
 };

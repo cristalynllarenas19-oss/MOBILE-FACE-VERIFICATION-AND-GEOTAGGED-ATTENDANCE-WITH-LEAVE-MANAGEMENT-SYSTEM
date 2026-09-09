@@ -9,15 +9,41 @@ import { GeolocationService } from "../geolocation/geolocation.service";
 import { LeaveAccrualService } from "../leave/leave-accrual.service";
 import { MailService } from "../mail/mail.service";
 import { NotificationsService } from "../notifications/notifications.service";
-import { CreateEmployeeDto, CreateEmployeeSex, UpdateEmployeeDto } from "./dto/create-employee.dto";
+import { CreateEmployeeDto, UpdateEmployeeDto } from "./dto/create-employee.dto";
 
 const PROBATION_MILESTONE_NOTIFICATION_TYPE = "PROBATION_REGULARIZATION_DUE";
 const PROBATION_MILESTONE_MONTHS = 6;
+
+// The date a probationary hire must have started on or before to have
+// completed their 6-month probation period as of today. Single source of
+// truth for the calendar-month cutoff used by the milestone notification
+// checks below and by update()'s regularization guard — proper calendar
+// months via Date.setMonth, not a naive 180-day add.
+function probationCutoffDate(): Date {
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - PROBATION_MILESTONE_MONTHS);
+  return cutoff;
+}
+
+// What a PROBATIONARY-track employee graduates into once eligible. Only
+// these two source statuses are gated by the probation period — REGULAR,
+// PERMANENT_SEASONAL, and SEPARATED are never restricted by it.
+const REGULARIZATION_TARGET_STATUS: Record<string, string> = {
+  PROBATIONARY: "REGULAR",
+  PROBATIONARY_SEASONAL: "PERMANENT_SEASONAL",
+};
 
 const GENDER_LEAVE_TYPE_KIND: Record<string, LeaveTypeKind> = {
   MALE: "PATERNITY",
   FEMALE: "MATERNITY",
 };
+
+// Probationary employees (either track) aren't entitled to any leave balance
+// yet — only Regular and Permanent Seasonal are. assignGenderLeaveType()
+// checks this before actually writing a balance, and update() re-runs it the
+// moment someone is promoted into one of these, so the correct sex-linked
+// leave type still lands the moment they become entitled to it.
+const ENTITLED_TO_LEAVE_STATUSES = new Set(["REGULAR", "PERMANENT_SEASONAL"]);
 
 @Injectable()
 export class EmployeesService {
@@ -61,11 +87,11 @@ export class EmployeesService {
 
   
   private async checkProbationaryMilestones() {
-    const cutoff = new Date();
-    cutoff.setMonth(cutoff.getMonth() - PROBATION_MILESTONE_MONTHS);
-
     const probationaryEmployees = await this.prisma.employee.findMany({
-      where: { employmentStatus: { in: ["PROBATIONARY", "PROBATIONARY_SEASONAL"] }, hireDate: { lte: cutoff } },
+      where: {
+        employmentStatus: { in: ["PROBATIONARY", "PROBATIONARY_SEASONAL"] },
+        hireDate: { lte: probationCutoffDate() },
+      },
       select: { id: true, firstName: true, lastName: true, employmentStatus: true },
     });
     if (probationaryEmployees.length === 0) return;
@@ -102,10 +128,7 @@ export class EmployeesService {
     hireDate: Date;
   }) {
     if (employee.employmentStatus !== "PROBATIONARY" && employee.employmentStatus !== "PROBATIONARY_SEASONAL") return;
-
-    const cutoff = new Date();
-    cutoff.setMonth(cutoff.getMonth() - PROBATION_MILESTONE_MONTHS);
-    if (employee.hireDate > cutoff) return;
+    if (employee.hireDate > probationCutoffDate()) return;
 
     const alreadyNotified = await this.prisma.notification.findFirst({
       where: { type: PROBATION_MILESTONE_NOTIFICATION_TYPE, entityId: employee.id },
@@ -308,7 +331,7 @@ export class EmployeesService {
     await this.assignDefaultScheduleIfMissing(created.id);
     await this.geolocation.assignDefaultOfficeLocation(created.id, created.departmentId, context);
 
-    await this.assignGenderLeaveType(created.id, dto.sex);
+    await this.assignGenderLeaveType(created.id, dto.sex, created.employmentStatus);
 
     if (created.employmentStatus === "PERMANENT_SEASONAL") {
       await this.leaveAccrual.startAccrualForNewlyPermanentSeasonal(created.id);
@@ -377,7 +400,7 @@ export class EmployeesService {
   }
 
   
-  private async assignGenderLeaveType(employeeId: string, sex: CreateEmployeeSex) {
+  private async assignGenderLeaveType(employeeId: string, sex: string, employmentStatus: string) {
     const kind = GENDER_LEAVE_TYPE_KIND[sex];
     const oppositeKinds = Object.values(GENDER_LEAVE_TYPE_KIND).filter((candidate) => candidate !== kind);
     const leaveType = await this.prisma.leaveType.findFirst({ where: { kind, isActive: true } });
@@ -393,6 +416,11 @@ export class EmployeesService {
 
     if (!leaveType) return;
 
+    // Still probationary: don't grant the balance yet. update() calls this
+    // same function again the moment they're promoted to Regular/Permanent
+    // Seasonal, so the correct sex-linked type lands then instead.
+    if (!ENTITLED_TO_LEAVE_STATUSES.has(employmentStatus)) return;
+
     await this.prisma.leaveBalance.upsert({
       where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId: leaveType.id, year } },
       update: {},
@@ -407,6 +435,19 @@ export class EmployeesService {
 
     if (scopeDepartmentId && employee.departmentId !== scopeDepartmentId) {
       throw new ForbiddenException("You can only manage employees in your own department.");
+    }
+
+    // Mirrors the frontend's disabled dropdown option — enforced here too so
+    // the restriction can't be bypassed by calling the API directly. Uses
+    // dto.hireDate when the same request also changes it, so a corrected
+    // hire date is recalculated against rather than the stale stored one.
+    if (dto.employmentStatus && dto.employmentStatus === REGULARIZATION_TARGET_STATUS[employee.employmentStatus]) {
+      const effectiveHireDate = dto.hireDate ? new Date(dto.hireDate) : employee.hireDate;
+      if (effectiveHireDate > probationCutoffDate()) {
+        throw new BadRequestException(
+          `This employee cannot be changed to ${dto.employmentStatus === "REGULAR" ? "Regular Employee" : "Permanent Seasonal Employee"} status until they complete ${PROBATION_MILESTONE_MONTHS} months of probation.`,
+        );
+      }
     }
 
     const department = dto.department
@@ -501,6 +542,18 @@ export class EmployeesService {
 
       if (dto.employmentStatus === "PERMANENT_SEASONAL") {
         await this.leaveAccrual.startAccrualForNewlyPermanentSeasonal(id);
+      }
+
+      // Just promoted off probation (Probationary -> Regular, or
+      // Probationary Seasonal -> Permanent Seasonal) — grant the sex-linked
+      // leave type now, since assignGenderLeaveType() withheld it while they
+      // were still probationary.
+      if (
+        updated.sex &&
+        ENTITLED_TO_LEAVE_STATUSES.has(dto.employmentStatus) &&
+        !ENTITLED_TO_LEAVE_STATUSES.has(employee.employmentStatus)
+      ) {
+        await this.assignGenderLeaveType(id, updated.sex, updated.employmentStatus);
       }
     }
 

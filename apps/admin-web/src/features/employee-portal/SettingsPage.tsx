@@ -392,7 +392,7 @@ export function SettingsPage({ user, onDefaultViewChange }: Props) {
           <p style={aboutParagraph}>
             We understand and agree that this information may be disclosed or shared with authorized personnel
             within the company (such as your supervisor and HR administrators) for legitimate attendance
-            monitoring, payroll, and leave management purposes only. Your data will not be sold, rented, or
+            monitoring, and leave management purposes only. Your data will not be sold, rented, or
             disclosed to any third party outside the company without your consent, except when required by law.
           </p>
 

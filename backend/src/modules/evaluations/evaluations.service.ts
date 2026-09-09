@@ -128,7 +128,6 @@ export class EvaluationsService {
     const recordsByDay = new Map(
       dedupeToLatestVisitPerEmployeeDay(records).map((r) => [r.attendanceDate.toDateString(), r]),
     );
-    const leaveDaysUsed = leaveRequests.reduce((sum, r) => sum + Number(r.totalDays), 0);
 
     // Same "resolve the assignment active on day X" rule used consistently
     // elsewhere (dashboard.service.ts, attendance.service.ts): most recent
@@ -187,7 +186,6 @@ export class EvaluationsService {
       absences,
       lateOccurrences,
       undertimeOccurrences,
-      leaveDaysUsed,
       attendanceRating,
       attendanceRatingLabel,
     };

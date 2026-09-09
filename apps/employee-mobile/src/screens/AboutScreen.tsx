@@ -38,7 +38,7 @@ export default function AboutScreen({ onClose }: Props) {
 
       <Text style={styles.paragraph}>
         We understand and agree that this information may be disclosed or shared with authorized personnel within
-        the company (such as your supervisor and HR administrators) for legitimate attendance monitoring, payroll,
+        the company (such as your supervisor and HR administrators) for legitimate attendance monitoring,
         and leave management purposes only. Your data will not be sold, rented, or disclosed to any third party
         outside the company without your consent, except when required by law.
       </Text>

@@ -29,7 +29,6 @@ export class DashboardService {
 
     const [
       employees,
-      todayAttendanceRows,
       pendingLeaves,
       geotaggedLogs,
       pendingReview,
@@ -52,10 +51,6 @@ export class DashboardService {
       this.prisma.employee.findMany({
         where: { employmentStatus: { not: "SEPARATED" }, ...(departmentId ? { departmentId } : {}) },
         select: { id: true, hireDate: true, departmentId: true, department: { select: { name: true } } },
-      }),
-      this.prisma.attendanceRecord.findMany({
-        where: { attendanceDate, ...(departmentId ? { employee: { departmentId } } : {}) },
-        select: { employeeId: true, attendanceDate: true, timeInAt: true, status: true },
       }),
       this.prisma.leaveRequest.count({
         where: { status: "PENDING", ...(departmentId ? { employee: { departmentId } } : {}) },
@@ -129,13 +124,6 @@ export class DashboardService {
         select: { name: true },
       }),
     ]);
-
-    // A FIELD employee can have several visit rows for the same day — collapse
-    // each employee+day down to their latest visit before tallying statuses,
-    // so multi-visit days aren't counted more than once per employee.
-    const dedupedTodayStatus = dedupeToLatestVisitPerEmployeeDay(todayAttendanceRows);
-    const presentToday = dedupedTodayStatus.filter((r) => r.status === "PRESENT").length;
-    const lateToday = dedupedTodayStatus.filter((r) => r.status === "LATE").length;
 
     // assignedEmployeeRows and employees are already department-scoped above,
     // so these — like every other stat below — are correct as-is.
@@ -311,6 +299,14 @@ export class DashboardService {
     const todayRecords = monthAttendance.filter(
       (r) => r.attendanceDate.toDateString() === attendanceDate.toDateString(),
     );
+
+    // Derived from todayRecords (a toDateString() comparison, tolerant of the
+    // write-time vs. read-time timezone drift that new Date(y,m,d) exact
+    // equality is prone to) rather than a separate exact-match query, so this
+    // always agrees with departmentAttendance.today and calendar.days — the
+    // same numbers the Attendance Details and Daily Summary cards read.
+    const presentToday = todayRecords.filter((r) => r.status === "PRESENT").length;
+    const lateToday = todayRecords.filter((r) => r.status === "LATE").length;
 
     const departmentAttendance = {
       today: buildDeptRows(todayRecords, "day", attendanceDate, leaveMapForDate(attendanceDate)),

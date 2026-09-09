@@ -16,7 +16,7 @@ import { ConfirmDialog, type ConfirmDialogConfig } from "../../components/ui/Con
 import { apiRequest } from "../../lib/api";
 import {
   type EmploymentStatus,
-  EMPLOYMENT_STATUS_OPTIONS,
+  SELECTABLE_EMPLOYMENT_STATUS_OPTIONS,
   formatEmploymentStatus,
 } from "../../types/employment";
 import type { Notification } from "./UtilitiesPage";
@@ -66,8 +66,10 @@ const CANCELLATION_CUTOFF_UNIT_OPTIONS: { value: CancellationCutoffUnit; label: 
 ];
 
 // Every leave type always includes Regular - admins only choose which of these
-// additional classifications also get it.
-const OPTIONAL_STATUS_OPTIONS = EMPLOYMENT_STATUS_OPTIONS.filter((o) => o.value !== "REGULAR");
+// additional classifications also get it. Separated is deliberately excluded
+// here (via SELECTABLE_EMPLOYMENT_STATUS_OPTIONS) — it's only ever set by the
+// Archive flow, never something a leave type should be configured to target.
+const OPTIONAL_STATUS_OPTIONS = SELECTABLE_EMPLOYMENT_STATUS_OPTIONS.filter((o) => o.value !== "REGULAR");
 
 const PAGE_SIZE = 10;
 
@@ -334,7 +336,7 @@ export function LeaveTypesTab({
             className="utilities-select"
             value={classificationFilter}
             onChange={setClassificationFilter}
-            options={EMPLOYMENT_STATUS_OPTIONS}
+            options={SELECTABLE_EMPLOYMENT_STATUS_OPTIONS}
             allLabel="All Classifications"
             menuLabel="Filter by classification"
             ariaLabel="Filter leave types by classification"

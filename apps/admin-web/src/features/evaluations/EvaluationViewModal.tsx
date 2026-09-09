@@ -1,11 +1,8 @@
 import { useEffect, useState } from "react";
 import {
   CalendarDays,
-  CalendarOff,
   CheckCircle2,
   Clock,
-  HelpCircle,
-  Hourglass,
   X,
   XCircle,
 } from "lucide-react";
@@ -58,17 +55,7 @@ function AttendanceSection({ attendance }: { attendance: AttendanceSummary }) {
         <StatCard label="Days Present" value={attendance.daysPresent} icon={CheckCircle2} tone="green" />
         <StatCard label="Absences" value={attendance.absences} icon={XCircle} tone="red" />
         <StatCard label="Late Occurrences" value={attendance.lateOccurrences} icon={Clock} tone="yellow" />
-        <StatCard label="Undertime Occurrences" value={attendance.undertimeOccurrences} icon={Hourglass} tone="purple" />
-        <StatCard label="Leave Days Used" value={attendance.leaveDaysUsed} icon={CalendarOff} tone="pink" />
       </div>
-      <div className="evaluation-rating-summary">
-        <span>Attendance Rating</span>
-        <div className="evaluation-rating-summary-value">
-          <strong>{attendance.attendanceRating.toFixed(1)} / 5</strong>
-          <Badge tone={ratingTone(attendance.attendanceRating)}>{attendance.attendanceRatingLabel}</Badge>
-        </div>
-      </div>
-      <p className="evaluation-attendance-hint">Based on attendance and punctuality records over this employee's tenure to date.</p>
     </div>
   );
 }
@@ -79,14 +66,11 @@ export function EvaluationViewModal({
   employeeName,
   onClose,
   onApproved,
-  onRequestArchive,
 }: {
   employeeId: string;
   employeeName: string;
   onClose: () => void;
-  
   onApproved: (updatedEmployee: any) => void;
-  onRequestArchive: () => void;
 }) {
   const [isLoading, setIsLoading] = useState(true);
   const [evaluation, setEvaluation] = useState<SubmittedEvaluation | null>(null);
@@ -145,6 +129,16 @@ export function EvaluationViewModal({
           <div className="evaluation-modal-body">
             {error && <p className="evaluation-form-error">{error}</p>}
 
+            {evaluation && (
+              <div className="evaluation-locked-banner">
+                <span>
+                  Submitted by {evaluation.supervisor.firstName} {evaluation.supervisor.lastName},{" "}
+                  {evaluation.supervisor.department.name} Supervisor
+                  {evaluation.submittedAt ? ` on ${new Date(evaluation.submittedAt).toLocaleDateString()}` : ""}.
+                </span>
+              </div>
+            )}
+
             {attendance && <AttendanceSection attendance={attendance} />}
 
             <div className="evaluation-divider" />
@@ -153,14 +147,6 @@ export function EvaluationViewModal({
               <p className="evaluation-empty-note">No evaluation has been submitted for this employee yet.</p>
             ) : (
               <>
-                <div className="evaluation-locked-banner">
-                  <span>
-                    Submitted by {evaluation.supervisor.firstName} {evaluation.supervisor.lastName},{" "}
-                    {evaluation.supervisor.department.name} Supervisor
-                    {evaluation.submittedAt ? ` on ${new Date(evaluation.submittedAt).toLocaleDateString()}` : ""}.
-                  </span>
-                </div>
-
                 <p className="evaluation-section-title">Supervisor's Ratings</p>
                 <div className="evaluation-detail-grid">
                   {CRITERIA.map((c) => (
@@ -190,40 +176,6 @@ export function EvaluationViewModal({
                     {evaluation.recommendation ? RECOMMENDATION_LABELS[evaluation.recommendation] : "—"}
                   </Badge>
                 </div>
-
-                <div className="evaluation-divider" />
-
-                <p className="evaluation-section-title">Admin Decision</p>
-                <p className="evaluation-attendance-hint">
-                  The Supervisor's recommendation does not automatically change this employee's status — choose
-                  below, or make the change later via Edit Employee.
-                </p>
-                <div className="evaluation-decision-actions">
-                  <button
-                    type="button"
-                    className="evaluation-decision-button evaluation-decision-approve"
-                    onClick={() => setShowApproveConfirm(true)}
-                  >
-                    <CheckCircle2 size={16} />
-                    Approve Regularization
-                  </button>
-                  <button
-                    type="button"
-                    className="evaluation-decision-button evaluation-decision-review"
-                    onClick={onClose}
-                  >
-                    <HelpCircle size={16} />
-                    Request Further Review
-                  </button>
-                  <button
-                    type="button"
-                    className="evaluation-decision-button evaluation-decision-reject"
-                    onClick={onRequestArchive}
-                  >
-                    <XCircle size={16} />
-                    Not Approved
-                  </button>
-                </div>
               </>
             )}
 
@@ -231,6 +183,16 @@ export function EvaluationViewModal({
               <button type="button" className="outline-button" onClick={onClose}>
                 Close
               </button>
+              {evaluation && (
+                <button
+                  type="button"
+                  className="evaluation-decision-button evaluation-decision-approve"
+                  onClick={() => setShowApproveConfirm(true)}
+                >
+                  <CheckCircle2 size={16} />
+                  Approve Regularization
+                </button>
+              )}
             </div>
           </div>
         )}
