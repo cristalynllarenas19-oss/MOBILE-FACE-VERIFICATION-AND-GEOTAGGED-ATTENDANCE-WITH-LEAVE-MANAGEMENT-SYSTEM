@@ -1,4 +1,5 @@
-import { Injectable } from "@nestjs/common";
+import { Injectable, Logger } from "@nestjs/common";
+import { Cron, CronExpression } from "@nestjs/schedule";
 import { PrismaService } from "../../prisma/prisma.service";
 
 export type NotifyPayload = {
@@ -8,8 +9,16 @@ export type NotifyPayload = {
   entityId?: string;
 };
 
+const RETENTION_DAYS = 7;
+
+function retentionCutoff() {
+  return new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000);
+}
+
 @Injectable()
 export class NotificationsService {
+  private readonly logger = new Logger(NotificationsService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async notifyUsers(userIds: string[], payload: NotifyPayload) {
@@ -29,7 +38,7 @@ export class NotificationsService {
 
   findForUser(userId: string) {
     return this.prisma.notification.findMany({
-      where: { userId },
+      where: { userId, createdAt: { gte: retentionCutoff() } },
       orderBy: { createdAt: "desc" },
       take: 50,
     });
@@ -37,9 +46,20 @@ export class NotificationsService {
 
   async unreadCount(userId: string) {
     const count = await this.prisma.notification.count({
-      where: { userId, readAt: null },
+      where: { userId, readAt: null, createdAt: { gte: retentionCutoff() } },
     });
     return { count };
+  }
+
+  // Rows past the retention window are hidden from findForUser/unreadCount
+  // immediately via the createdAt filter above; this daily sweep is just
+  // what actually reclaims the storage.
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  async purgeExpired() {
+    const { count } = await this.prisma.notification.deleteMany({
+      where: { createdAt: { lt: retentionCutoff() } },
+    });
+    if (count > 0) this.logger.log(`Purged ${count} notification(s) older than ${RETENTION_DAYS} days.`);
   }
 
   markRead(id: string, userId: string) {
