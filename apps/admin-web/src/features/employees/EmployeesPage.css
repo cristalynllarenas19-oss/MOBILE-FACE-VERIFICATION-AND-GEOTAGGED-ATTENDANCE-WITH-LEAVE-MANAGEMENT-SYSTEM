@@ -573,6 +573,26 @@
   cursor: pointer;
 }
 
+.employee-spouse-checkbox-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.employee-spouse-checkbox-row input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  accent-color: #2563eb;
+  cursor: pointer;
+  margin: 0;
+}
+
 .employee-solo-parent-ineligible {
   border-left: 1px solid #dbe5ef;
   padding-left: 10px;

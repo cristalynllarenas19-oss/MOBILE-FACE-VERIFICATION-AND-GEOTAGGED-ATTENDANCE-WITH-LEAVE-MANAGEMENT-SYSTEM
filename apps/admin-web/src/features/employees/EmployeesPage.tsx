@@ -48,6 +48,9 @@ type Employee = {
   lastName: string;
   employmentStatus: "REGULAR" | "PROBATIONARY" | "PERMANENT_SEASONAL" | "PROBATIONARY_SEASONAL" | "SEPARATED";
   soloParentStatus: "NOT_APPLICABLE" | "ELIGIBLE" | "INELIGIBLE";
+  civilStatus?: "SINGLE" | "MARRIED" | "WIDOWED" | "SEPARATED" | "ANNULLED";
+  spouseEmployerName?: string | null;
+  spouseUnemployed?: boolean;
   sex?: "MALE" | "FEMALE" | null;
   attendanceMode: AttendanceMode;
   hireDate?: string;
@@ -86,6 +89,8 @@ type EmployeeForm = {
   employmentStatus: "REGULAR" | "PROBATIONARY" | "PERMANENT_SEASONAL" | "PROBATIONARY_SEASONAL";
   attendanceMode: AttendanceMode;
   soloParentStatus: "NOT_APPLICABLE" | "ELIGIBLE" | "INELIGIBLE";
+  civilStatus: "SINGLE" | "MARRIED" | "WIDOWED" | "SEPARATED" | "ANNULLED";
+  spouseEmployerName: string;
   sex: "MALE" | "FEMALE";
   // "" = no supervisor assigned.
   supervisorId: string;
@@ -105,6 +110,8 @@ const initialForm: EmployeeForm = {
   employmentStatus: "REGULAR",
   attendanceMode: "FIXED",
   soloParentStatus: "NOT_APPLICABLE",
+  civilStatus: "SINGLE",
+  spouseEmployerName: "",
   sex: "MALE",
   supervisorId: "",
 };
@@ -420,18 +427,26 @@ function AddEmployeeModal({
         <div className="employee-form-grid">
           <label>
             Employment Status
-            <select value={form.employmentStatus} onChange={updateField("employmentStatus")}>
-              {SELECTABLE_EMPLOYMENT_STATUSES.map((status) => (
-                <option key={status} value={status}>{EMPLOYMENT_STATUS_LABELS[status]}</option>
-              ))}
-            </select>
+            <FormSelectDropdown
+              value={form.employmentStatus}
+              onChange={(value) => setForm((current) => ({ ...current, employmentStatus: value as EmployeeForm["employmentStatus"] }))}
+              options={SELECTABLE_EMPLOYMENT_STATUSES.map((status) => ({ value: status, label: EMPLOYMENT_STATUS_LABELS[status] }))}
+              placeholder="Select employment status…"
+              ariaLabel="Employment Status"
+            />
           </label>
           <label>
             Sex/Gender
-            <select value={form.sex} onChange={updateField("sex")}>
-              <option value="MALE">Male</option>
-              <option value="FEMALE">Female</option>
-            </select>
+            <FormSelectDropdown
+              value={form.sex}
+              onChange={(value) => setForm((current) => ({ ...current, sex: value as EmployeeForm["sex"] }))}
+              options={[
+                { value: "MALE", label: "Male" },
+                { value: "FEMALE", label: "Female" },
+              ]}
+              placeholder="Select sex/gender…"
+              ariaLabel="Sex/Gender"
+            />
           </label>
         </div>
 
@@ -442,15 +457,14 @@ function AddEmployeeModal({
           </label>
           <label>
             Attendance Mode
-            <select
+            <FormSelectDropdown
               value={form.attendanceMode}
-              onChange={updateField("attendanceMode")}
+              onChange={(value) => setForm((current) => ({ ...current, attendanceMode: value }))}
+              options={attendanceModeOptions.map((option) => ({ value: option.code, label: option.label }))}
+              placeholder="Select attendance mode…"
+              ariaLabel="Attendance Mode"
               disabled={isModeLocked || attendanceModeOptions.length === 0}
-            >
-              {attendanceModeOptions.map((option) => (
-                <option key={option.code} value={option.code}>{option.label}</option>
-              ))}
-            </select>
+            />
             {!isModeLocked && attendanceModeOptions.length === 0 && (
               <span className="employee-form-hint">Unable to load attendance modes.</span>
             )}
@@ -505,10 +519,14 @@ function EditEmployeeModal({
     employmentStatus: employee.employmentStatus === "SEPARATED" ? "REGULAR" : employee.employmentStatus,
     attendanceMode: employee.attendanceMode ?? "FIXED",
     soloParentStatus: employee.soloParentStatus ?? "NOT_APPLICABLE",
+    civilStatus: employee.civilStatus ?? "SINGLE",
+    spouseEmployerName: employee.spouseEmployerName ?? "",
     sex: employee.sex === "FEMALE" ? "FEMALE" : "MALE",
     supervisorId: employee.supervisor?.id ?? "",
   });
   const [error, setError] = useState("");
+  const [spouseWorksElsewhere, setSpouseWorksElsewhere] = useState(Boolean(employee.spouseEmployerName));
+  const [spouseUnemployed, setSpouseUnemployed] = useState(Boolean(employee.spouseUnemployed));
 
  
   const departmentMode = departments.find((department) => department.name === form.department.trim())?.attendanceMode;
@@ -547,6 +565,7 @@ function EditEmployeeModal({
     isActive: boolean;
     isTransferable: boolean;
     kind: "GENERAL" | "MATERNITY" | "PATERNITY";
+    applicableStatuses: string[];
   };
   const leaveTypesCache = useCachedData<LeaveTypeRow[]>(CACHE_KEYS.leaveTypes, () =>
     apiRequest<LeaveTypeRow[]>("/leave-types"),
@@ -559,11 +578,22 @@ function EditEmployeeModal({
   const isAllocationLoading = leaveTypesCache.isLoading || balancesCache.isLoading;
   const isGrantsLoading = leaveTypesCache.isLoading || balancesCache.isLoading;
 
-  const genderLeaveTypeId = useMemo(() => {
+  const genderLeaveType = useMemo(() => {
     if (!employee.sex || !leaveTypesCache.data) return null;
     const wantedKind = employee.sex === "MALE" ? "PATERNITY" : "MATERNITY";
-    return leaveTypesCache.data.find((t) => t.kind === wantedKind && t.isActive)?.id ?? null;
+    return leaveTypesCache.data.find((t) => t.kind === wantedKind && t.isActive) ?? null;
   }, [employee.sex, leaveTypesCache.data]);
+  const genderLeaveTypeId = genderLeaveType?.id ?? null;
+
+  // Spouse details exist to document Paternity/Maternity eligibility, so
+  // they're only offered to employees actually entitled to that leave type
+  // — driven by whatever employment statuses HR has configured under
+  // Utilities → Leave Types (Maternity/Paternity Leave's Applicable
+  // Statuses), not a hardcoded list. Reacts to the form's own
+  // employmentStatus so switching it in this same modal updates immediately.
+  const isEntitledToParentalLeave = Boolean(
+    genderLeaveType?.applicableStatuses.includes(form.employmentStatus),
+  );
 
   const adminGrantTypes = useMemo(() => {
     if (!leaveTypesCache.data) return [];
@@ -607,6 +637,39 @@ function EditEmployeeModal({
     });
   };
 
+  // Solo Parent Leave and Added Paternity Leave both presume a spouse
+  // exists, so switching Civil Status to Single revokes either one if it
+  // was already granted — not just greying out the checkbox, which would
+  // otherwise leave a stale grant checked-but-disabled.
+  useEffect(() => {
+    if (form.civilStatus !== "SINGLE") return;
+    const requiresSpouseIds = adminGrantTypes
+      .filter((t) => t.name === "Solo Parent Leave" || t.isTransferable)
+      .map((t) => t.id);
+    if (requiresSpouseIds.some((id) => grantedTypeIds.has(id))) {
+      setGrantedTypeIds((current) => {
+        const next = new Set(current);
+        requiresSpouseIds.forEach((id) => next.delete(id));
+        return next;
+      });
+    }
+    setForm((current) => (current.soloParentStatus === "NOT_APPLICABLE" ? current : { ...current, soloParentStatus: "NOT_APPLICABLE" }));
+  }, [form.civilStatus, adminGrantTypes]);
+
+  // Spouse checkbox state is only offered while the employee is entitled to
+  // Paternity/Maternity leave (see isEntitledToParentalLeave) — clears it if
+  // employmentStatus changes away from an eligible status, rather than
+  // leaving stale spouse data behind an unmounted section. Gated on
+  // leaveTypesCache.data so this doesn't fire (and wipe the seeded values)
+  // during the brief window before that cache has loaded, when
+  // isEntitledToParentalLeave is still provisionally false.
+  useEffect(() => {
+    if (!leaveTypesCache.data || isEntitledToParentalLeave) return;
+    setSpouseWorksElsewhere(false);
+    setSpouseUnemployed(false);
+    setForm((current) => (current.spouseEmployerName ? { ...current, spouseEmployerName: "" } : current));
+  }, [isEntitledToParentalLeave, leaveTypesCache.data]);
+
   const updateField =
     (field: keyof EditEmployeeForm) =>
     (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -645,6 +708,13 @@ function EditEmployeeModal({
         })()
       : null;
 
+    // Both spouse fields are only meaningful while Civil Status is Married —
+    // clears them on submit if the admin switched away without unchecking
+    // the boxes themselves.
+    const isMarried = form.civilStatus === "MARRIED";
+    const effectiveSpouseEmployerName = isMarried && spouseWorksElsewhere ? form.spouseEmployerName.trim() : "";
+    const effectiveSpouseUnemployed = isMarried && spouseUnemployed;
+
     onUpdated({
       ...employee,
       firstName: form.firstName.trim(),
@@ -655,6 +725,9 @@ function EditEmployeeModal({
       employmentStatus: form.employmentStatus,
       attendanceMode: form.attendanceMode,
       soloParentStatus: form.soloParentStatus,
+      civilStatus: form.civilStatus,
+      spouseEmployerName: effectiveSpouseEmployerName,
+      spouseUnemployed: effectiveSpouseUnemployed,
       supervisor: optimisticSupervisor ?? null,
       hireDate: form.hireDate || employee.hireDate,
     });
@@ -671,6 +744,9 @@ function EditEmployeeModal({
         employmentStatus: form.employmentStatus,
         attendanceMode: form.attendanceMode,
         soloParentStatus: form.soloParentStatus,
+        civilStatus: form.civilStatus,
+        spouseEmployerName: effectiveSpouseEmployerName,
+        spouseUnemployed: effectiveSpouseUnemployed,
         supervisorId: form.supervisorId,
         ...(form.hireDate ? { hireDate: form.hireDate } : {}),
         ...(employee.sex && leaveAllocation !== "" ? { leaveAllocationDays: Number(leaveAllocation) } : {}),
@@ -747,13 +823,17 @@ function EditEmployeeModal({
           </label>
           <label>
             Employment Status
-            <select value={form.employmentStatus} onChange={updateField("employmentStatus")}>
-              {SELECTABLE_EMPLOYMENT_STATUSES.map((status) => (
-                <option key={status} value={status} disabled={status === restrictedStatus}>
-                  {EMPLOYMENT_STATUS_LABELS[status]}
-                </option>
-              ))}
-            </select>
+            <FormSelectDropdown
+              value={form.employmentStatus}
+              onChange={(value) => setForm((current) => ({ ...current, employmentStatus: value as EmployeeForm["employmentStatus"] }))}
+              options={SELECTABLE_EMPLOYMENT_STATUSES.map((status) => ({
+                value: status,
+                label: EMPLOYMENT_STATUS_LABELS[status],
+                disabled: status === restrictedStatus,
+              }))}
+              placeholder="Select employment status…"
+              ariaLabel="Employment Status"
+            />
           </label>
         </div>
 
@@ -796,15 +876,14 @@ function EditEmployeeModal({
           </label>
           <label>
             Attendance Mode
-            <select
+            <FormSelectDropdown
               value={form.attendanceMode}
-              onChange={updateField("attendanceMode")}
+              onChange={(value) => setForm((current) => ({ ...current, attendanceMode: value }))}
+              options={attendanceModeOptions.map((option) => ({ value: option.code, label: option.label }))}
+              placeholder="Select attendance mode…"
+              ariaLabel="Attendance Mode"
               disabled={isModeLocked || attendanceModeOptions.length === 0}
-            >
-              {attendanceModeOptions.map((option) => (
-                <option key={option.code} value={option.code}>{option.label}</option>
-              ))}
-            </select>
+            />
             {!isModeLocked && attendanceModeOptions.length === 0 && (
               <span className="employee-form-hint">Unable to load attendance modes.</span>
             )}
@@ -814,14 +893,19 @@ function EditEmployeeModal({
         <div className="employee-form-grid">
           <label>
             Supervisor
-            <select value={form.supervisorId} onChange={updateField("supervisorId")}>
-              <option value="">No supervisor assigned</option>
-              {availableSupervisors.map((supervisor) => (
-                <option key={supervisor.id} value={supervisor.id}>
-                  {supervisor.firstName} {supervisor.lastName}
-                </option>
-              ))}
-            </select>
+            <FormSelectDropdown
+              value={form.supervisorId}
+              onChange={(value) => setForm((current) => ({ ...current, supervisorId: value }))}
+              options={[
+                { value: "", label: "No supervisor assigned" },
+                ...availableSupervisors.map((supervisor) => ({
+                  value: supervisor.id,
+                  label: `${supervisor.firstName} ${supervisor.lastName}`,
+                })),
+              ]}
+              placeholder="Select a supervisor…"
+              ariaLabel="Supervisor"
+            />
           </label>
           {genderLeaveLabel && (isAllocationLoading || genderLeaveTypeId) && (
             <label>
@@ -839,6 +923,74 @@ function EditEmployeeModal({
           )}
         </div>
 
+        <div className="employee-form-grid">
+          <label>
+            Civil Status
+            <FormSelectDropdown
+              value={form.civilStatus}
+              onChange={(value) => setForm((current) => ({ ...current, civilStatus: value as EmployeeForm["civilStatus"] }))}
+              options={[
+                { value: "SINGLE", label: "Single" },
+                { value: "MARRIED", label: "Married" },
+                { value: "WIDOWED", label: "Widowed" },
+                { value: "SEPARATED", label: "Separated" },
+                { value: "ANNULLED", label: "Annulled" },
+              ]}
+              placeholder="Select civil status…"
+              ariaLabel="Civil Status"
+            />
+          </label>
+          <label>
+            Sex/Gender
+            <input type="text" value={employee.sex === "FEMALE" ? "Female" : employee.sex === "MALE" ? "Male" : "Not set"} disabled readOnly />
+          </label>
+        </div>
+
+        {form.civilStatus === "MARRIED" && isEntitledToParentalLeave && (
+          <>
+            <div className="employee-form-grid">
+              <div
+                className="employee-spouse-checkbox-row"
+                onClick={() => {
+                  const checked = !spouseWorksElsewhere;
+                  setSpouseWorksElsewhere(checked);
+                  if (checked) setSpouseUnemployed(false);
+                  else setForm((current) => ({ ...current, spouseEmployerName: "" }));
+                }}
+              >
+                <input type="checkbox" checked={spouseWorksElsewhere} readOnly />
+                <span>Employee's spouse works at another company</span>
+              </div>
+              <div
+                className="employee-spouse-checkbox-row"
+                onClick={() => {
+                  const checked = !spouseUnemployed;
+                  setSpouseUnemployed(checked);
+                  if (checked) {
+                    setSpouseWorksElsewhere(false);
+                    setForm((current) => ({ ...current, spouseEmployerName: "" }));
+                  }
+                }}
+              >
+                <input type="checkbox" checked={spouseUnemployed} readOnly />
+                <span>Spouse is unemployed</span>
+              </div>
+            </div>
+            <div className="employee-form-grid">
+              <label>
+                Spouse's Company
+                <input
+                  type="text"
+                  value={form.spouseEmployerName}
+                  onChange={updateField("spouseEmployerName")}
+                  placeholder="Company name"
+                  disabled={!spouseWorksElsewhere}
+                />
+              </label>
+            </div>
+          </>
+        )}
+
         {/* Only a Regular employee is eligible for these admin-granted leave
             types — reacts to the form's own employmentStatus so toggling the
             dropdown in this same modal shows/hides it immediately, without
@@ -854,7 +1006,16 @@ function EditEmployeeModal({
             </p>
             {adminGrantTypes.map((type) => {
               const isSoloParentLeave = type.name === "Solo Parent Leave";
-              const isIneligible = isSoloParentLeave && form.soloParentStatus === "INELIGIBLE";
+              // isTransferable identifies "Added Paternity Leave" — days
+              // transferred from the spouse's unused maternity leave (RA
+              // 11210) — which, like Solo Parent Leave, presumes a spouse
+              // exists and so makes no sense while Civil Status is Single.
+              const isAddedPaternityLeave = type.isTransferable;
+              const requiresSpouse = isSoloParentLeave || isAddedPaternityLeave;
+              const isCivilStatusSingle = form.civilStatus === "SINGLE";
+              const isIneligible =
+                (isSoloParentLeave && form.soloParentStatus === "INELIGIBLE") ||
+                (requiresSpouse && isCivilStatusSingle);
               return (
                 <div key={type.id} className="employee-leave-grant-line">
                   <label className="employee-leave-grant-row">
@@ -877,7 +1038,7 @@ function EditEmployeeModal({
                       {type.name} <span className="grant-days">({type.defaultDays} day{Number(type.defaultDays) === 1 ? "" : "s"})</span>
                     </span>
                   </label>
-                  {isSoloParentLeave && (
+                  {isSoloParentLeave && !isCivilStatusSingle && (
                     <label className="employee-inline-checkbox employee-solo-parent-ineligible">
                       <input
                         type="checkbox"
@@ -897,7 +1058,7 @@ function EditEmployeeModal({
                       <span>Ineligible</span>
                     </label>
                   )}
-                  {isSoloParentLeave && (
+                  {isSoloParentLeave && !isCivilStatusSingle && (
                     <span className={`employee-solo-parent-status employee-solo-parent-status--${form.soloParentStatus.toLowerCase()}`}>
                       {form.soloParentStatus === "ELIGIBLE"
                         ? "Eligible"
@@ -1046,6 +1207,24 @@ function ViewEmployeeModal({
             </Badge>
           </div>
         )}
+        {employee.civilStatus && employee.civilStatus !== "SINGLE" && (
+          <div>
+            <span>Civil Status</span>
+            <strong>{employee.civilStatus.charAt(0) + employee.civilStatus.slice(1).toLowerCase()}</strong>
+          </div>
+        )}
+        {employee.spouseEmployerName && (
+          <div>
+            <span>Spouse's Company</span>
+            <strong>{employee.spouseEmployerName}</strong>
+          </div>
+        )}
+        {employee.spouseUnemployed && (
+          <div>
+            <span>Spouse's Employment</span>
+            <strong>Unemployed</strong>
+          </div>
+        )}
       </div>
 
       {employee.employmentStatus === "SEPARATED" && (
@@ -1175,12 +1354,18 @@ function ArchiveEmployeeModal({
         <div className="employee-form-grid">
           <label>
             Archive Type
-            <select value={archiveType} onChange={(event) => setArchiveType(event.target.value)}>
-              <option value="Resigned">Resigned</option>
-              <option value="Retired">Retired</option>
-              <option value="End of Contract">End of Contract</option>
-              <option value="Separated">Separated</option>
-            </select>
+            <FormSelectDropdown
+              value={archiveType}
+              onChange={setArchiveType}
+              options={[
+                { value: "Resigned", label: "Resigned" },
+                { value: "Retired", label: "Retired" },
+                { value: "End of Contract", label: "End of Contract" },
+                { value: "Separated", label: "Separated" },
+              ]}
+              placeholder="Select archive type…"
+              ariaLabel="Archive Type"
+            />
           </label>
           <label>
             Effective Date

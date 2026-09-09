@@ -42,6 +42,19 @@ enum SoloParentStatus {
   INELIGIBLE
 }
 
+// HR reference only — does not gate LeaveBalancesService.isEligibleForLeaveType
+// (still sex-only for Paternity/Maternity): defaulting every existing
+// employee to SINGLE here would silently misrepresent already-married
+// employees until HR backfills this field.
+enum CivilStatus {
+  SINGLE
+  MARRIED
+  WIDOWED
+  SEPARATED
+  ANNULLED
+}
+
+
 // The set of legal attendance modes is DB-driven, not a compiled enum — HR
 // assigns a department (and, for a "BOTH" department, an individual employee)
 // one of these rows via code, not a hardcoded mapping. See
@@ -353,6 +366,12 @@ model Employee {
   section_id           String?
   sex                  Sex?
   soloParentStatus     SoloParentStatus       @default(NOT_APPLICABLE) @map("solo_parent_status")
+  civilStatus          CivilStatus            @default(SINGLE) @map("civil_status")
+  // Free text — set only when the employee's spouse works elsewhere; blank
+  // means not applicable/unknown. Mutually exclusive with spouseUnemployed
+  // in the admin-web form (EmployeesPage.tsx), not enforced at this layer.
+  spouseEmployerName   String?                @map("spouse_employer_name")
+  spouseUnemployed     Boolean                @default(false) @map("spouse_unemployed")
   // Confident face-mismatch strikes ("this is a different person," not a
   // borderline match or a geofence failure) for the current calendar day —
   // see FaceVerificationService.matchEmployeeFace. Resets to 1 the first

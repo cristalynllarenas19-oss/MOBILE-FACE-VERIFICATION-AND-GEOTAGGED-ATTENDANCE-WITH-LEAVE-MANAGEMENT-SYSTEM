@@ -1,5 +1,5 @@
 import { Transform } from "class-transformer";
-import { IsDateString, IsEmail, IsEnum, IsInt, IsOptional, IsString, Min } from "class-validator";
+import { IsBoolean, IsDateString, IsEmail, IsEnum, IsInt, IsOptional, IsString, Min } from "class-validator";
 
 export enum CreateEmployeeEmploymentStatus {
   REGULAR = "REGULAR",
@@ -17,6 +17,14 @@ export enum EmployeeSoloParentStatus {
 export enum CreateEmployeeSex {
   MALE = "MALE",
   FEMALE = "FEMALE",
+}
+
+export enum EmployeeCivilStatus {
+  SINGLE = "SINGLE",
+  MARRIED = "MARRIED",
+  WIDOWED = "WIDOWED",
+  SEPARATED = "SEPARATED",
+  ANNULLED = "ANNULLED",
 }
 
 export class CreateEmployeeDto {
@@ -53,6 +61,21 @@ export class CreateEmployeeDto {
   @IsOptional()
   @IsEnum(EmployeeSoloParentStatus)
   soloParentStatus?: EmployeeSoloParentStatus;
+
+  @IsOptional()
+  @IsEnum(EmployeeCivilStatus)
+  civilStatus?: EmployeeCivilStatus;
+
+  // Set only when the employee's spouse works at another company; blank
+  // means not applicable/unknown. Mutually exclusive with spouseUnemployed
+  // in the admin-web form, not enforced here.
+  @IsOptional()
+  @IsString()
+  spouseEmployerName?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  spouseUnemployed?: boolean;
 
   // Must be the id of an existing Employee who carries the SUPERVISOR role in
   // the same department — validated in EmployeesService, not here, since it
@@ -100,6 +123,21 @@ export class UpdateEmployeeDto {
   @IsOptional()
   @IsEnum(EmployeeSoloParentStatus)
   soloParentStatus?: EmployeeSoloParentStatus;
+
+  @IsOptional()
+  @IsEnum(EmployeeCivilStatus)
+  civilStatus?: EmployeeCivilStatus;
+
+  // Set only when the employee's spouse works at another company; blank
+  // means not applicable/unknown. Mutually exclusive with spouseUnemployed
+  // in the admin-web form, not enforced here.
+  @IsOptional()
+  @IsString()
+  spouseEmployerName?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  spouseUnemployed?: boolean;
 
   // Earned days for the employee's gender-linked leave type (Paternity for
   // MALE, Maternity for FEMALE) for the current year — set from Edit Employee.

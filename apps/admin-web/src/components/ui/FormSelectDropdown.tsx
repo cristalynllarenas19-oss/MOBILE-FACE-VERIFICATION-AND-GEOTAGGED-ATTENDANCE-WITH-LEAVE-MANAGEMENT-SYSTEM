@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import "./FormSelectDropdown.css";
 
-export type FormSelectDropdownOption = { value: string; label: string };
+export type FormSelectDropdownOption = { value: string; label: string; disabled?: boolean };
 
 // A drop-in replacement for a plain <select> inside a form field, used where
 // the native select's browser-controlled popup (which can open upward and
@@ -78,6 +78,8 @@ export function FormSelectDropdown({
               key={option.value}
               role="option"
               aria-selected={value === option.value}
+              aria-disabled={option.disabled}
+              disabled={option.disabled}
               className={`form-select-dropdown-option${value === option.value ? " active" : ""}`}
               onClick={() => {
                 onChange(option.value);
