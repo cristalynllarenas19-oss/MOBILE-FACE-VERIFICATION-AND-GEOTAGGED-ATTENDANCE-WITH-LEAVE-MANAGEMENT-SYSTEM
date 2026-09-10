@@ -28,7 +28,6 @@ import {
   login,
   logout,
   restoreSession,
-  checkApiHealth,
   getTodayAttendance,
   submitAttendance,
   getMyWorkLocation,
@@ -376,7 +375,6 @@ export default function App() {
     setIsLoading(true);
 
     try {
-      await checkApiHealth();
       const loggedInUser =
         await login(email.trim(), password.trim() || undefined);
 
