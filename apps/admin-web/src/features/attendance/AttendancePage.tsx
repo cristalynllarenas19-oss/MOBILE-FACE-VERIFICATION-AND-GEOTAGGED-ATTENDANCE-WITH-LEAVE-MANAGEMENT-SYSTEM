@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, Eye, MapPin, X, XCircle } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
+import { NotificationModal, type NotificationConfig } from "../../components/ui/NotificationModal";
 import { apiRequest } from "../../lib/api";
 import { useCachedData } from "../../lib/dataCache";
 import { useActiveDepartments } from "../../lib/departments";
@@ -81,8 +82,6 @@ type FlaggedLog = {
 type EmployeeOption = {
   department: { name: string };
 };
-
-type Notification = { type: "success" | "error"; message: string } | null;
 
 const statusOptions = ["PRESENT", "LATE", "ABSENT", "ON_LEAVE", "PENDING_REVIEW", "FLAGGED"];
 const recordTypeOptions = ["OFFICE", "FIELD"];
@@ -192,8 +191,8 @@ function AttendanceDetailsModal({
 }: {
   record: AttendanceRecord;
   onClose: () => void;
-  onUpdated: (record: AttendanceRecord, message: string) => void;
-  onFlaggedResolved: (message: string) => void;
+  onUpdated: (record: AttendanceRecord, title: string, message: string) => void;
+  onFlaggedResolved: (title: string, message: string) => void;
   canWrite: boolean;
 }) {
   const [remarks, setRemarks] = useState("");
@@ -216,7 +215,11 @@ function AttendanceDetailsModal({
         body: JSON.stringify({ remarks: remarks.trim() }),
       });
       const suffix = remarks.trim() ? ` Remarks noted: ${remarks.trim()}` : "";
-      onUpdated(updated, action === "approve" ? `Attendance was approved.${suffix}` : `Attendance was marked as Official Business.${suffix}`);
+      onUpdated(
+        updated,
+        action === "approve" ? "Attendance Approved" : "Marked as Official Business",
+        action === "approve" ? `Attendance was approved.${suffix}` : `Attendance was marked as Official Business.${suffix}`,
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to update attendance.");
     } finally {
@@ -235,6 +238,7 @@ function AttendanceDetailsModal({
       });
       const suffix = remarks.trim() ? ` Remarks noted: ${remarks.trim()}` : "";
       onFlaggedResolved(
+        decision === "validate" ? "Attempt Validated" : "Marked as Fake Attempt",
         decision === "validate"
           ? `Attendance attempt was validated and recorded.${suffix}`
           : `Attendance attempt was tagged as a fake attendance attempt.${suffix}`,
@@ -254,9 +258,6 @@ function AttendanceDetailsModal({
             <h2 id="attendance-modal-title">Attendance Details</h2>
             <p>{formatDate(record.attendanceDate)}</p>
           </div>
-          <button className="icon-button" onClick={onClose} aria-label="Close attendance details">
-            <X size={18} />
-          </button>
         </div>
 
         {record.isFlagged && (
@@ -424,7 +425,7 @@ export function AttendancePage({
   const [dateTo, setDateTo] = useState(initialFilter?.date ?? "");
   const [page, setPage] = useState(1);
   const [viewRecord, setViewRecord] = useState<AttendanceRecord | null>(null);
-  const [notification, setNotification] = useState<Notification>(null);
+  const [notification, setNotification] = useState<NotificationConfig>(null);
   const now = useNow();
 
   const fetchRecords = async () => {
@@ -512,34 +513,23 @@ export function AttendancePage({
   );
   const employeeOptions = employeeOptionsCache.data ?? [];
 
-  useEffect(() => {
-    if (!notification) return;
-    const timeoutId = window.setTimeout(() => setNotification(null), 3500);
-    return () => window.clearTimeout(timeoutId);
-  }, [notification]);
-
   const { departmentNames: departments } = useActiveDepartments();
 
-  const handleUpdated = (record: AttendanceRecord, message: string) => {
+  const handleUpdated = (record: AttendanceRecord, title: string, message: string) => {
     recordsCache.setData(records.map((item) => (item.id === record.id ? record : item)));
     setViewRecord(null);
-    setNotification({ type: "success", message });
+    setNotification({ type: "success", title, message });
   };
 
-  const handleFlaggedResolved = (message: string) => {
+  const handleFlaggedResolved = (title: string, message: string) => {
     setViewRecord(null);
-    setNotification({ type: "success", message });
+    setNotification({ type: "success", title, message });
     loadRecords();
   };
 
   return (
     <>
-      {notification && (
-        <div className={`attendance-notification ${notification.type}`} role="status">
-          {notification.type === "success" ? <CheckCircle2 size={17} /> : <AlertTriangle size={17} />}
-          <span>{notification.message}</span>
-        </div>
-      )}
+      <NotificationModal notification={notification} onClose={() => setNotification(null)} />
 
       <div className="attendance-filter-bar">
         {!isDepartmentLocked && (

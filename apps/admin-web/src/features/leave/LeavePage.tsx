@@ -4,7 +4,6 @@ import {
   AlertTriangle,
   Ban,
   Calendar as CalendarIcon,
-  CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -18,6 +17,7 @@ import {
 import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { LeaveTimeline, type LeaveRequestHistoryEvent } from "../../components/ui/LeaveTimeline";
+import { NotificationModal, type NotificationConfig } from "../../components/ui/NotificationModal";
 import { apiRequest } from "../../lib/api";
 import { useActiveDepartments } from "../../lib/departments";
 import { useCachedData } from "../../lib/dataCache";
@@ -113,8 +113,6 @@ type ClassificationBalanceRow = {
   totalRemainingDays: number;
   balances: { leaveTypeId: string; leaveTypeName: string; earnedDays: number; usedDays: number; remainingDays: number }[];
 };
-
-type Notification = { type: "success" | "error"; message: string } | null;
 
 const LEAVE_TABLE_PAGE_SIZE = 10;
 // Smaller than LEAVE_TABLE_PAGE_SIZE on purpose: this table sits inside the
@@ -847,7 +845,7 @@ export function LeavePage({
   const [requirementDetails, setRequirementDetails] = useState("");
   const [cancelNote, setCancelNote]             = useState("");
   const [isSaving, setIsSaving]                 = useState(false);
-  const [notification, setNotification]         = useState<Notification>(null);
+  const [notification, setNotification]         = useState<NotificationConfig>(null);
   const [reviewBalances, setReviewBalances]     = useState<LeaveBalance[] | null>(null);
   const [reviewUndertime, setReviewUndertime]   = useState<UndertimeFiling | null>(null);
   const [undertimeRemarks, setUndertimeRemarks] = useState("");
@@ -986,12 +984,6 @@ export function LeavePage({
       }
     }
   }, [reviewRequest]);
-
-  useEffect(() => {
-    if (!notification) return;
-    const id = window.setTimeout(() => setNotification(null), 3500);
-    return () => window.clearTimeout(id);
-  }, [notification]);
 
   useEffect(() => {
     if (!reviewRequest) {
@@ -1232,6 +1224,12 @@ export function LeavePage({
     setRequirementDetails("");
     setNotification({
       type: "success",
+      title:
+        action === "approve"
+          ? "Leave Approved"
+          : requiresAdditionalRequirementsSnapshot
+            ? "Leave Returned for Requirements"
+            : "Leave Rejected",
       message:
         action === "approve"
           ? "Leave request was approved."
@@ -1259,6 +1257,7 @@ export function LeavePage({
         loadRequests();
         setNotification({
           type: "error",
+          title: action === "approve" ? "Approval Failed" : "Rejection Failed",
           message:
             err instanceof Error
               ? `${action === "approve" ? "Approval" : "Rejection"} failed: ${err.message}`
@@ -1279,6 +1278,7 @@ export function LeavePage({
     setUndertimeRemarks("");
     setNotification({
       type: "success",
+      title: action === "approve" ? "Undertime Approved" : "Undertime Rejected",
       message: action === "approve" ? "Undertime filing was approved." : "Undertime filing was rejected.",
     });
 
@@ -1291,6 +1291,7 @@ export function LeavePage({
         undertimeCache.refresh().catch(() => undefined);
         setNotification({
           type: "error",
+          title: action === "approve" ? "Approval Failed" : "Rejection Failed",
           message:
             err instanceof Error
               ? `${action === "approve" ? "Approval" : "Rejection"} failed: ${err.message}`
@@ -1309,7 +1310,11 @@ export function LeavePage({
   const cancelRequest = () => {
     if (!reviewRequest) return;
     if (!cancelNote.trim()) {
-      setNotification({ type: "error", message: "Please provide a reason for cancelling this leave request." });
+      setNotification({
+        type: "error",
+        title: "Reason Required",
+        message: "Please provide a reason for cancelling this leave request.",
+      });
       return;
     }
     const targetId = reviewRequest.id;
@@ -1318,7 +1323,7 @@ export function LeavePage({
     requestsCache.setData(requests.map((r) => (r.id === targetId ? { ...r, status: "CANCELLED" } : r)));
     setReviewRequest(null);
     setCancelNote("");
-    setNotification({ type: "success", message: "Leave request was cancelled." });
+    setNotification({ type: "success", title: "Leave Cancelled", message: "Leave request was cancelled." });
 
     apiRequest(`/leave-requests/${targetId}/cancel`, {
       method: "PATCH",
@@ -1332,6 +1337,7 @@ export function LeavePage({
         loadRequests();
         setNotification({
           type: "error",
+          title: "Cancellation Failed",
           message: err instanceof Error ? `Cancellation failed: ${err.message}` : "Unable to cancel leave request.",
         });
       });
@@ -1353,6 +1359,7 @@ export function LeavePage({
     setRemarks("");
     setNotification({
       type: "success",
+      title: decision === "approve" ? "Cancellation Approved" : "Cancellation Denied",
       message: decision === "approve" ? "Leave cancellation was approved." : "Leave cancellation was denied — the leave remains approved.",
     });
 
@@ -1368,6 +1375,7 @@ export function LeavePage({
         loadRequests();
         setNotification({
           type: "error",
+          title: "Decision Failed",
           message: err instanceof Error ? `Decision failed: ${err.message}` : "Unable to decide on this cancellation request.",
         });
       });
@@ -1384,12 +1392,14 @@ export function LeavePage({
       setReviewRequest(null);
       setNotification({
         type: "success",
+        title: extensionApproved ? "Extension Approved" : "Extension Rejected",
         message: `Maternity extension was ${extensionApproved ? "approved" : "rejected"}.`,
       });
       loadRequests();
     } catch (err) {
       setNotification({
         type: "error",
+        title: "Couldn't Decide Extension",
         message: err instanceof Error ? err.message : "Unable to decide extension.",
       });
     } finally {
@@ -1400,14 +1410,7 @@ export function LeavePage({
 
   return (
     <>
-      {notification && (
-        <div className={`leave-notification ${notification.type}`} role="status">
-          {notification.type === "success"
-            ? <CheckCircle2 size={17} />
-            : <AlertTriangle size={17} />}
-          <span>{notification.message}</span>
-        </div>
-      )}
+      <NotificationModal notification={notification} onClose={() => setNotification(null)} />
 
       <div className="leave-section-tabs">
         <button className={topTab === "requests" ? "active" : ""} onClick={() => setTopTab("requests")}>

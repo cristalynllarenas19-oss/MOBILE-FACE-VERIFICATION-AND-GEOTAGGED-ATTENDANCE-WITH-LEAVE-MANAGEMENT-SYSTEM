@@ -1,10 +1,11 @@
 import axios from "axios";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { AlertTriangle, Archive, ChevronsUpDown, CheckCircle2, Eye, Pencil, Plus, RotateCcw, ScanFace, Search, UserCheck, X } from "lucide-react";
+import { AlertTriangle, Archive, ChevronsUpDown, Eye, Pencil, Plus, RotateCcw, ScanFace, Search, UserCheck, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { FormSelectDropdown } from "../../components/ui/FormSelectDropdown";
+import { NotificationModal, type NotificationConfig } from "../../components/ui/NotificationModal";
 import { EvaluationViewModal } from "../evaluations/EvaluationViewModal";
 import { apiRequest } from "../../lib/api";
 import { CACHE_KEYS, revalidateCached, useCachedData } from "../../lib/dataCache";
@@ -97,8 +98,6 @@ type EmployeeForm = {
 };
 
 type EditEmployeeForm = EmployeeForm;
-
-type Notification = { type: "success" | "error"; message: string } | null;
 
 const initialForm: EmployeeForm = {
   firstName: "",
@@ -268,9 +267,6 @@ function EmployeeModal({
             {title && <h2 id="employee-modal-title">{title}</h2>}
             {description && <p>{description}</p>}
           </div>
-          <button className="icon-button" onClick={onClose} aria-label="Close employee modal">
-            <X size={18} />
-          </button>
         </div>
         {children}
       </section>
@@ -1436,7 +1432,7 @@ export function EmployeesPage({
   const [editEmployee, setEditEmployee] = useState<Employee | null>(null);
   const [archiveEmployee, setArchiveEmployee] = useState<Employee | null>(null);
   const [restoreTarget, setRestoreTarget] = useState<Employee | null>(null);
-  const [notification, setNotification] = useState<Notification>(null);
+  const [notification, setNotification] = useState<NotificationConfig>(null);
 
 
   const employeesCache = useCachedData<Employee[]>("employees", () => apiRequest<Employee[]>("/employees"));
@@ -1456,12 +1452,6 @@ export function EmployeesPage({
 
   const { departments: activeDepartments, departmentNames: departments } = useActiveDepartments();
   const { forEmployees: attendanceModeOptions, all: allAttendanceModeOptions } = useAttendanceModeOptions();
-
-  useEffect(() => {
-    if (!notification) return;
-    const timeoutId = window.setTimeout(() => setNotification(null), 3500);
-    return () => window.clearTimeout(timeoutId);
-  }, [notification]);
 
   useEffect(() => {
     if (!initialFocusEmployeeId) return;
@@ -1515,14 +1505,14 @@ export function EmployeesPage({
       onEmployeeCreated(employee);
       return;
     }
-    setNotification({ type: "success", message: "Employee was added successfully." });
+    setNotification({ type: "success", title: "Employee Added", message: "Employee was added successfully." });
   };
 
   const handleEmployeeUpdated = (employee: Employee) => {
     employeesCache.setData(employees.map((item) => (item.id === employee.id ? employee : item)));
     setViewEmployee((current) => (current?.id === employee.id ? employee : current));
     setEditEmployee(null);
-    setNotification({ type: "success", message: "Employee was updated successfully." });
+    setNotification({ type: "success", title: "Employee Updated", message: "Employee was updated successfully." });
   };
 
   // Quietly reconciles the optimistic edit with the server's response once
@@ -1534,7 +1524,7 @@ export function EmployeesPage({
   };
 
   const handleEmployeeSaveFailed = (message: string) => {
-    setNotification({ type: "error", message });
+    setNotification({ type: "error", title: "Couldn't Update Employee", message });
     employeesCache.refresh().catch(() => undefined);
   };
 
@@ -1542,7 +1532,11 @@ export function EmployeesPage({
     employeesCache.setData(employees.map((item) => (item.id === employee.id ? employee : item)));
     setViewEmployee((current) => (current?.id === employee.id ? employee : current));
     setArchiveEmployee(null);
-    setNotification({ type: "success", message: "Employee was archived and their login was deactivated." });
+    setNotification({
+      type: "success",
+      title: "Employee Archived",
+      message: "Employee was archived and their login was deactivated.",
+    });
   };
 
   const handleRestoreEmployee = async (employee: Employee) => {
@@ -1550,10 +1544,15 @@ export function EmployeesPage({
       const restored = await apiRequest<Employee>(`/employees/${employee.id}/restore`, { method: "PATCH" });
       employeesCache.setData(employees.map((item) => (item.id === restored.id ? restored : item)));
       setViewEmployee((current) => (current?.id === restored.id ? restored : current));
-      setNotification({ type: "success", message: "Employee was restored and their login was reactivated." });
+      setNotification({
+        type: "success",
+        title: "Employee Restored",
+        message: "Employee was restored and their login was reactivated.",
+      });
     } catch (err) {
       setNotification({
         type: "error",
+        title: "Couldn't Restore Employee",
         message: err instanceof Error ? err.message : "Unable to restore employee.",
       });
     }
@@ -1566,12 +1565,7 @@ export function EmployeesPage({
 
   return (
     <>
-      {notification && (
-        <div className={`employees-notification ${notification.type}`} role="status">
-          {notification.type === "success" ? <CheckCircle2 size={17} /> : <AlertTriangle size={17} />}
-          <span>{notification.message}</span>
-        </div>
-      )}
+      <NotificationModal notification={notification} onClose={() => setNotification(null)} />
 
       <div className="employees-filter-bar">
         {/* VIEW — Active employees tab */}

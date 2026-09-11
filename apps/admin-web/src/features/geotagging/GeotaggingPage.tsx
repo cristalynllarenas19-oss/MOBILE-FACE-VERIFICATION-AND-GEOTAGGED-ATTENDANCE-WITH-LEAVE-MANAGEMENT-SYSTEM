@@ -1,7 +1,7 @@
 import "leaflet/dist/leaflet.css";
 
 import { Component, FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Check, CheckCircle2, ChevronDown, Edit3, Eye, MapPin, Plus, Power, PowerOff, Save, Search, Trash2, Users, X } from "lucide-react";
+import { Check, ChevronDown, Edit3, Eye, MapPin, Plus, Power, PowerOff, Save, Search, Trash2, Users, X } from "lucide-react";
 import L from "leaflet";
 import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
 import markerIconUrl from "leaflet/dist/images/marker-icon.png";
@@ -9,7 +9,9 @@ import markerShadowUrl from "leaflet/dist/images/marker-shadow.png";
 import "./GeotaggingPage.css";
 import { apiRequest } from "../../lib/api";
 import { useActiveDepartments } from "../../lib/departments";
+import { ConfirmDialog, type ConfirmDialogConfig } from "../../components/ui/ConfirmDialog";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
+import { NotificationModal, type NotificationConfig } from "../../components/ui/NotificationModal";
 import { PermissionCode, permissions } from "../../types/rbac";
 
 type EmployeeOption = {
@@ -37,13 +39,6 @@ type GeotaggedLocation = {
   departmentId?: string | null;
   department?: { id: string; name: string } | null;
   type?: "OFFICE" | "FIELD";
-};
-
-type ConfirmConfig = {
-  title: string;
-  description: string;
-  confirmLabel: string;
-  onConfirm: () => void;
 };
 
 function isGlobalZoneLocation(location?: GeotaggedLocation | null) {
@@ -103,61 +98,6 @@ class GeotaggingErrorBoundary extends Component<
 
     return this.props.children;
   }
-}
-
-function ConfirmModal({
-  config,
-  onCancel,
-}: {
-  config: ConfirmConfig;
-  onCancel: () => void;
-}) {
-  return (
-    <div className="geotagging-modal-backdrop" role="presentation" onClick={onCancel}>
-      <section
-        className="geotagging-modal geotagging-confirm-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="confirm-modal-title"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <button
-          className="confirm-modal-close"
-          type="button"
-          onClick={onCancel}
-          aria-label="Close"
-        >
-          <X size={16} />
-        </button>
-
-        <div className="confirm-modal-body">
-          <div className="confirm-modal-icon-wrap">
-            <AlertTriangle size={26} strokeWidth={2} />
-          </div>
-          <h2 id="confirm-modal-title" className="confirm-modal-title">
-            {config.title}
-          </h2>
-          <p className="confirm-modal-description">{config.description}</p>
-        </div>
-
-        <div className="confirm-modal-footer">
-          <button type="button" className="outline-button" onClick={onCancel}>
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="danger-button"
-            onClick={() => {
-              config.onConfirm();
-              onCancel();
-            }}
-          >
-            {config.confirmLabel}
-          </button>
-        </div>
-      </section>
-    </div>
-  );
 }
 
 function ViewAreaEmployeesModal({
@@ -297,7 +237,7 @@ function GeotaggingPageContent({
   const [areaSearchQuery, setAreaSearchQuery] = useState("");
   const [areaStatusFilter, setAreaStatusFilter] = useState<"active" | "inactive" | "all">("active");
   const [assignmentError, setAssignmentError] = useState("");
-  const [notice, setNotice] = useState<{ type: "success" | "error"; message: string } | null>(null);
+  const [notice, setNotice] = useState<NotificationConfig>(null);
   const [selectedLocationId, setSelectedLocationId] = useState("");
   const [editingLocationId, setEditingLocationId] = useState<string | null>(null);
   const [viewingLocationId, setViewingLocationId] = useState<string | null>(null);
@@ -305,7 +245,7 @@ function GeotaggingPageContent({
   const [loadError, setLoadError] = useState("");
   const [loadIssues, setLoadIssues] = useState<string[]>([]);
   const [savingAssignments, setSavingAssignments] = useState(false);
-  const [confirmConfig, setConfirmConfig] = useState<ConfirmConfig | null>(null);
+  const [confirmConfig, setConfirmConfig] = useState<ConfirmDialogConfig | null>(null);
 
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -313,11 +253,6 @@ function GeotaggingPageContent({
   const draftCircleRef = useRef<L.Circle | null>(null);
   const savedLayerRef = useRef<L.LayerGroup | null>(null);
 
-  useEffect(() => {
-    if (!notice) return;
-    const id = window.setTimeout(() => setNotice(null), 3500);
-    return () => window.clearTimeout(id);
-  }, [notice]);
 
   useEffect(() => {
     let alive = true;
@@ -748,14 +683,14 @@ function GeotaggingPageContent({
           body: JSON.stringify(areaPayload),
         });
         setLocations((current) => current.map((location) => (location.id === updated.id ? updated : location)));
-        setNotice({ type: "success", message: `"${updated.name}" was updated.` });
+        setNotice({ type: "success", title: "Location Updated", message: `"${updated.name}" was updated.` });
       } else {
         const newLoc = await apiRequest<GeotaggedLocation>("/geolocation/locations", {
           method: "POST",
           body: JSON.stringify({ ...areaPayload, employeeIds: form.employeeIds }),
         });
         setLocations((current) => [newLoc, ...current]);
-        setNotice({ type: "success", message: `"${newLoc.name}" was added.` });
+        setNotice({ type: "success", title: "Location Added", message: `"${newLoc.name}" was added.` });
       }
       startCreateMode();
     } catch (error) {
@@ -779,7 +714,7 @@ function GeotaggingPageContent({
         body: JSON.stringify({ employeeIds: form.employeeIds }),
       });
       setLocations((current) => current.map((location) => (location.id === updated.id ? updated : location)));
-      setNotice({ type: "success", message: `Employee assignments saved for "${updated.name}".` });
+      setNotice({ type: "success", title: "Assignments Saved", message: `Employee assignments saved for "${updated.name}".` });
       startCreateMode();
     } catch (error) {
       console.error("Failed to save employee assignments", error);
@@ -799,6 +734,7 @@ function GeotaggingPageContent({
           ? `Are you sure you want to remove "${location.name}"? This will unassign ${employeeCount} employee${employeeCount === 1 ? "" : "s"} from this area. This action cannot be undone.`
           : `Are you sure you want to remove "${location.name}"? This action cannot be undone.`,
       confirmLabel: "Remove Area",
+      tone: "danger",
       onConfirm: () => removeLocation(location),
     });
   }
@@ -857,6 +793,7 @@ function GeotaggingPageContent({
             ? `Are you sure you want to deactivate "${location.name}"? Attendance geofencing will stop applying for ${employeeCount} employee${employeeCount === 1 ? "" : "s"} assigned here until it's reactivated.`
             : `Are you sure you want to deactivate "${location.name}"? It will stop being used for attendance geofencing until it's reactivated.`,
         confirmLabel: "Deactivate",
+        tone: "warning",
         onConfirm: () => toggleLocationActive(location),
       });
       return;
@@ -915,12 +852,7 @@ function GeotaggingPageContent({
   return (
     <div className="geotagging-page">
 
-      {notice && (
-        <div className={`geotagging-toast ${notice.type}`} role="status">
-          {notice.type === "success" ? <CheckCircle2 size={17} /> : <AlertTriangle size={17} />}
-          <span>{notice.message}</span>
-        </div>
-      )}
+      <NotificationModal notification={notice} onClose={() => setNotice(null)} />
 
       {loadError && (
         <div className="geotagging-banner error" role="alert">
@@ -1549,7 +1481,7 @@ function GeotaggingPageContent({
       )}
 
       {confirmConfig && (
-        <ConfirmModal
+        <ConfirmDialog
           config={confirmConfig}
           onCancel={() => setConfirmConfig(null)}
         />

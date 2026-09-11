@@ -240,10 +240,10 @@ export function ShiftsTab({
 
       if (formMode === "create") {
         const created = await apiRequest<Shift>("/schedules/shifts", { method: "POST", body: JSON.stringify(payload) });
-        notify({ type: "success", message: `"${created.name}" shift created successfully.` });
+        notify({ type: "success", title: "Shift Created", message: `"${created.name}" shift created successfully.` });
       } else if (editingId) {
         const updated = await apiRequest<Shift>(`/schedules/shifts/${editingId}`, { method: "PATCH", body: JSON.stringify(payload) });
-        notify({ type: "success", message: `"${updated.name}" shift updated successfully.` });
+        notify({ type: "success", title: "Shift Updated", message: `"${updated.name}" shift updated successfully.` });
       }
       closeForm();
       loadShifts();
@@ -252,7 +252,7 @@ export function ShiftsTab({
       if (/already exists/i.test(message)) setNameError(message);
       else if (/start time and end time/i.test(message)) setTimeError(message);
       else if (/working day/i.test(message)) setDaysError(message);
-      else notify({ type: "error", message });
+      else notify({ type: "error", title: "Couldn't Save Shift", message });
     } finally {
       setIsSaving(false);
     }
@@ -264,11 +264,19 @@ export function ShiftsTab({
         method: "PATCH",
         body: JSON.stringify({ isActive }),
       });
-      notify({ type: "success", message: `"${shift.name}" ${isActive ? "restored" : "archived"} successfully.` });
+      notify({
+        type: "success",
+        title: isActive ? "Shift Restored" : "Shift Archived",
+        message: `"${shift.name}" ${isActive ? "restored" : "archived"} successfully.`,
+      });
       setViewShift(null);
       loadShifts();
     } catch (err) {
-      notify({ type: "error", message: err instanceof Error ? err.message : "Unable to update shift status." });
+      notify({
+        type: "error",
+        title: "Couldn't Update Shift Status",
+        message: err instanceof Error ? err.message : "Unable to update shift status.",
+      });
     }
   };
 
@@ -387,9 +395,6 @@ export function ShiftsTab({
                 <h2 id="shift-form-title">{formMode === "create" ? "Create Shift" : "Edit Shift"}</h2>
                 <p>{formMode === "create" ? "New shift will be available to assign immediately" : "Changes apply immediately"}</p>
               </div>
-              <button className="icon-button" onClick={closeForm} aria-label="Close">
-                <X size={18} />
-              </button>
             </div>
 
             <form onSubmit={submitForm}>

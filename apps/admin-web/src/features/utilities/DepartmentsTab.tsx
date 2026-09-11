@@ -117,17 +117,17 @@ export function DepartmentsTab({
     try {
       if (formMode === "create") {
         await apiRequest("/departments", { method: "POST", body: JSON.stringify({ name: trimmedName, attendanceMode }) });
-        notify({ type: "success", message: `"${trimmedName}" department created.` });
+        notify({ type: "success", title: "Department Created", message: `"${trimmedName}" department created.` });
       } else if (editingId) {
         await apiRequest(`/departments/${editingId}`, { method: "PATCH", body: JSON.stringify({ name: trimmedName, attendanceMode }) });
-        notify({ type: "success", message: `"${trimmedName}" department updated.` });
+        notify({ type: "success", title: "Department Updated", message: `"${trimmedName}" department updated.` });
       }
       closeForm();
       loadDepartments();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to save department.";
       if (/already exists/i.test(message)) setNameError(message);
-      else notify({ type: "error", message });
+      else notify({ type: "error", title: "Couldn't Save Department", message });
     } finally {
       setIsSaving(false);
     }
@@ -141,6 +141,7 @@ export function DepartmentsTab({
       });
       notify({
         type: "success",
+        title: isActive ? "Department Restored" : "Department Archived",
         message: `"${department.name}" ${isActive ? "restored" : "archived"} successfully.`,
       });
       setViewDepartment(null);
@@ -148,6 +149,7 @@ export function DepartmentsTab({
     } catch (err) {
       notify({
         type: "error",
+        title: "Couldn't Update Department Status",
         message: err instanceof Error ? err.message : "Unable to update department status.",
       });
     }
@@ -308,9 +310,6 @@ export function DepartmentsTab({
                 <h2 id="department-form-title">{formMode === "create" ? "Add Department" : "Edit Department"}</h2>
                 <p>{formMode === "create" ? "New department will be available immediately" : "Changes apply immediately"}</p>
               </div>
-              <button className="icon-button" onClick={closeForm} aria-label="Close">
-                <X size={18} />
-              </button>
             </div>
 
             <div className="utilities-modal-body">

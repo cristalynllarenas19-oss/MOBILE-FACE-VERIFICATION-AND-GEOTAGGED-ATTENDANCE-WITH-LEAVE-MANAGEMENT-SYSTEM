@@ -41,6 +41,12 @@
   color: #1a3a5c;
 }
 
+.confirm-dialog-icon-wrap.warning {
+  background: #fff7ed;
+  color: #f97316;
+  border: 1px solid #fed7aa;
+}
+
 .confirm-dialog-title {
   color: #193d69;
   font-size: 17px;
@@ -104,6 +110,14 @@
 
 .confirm-dialog-confirm-button.primary:hover {
   background: #2979d0;
+}
+
+.confirm-dialog-confirm-button.warning {
+  background: #f97316;
+}
+
+.confirm-dialog-confirm-button.warning:hover {
+  background: #ea580c;
 }
 
 @media (max-width: 480px) {

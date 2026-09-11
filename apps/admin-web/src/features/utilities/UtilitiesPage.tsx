@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
-import { AlertTriangle, Building2, CalendarClock, CheckCircle2, ClipboardList, DatabaseBackup, History, Megaphone, Timer } from "lucide-react";
+import { useState } from "react";
+import { Building2, CalendarClock, ClipboardList, DatabaseBackup, History, Megaphone, Timer } from "lucide-react";
+import { NotificationModal, type NotificationConfig } from "../../components/ui/NotificationModal";
 import { PermissionCode, permissions } from "../../types/rbac";
 import { LeaveTypesTab } from "./LeaveTypesTab";
 import { UndertimeSettingsCard } from "./UndertimeSettingsCard";
@@ -10,29 +11,18 @@ import { AnnouncementsTab } from "./AnnouncementsTab";
 import { BackupRestoreTab } from "./BackupRestoreTab";
 import "./UtilitiesPage.css";
 
-export type Notification = { type: "success" | "error"; message: string } | null;
+export type { NotificationConfig as Notification } from "../../components/ui/NotificationModal";
 type UtilTab = "leave-types" | "undertime" | "shifts" | "departments" | "announcements" | "backup-restore" | "audit-logs";
 
 export function UtilitiesPage({ user }: { user?: { permissions: PermissionCode[] } }) {
   const canManageLeaveTypes = user?.permissions.includes(permissions.leaveTypesWrite) ?? true;
   const canManageShifts = user?.permissions.includes(permissions.schedulesWrite) ?? true;
   const [tab, setTab] = useState<UtilTab>("leave-types");
-  const [notification, setNotification] = useState<Notification>(null);
-
-  useEffect(() => {
-    if (!notification) return;
-    const id = window.setTimeout(() => setNotification(null), 6000);
-    return () => window.clearTimeout(id);
-  }, [notification]);
+  const [notification, setNotification] = useState<NotificationConfig>(null);
 
   return (
     <>
-      {notification && (
-        <div className={`utilities-notification ${notification.type}`} role="status">
-          {notification.type === "success" ? <CheckCircle2 size={17} /> : <AlertTriangle size={17} />}
-          <span>{notification.message}</span>
-        </div>
-      )}
+      <NotificationModal notification={notification} onClose={() => setNotification(null)} />
 
       <div className="filter-tabs utilities-tabs">
         <button className={tab === "leave-types" ? "active" : ""} onClick={() => setTab("leave-types")}>

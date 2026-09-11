@@ -5,7 +5,7 @@ export type ConfirmDialogConfig = {
   title: string;
   description: string;
   confirmLabel: string;
-  tone?: "danger" | "primary";
+  tone?: "danger" | "primary" | "warning";
   onConfirm: () => void;
 };
 

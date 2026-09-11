@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, CheckCircle2, Plus, X } from "lucide-react";
+import { AlertTriangle, Plus, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
+import { NotificationModal, type NotificationConfig } from "../../components/ui/NotificationModal";
 import { apiRequest } from "../../lib/api";
 import "./UsersPage.css";
 
@@ -25,7 +26,6 @@ type EmployeeOption = {
 };
 
 type UserFilter = "ALL" | "ACTIVE" | "INACTIVE";
-type Notification = { type: "success" | "error"; message: string } | null;
 
 const initialForm = {
   email: "",
@@ -70,7 +70,7 @@ export function UsersPage() {
   const [confirmUser, setConfirmUser] = useState<UserRow | null>(null);
   const [adminsToReplace, setAdminsToReplace] = useState<UserRow[] | null>(null);
   const [error, setError] = useState("");
-  const [notification, setNotification] = useState<Notification>(null);
+  const [notification, setNotification] = useState<NotificationConfig>(null);
   const [suggestionsRect, setSuggestionsRect] = useState<{ top: number; left: number; width: number } | null>(null);
   const searchWrapperRef = useRef<HTMLDivElement>(null);
   const suggestionsPortalRef = useRef<HTMLDivElement>(null);
@@ -93,13 +93,6 @@ export function UsersPage() {
       .catch((err) => setEmployeeError(err instanceof Error ? err.message : "Unable to load employees."))
       .finally(() => setIsLoadingEmployees(false));
   }, [isAddOpen]);
-
-  useEffect(() => {
-    if (!notification) return;
-
-    const timeoutId = window.setTimeout(() => setNotification(null), 3500);
-    return () => window.clearTimeout(timeoutId);
-  }, [notification]);
 
   // The suggestions dropdown renders in a portal (so it can float above the
   // modal's scrollable body instead of being clipped by it) — its position
@@ -213,12 +206,12 @@ export function UsersPage() {
       });
       setAdminsToReplace(null);
       closeAddUser();
-      setNotification({ type: "success", message: "Role assigned successfully." });
+      setNotification({ type: "success", title: "Role Assigned", message: "Role assigned successfully." });
       loadUsers();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to create user.";
       setError(message);
-      setNotification({ type: "error", message });
+      setNotification({ type: "error", title: "Couldn't Create User", message });
     } finally {
       setIsSaving(false);
     }
@@ -260,13 +253,14 @@ export function UsersPage() {
       setConfirmUser(null);
       setNotification({
         type: "success",
+        title: nextStatus === "ACTIVE" ? "User Activated" : "User Deactivated",
         message: `${user.email} has been ${nextStatus === "ACTIVE" ? "activated" : "deactivated"}.`,
       });
       loadUsers();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to update user status.";
       setError(message);
-      setNotification({ type: "error", message });
+      setNotification({ type: "error", title: "Couldn't Update User Status", message });
     } finally {
       setUpdatingUserId(null);
     }
@@ -274,12 +268,7 @@ export function UsersPage() {
 
   return (
     <>
-      {notification && (
-        <div className={`users-notification ${notification.type}`} role="status">
-          {notification.type === "success" ? <CheckCircle2 size={17} /> : <AlertTriangle size={17} />}
-          <span>{notification.message}</span>
-        </div>
-      )}
+      <NotificationModal notification={notification} onClose={() => setNotification(null)} />
 
       <div className="users-filter-bar">
         <div className="users-filter-group">
@@ -340,9 +329,6 @@ export function UsersPage() {
                 <h2 id="add-user-title">Add User</h2>
                 <p>Search for an employee and assign them a system role.</p>
               </div>
-              <button className="icon-button" onClick={closeAddUser} aria-label="Close add user form">
-                <X size={18} />
-              </button>
             </div>
 
             <form className="user-form" onSubmit={handleCreateUser}>
@@ -478,14 +464,6 @@ export function UsersPage() {
                 <AlertTriangle size={22} />
               </div>
               <h2 id="confirm-admin-replace-title">Grant Admin Access?</h2>
-              <button
-                className="icon-button"
-                onClick={() => setAdminsToReplace(null)}
-                aria-label="Close confirmation"
-                disabled={isSaving}
-              >
-                <X size={18} />
-              </button>
             </div>
 
             <p className="confirm-modal-copy">
@@ -534,14 +512,6 @@ export function UsersPage() {
               <h2 id="confirm-status-title">
                 {confirmUser.status === "ACTIVE" ? "Deactivate User" : "Activate User"}
               </h2>
-              <button
-                className="icon-button"
-                onClick={() => setConfirmUser(null)}
-                aria-label="Close confirmation"
-                disabled={updatingUserId === confirmUser.id}
-              >
-                <X size={18} />
-              </button>
             </div>
 
             <p className="confirm-modal-copy">

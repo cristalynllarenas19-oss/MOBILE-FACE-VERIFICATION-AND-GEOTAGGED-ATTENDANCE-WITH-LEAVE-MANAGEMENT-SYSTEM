@@ -110,7 +110,7 @@ export function UndertimeSettingsCard({
   function saveFiling() {
     const days = [Number(dayOne), Number(dayTwo)].filter((day) => Number.isInteger(day) && day >= 1 && day <= 31);
     if (days.length === 0) {
-      notify({ type: "error", message: "Enter at least one valid filing day (1-31)." });
+      notify({ type: "error", title: "Invalid Filing Day", message: "Enter at least one valid filing day (1-31)." });
       return;
     }
 
@@ -124,10 +124,14 @@ export function UndertimeSettingsCard({
         if (first != null) setDayOne(String(first));
         setDayTwo(second != null ? String(second) : "");
         setIsFilingEditing(false);
-        notify({ type: "success", message: "Undertime filing days updated." });
+        notify({ type: "success", title: "Filing Days Updated", message: "Undertime filing days updated." });
       })
       .catch((err) => {
-        notify({ type: "error", message: err instanceof Error ? err.message : "Unable to update filing days." });
+        notify({
+          type: "error",
+          title: "Couldn't Update Filing Days",
+          message: err instanceof Error ? err.message : "Unable to update filing days.",
+        });
       })
       .finally(() => setIsSavingFiling(false));
   }
@@ -164,6 +168,7 @@ export function UndertimeSettingsCard({
       setCutoffPendingStart(null);
       notify({
         type: "error",
+        title: "Invalid Cutoff Range",
         message: "Cutoff 1 can't start on the 1st or end on the 31st — pick a range that leaves at least one day on each side for Cutoff 2.",
       });
       return;
@@ -184,10 +189,14 @@ export function UndertimeSettingsCard({
         setCutoff1End(settings.cutoff1End);
         setIsCutoffEditing(false);
         setCutoffPendingStart(null);
-        notify({ type: "success", message: "Undertime cutoff periods updated." });
+        notify({ type: "success", title: "Cutoff Periods Updated", message: "Undertime cutoff periods updated." });
       })
       .catch((err) => {
-        notify({ type: "error", message: err instanceof Error ? err.message : "Unable to update cutoff periods." });
+        notify({
+          type: "error",
+          title: "Couldn't Update Cutoff Periods",
+          message: err instanceof Error ? err.message : "Unable to update cutoff periods.",
+        });
       })
       .finally(() => setIsSavingCutoff(false));
   }

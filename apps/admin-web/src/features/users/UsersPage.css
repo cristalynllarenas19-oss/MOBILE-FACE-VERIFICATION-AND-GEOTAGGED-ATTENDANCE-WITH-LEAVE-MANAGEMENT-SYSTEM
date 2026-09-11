@@ -74,35 +74,6 @@
   color: #1a3a5c;
 }
 
-.users-notification {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  z-index: 1100;
-  min-height: 44px;
-  max-width: min(420px, calc(100vw - 32px));
-  border-radius: 10px;
-  padding: 10px 14px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-  font-weight: 700;
-  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.16);
-}
-
-.users-notification.success {
-  border: 1px solid #b8c7d8;
-  background: #f4f7fb;
-  color: #1a3a5c;
-}
-
-.users-notification.error {
-  border: 1px solid #b8c7d8;
-  background: #f4f7fb;
-  color: #1a3a5c;
-}
-
 .role-cell {
   white-space: nowrap;
 }
@@ -626,13 +597,6 @@
   .user-modal {
     height: auto;
     max-height: 90vh;
-  }
-
-  .users-notification {
-    bottom: 12px;
-    right: 12px;
-    left: 12px;
-    max-width: none;
   }
 
   .users-filter-bar {

@@ -24,26 +24,6 @@
   padding: 30px 26px 24px;
 }
 
-.notif-detail-close {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  width: 30px;
-  height: 30px;
-  border: none;
-  border-radius: 50%;
-  background: #f1f5f9;
-  color: #64748b;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-
-.notif-detail-close:hover {
-  background: #e2e8f0;
-}
-
 .notif-detail-icon {
   width: 48px;
   height: 48px;

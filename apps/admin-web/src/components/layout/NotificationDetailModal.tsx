@@ -1,4 +1,3 @@
-import { X } from "lucide-react";
 import { AppNotification } from "../../lib/notifications";
 import { NotificationIcon, notificationCategory } from "./NotificationPanel";
 import "./NotificationDetailModal.css";
@@ -43,10 +42,6 @@ export function NotificationDetailModal({
         aria-labelledby="notif-detail-title"
         onClick={(e) => e.stopPropagation()}
       >
-        <button type="button" className="notif-detail-close" onClick={onClose} aria-label="Close">
-          <X size={18} />
-        </button>
-
         <span className={`notif-detail-icon ${category}`}>
           <NotificationIcon type={notification.type} />
         </span>

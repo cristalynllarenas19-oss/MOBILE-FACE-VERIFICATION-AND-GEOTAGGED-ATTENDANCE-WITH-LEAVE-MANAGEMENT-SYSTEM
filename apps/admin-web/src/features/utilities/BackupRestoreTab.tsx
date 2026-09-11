@@ -136,9 +136,13 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
     try {
       const record = await apiRequest<BackupRecord>("/backups", { method: "POST" });
       setBackups((current) => [record, ...current]);
-      notify({ type: "success", message: `"${record.name}" created successfully.` });
+      notify({ type: "success", title: "Backup Created", message: `"${record.name}" created successfully.` });
     } catch (err) {
-      notify({ type: "error", message: err instanceof Error ? err.message : "Failed to create backup." });
+      notify({
+        type: "error",
+        title: "Couldn't Create Backup",
+        message: err instanceof Error ? err.message : "Failed to create backup.",
+      });
     } finally {
       setIsCreating(false);
     }
@@ -175,11 +179,12 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
       const result = await uploadRestoreFile(file);
       notify({
         type: "success",
+        title: "Restore Complete",
         message: `Restore complete. A safety backup of the data it replaced was saved as "${result.preRestoreSnapshot}".`,
       });
       loadBackups();
     } catch (err) {
-      notify({ type: "error", message: err instanceof Error ? err.message : "Restore failed." });
+      notify({ type: "error", title: "Restore Failed", message: err instanceof Error ? err.message : "Restore failed." });
     } finally {
       setRestoringLabel(null);
     }
@@ -195,9 +200,13 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
         try {
           await apiRequest(`/backups/${encodeURIComponent(backup.name)}`, { method: "DELETE" });
           setBackups((current) => current.filter((item) => item.name !== backup.name));
-          notify({ type: "success", message: `"${backup.name}" deleted.` });
+          notify({ type: "success", title: "Backup Deleted", message: `"${backup.name}" deleted.` });
         } catch (err) {
-          notify({ type: "error", message: err instanceof Error ? err.message : "Failed to delete backup." });
+          notify({
+            type: "error",
+            title: "Couldn't Delete Backup",
+            message: err instanceof Error ? err.message : "Failed to delete backup.",
+          });
         }
       },
     });
@@ -207,7 +216,11 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
     try {
       await downloadBackupFile(backup.name);
     } catch (err) {
-      notify({ type: "error", message: err instanceof Error ? err.message : "Failed to download backup." });
+      notify({
+        type: "error",
+        title: "Couldn't Download Backup",
+        message: err instanceof Error ? err.message : "Failed to download backup.",
+      });
     }
   };
 
@@ -404,9 +417,6 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
                 <h2 id="restore-upload-title">Restore from Backup</h2>
                 <p>Select a backup file to restore your system data.</p>
               </div>
-              <button className="icon-button" onClick={closeUploadModal} aria-label="Close">
-                <X size={18} />
-              </button>
             </div>
 
             <div className="utilities-modal-body">

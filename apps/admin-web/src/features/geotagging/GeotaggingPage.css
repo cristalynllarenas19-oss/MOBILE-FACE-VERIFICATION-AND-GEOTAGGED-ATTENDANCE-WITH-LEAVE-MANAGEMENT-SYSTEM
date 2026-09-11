@@ -65,38 +65,6 @@
   color: #1d4ed8;
 }
 
-.geotagging-toast {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  z-index: 1100;
-  min-height: 44px;
-  max-width: min(420px, calc(100vw - 32px));
-  border: 1px solid #b8c7d8;
-  border-radius: 10px;
-  background: #f4f7fb;
-  color: #1a3a5c;
-  padding: 10px 14px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-  font-weight: 700;
-  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.16);
-}
-
-.geotagging-toast.success {
-  border-color: #86efac;
-  background: #f0fdf4;
-  color: #166534;
-}
-
-.geotagging-toast.error {
-  border-color: #fca5a5;
-  background: #fef2f2;
-  color: #991b1b;
-}
-
 .geotagging-load-issues {
   margin: 8px 0 0;
   padding-left: 18px;
@@ -1642,86 +1610,6 @@
 }
 
 
-.geotagging-confirm-modal {
-  width: min(360px, 100%);
-  height: auto;
-  max-height: none;
-  position: relative;
-}
-
-.confirm-modal-close {
-  position: absolute;
-  top: 14px;
-  right: 14px;
-  width: 28px;
-  height: 28px;
-  display: grid;
-  place-items: center;
-  border: none;
-  background: transparent;
-  color: #94a3b8;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.13s, color 0.13s;
-  padding: 0;
-}
-
-.confirm-modal-close:hover {
-  background: #f1f5f9;
-  color: #475569;
-}
-
-.confirm-modal-body {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 32px 28px 20px;
-  text-align: center;
-}
-
-.confirm-modal-icon-wrap {
-  width: 52px;
-  height: 52px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: #fff7ed;
-  color: #f97316;
-  border: 1px solid #fed7aa;
-  flex-shrink: 0;
-}
-
-.confirm-modal-title {
-  margin: 0;
-  color: #193d69;
-  font-size: 17px;
-  font-weight: 700;
-}
-
-.confirm-modal-description {
-  margin: 0;
-  color: #64748b;
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.confirm-modal-footer {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-  padding: 16px 28px 26px;
-}
-
-.confirm-modal-footer .outline-button {
-  min-width: 90px;
-}
-
-.confirm-modal-footer .danger-button {
-  min-width: 110px;
-}
-
-
 @media (max-width: 1180px) {
   .geotagging-bottom-grid,
   .geotagging-top-grid {
@@ -1809,14 +1697,5 @@
 
   .geotagging-modal-employee-meta span {
     text-align: left;
-  }
-
-  .confirm-modal-footer {
-    flex-direction: column-reverse;
-  }
-
-  .confirm-modal-footer .outline-button,
-  .confirm-modal-footer .danger-button {
-    width: 100%;
   }
 }

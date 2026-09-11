@@ -307,9 +307,6 @@ export function AuditLogsTab({
                 <h2 id="audit-view-title">Audit Log Detail</h2>
                 <p>{formatDateTime(viewLog.createdAt)}</p>
               </div>
-              <button className="icon-button" onClick={() => setViewLog(null)} aria-label="Close">
-                <X size={18} />
-              </button>
             </div>
 
             <div className="utilities-modal-body">

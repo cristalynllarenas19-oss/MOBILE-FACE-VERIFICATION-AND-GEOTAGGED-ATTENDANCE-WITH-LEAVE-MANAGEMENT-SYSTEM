@@ -236,26 +236,6 @@
   background: #254d78;
 }
 
-.employees-notification {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  z-index: 1100;
-  min-height: 44px;
-  max-width: min(420px, calc(100vw - 32px));
-  border: 1px solid #b8c7d8;
-  border-radius: 10px;
-  background: #f4f7fb;
-  color: #1a3a5c;
-  padding: 10px 14px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-  font-weight: 700;
-  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.16);
-}
-
 .employees-table-card {
   display: flex;
   flex-direction: column;
@@ -469,7 +449,8 @@
   background: #ffffff;
 }
 
-.employee-modal-header:has(h2:empty) {
+.employee-modal-header:has(h2:empty),
+.employee-modal-header:has(> div:empty) {
   border-bottom: none;
   padding-bottom: 0;
 }
@@ -716,6 +697,22 @@
   font-size: 12px;
 }
 
+/* Archive form's footer (step 2, after "Archive Employee" is confirmed) —
+   same balanced equal-width treatment as the confirm step (step 1), scoped
+   to this small archive modal only so Add/Edit Employee's forms keep their
+   normal right-aligned, content-sized buttons. */
+.employee-modal--archive .employee-form-actions {
+  justify-content: stretch;
+}
+
+.employee-modal--archive .employee-form-actions .primary-button,
+.employee-modal--archive .employee-form-actions .employee-archive-action,
+.employee-modal--archive .employee-form-actions .outline-button {
+  flex: 1;
+  min-width: 0;
+  justify-content: center;
+}
+
 .employee-archive-action {
   min-height: 38px;
   border-radius: 7px;
@@ -947,6 +944,7 @@
 
 .employee-confirm-actions .outline-button {
   flex: 1;
+  min-width: 0;
   height: 38px;
   border: 1.5px solid #dbe5ef;
   border-radius: 7px;
@@ -964,18 +962,12 @@
 
 .employee-confirm-actions .employee-archive-action {
   flex: 1;
+  min-width: 0;
   height: 38px;
   justify-content: center;
 }
 
 @media (max-width: 640px) {
-  .employees-notification {
-    bottom: 12px;
-    right: 12px;
-    left: 12px;
-    max-width: none;
-  }
-
   .employees-filter-bar {
     align-items: stretch;
     flex-direction: column;

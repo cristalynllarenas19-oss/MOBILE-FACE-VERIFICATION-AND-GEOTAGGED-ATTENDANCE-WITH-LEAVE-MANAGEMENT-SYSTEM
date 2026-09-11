@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { AlertTriangle, Archive, CheckCircle2, ChevronDown, Eye, Pencil, RotateCcw, Plus, Search, X } from "lucide-react";
+import { Archive, ChevronDown, Eye, Pencil, RotateCcw, Plus, Search, X } from "lucide-react";
 import { apiRequest } from "../../lib/api";
 import { Badge } from "../../components/ui/Badge";
 import { ConfirmDialog, type ConfirmDialogConfig } from "../../components/ui/ConfirmDialog";
+import { NotificationModal, type NotificationConfig } from "../../components/ui/NotificationModal";
 import { useActiveDepartments } from "../../lib/departments";
 import { PermissionCode, permissions } from "../../types/rbac";
 import "./SchedulesPage.css";
@@ -34,8 +35,6 @@ type Schedule = {
   employee: Employee;
   shift: Shift;
 };
-
-type Notification = { type: "success" | "error"; message: string } | null;
 
 function getName(employee: Employee) {
   return `${employee.firstName} ${employee.lastName}`;
@@ -357,7 +356,7 @@ export function SchedulesPage({
   const [form, setForm] = useState(emptyForm);
   const [isSaving, setIsSaving] = useState(false);
   const [isEditSaving, setIsEditSaving] = useState(false);
-  const [notification, setNotification] = useState<Notification>(null);
+  const [notification, setNotification] = useState<NotificationConfig>(null);
   const [confirmConfig, setConfirmConfig] = useState<ConfirmDialogConfig | null>(null);
   // Employees with a currently active schedule — flags them in the "Assign
   // Shift to Employee" dropdown below so the admin doesn't have to click
@@ -413,11 +412,6 @@ export function SchedulesPage({
   const pageSafe = Math.min(page, pageCount);
   const pagedSchedules = visibleSchedules.slice((pageSafe - 1) * SCHEDULES_PAGE_SIZE, pageSafe * SCHEDULES_PAGE_SIZE);
 
-  useEffect(() => {
-    if (!notification) return;
-    const timeoutId = window.setTimeout(() => setNotification(null), 3500);
-    return () => window.clearTimeout(timeoutId);
-  }, [notification]);
 
   const { departmentNames: departments } = useActiveDepartments();
 
@@ -438,10 +432,11 @@ export function SchedulesPage({
       setSchedules((current) => [created, ...current]);
       setAssignedEmployeeIds((current) => new Set(current).add(created.employee.id));
       setForm(emptyForm);
-      setNotification({ type: "success", message: "Schedule assignment added successfully." });
+      setNotification({ type: "success", title: "Schedule Added", message: "Schedule assignment added successfully." });
     } catch (err) {
       setNotification({
         type: "error",
+        title: "Couldn't Add Schedule",
         message: err instanceof Error ? err.message : "Unable to add schedule.",
       });
     } finally {
@@ -475,10 +470,11 @@ export function SchedulesPage({
       });
       setSchedules((current) => current.map((s) => (s.id === updated.id ? updated : s)));
       setEditSchedule(null);
-      setNotification({ type: "success", message: "Schedule updated successfully." });
+      setNotification({ type: "success", title: "Schedule Updated", message: "Schedule updated successfully." });
     } catch (err) {
       setNotification({
         type: "error",
+        title: "Couldn't Update Schedule",
         message: err instanceof Error ? err.message : "Unable to update schedule.",
       });
     } finally {
@@ -494,6 +490,7 @@ export function SchedulesPage({
       });
       setNotification({
         type: "success",
+        title: isActive ? "Schedule Restored" : "Schedule Archived",
         message: `Schedule for ${getName(schedule.employee)} ${isActive ? "restored" : "archived"} successfully.`,
       });
       setViewSchedule(null);
@@ -501,6 +498,7 @@ export function SchedulesPage({
     } catch (err) {
       setNotification({
         type: "error",
+        title: "Couldn't Update Schedule Status",
         message: err instanceof Error ? err.message : "Unable to update schedule status.",
       });
     }
@@ -531,16 +529,7 @@ export function SchedulesPage({
 
   return (
     <>
-      {notification && (
-        <div className={`schedules-notification ${notification.type}`} role="status">
-          {notification.type === "success" ? (
-            <CheckCircle2 size={17} />
-          ) : (
-            <AlertTriangle size={17} />
-          )}
-          <span>{notification.message}</span>
-        </div>
-      )}
+      <NotificationModal notification={notification} onClose={() => setNotification(null)} />
 
       {canWrite && (
         <section className="schedule-form-card">
@@ -784,13 +773,6 @@ export function SchedulesPage({
                 <h2 id="schedule-modal-title">Schedule Details</h2>
                 <p>{getName(viewSchedule.employee)}</p>
               </div>
-              <button
-                className="icon-button"
-                onClick={() => setViewSchedule(null)}
-                aria-label="Close"
-              >
-                <X size={18} />
-              </button>
             </div>
             <div className="schedule-detail-grid">
               <div>
@@ -890,13 +872,6 @@ export function SchedulesPage({
                 <h2 id="schedule-edit-modal-title">Edit Shift Assignment</h2>
                 <p>{getName(editSchedule.employee)}</p>
               </div>
-              <button
-                className="icon-button"
-                onClick={() => setEditSchedule(null)}
-                aria-label="Close"
-              >
-                <X size={18} />
-              </button>
             </div>
 
             <form onSubmit={saveEdit}>

@@ -239,17 +239,17 @@ export function LeaveTypesTab({
 
       if (formMode === "create") {
         await apiRequest("/leave-types", { method: "POST", body: JSON.stringify(payload) });
-        notify({ type: "success", message: `"${name}" leave type created.` });
+        notify({ type: "success", title: "Leave Type Created", message: `"${name}" leave type created.` });
       } else if (editingId) {
         await apiRequest(`/leave-types/${editingId}`, { method: "PATCH", body: JSON.stringify(payload) });
-        notify({ type: "success", message: `"${name}" leave type updated.` });
+        notify({ type: "success", title: "Leave Type Updated", message: `"${name}" leave type updated.` });
       }
       closeForm();
       loadLeaveTypes();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to save leave type.";
       if (/already exists/i.test(message)) setNameError(message);
-      else notify({ type: "error", message });
+      else notify({ type: "error", title: "Couldn't Save Leave Type", message });
     } finally {
       setIsSaving(false);
     }
@@ -263,6 +263,7 @@ export function LeaveTypesTab({
       });
       notify({
         type: "success",
+        title: isActive ? "Leave Type Restored" : "Leave Type Archived",
         message: `"${type.name}" ${isActive ? "restored" : "archived"} successfully.`,
       });
       setViewLeaveType(null);
@@ -270,6 +271,7 @@ export function LeaveTypesTab({
     } catch (err) {
       notify({
         type: "error",
+        title: "Couldn't Update Status",
         message: err instanceof Error ? err.message : "Unable to update leave type status.",
       });
     }
@@ -284,6 +286,7 @@ export function LeaveTypesTab({
       });
       notify({
         type: "success",
+        title: nextActivated ? "EHS Activated" : "EHS Deactivated",
         message: `"${type.name}" ${nextActivated ? "activated" : "deactivated"} successfully.`,
       });
       setViewLeaveType(null);
@@ -291,6 +294,7 @@ export function LeaveTypesTab({
     } catch (err) {
       notify({
         type: "error",
+        title: "Couldn't Update EHS Activation",
         message: err instanceof Error ? err.message : "Unable to update EHS activation.",
       });
     }
@@ -417,9 +421,6 @@ export function LeaveTypesTab({
                 <h2 id="leave-type-form-title">{formMode === "create" ? "Add Leave Type" : "Edit Leave Type"}</h2>
                 <p>{formMode === "create" ? "New type will be available immediately" : "Changes apply immediately"}</p>
               </div>
-              <button className="icon-button" onClick={closeForm} aria-label="Close">
-                <X size={18} />
-              </button>
             </div>
 
             <div className="utilities-modal-body">
@@ -681,9 +682,6 @@ export function LeaveTypesTab({
                 <h2 id="view-type-title">{viewLeaveType.name}</h2>
                 <p>Leave type details</p>
               </div>
-              <button className="icon-button" onClick={() => setViewLeaveType(null)} aria-label="Close">
-                <X size={18} />
-              </button>
             </div>
 
             <div className="utilities-modal-body">

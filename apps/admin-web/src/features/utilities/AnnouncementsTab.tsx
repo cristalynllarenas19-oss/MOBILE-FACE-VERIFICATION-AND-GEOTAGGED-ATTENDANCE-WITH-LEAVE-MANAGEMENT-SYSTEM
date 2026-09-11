@@ -578,6 +578,7 @@ export function AnnouncementsTab({
       loadAnnouncements();
       notify({
         type: "success",
+        title: "Announcement Sent",
         message: `Announcement sent to ${published.recipientCount} employee${published.recipientCount === 1 ? "" : "s"}.`,
       });
     } catch (err) {
@@ -607,7 +608,7 @@ export function AnnouncementsTab({
       });
       closeForm();
       loadAnnouncements();
-      notify({ type: "success", message: "Draft saved." });
+      notify({ type: "success", title: "Draft Saved", message: "Draft saved." });
     } catch (err) {
       setFormError(err instanceof Error ? err.message : "Failed to save draft.");
     } finally {
@@ -654,6 +655,7 @@ export function AnnouncementsTab({
       loadAnnouncements();
       notify({
         type: "success",
+        title: "Announcement Scheduled",
         message: `Announcement scheduled for ${formatDateTime(scheduledDate.toISOString())}.`,
       });
     } catch (err) {
@@ -668,9 +670,13 @@ export function AnnouncementsTab({
     try {
       await apiRequest(`/announcements/${id}`, { method: "DELETE" });
       loadAnnouncements();
-      notify({ type: "success", message: "Announcement deleted." });
+      notify({ type: "success", title: "Announcement Deleted", message: "Announcement deleted." });
     } catch (err) {
-      notify({ type: "error", message: err instanceof Error ? err.message : "Failed to delete announcement." });
+      notify({
+        type: "error",
+        title: "Couldn't Delete Announcement",
+        message: err instanceof Error ? err.message : "Failed to delete announcement.",
+      });
     }
   }
 
@@ -679,9 +685,13 @@ export function AnnouncementsTab({
       await apiRequest(`/announcements/${id}/archive`, { method: "PATCH" });
       setViewId(null);
       loadAnnouncements();
-      notify({ type: "success", message: "Announcement archived." });
+      notify({ type: "success", title: "Announcement Archived", message: "Announcement archived." });
     } catch (err) {
-      notify({ type: "error", message: err instanceof Error ? err.message : "Failed to archive announcement." });
+      notify({
+        type: "error",
+        title: "Couldn't Archive Announcement",
+        message: err instanceof Error ? err.message : "Failed to archive announcement.",
+      });
     }
   }
 
@@ -690,9 +700,13 @@ export function AnnouncementsTab({
       await apiRequest(`/announcements/${id}/unarchive`, { method: "PATCH" });
       setViewId(null);
       loadAnnouncements();
-      notify({ type: "success", message: "Announcement unarchived." });
+      notify({ type: "success", title: "Announcement Restored", message: "Announcement unarchived." });
     } catch (err) {
-      notify({ type: "error", message: err instanceof Error ? err.message : "Failed to unarchive announcement." });
+      notify({
+        type: "error",
+        title: "Couldn't Restore Announcement",
+        message: err instanceof Error ? err.message : "Failed to unarchive announcement.",
+      });
     }
   }
 
@@ -1062,9 +1076,6 @@ export function AnnouncementsTab({
                   </p>
                 )}
               </div>
-              <button className="icon-button" onClick={() => setViewId(null)} aria-label="Close">
-                <X size={18} />
-              </button>
             </div>
 
             <div className="utilities-modal-body">
