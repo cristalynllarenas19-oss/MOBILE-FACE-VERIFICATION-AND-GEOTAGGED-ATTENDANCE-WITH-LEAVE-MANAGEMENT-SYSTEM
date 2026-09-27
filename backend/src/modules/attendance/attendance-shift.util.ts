@@ -36,6 +36,46 @@ export function computeAbsenceCutoff(shift: ShiftTimeFields, attendanceDate: Dat
   return new Date(parseTimeOnDate(attendanceDate, shift.startTime).getTime() + shift.lateThresholdMinutes * 60000);
 }
 
+function timeToMinutes(hhmm: string): number {
+  const [hours, minutes] = hhmm.split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+// Resolves a shift's end time on the given attendanceDate, rolling over to
+// the next calendar day when the shift crosses midnight (e.g. a 22:00-07:00
+// shift's end is only literally "07:00" on the day AFTER the employee
+// clocked in). Without this, both undertime and overtime math would compare
+// against an end-of-day moment nearly 24h away from the real one for any
+// overnight shift.
+function resolveShiftEndOnDate(shift: ShiftTimeFields, attendanceDate: Date): Date {
+  const end = parseTimeOnDate(attendanceDate, shift.endTime);
+  const crossesMidnight = timeToMinutes(shift.endTime) <= timeToMinutes(shift.startTime);
+  return crossesMidnight ? new Date(end.getTime() + 24 * 60 * 60000) : end;
+}
+
+// A shift's full scheduled span in minutes, start to end — e.g. 540 for an
+// 08:00-17:00 shift (9 hours: 8 worked + 1 break). Rolls over midnight the
+// same way resolveShiftEndOnDate does, so an overnight shift like 22:00-07:00
+// still comes out to 540 rather than a negative number.
+export function computeShiftSpanMinutes(shift: ShiftTimeFields): number {
+  const startMinutes = timeToMinutes(shift.startTime);
+  const endMinutes = timeToMinutes(shift.endTime);
+  return endMinutes <= startMinutes ? endMinutes + 24 * 60 - startMinutes : endMinutes - startMinutes;
+}
+
+// Sum of a shift's configured morning + afternoon + lunch break minutes —
+// the flat amount deducted from raw elapsed time to get paid totalMinutes
+// (see upsertAttendanceRecord). There's no punch mechanism for morning/
+// afternoon breaks, so this is always a flat deduction regardless of when
+// (or whether) the employee actually took them.
+export function computeTotalBreakMinutes(shift: {
+  morningBreakMinutes: number;
+  afternoonBreakMinutes: number;
+  lunchBreakMinutes: number;
+}): number {
+  return shift.morningBreakMinutes + shift.afternoonBreakMinutes + shift.lunchBreakMinutes;
+}
+
 export function computeMinutesLate(shift: ShiftTimeFields, arrivalTime: Date, attendanceDate: Date): number {
   const cutoff = computeAbsenceCutoff(shift, attendanceDate);
   return Math.max(0, Math.round((arrivalTime.getTime() - cutoff.getTime()) / 60000));
@@ -70,13 +110,19 @@ export function computeRenderTimeIn(shift: ShiftTimeFields, arrivalTime: Date, a
   return new Date(shiftStart.getTime() + roundedMs);
 }
 
-const EXPECTED_WORK_MS = 9 * 60 * 60000; // 8 hours of work plus the 1-hour lunch break
+// Fallback used only when no shift could be resolved for a record (e.g. no
+// active EmployeeSchedule) — same flat assumption the whole app used to make
+// unconditionally.
+const FALLBACK_EXPECTED_WORK_MS = 9 * 60 * 60000;
 
-// The time an employee should time out to complete a full 8-hour workday,
-// given their effective (rounded) start time — 9 hours later so the 1-hour
-// lunch break doesn't eat into the 8 hours actually worked.
-export function computeExpectedTimeOut(renderTimeIn: Date): Date {
-  return new Date(renderTimeIn.getTime() + EXPECTED_WORK_MS);
+// The time an employee is expected to time out to complete a full workday,
+// given their effective (rounded) start time and their actual shift's own
+// scheduled span (start to end, break included) — a 9-hour 08:00-17:00 shift
+// expects a 9-hour render span same as any other, but this now varies
+// correctly per shift instead of assuming every shift is 9 hours flat.
+export function computeExpectedTimeOut(renderTimeIn: Date, shift?: ShiftTimeFields): Date {
+  const spanMs = shift ? computeShiftSpanMinutes(shift) * 60000 : FALLBACK_EXPECTED_WORK_MS;
+  return new Date(renderTimeIn.getTime() + spanMs);
 }
 
 export function computeMinutesUndertime(
@@ -84,9 +130,21 @@ export function computeMinutesUndertime(
   departureTime: Date,
   attendanceDate: Date,
 ): number {
-  const shiftEnd = parseTimeOnDate(attendanceDate, shift.endTime);
+  const shiftEnd = resolveShiftEndOnDate(shift, attendanceDate);
   const cutoff = new Date(shiftEnd.getTime() - shift.undertimeThresholdMinutes * 60000);
   return Math.max(0, Math.round((cutoff.getTime() - departureTime.getTime()) / 60000));
+}
+
+// Overtime's counterpart to computeMinutesUndertime: minutes clocked out past
+// the shift's scheduled end time, floored at 0. No grace threshold, unlike
+// undertime — every minute worked past the scheduled end counts.
+export function computeMinutesOvertime(
+  shift: ShiftTimeFields,
+  departureTime: Date,
+  attendanceDate: Date,
+): number {
+  const shiftEnd = resolveShiftEndOnDate(shift, attendanceDate);
+  return Math.max(0, Math.round((departureTime.getTime() - shiftEnd.getTime()) / 60000));
 }
 
 // Used by auto-shift-adjustment: among other active shifts whose own

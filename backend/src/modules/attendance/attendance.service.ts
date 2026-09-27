@@ -11,8 +11,10 @@ import {
   computeAbsenceCutoff,
   computeExpectedTimeOut,
   computeMinutesLate,
+  computeMinutesOvertime,
   computeMinutesUndertime,
   computeRenderTimeIn,
+  computeTotalBreakMinutes,
   findBestMatchingShift,
   roundToInterval,
 } from "./attendance-shift.util";
@@ -347,8 +349,13 @@ export class AttendanceService {
 
   // The effective start time (rounded to shift rules where applicable) drives
   // the "expected time out" shown to the employee, same as it drives
-  // totalMinutes math in upsertAttendanceRecord.
+  // totalMinutes math in upsertAttendanceRecord. The resolved shift's own
+  // span (not a flat assumption) decides how far past that start the
+  // expected time-out falls — see computeExpectedTimeOut.
   const effectiveStart = record?.renderTimeInAt ?? record?.timeInAt ?? null;
+  const resolvedShift = record?.shiftId
+    ? await this.prisma.shift.findUnique({ where: { id: record.shiftId } })
+    : null;
 
   return {
     ...(record ?? {
@@ -358,7 +365,7 @@ export class AttendanceService {
       lunchOutAt: null,
       lunchInAt: null,
     }),
-    expectedTimeOutAt: effectiveStart ? computeExpectedTimeOut(effectiveStart) : null,
+    expectedTimeOutAt: effectiveStart ? computeExpectedTimeOut(effectiveStart, resolvedShift ?? undefined) : null,
     hasUnresolvedFlaggedAttempt,
   };
 }
@@ -453,6 +460,8 @@ export class AttendanceService {
     let resolvedShiftId: string | undefined;
     let renderTimeInValue: Date | undefined;
     let undertimeMinutesValue: number | undefined;
+    let overtimeMinutesValue: number | undefined;
+    let breakMinutesTotal = 0;
 
     if (!isField) {
       if (logType === "TIME_IN") {
@@ -487,6 +496,8 @@ export class AttendanceService {
             ? roundToInterval(effectiveTime, shift.roundingIntervalMinutes)
             : effectiveTime;
           undertimeMinutesValue = computeMinutesUndertime(shift, departureForRules, attendanceDate);
+          overtimeMinutesValue = computeMinutesOvertime(shift, departureForRules, attendanceDate);
+          breakMinutesTotal = computeTotalBreakMinutes(shift);
         }
       }
     }
@@ -530,10 +541,18 @@ export class AttendanceService {
         ...(logType === "TIME_OUT" && existingRecord?.timeInAt
           ? {
               timeOutAt: effectiveTime,
-              totalMinutes: Math.round(
-                (effectiveTime.getTime() - (existingRecord.renderTimeInAt ?? existingRecord.timeInAt).getTime()) / 60000,
+              // Raw elapsed time minus the shift's configured break minutes
+              // (0 for FIELD or when no shift was resolved) — see
+              // computeTotalBreakMinutes. Floored at 0 so a time-out recorded
+              // implausibly soon after time-in never goes negative.
+              totalMinutes: Math.max(
+                0,
+                Math.round(
+                  (effectiveTime.getTime() - (existingRecord.renderTimeInAt ?? existingRecord.timeInAt).getTime()) / 60000,
+                ) - breakMinutesTotal,
               ),
               ...(!isField && undertimeMinutesValue !== undefined ? { undertimeMinutes: undertimeMinutesValue } : {}),
+              ...(!isField && overtimeMinutesValue !== undefined ? { overtimeMinutes: overtimeMinutesValue } : {}),
             }
           : {}),
 

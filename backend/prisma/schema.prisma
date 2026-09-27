@@ -487,9 +487,17 @@ model AttendanceRecord {
   lunchOutAt       DateTime?            @map("lunch_out_at")
   lunchInAt        DateTime?            @map("lunch_in_at")
   status           AttendanceStatus     @default(PENDING_REVIEW)
+  // Raw elapsed time (timeOut - renderTimeIn) minus the resolved shift's
+  // configured break minutes (morning + afternoon + lunch) — see
+  // upsertAttendanceRecord. Zero for FIELD records and any OFFICE time-out
+  // with no resolvable shift, same as lateMinutes/undertimeMinutes.
   totalMinutes     Int                  @default(0) @map("total_minutes")
   lateMinutes      Int                  @default(0) @map("late_minutes")
   undertimeMinutes Int                  @default(0) @map("undertime_minutes")
+  // Minutes clocked out past the resolved shift's scheduled end time.
+  // Computed only, no approval workflow (unlike UndertimeFiling) — visibility
+  // in DTR/reports only. Zero for FIELD records, same as the other metrics.
+  overtimeMinutes  Int                  @default(0) @map("overtime_minutes")
   shiftId          String?              @map("shift_id")
   employee         Employee             @relation(fields: [employeeId], references: [id])
   workLocation     WorkLocation?        @relation(fields: [workLocationId], references: [id])

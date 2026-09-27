@@ -297,6 +297,9 @@ export function DtrPage({ user }: Props) {
                   <span className="dtr-dense-bar-wrap">
                     <span className="dtr-dense-bar-label" style={{ color: hrs ? tone.color : inProgress ? tone.color : "#94A3B8" }}>
                       {hrs ?? (inProgress ? "In progress" : "--")}
+                      {isOffice && !!item.overtimeMinutes && (
+                        <span style={{ color: "#D97706", fontWeight: 700 }}> +{fmtHours(item.overtimeMinutes)} OT</span>
+                      )}
                     </span>
                     <span className="dtr-dense-bar-track">
                       <span className="dtr-dense-bar-fill" style={{ width: `${barPct}%`, background: tone.color }} />

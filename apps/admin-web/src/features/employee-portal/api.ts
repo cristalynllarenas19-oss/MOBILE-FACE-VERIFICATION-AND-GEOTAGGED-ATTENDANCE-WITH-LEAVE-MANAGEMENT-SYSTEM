@@ -55,6 +55,7 @@ export type AttendanceHistoryRecord = {
   lunchInAt?: string | null;
   status: string;
   totalMinutes: number;
+  overtimeMinutes?: number;
   visitNumber?: number;
   workLocationId?: string | null;
   workLocation?: { name: string } | null;

@@ -429,6 +429,15 @@ export default function DTRScreen({ employeeId }: Props) {
                   )}
                 </View>
 
+                {isOfficeTab && !!item.overtimeMinutes && (
+                  <View style={styles.overtimeRow}>
+                    <Text style={styles.timeLabel}>Overtime</Text>
+                    <Text style={[styles.timeValue, styles.overtimeValue]}>
+                      {formatHoursRendered(item.overtimeMinutes)}
+                    </Text>
+                  </View>
+                )}
+
                 {hasPhotos && (
                   <Pressable
                     style={({ pressed }) => [styles.accPhotoLink, pressed && styles.accPhotoLinkPressed]}
@@ -705,6 +714,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     marginTop: 2,
+  },
+  overtimeRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 6,
+    marginTop: 8,
+  },
+  overtimeValue: {
+    color: "#D97706",
+    marginTop: 0,
   },
   emptyState: {
     alignItems: "center",
