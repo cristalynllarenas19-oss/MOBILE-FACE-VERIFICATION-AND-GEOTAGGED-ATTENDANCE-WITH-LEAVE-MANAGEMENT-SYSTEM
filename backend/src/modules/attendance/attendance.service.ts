@@ -497,7 +497,10 @@ export class AttendanceService {
             : effectiveTime;
           undertimeMinutesValue = computeMinutesUndertime(shift, departureForRules, attendanceDate);
           overtimeMinutesValue = computeMinutesOvertime(shift, departureForRules, attendanceDate);
-          breakMinutesTotal = computeTotalBreakMinutes(shift);
+          breakMinutesTotal = computeTotalBreakMinutes(shift, {
+            lunchOutAt: existingRecord.lunchOutAt,
+            lunchInAt: existingRecord.lunchInAt,
+          });
         }
       }
     }
@@ -556,8 +559,10 @@ export class AttendanceService {
             }
           : {}),
 
-        // Lunch break is logged for visibility only — no effect on
-        // totalMinutes/late/undertime math.
+        // Recorded here for late/undertime purposes to stay unaffected by
+        // lunch timing; totalMinutes at Time Out uses these two timestamps
+        // instead of the shift's flat lunchBreakMinutes once both exist — see
+        // computeTotalBreakMinutes.
         ...(logType === "LUNCH_OUT" ? { lunchOutAt: effectiveTime } : {}),
         ...(logType === "LUNCH_IN" ? { lunchInAt: effectiveTime } : {}),
       },

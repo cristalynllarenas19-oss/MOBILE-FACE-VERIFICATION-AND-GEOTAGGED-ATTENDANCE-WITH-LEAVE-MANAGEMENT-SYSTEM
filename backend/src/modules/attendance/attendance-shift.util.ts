@@ -63,17 +63,30 @@ export function computeShiftSpanMinutes(shift: ShiftTimeFields): number {
   return endMinutes <= startMinutes ? endMinutes + 24 * 60 - startMinutes : endMinutes - startMinutes;
 }
 
-// Sum of a shift's configured morning + afternoon + lunch break minutes —
-// the flat amount deducted from raw elapsed time to get paid totalMinutes
-// (see upsertAttendanceRecord). There's no punch mechanism for morning/
-// afternoon breaks, so this is always a flat deduction regardless of when
-// (or whether) the employee actually took them.
-export function computeTotalBreakMinutes(shift: {
-  morningBreakMinutes: number;
-  afternoonBreakMinutes: number;
-  lunchBreakMinutes: number;
-}): number {
-  return shift.morningBreakMinutes + shift.afternoonBreakMinutes + shift.lunchBreakMinutes;
+// Total break minutes deducted from raw elapsed time to get paid
+// totalMinutes (see upsertAttendanceRecord). Morning/afternoon breaks are
+// always the shift's flat configured amount — there's no punch mechanism for
+// either. Lunch instead uses the employee's own measured Lunch Out -> Lunch
+// In duration whenever both punches exist, uncapped in either direction: a
+// shorter-than-scheduled lunch credits the extra time as worked, and a
+// longer one costs the extra time, rather than everyone getting the same
+// flat deduction regardless of how long they actually took. Falls back to
+// the shift's flat lunchBreakMinutes when the lunch punches are missing or
+// incomplete (no Lunch Out, or Lunch Out with no matching Lunch In yet).
+export function computeTotalBreakMinutes(
+  shift: {
+    morningBreakMinutes: number;
+    afternoonBreakMinutes: number;
+    lunchBreakMinutes: number;
+  },
+  lunchPunch?: { lunchOutAt: Date | null; lunchInAt: Date | null },
+): number {
+  const measuredLunch =
+    lunchPunch?.lunchOutAt && lunchPunch.lunchInAt
+      ? Math.max(0, Math.round((lunchPunch.lunchInAt.getTime() - lunchPunch.lunchOutAt.getTime()) / 60000))
+      : null;
+  const lunchMinutes = measuredLunch ?? shift.lunchBreakMinutes;
+  return shift.morningBreakMinutes + shift.afternoonBreakMinutes + lunchMinutes;
 }
 
 export function computeMinutesLate(shift: ShiftTimeFields, arrivalTime: Date, attendanceDate: Date): number {

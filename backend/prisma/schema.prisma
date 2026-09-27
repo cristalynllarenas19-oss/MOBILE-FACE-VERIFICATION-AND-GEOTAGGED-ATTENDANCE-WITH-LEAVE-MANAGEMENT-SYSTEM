@@ -482,8 +482,11 @@ model AttendanceRecord {
   // records and any OFFICE time-in with no resolvable shift.
   renderTimeInAt   DateTime?            @map("render_time_in_at")
   timeOutAt        DateTime?            @map("time_out_at")
-  // Optional, OFFICE-only lunch break window — logged for DTR/admin
-  // visibility only, never deducted from totalMinutes/late/undertime math.
+  // Optional, OFFICE-only lunch break window. When both punches exist, the
+  // measured Lunch Out -> Lunch In duration is deducted from totalMinutes in
+  // place of the shift's flat lunchBreakMinutes (see computeTotalBreakMinutes)
+  // — never affects late/undertime math, which is anchored to shift
+  // start/end instead.
   lunchOutAt       DateTime?            @map("lunch_out_at")
   lunchInAt        DateTime?            @map("lunch_in_at")
   status           AttendanceStatus     @default(PENDING_REVIEW)
