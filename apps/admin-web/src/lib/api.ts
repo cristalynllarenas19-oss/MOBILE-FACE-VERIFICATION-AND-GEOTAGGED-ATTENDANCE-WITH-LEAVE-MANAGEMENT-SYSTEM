@@ -31,9 +31,45 @@ export class SessionExpiredError extends Error {
 let _onSessionExpired: (() => void) | null = null;
 export function setOnSessionExpired(cb: () => void) { _onSessionExpired = cb; }
 
-export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = localStorage.getItem("accessToken");
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+let refreshPromise: Promise<string | null> | null = null;
+
+// Mirrors employee-mobile/src/api.ts's refreshAccessToken: a single in-flight
+// refresh shared by every caller that races into a 401 at once, so a page
+// with several concurrent requests doesn't fire off several refresh calls
+// for the same expired token.
+async function refreshAccessToken(): Promise<string | null> {
+  if (refreshPromise) return refreshPromise;
+
+  refreshPromise = (async () => {
+    const refreshToken = localStorage.getItem("refreshToken");
+    if (!refreshToken) return null;
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken }),
+      });
+      if (!response.ok) return null;
+
+      const data = (await response.json()) as { accessToken?: string; refreshToken?: string };
+      if (!data.accessToken || !data.refreshToken) return null;
+
+      localStorage.setItem("accessToken", data.accessToken);
+      localStorage.setItem("refreshToken", data.refreshToken);
+      return data.accessToken;
+    } catch {
+      return null;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+
+  return refreshPromise;
+}
+
+async function rawRequest(path: string, options: RequestInit, token: string | null) {
+  return fetch(`${API_BASE_URL}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
@@ -41,9 +77,28 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
       ...options.headers,
     },
   });
+}
+
+export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const token = localStorage.getItem("accessToken");
+  let response = await rawRequest(path, options, token);
+
+  // A 401 on anything but the refresh call itself gets one silent
+  // refresh-and-retry — only once, so an invalid/revoked refresh token still
+  // falls through to the session-expired handling below instead of looping.
+  if (response.status === 401 && path !== "/auth/refresh") {
+    const newToken = await refreshAccessToken();
+    if (newToken) {
+      response = await rawRequest(path, options, newToken);
+    }
+  }
 
   if (!response.ok) {
     if (response.status === 401) {
+      localStorage.removeItem("accessToken");
+      localStorage.removeItem("refreshToken");
+      localStorage.removeItem("authUser");
+      clearDataCache();
       _onSessionExpired?.();
       throw new SessionExpiredError();
     }
@@ -61,7 +116,7 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
 }
 
 export async function login(email: string, password: string) {
-  const data = await apiRequest<{ accessToken: string; user: AuthUser }>("/auth/login", {
+  const data = await apiRequest<{ accessToken: string; refreshToken: string; user: AuthUser }>("/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
@@ -69,6 +124,7 @@ export async function login(email: string, password: string) {
   // see the previous account's cached data.
   clearDataCache();
   localStorage.setItem("accessToken", data.accessToken);
+  localStorage.setItem("refreshToken", data.refreshToken);
   localStorage.setItem("authUser", JSON.stringify(data.user));
   return data.user;
 }
@@ -90,6 +146,7 @@ export function logout() {
     }).catch(() => undefined);
   }
   localStorage.removeItem("accessToken");
+  localStorage.removeItem("refreshToken");
   localStorage.removeItem("authUser");
   clearDataCache();
 }

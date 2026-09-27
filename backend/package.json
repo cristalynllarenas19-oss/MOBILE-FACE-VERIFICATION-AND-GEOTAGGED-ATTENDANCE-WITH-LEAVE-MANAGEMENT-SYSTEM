@@ -12,7 +12,9 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma db push",
     "prisma:seed": "tsx prisma/seed.ts",
-    "lint": "eslint \"src/**/*.ts\""
+    "lint": "eslint \"src/**/*.ts\"",
+    "test": "jest",
+    "test:watch": "jest --watch"
   },
   "dependencies": {
     "@inquirer/figures": "^1.0.15",
@@ -49,11 +51,14 @@
     "@nestjs/schematics": "^11.0.5",
     "@nestjs/testing": "^11.1.26",
     "@types/express": "^5.0.6",
+    "@types/jest": "^30.0.0",
     "@types/node": "^22.10.2",
     "@types/nodemailer": "^8.0.1",
     "@types/passport-jwt": "^4.0.1",
     "ansis": "^4.2.0",
+    "jest": "^30.5.2",
     "prisma": "^6.19.3",
+    "ts-jest": "^29.4.14",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   }

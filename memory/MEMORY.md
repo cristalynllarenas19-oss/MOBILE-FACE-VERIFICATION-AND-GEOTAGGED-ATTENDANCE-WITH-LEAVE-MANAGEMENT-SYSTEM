@@ -1,1 +1,3 @@
 - [Seed script overwrite risk](seed_script_overwrite_risk.md) — re-running backend/prisma/seed.ts resets UL-001/002/003 employee names to defaults
+- [Out-of-scope features](feedback_out_of_scope_features.md) — holiday calendar & night-shift differential are NOT gaps, intentionally excluded
+- [No payroll module](project_no_payroll_module.md) — system only records DTR/attendance numbers, never processes pay/wages
