@@ -773,6 +773,9 @@ export function SchedulesPage({
                 <h2 id="schedule-modal-title">Schedule Details</h2>
                 <p>{getName(viewSchedule.employee)}</p>
               </div>
+              <button type="button" className="icon-button" onClick={() => setViewSchedule(null)} aria-label="Close">
+                <X size={18} />
+              </button>
             </div>
             <div className="schedule-detail-grid">
               <div>
@@ -872,6 +875,15 @@ export function SchedulesPage({
                 <h2 id="schedule-edit-modal-title">Edit Shift Assignment</h2>
                 <p>{getName(editSchedule.employee)}</p>
               </div>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => setEditSchedule(null)}
+                disabled={isEditSaving}
+                aria-label="Close"
+              >
+                <X size={18} />
+              </button>
             </div>
 
             <form onSubmit={saveEdit}>

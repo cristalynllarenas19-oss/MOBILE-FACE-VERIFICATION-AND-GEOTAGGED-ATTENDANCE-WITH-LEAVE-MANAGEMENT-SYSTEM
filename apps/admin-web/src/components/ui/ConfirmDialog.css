@@ -10,6 +10,7 @@
 }
 
 .confirm-dialog {
+  position: relative;
   width: min(420px, 100%);
   display: flex;
   flex-direction: column;

@@ -304,6 +304,9 @@ export function EmployeeTypesTab({
                 <h2 id="employee-type-form-title">{formMode === "create" ? "Add Employee Type" : "Edit Employee Type"}</h2>
                 <p>{formMode === "create" ? "New employee type will be available immediately" : "Changes apply immediately"}</p>
               </div>
+              <button className="icon-button" onClick={closeForm} disabled={isSaving} aria-label="Close">
+                <X size={18} />
+              </button>
             </div>
 
             <div className="utilities-modal-body">

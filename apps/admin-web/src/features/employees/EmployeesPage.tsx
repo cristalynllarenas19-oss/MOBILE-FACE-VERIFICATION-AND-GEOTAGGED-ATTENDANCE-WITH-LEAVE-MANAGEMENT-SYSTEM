@@ -296,6 +296,9 @@ function EmployeeModal({
             {title && <h2 id="employee-modal-title">{title}</h2>}
             {description && <p>{description}</p>}
           </div>
+          <button type="button" className="icon-button" onClick={onClose} aria-label="Close">
+            <X size={18} />
+          </button>
         </div>
         {children}
       </section>
@@ -1591,7 +1594,6 @@ export function EmployeesPage({
   const lockedDepartmentName = isDepartmentLocked ? user?.department : undefined;
 
   const [departmentFilter, setDepartmentFilter] = useState("ALL");
-  const [employeeTypeFilter, setEmployeeTypeFilter] = useState("ALL");
   const [modeFilter, setModeFilter] = useState<"ALL" | "FIELD" | "NON_FIELD">("ALL");
   const [nameSort, setNameSort] = useState<"asc" | "desc" | null>(null);
   const [showArchivedOnly, setShowArchivedOnly] = useState(false);
@@ -1623,7 +1625,6 @@ export function EmployeesPage({
 
   const { departments: activeDepartments, departmentNames: departments } = useActiveDepartments();
   const { forEmployees: attendanceModeOptions, all: allAttendanceModeOptions } = useAttendanceModeOptions();
-  const { options: employeeTypeFilterOptions } = useEmployeeTypes();
 
   useEffect(() => {
     if (!initialFocusEmployeeId) return;
@@ -1638,7 +1639,6 @@ export function EmployeesPage({
 
   const visibleEmployees = employees.filter((employee) => {
     if (departmentFilter !== "ALL" && employee.department.name !== departmentFilter) return false;
-    if (employeeTypeFilter !== "ALL" && employee.employeeTypeId !== employeeTypeFilter) return false;
     if (modeFilter === "FIELD" && (employee.department.attendanceMode === "BOTH" || employee.attendanceMode !== "FIELD")) return false;
     if (modeFilter === "NON_FIELD" && (employee.department.attendanceMode === "BOTH" || employee.attendanceMode === "FIELD")) return false;
     if (showArchivedOnly) {
@@ -1661,7 +1661,7 @@ export function EmployeesPage({
     setNameSort((current) => (current === "asc" ? "desc" : current === "desc" ? null : "asc"));
   };
 
-  useEffect(() => setPage(1), [departmentFilter, employeeTypeFilter, modeFilter, showArchivedOnly, searchQuery, nameSort]);
+  useEffect(() => setPage(1), [departmentFilter, modeFilter, showArchivedOnly, searchQuery, nameSort]);
   const pageCount = Math.max(1, Math.ceil(sortedVisibleEmployees.length / EMPLOYEES_PAGE_SIZE));
   const pageSafe = Math.min(page, pageCount);
   const pagedEmployees = sortedVisibleEmployees.slice(
@@ -1783,19 +1783,6 @@ export function EmployeesPage({
             />
           </div>
         )}
-
-        <div className="employees-filter-group">
-          <label className="employees-filter-label">Employee Type</label>
-          <DropdownFilter
-            className="department-select"
-            value={employeeTypeFilter}
-            onChange={setEmployeeTypeFilter}
-            options={employeeTypeFilterOptions}
-            allLabel="All Employee Types"
-            menuLabel="Filter by Employee Type"
-            ariaLabel="Filter employees by employee type"
-          />
-        </div>
 
         <div className="employees-filter-group employees-filter-search-group">
           <label className="employees-filter-label">Search</label>

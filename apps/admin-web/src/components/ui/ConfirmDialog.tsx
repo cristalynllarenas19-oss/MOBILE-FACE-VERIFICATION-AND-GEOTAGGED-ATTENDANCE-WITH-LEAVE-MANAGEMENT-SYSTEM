@@ -1,4 +1,5 @@
 import { AlertTriangle } from "lucide-react";
+import { ModalCloseButton } from "./ModalCloseButton";
 import "./ConfirmDialog.css";
 
 export type ConfirmDialogConfig = {
@@ -27,6 +28,7 @@ export function ConfirmDialog({
         aria-labelledby="confirm-dialog-title"
         onClick={(e) => e.stopPropagation()}
       >
+        <ModalCloseButton onClose={onCancel} />
         <div className={`confirm-dialog-icon-wrap ${tone}`}>
           <AlertTriangle size={26} strokeWidth={2} />
         </div>

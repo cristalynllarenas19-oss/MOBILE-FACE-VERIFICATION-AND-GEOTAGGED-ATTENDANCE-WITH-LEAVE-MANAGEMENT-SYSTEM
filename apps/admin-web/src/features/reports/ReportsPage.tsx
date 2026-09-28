@@ -95,8 +95,10 @@ function formatDate(value: string) {
   return new Date(value).toLocaleDateString();
 }
 
-function formatTime(value?: string | null) {
-  return value ? new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Pending";
+function formatTime(value?: string | null, status?: string) {
+  if (value) return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  // An absent day will never get a punch, so "Pending" would be misleading.
+  return status === "ABSENT" ? "—" : "Pending";
 }
 
 // jsPDF's addImage needs pixel data (base64/canvas), not a bundler asset URL —
@@ -297,7 +299,7 @@ export function ReportsPage({
       ["Employee", "Department", "Site", "Date", "Time In", "Time Out", "Lunch Break", "Status"],
       ...filteredAttendance.map((r) => [
         employeeName(r), r.employee.department.name, r.workLocation?.name ?? "—", formatDate(r.attendanceDate),
-        formatTime(r.timeInAt), formatTime(r.timeOutAt),
+        formatTime(r.timeInAt, r.status), formatTime(r.timeOutAt, r.status),
         r.lunchOutAt ? `${formatTime(r.lunchOutAt)} - ${formatTime(r.lunchInAt)}` : "—", r.status,
       ]),
     ];
@@ -332,9 +334,11 @@ export function ReportsPage({
       : tab === "schedules" ? sRows
       : tab === "employees" ? eRows
       : tab === "leaveBalances" ? rbRows
-      : [...aRows, [], ...lRows, [], ...sRows];
-    const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
+      : [["ATTENDANCE"], ...aRows, [], ["LEAVE"], ...lRows, [], [REPORT_TYPE_LABELS.schedules.toUpperCase()], ...sRows];
+    const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\r\n");
+    // Leading BOM tells Excel the file is UTF-8 — without it Excel reads it
+    // as ANSI and "—" shows up as "â€”".
+    const url = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" }));
     const link = document.createElement("a");
     link.href = url;
     link.download = `${tab === "ALL" ? "all" : tab}-report.csv`;
@@ -407,7 +411,7 @@ export function ReportsPage({
         ["Employee", "Department", "Site", "Date", "Time In", "Time Out", "Lunch Break", "Status"],
         filteredAttendance.map((r) => [
           employeeName(r), r.employee.department.name, r.workLocation?.name ?? "—", formatDate(r.attendanceDate),
-          formatTime(r.timeInAt), formatTime(r.timeOutAt),
+          formatTime(r.timeInAt, r.status), formatTime(r.timeOutAt, r.status),
           r.lunchOutAt ? `${formatTime(r.lunchOutAt)} - ${formatTime(r.lunchInAt)}` : "—", r.status,
         ])
       );
@@ -572,8 +576,8 @@ export function ReportsPage({
                   <td>{record.employee.department.name}</td>
                   <td>{record.workLocation?.name ?? "—"}</td>
                   <td>{formatDate(record.attendanceDate)}</td>
-                  <td>{formatTime(record.timeInAt)}</td>
-                  <td>{formatTime(record.timeOutAt)}</td>
+                  <td>{formatTime(record.timeInAt, record.status)}</td>
+                  <td>{formatTime(record.timeOutAt, record.status)}</td>
                   <td>{record.lunchOutAt ? `${formatTime(record.lunchOutAt)} – ${formatTime(record.lunchInAt)}` : "—"}</td>
                   <td><Badge tone={statusTone(record.status)}>{record.status.replace(/_/g, " ")}</Badge></td>
                 </tr>

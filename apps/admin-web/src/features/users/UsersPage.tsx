@@ -1,5 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
-import { createPortal } from "react-dom";
+import { useEffect, useState, type FormEvent } from "react";
 import { AlertTriangle, Plus, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { NotificationModal, type NotificationConfig } from "../../components/ui/NotificationModal";
@@ -64,17 +63,12 @@ export function UsersPage() {
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(false);
   const [employeeError, setEmployeeError] = useState("");
-  const [isEmployeeSearchOpen, setIsEmployeeSearchOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [updatingUserId, setUpdatingUserId] = useState<string | null>(null);
   const [confirmUser, setConfirmUser] = useState<UserRow | null>(null);
   const [adminsToReplace, setAdminsToReplace] = useState<UserRow[] | null>(null);
   const [error, setError] = useState("");
   const [notification, setNotification] = useState<NotificationConfig>(null);
-  const [suggestionsRect, setSuggestionsRect] = useState<{ top: number; left: number; width: number } | null>(null);
-  const searchWrapperRef = useRef<HTMLDivElement>(null);
-  const suggestionsPortalRef = useRef<HTMLDivElement>(null);
-  const modalBodyRef = useRef<HTMLDivElement>(null);
 
   const loadUsers = () => {
     apiRequest<UserRow[]>("/users").then(setUsers).catch(() => undefined);
@@ -94,47 +88,6 @@ export function UsersPage() {
       .finally(() => setIsLoadingEmployees(false));
   }, [isAddOpen]);
 
-  // The suggestions dropdown renders in a portal (so it can float above the
-  // modal's scrollable body instead of being clipped by it) — its position
-  // is measured from the search input rather than relying on CSS `absolute`.
-  useEffect(() => {
-    if (!isEmployeeSearchOpen) {
-      setSuggestionsRect(null);
-      return;
-    }
-
-    const updateRect = () => {
-      const rect = searchWrapperRef.current?.getBoundingClientRect();
-      if (rect) setSuggestionsRect({ top: rect.bottom + 4, left: rect.left, width: rect.width });
-    };
-
-    updateRect();
-
-    const bodyEl = modalBodyRef.current;
-    bodyEl?.addEventListener("scroll", updateRect);
-    window.addEventListener("resize", updateRect);
-    return () => {
-      bodyEl?.removeEventListener("scroll", updateRect);
-      window.removeEventListener("resize", updateRect);
-    };
-  }, [isEmployeeSearchOpen]);
-
-  useEffect(() => {
-    if (!isEmployeeSearchOpen) return;
-
-    const handleClickOutside = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (
-        !searchWrapperRef.current?.contains(target) &&
-        !suggestionsPortalRef.current?.contains(target)
-      ) {
-        setIsEmployeeSearchOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isEmployeeSearchOpen]);
-
   const activeCount = users.filter((user) => user.status === "ACTIVE").length;
   const inactiveCount = users.length - activeCount;
   const visibleUsers = users.filter((user) => {
@@ -147,25 +100,34 @@ export function UsersPage() {
     setForm(initialForm);
     setEmployeeSearch("");
     setEmployeeError("");
-    setIsEmployeeSearchOpen(false);
     setAdminsToReplace(null);
     setError("");
   };
 
-  const visibleEmployeeOptions = employeeSearch.trim()
-    ? employees
-        .filter((employee) => {
-          const query = employeeSearch.trim().toLowerCase();
-          const fullName = `${employee.firstName} ${employee.lastName}`.toLowerCase();
-          const email = employee.user?.email?.toLowerCase() ?? "";
-          return (
-            fullName.includes(query) ||
-            employee.employeeNo.toLowerCase().includes(query) ||
-            email.includes(query)
-          );
-        })
-        .slice(0, 6)
-    : [];
+  // /users only returns ADMIN/SUPERVISOR accounts, so an employee whose login
+  // email is in that list already holds a role — shown greyed out, not hidden.
+  const assignedRoleByEmail = new Map(
+    users.map((user) => [user.email.toLowerCase(), getRoleLabel(user)] as const),
+  );
+  const getAssignedRole = (employee: EmployeeOption) => {
+    const email = employee.user?.email?.toLowerCase();
+    return email ? assignedRoleByEmail.get(email) ?? null : null;
+  };
+
+  const employeeQuery = employeeSearch.trim().toLowerCase();
+  const visibleEmployeeOptions = employees
+    .filter((employee) => {
+      if (!employeeQuery) return true;
+      const fullName = `${employee.firstName} ${employee.lastName}`.toLowerCase();
+      const email = employee.user?.email?.toLowerCase() ?? "";
+      return (
+        fullName.includes(employeeQuery) ||
+        employee.employeeNo.toLowerCase().includes(employeeQuery) ||
+        email.includes(employeeQuery) ||
+        employee.department.name.toLowerCase().includes(employeeQuery)
+      );
+    })
+    .sort((a, b) => Number(!!getAssignedRole(a)) - Number(!!getAssignedRole(b)));
 
   const selectEmployee = (employee: EmployeeOption) => {
     setEmployeeSearch(`${employee.firstName} ${employee.lastName}`);
@@ -179,12 +141,10 @@ export function UsersPage() {
       department: employee.department.name,
       position: employee.position.title,
     }));
-    setIsEmployeeSearchOpen(false);
   };
 
   const clearEmployeeSearch = () => {
     setEmployeeSearch("");
-    setIsEmployeeSearchOpen(false);
     setForm((current) => ({ ...current, employeeId: "", department: "", position: "" }));
   };
 
@@ -329,22 +289,27 @@ export function UsersPage() {
                 <h2 id="add-user-title">Add User</h2>
                 <p>Search for an employee and assign them a system role.</p>
               </div>
+              <button type="button" className="icon-button" onClick={closeAddUser} aria-label="Close">
+                <X size={18} />
+              </button>
             </div>
 
             <form className="user-form" onSubmit={handleCreateUser}>
-              <div className="user-form-body" ref={modalBodyRef}>
+              <div className="user-form-body">
                 <label className="employee-search-field">
                   Employee
-                  <div className="employee-search-control" ref={searchWrapperRef}>
+                  <div className="employee-search-control">
                     <input
                       type="text"
                       value={employeeSearch}
-                      onFocus={() => setIsEmployeeSearchOpen(true)}
                       onChange={(event) => {
                         setEmployeeSearch(event.target.value);
-                        setIsEmployeeSearchOpen(true);
+                        // Editing the search drops the current pick so the list comes back.
+                        if (form.employeeId) {
+                          setForm((current) => ({ ...current, employeeId: "", department: "", position: "" }));
+                        }
                       }}
-                      placeholder="Search by Employee ID, Name, or Email"
+                      placeholder="Search by Employee Name, Email, or Department"
                       autoComplete="off"
                     />
                     <button
@@ -358,14 +323,8 @@ export function UsersPage() {
                   </div>
                 </label>
 
-                {isEmployeeSearchOpen && employeeSearch.trim() && suggestionsRect &&
-                  createPortal(
-                    <div
-                      className="employee-suggestions employee-suggestions-portal"
-                      role="listbox"
-                      ref={suggestionsPortalRef}
-                      style={{ top: suggestionsRect.top, left: suggestionsRect.left, width: suggestionsRect.width }}
-                    >
+                {!form.employeeId && (
+                    <div className="employee-suggestions employee-list-inline" role="listbox">
                       {isLoadingEmployees && <div className="employee-suggestion-state">Loading employees...</div>}
                       {!isLoadingEmployees && employeeError && (
                         <div className="employee-suggestion-state error">{employeeError}</div>
@@ -373,21 +332,26 @@ export function UsersPage() {
                       {!isLoadingEmployees && !employeeError && visibleEmployeeOptions.length === 0 && (
                         <div className="employee-suggestion-state">No matching employees found.</div>
                       )}
-                      {!isLoadingEmployees && !employeeError && visibleEmployeeOptions.map((employee) => (
-                        <button
-                          type="button"
-                          key={employee.id}
-                          className="employee-suggestion"
-                          onClick={() => selectEmployee(employee)}
-                          role="option"
-                        >
-                          <span>{employee.firstName} {employee.lastName}</span>
-                          <small>{employee.department.name}</small>
-                        </button>
-                      ))}
-                    </div>,
-                    document.body,
-                  )}
+                      {!isLoadingEmployees && !employeeError && visibleEmployeeOptions.map((employee) => {
+                        const assignedRole = getAssignedRole(employee);
+                        return (
+                          <button
+                            type="button"
+                            key={employee.id}
+                            className={`employee-suggestion${assignedRole ? " assigned" : ""}`}
+                            onClick={() => selectEmployee(employee)}
+                            disabled={!!assignedRole}
+                            aria-disabled={!!assignedRole}
+                            title={assignedRole ? `Already assigned as ${assignedRole}` : undefined}
+                            role="option"
+                          >
+                            <span>{employee.firstName} {employee.lastName}</span>
+                            <small>{assignedRole ? `Assigned · ${assignedRole}` : employee.department.name}</small>
+                          </button>
+                        );
+                      })}
+                    </div>
+                )}
 
                 {form.employeeId ? (
                   <>
@@ -438,9 +402,7 @@ export function UsersPage() {
                       </label>
                     </div>
                   </>
-                ) : (
-                  <p className="employee-search-hint">Search for an employee above to assign a role.</p>
-                )}
+                ) : null}
 
                 {error && <p className="user-form-error">{error}</p>}
               </div>
@@ -464,6 +426,15 @@ export function UsersPage() {
                 <AlertTriangle size={22} />
               </div>
               <h2 id="confirm-admin-replace-title">Grant Admin Access?</h2>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => setAdminsToReplace(null)}
+                disabled={isSaving}
+                aria-label="Close"
+              >
+                <X size={16} />
+              </button>
             </div>
 
             <p className="confirm-modal-copy">
@@ -512,6 +483,15 @@ export function UsersPage() {
               <h2 id="confirm-status-title">
                 {confirmUser.status === "ACTIVE" ? "Deactivate User" : "Activate User"}
               </h2>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => setConfirmUser(null)}
+                disabled={updatingUserId === confirmUser.id}
+                aria-label="Close"
+              >
+                <X size={16} />
+              </button>
             </div>
 
             <p className="confirm-modal-copy">

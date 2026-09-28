@@ -1617,6 +1617,17 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
       {historyOpen && (
         <div style={overlayNoBg}>
           <div className="emp-scroll-thin" style={{ ...modalCardFloating, height: 560, maxHeight: "85vh", overflowY: "auto" }}>
+            <button
+              type="button"
+              onClick={() => {
+                setHistoryOpen(false);
+                setExpandedHistoryFilingId(null);
+              }}
+              style={modalCloseBtn}
+              aria-label="Close"
+            >
+              <X size={15} color="#64748B" />
+            </button>
             {expandedHistoryFiling ? (
               <>
                 <button
@@ -1817,6 +1828,9 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
       {showPending && (
         <div style={overlayNoBg}>
           <div className="emp-scroll-thin" style={modalCardFloating}>
+            <button type="button" onClick={() => setShowPending(false)} style={modalCloseBtn} aria-label="Close">
+              <X size={15} color="#64748B" />
+            </button>
             <h3 style={{ color: "#062B59", fontWeight: 700, marginBottom: 14 }}>My Leave Requests</h3>
 
             <SegmentedControl
@@ -1906,6 +1920,18 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
       {focusedRequest && (
         <div style={overlayNoBg}>
           <div className="emp-scroll-thin" style={modalCardFloating}>
+            {/* "X" closes the whole flow; the back row below returns to the list. */}
+            <button
+              type="button"
+              onClick={() => {
+                setFocusedRequestId(null);
+                setShowPending(false);
+              }}
+              style={modalCloseBtn}
+              aria-label="Close"
+            >
+              <X size={15} color="#64748B" />
+            </button>
             {/* Mirrors employee-mobile's LeaveScreen.tsx back row — this
                 detail view is reached from the requests list, so "back" reads
                 clearer here than a dead-end "Close". */}
@@ -1932,6 +1958,9 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
       {confirmCancelId && (
         <div style={overlayS}>
           <div style={{ ...modalCard, maxWidth: 360, textAlign: "center" }}>
+            <button type="button" onClick={() => setConfirmCancelId(null)} style={modalCloseBtn} aria-label="Close">
+              <X size={15} color="#64748B" />
+            </button>
             <h3 style={{ color: "#062B59", fontWeight: 700, marginBottom: 8 }}>Cancel this leave request?</h3>
             <p style={{ color: "#475569", fontSize: 14, lineHeight: "20px", marginBottom: 14 }}>
               This action cannot be undone. Your supervisor will need to approve the cancellation.
@@ -1978,6 +2007,9 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
       {resultModal && (
         <div style={overlayS}>
           <div style={{ ...modalCard, textAlign: "center" }}>
+            <button type="button" onClick={() => setResultModal(null)} style={modalCloseBtn} aria-label="Close">
+              <X size={15} color="#64748B" />
+            </button>
             {resultModal.ok
               ? <div style={iconCircle("#DCFCE7")}><CheckCircle size={40} color="#17A34A" /></div>
               : <div style={iconCircle("#FEE2E2")}><AlertCircle size={40} color="#DC2626" /></div>
@@ -2101,9 +2133,17 @@ const overlayS: CSSProperties = {
   display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
 };
 const modalCard: CSSProperties = {
+  position: "relative",
   width: "100%", maxWidth: 420,
   maxHeight: "85vh", overflowY: "auto",
   background: "#fff", borderRadius: 20, padding: 20,
+};
+const modalCloseBtn: CSSProperties = {
+  position: "absolute", top: 12, right: 12,
+  width: 28, height: 28, borderRadius: "50%",
+  border: "none", background: "#F1F5F9",
+  display: "flex", alignItems: "center", justifyContent: "center",
+  cursor: "pointer", zIndex: 1,
 };
 // Same positioning as overlayS but blurs the page behind it instead of
 // dimming it with a flat color — matches the blur(2px) backdrop already used

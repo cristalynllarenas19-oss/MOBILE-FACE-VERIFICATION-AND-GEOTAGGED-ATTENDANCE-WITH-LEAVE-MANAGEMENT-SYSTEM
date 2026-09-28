@@ -244,6 +244,7 @@
 }
 
 .success-modal {
+  position: relative;
   background: #ffffff;
   border-radius: 16px;
   padding: 26px 22px 22px;
@@ -851,6 +852,7 @@
 }
 
 .delete-modal {
+  position: relative;
   background: #ffffff;
   border-radius: 16px;
   padding: 26px 22px 22px;

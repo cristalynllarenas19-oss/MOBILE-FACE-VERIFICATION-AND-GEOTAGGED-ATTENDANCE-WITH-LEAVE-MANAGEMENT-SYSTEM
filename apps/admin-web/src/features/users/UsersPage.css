@@ -447,12 +447,11 @@
   box-shadow: 0 14px 30px rgba(15, 23, 42, 0.14);
 }
 
-/* Rendered via a portal to document.body so it can float above the modal's
-   scrollable body without being clipped by it — top/left/width are computed
-   from the search input's bounding rect and applied inline. */
-.employee-suggestions-portal {
-  position: fixed;
-  z-index: 2000;
+/* Always-visible list under the search bar (not a floating dropdown) — fills
+   the modal body and scrolls on its own. */
+.employee-list-inline {
+  max-height: 400px;
+  box-shadow: none;
 }
 
 .employee-suggestion {
@@ -491,6 +490,19 @@
   font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
+}
+
+/* Already holds a role (Supervisor / HR Admin) — still listed, but greyed
+   out and not selectable. */
+.employee-suggestion.assigned,
+.employee-suggestion.assigned:hover {
+  background: #f8fafc;
+  cursor: not-allowed;
+}
+
+.employee-suggestion.assigned span,
+.employee-suggestion.assigned small {
+  color: #a0aec0;
 }
 
 .employee-suggestion-state {

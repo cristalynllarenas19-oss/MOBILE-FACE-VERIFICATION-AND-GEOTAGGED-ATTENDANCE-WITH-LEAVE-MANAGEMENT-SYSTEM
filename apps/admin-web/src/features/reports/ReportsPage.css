@@ -391,11 +391,27 @@
     visibility: visible !important;
   }
 
+  /* absolute, not fixed: a fixed element is printed as a single page, which
+     cut "All Reports" off after the DTR table (Leave and Schedules never
+     printed). The shell containers go static so top/left are measured from
+     the page itself. */
   .reports-printable {
-    position: fixed !important;
+    position: absolute !important;
     top: 0;
     left: 0;
     width: 100%;
+  }
+
+  .app-shell,
+  .main-area,
+  .page-content {
+    position: static !important;
+  }
+
+  /* Sticky headers/labels are for on-screen scrolling only. */
+  .reports-table-label,
+  .reports-status-tabs {
+    position: static !important;
   }
 
   /* The Pending/Approved/Rejected filter chips are interactive controls,
@@ -423,11 +439,12 @@
     margin-bottom: 10px;
   }
 
+  /* Natural aspect ratio (the logo is ~2:1) — a square box left big empty
+     bands above and below it. */
   .reports-print-logo {
-    width: 220px;
-    height: 220px;
-    object-fit: contain;
-    margin-bottom: -20px;
+    width: 290px;
+    height: auto;
+    margin-bottom: 4px;
   }
 
   .reports-print-title {
@@ -467,5 +484,12 @@
 
   .reports-table-card thead {
     position: static;
+  }
+
+  /* "All Reports": each section (DTR, Leave, Schedules) starts on its own
+     page. Single-report tabs only render one card, so this never fires. */
+  .reports-table-card + .reports-table-card {
+    break-before: page;
+    page-break-before: always;
   }
 }

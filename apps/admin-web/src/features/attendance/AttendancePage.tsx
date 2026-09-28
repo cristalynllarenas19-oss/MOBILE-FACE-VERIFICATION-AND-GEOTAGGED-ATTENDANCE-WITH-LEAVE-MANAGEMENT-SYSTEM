@@ -258,6 +258,9 @@ function AttendanceDetailsModal({
             <h2 id="attendance-modal-title">Attendance Details</h2>
             <p>{formatDate(record.attendanceDate)}</p>
           </div>
+          <button type="button" className="icon-button" onClick={onClose} disabled={isSaving} aria-label="Close">
+            <X size={18} />
+          </button>
         </div>
 
         {record.isFlagged && (

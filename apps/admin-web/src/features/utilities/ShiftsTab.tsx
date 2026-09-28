@@ -395,6 +395,9 @@ export function ShiftsTab({
                 <h2 id="shift-form-title">{formMode === "create" ? "Create Shift" : "Edit Shift"}</h2>
                 <p>{formMode === "create" ? "New shift will be available to assign immediately" : "Changes apply immediately"}</p>
               </div>
+              <button type="button" className="icon-button" onClick={closeForm} disabled={isSaving} aria-label="Close">
+                <X size={18} />
+              </button>
             </div>
 
             <form onSubmit={submitForm}>

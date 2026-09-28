@@ -21,7 +21,8 @@
   flex: 0 0 260px;
   background: #ffffff;
   border-right: 1px solid var(--line);
-  padding: 20px 16px;
+  /* 12px sides (was 16px) so "Attendance Management" fits on one line. */
+  padding: 20px 12px;
   display: flex;
   flex-direction: column;
   height: 100vh;
@@ -39,7 +40,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding-bottom: 20px;
+  padding-bottom: 16px;
   border-bottom: 2px solid #eef2f6;
   flex-shrink: 0;
 }
@@ -151,10 +152,10 @@
 }
 
 .nav-list {
-  margin-top: 16px;
+  margin-top: 12px;
   display: flex;
   flex-direction: column;
-  gap: clamp(2px, 1vh, 10px);
+  gap: 8px;
   flex: 1 1 auto;
   overflow: hidden;
   min-height: 0;
@@ -163,14 +164,14 @@
 .nav-link {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   width: 100%;
 
-  flex: 1 1 54px;
-  max-height: 54px;
+  
+  flex: 0 1 42px;
   min-height: 32px;
 
-  padding: 6px 14px;
+  padding: 8px 12px;
   border: 1px solid transparent;
   border-radius: 27px;
   background: transparent;
@@ -184,10 +185,14 @@
   overflow: hidden;
 }
 
+
 .nav-link span {
   line-height: 1.25;
   display: inline-block;
-  max-width: 150px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .nav-link svg {
@@ -200,14 +205,14 @@
 
 .nav-link.active {
   background: #dbeafe;
-  border-color: #93c5fd;
+  border-color: #82b1e7;
   font-weight: 650;
 }
 
 .sidebar-footer {
   flex-shrink: 0;
   margin-top: auto;
-  padding-top: 14px;
+  padding-top: 10px;
   border-top: 1px solid var(--line);
 }
 

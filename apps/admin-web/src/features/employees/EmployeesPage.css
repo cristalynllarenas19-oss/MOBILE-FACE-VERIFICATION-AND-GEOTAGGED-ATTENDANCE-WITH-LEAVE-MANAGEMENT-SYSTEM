@@ -95,7 +95,7 @@
   display: flex;
   align-items: flex-end;
   flex-wrap: wrap;
-  gap: 14px;
+  gap: 10px;
   margin-bottom: 16px;
   padding: 10px 14px;
   background: #f7fafd;
@@ -110,7 +110,7 @@
 }
 
 .employees-filter-search-group {
-  flex: 0 0 220px;
+  flex: 0 0 180px;
 }
 
 .employees-filter-label {
@@ -139,8 +139,9 @@
   border: 1px solid transparent;
   background: #ffffff;
   color: #41536b;
-  padding: 9px 15px;
+  padding: 9px 12px;
   border-radius: 999px;
+  white-space: nowrap;
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
@@ -154,6 +155,10 @@
 
 .department-select {
   min-width: 178px;
+}
+
+.employees-filter-bar .department-select {
+  min-width: 145px;
 }
 
 .employee-search {
@@ -220,11 +225,11 @@
   border-radius: 7px;
   background: #1a3a5c;
   color: #ffffff;
-  padding: 0 14px;
+  padding: 0 10px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: 5px;
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
@@ -453,6 +458,27 @@
 .employee-modal-header:has(> div:empty) {
   border-bottom: none;
   padding-bottom: 0;
+}
+
+.employee-modal-header .icon-button {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  margin-left: auto;
+  border: 1px solid #e3e9f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #1a3a5c;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.employee-modal-header .icon-button:hover {
+  background: #eef2f7;
+  border-color: #b8c7d8;
 }
 
 .employee-modal-header h2 {

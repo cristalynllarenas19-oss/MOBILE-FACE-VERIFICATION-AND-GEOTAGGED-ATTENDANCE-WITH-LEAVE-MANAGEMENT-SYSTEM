@@ -748,6 +748,9 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
             {showSuccessModal && lastRegisteredEmployee && (
               <div className="success-modal-overlay">
                 <div className="success-modal">
+                  <button className="view-modal-close" onClick={dismissSuccessModal} aria-label="Close">
+                    <X size={18} />
+                  </button>
                   <div className="success-modal-icon">
                     <CheckCircle2 size={48} />
                   </div>
@@ -1090,6 +1093,14 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
       {archiveTarget && (
         <div className="delete-modal-overlay" onClick={() => (archiving ? null : setArchiveTarget(null))}>
           <div className="delete-modal" onClick={(e) => e.stopPropagation()}>
+            <button
+              className="view-modal-close"
+              onClick={() => setArchiveTarget(null)}
+              disabled={archiving}
+              aria-label="Close"
+            >
+              <X size={18} />
+            </button>
             <div className="archive-modal-icon">
               <Archive size={26} />
             </div>

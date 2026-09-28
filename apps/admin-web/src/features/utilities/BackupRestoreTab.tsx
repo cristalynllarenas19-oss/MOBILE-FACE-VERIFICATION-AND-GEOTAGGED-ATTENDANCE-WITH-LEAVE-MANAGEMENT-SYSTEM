@@ -417,6 +417,9 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
                 <h2 id="restore-upload-title">Restore from Backup</h2>
                 <p>Select a backup file to restore your system data.</p>
               </div>
+              <button className="icon-button" onClick={closeUploadModal} aria-label="Close">
+                <X size={18} />
+              </button>
             </div>
 
             <div className="utilities-modal-body">

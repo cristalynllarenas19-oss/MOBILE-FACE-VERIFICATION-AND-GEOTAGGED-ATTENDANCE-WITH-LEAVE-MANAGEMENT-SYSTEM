@@ -1076,6 +1076,9 @@ export function AnnouncementsTab({
                   </p>
                 )}
               </div>
+              <button className="icon-button" onClick={() => setViewId(null)} aria-label="Close">
+                <X size={18} />
+              </button>
             </div>
 
             <div className="utilities-modal-body">

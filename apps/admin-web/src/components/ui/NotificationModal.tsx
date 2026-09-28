@@ -1,4 +1,5 @@
 import { Check, X as XIcon } from "lucide-react";
+import { ModalCloseButton } from "./ModalCloseButton";
 import "./NotificationModal.css";
 
 export type NotificationConfig = {
@@ -27,6 +28,7 @@ export function NotificationModal({
         aria-describedby="notification-modal-message"
         onClick={(e) => e.stopPropagation()}
       >
+        <ModalCloseButton onClose={onClose} />
         <div className="notification-modal-icon-wrap">
           {notification.type === "success" ? <Check size={30} strokeWidth={2.4} /> : <XIcon size={30} strokeWidth={2.4} />}
         </div>

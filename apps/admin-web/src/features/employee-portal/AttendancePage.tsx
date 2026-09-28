@@ -1,7 +1,7 @@
 
 import { CSSProperties, useEffect, useState } from "react";
 import {
-  AlertCircle, CheckCircle, Clock, Flag, LogIn, LogOut, MapPin, Utensils,
+  AlertCircle, CheckCircle, Clock, Flag, LogIn, LogOut, MapPin, Utensils, X,
 } from "lucide-react";
 import {
   TodayAttendance, WorkLocation, AttendanceSubmitResult, AttendanceEligibility, GeofenceStatus,
@@ -655,6 +655,9 @@ export function AttendancePage({ user }: Props) {
       {sitePickerVisible && (
         <div style={overlayS}>
           <div style={modalCard}>
+            <button type="button" onClick={() => setSitePickerVisible(false)} style={modalCloseBtn} aria-label="Close">
+              <X size={15} color="#64748B" />
+            </button>
             <h3 style={{ color: "#062B59", fontSize: 16, fontWeight: 800, textAlign: "center", marginBottom: 6 }}>
               Select Site to Visit
             </h3>
@@ -696,6 +699,9 @@ export function AttendancePage({ user }: Props) {
       {resultModal && (
         <div style={overlayS}>
           <div style={{ ...modalCard, textAlign: "center" }}>
+            <button type="button" onClick={() => setResultModal(null)} style={modalCloseBtn} aria-label="Close">
+              <X size={15} color="#64748B" />
+            </button>
             {resultModal.status === "approved" && (
               <div style={iconCircle("#ECFDF3")}>
                 <CheckCircle size={48} color="#17A34A" />
@@ -756,8 +762,16 @@ const overlayS: CSSProperties = {
   padding: 24,
 };
 const modalCard: CSSProperties = {
+  position: "relative",
   width: "100%", maxWidth: 400,
   background: "#fff", borderRadius: 20, padding: 20,
+};
+const modalCloseBtn: CSSProperties = {
+  position: "absolute", top: 12, right: 12,
+  width: 28, height: 28, borderRadius: "50%",
+  border: "none", background: "#F1F5F9",
+  display: "flex", alignItems: "center", justifyContent: "center",
+  cursor: "pointer", zIndex: 1,
 };
 
 function iconCircle(bg: string): CSSProperties {

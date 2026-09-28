@@ -1,5 +1,6 @@
 import { AppNotification } from "../../lib/notifications";
 import { NotificationIcon, notificationCategory } from "./NotificationPanel";
+import { ModalCloseButton } from "../ui/ModalCloseButton";
 import "./NotificationDetailModal.css";
 
 function formatFullDate(value: string) {
@@ -42,6 +43,7 @@ export function NotificationDetailModal({
         aria-labelledby="notif-detail-title"
         onClick={(e) => e.stopPropagation()}
       >
+        <ModalCloseButton onClose={onClose} />
         <span className={`notif-detail-icon ${category}`}>
           <NotificationIcon type={notification.type} />
         </span>

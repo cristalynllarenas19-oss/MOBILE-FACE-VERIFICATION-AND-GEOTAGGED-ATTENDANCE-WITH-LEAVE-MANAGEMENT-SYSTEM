@@ -426,6 +426,9 @@ export function LeaveTypesTab({
                 <h2 id="leave-type-form-title">{formMode === "create" ? "Add Leave Type" : "Edit Leave Type"}</h2>
                 <p>{formMode === "create" ? "New type will be available immediately" : "Changes apply immediately"}</p>
               </div>
+              <button className="icon-button" onClick={closeForm} disabled={isSaving} aria-label="Close">
+                <X size={18} />
+              </button>
             </div>
 
             <div className="utilities-modal-body">
@@ -687,6 +690,9 @@ export function LeaveTypesTab({
                 <h2 id="view-type-title">{viewLeaveType.name}</h2>
                 <p>Leave type details</p>
               </div>
+              <button className="icon-button" onClick={() => setViewLeaveType(null)} aria-label="Close">
+                <X size={18} />
+              </button>
             </div>
 
             <div className="utilities-modal-body">

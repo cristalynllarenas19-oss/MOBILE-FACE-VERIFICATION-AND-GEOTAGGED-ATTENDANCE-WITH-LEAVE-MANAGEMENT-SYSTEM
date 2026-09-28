@@ -310,6 +310,9 @@ export function DepartmentsTab({
                 <h2 id="department-form-title">{formMode === "create" ? "Add Department" : "Edit Department"}</h2>
                 <p>{formMode === "create" ? "New department will be available immediately" : "Changes apply immediately"}</p>
               </div>
+              <button className="icon-button" onClick={closeForm} disabled={isSaving} aria-label="Close">
+                <X size={18} />
+              </button>
             </div>
 
             <div className="utilities-modal-body">

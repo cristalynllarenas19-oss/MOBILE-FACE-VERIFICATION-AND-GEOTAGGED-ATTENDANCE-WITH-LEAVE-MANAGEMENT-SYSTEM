@@ -273,6 +273,9 @@ export function PositionsTab({
                 <h2 id="position-form-title">{editing ? "Edit Position" : "Add Position"}</h2>
                 <p>{editing ? "Changes apply immediately" : "New position will be available immediately"}</p>
               </div>
+              <button className="icon-button" onClick={closeForm} disabled={isSaving} aria-label="Close">
+                <X size={18} />
+              </button>
             </div>
 
             <div className="utilities-modal-body">
