@@ -1,7 +1,20 @@
+/* All tabs sit on a single row with one-line labels. Sized slightly smaller
+   than the default filter tabs so all nine fit; on very narrow screens the
+   row scrolls sideways instead of wrapping. */
+.utilities-tabs {
+  flex-wrap: nowrap;
+  gap: 6px;
+  overflow-x: auto;
+}
+
 .utilities-tabs button {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding: 8px 11px;
+  font-size: 11.5px;
 }
 
 .announcement-archive-tabs {

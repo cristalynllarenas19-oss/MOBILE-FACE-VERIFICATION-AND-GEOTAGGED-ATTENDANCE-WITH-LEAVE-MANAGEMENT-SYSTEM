@@ -1,12 +1,14 @@
 import axios from "axios";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { AlertTriangle, Archive, ChevronsUpDown, Eye, Pencil, Plus, RotateCcw, ScanFace, Search, UserCheck, X } from "lucide-react";
+import { AlertTriangle, Archive, ChevronsUpDown, ClipboardList, Eye, Pencil, Plus, RotateCcw, ScanFace, Search, UserCheck, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { FormSelectDropdown } from "../../components/ui/FormSelectDropdown";
 import { NotificationModal, type NotificationConfig } from "../../components/ui/NotificationModal";
+import { EvaluationModal } from "../evaluations/EvaluationModal";
 import { EvaluationViewModal } from "../evaluations/EvaluationViewModal";
+import { getTeamEvaluationStatuses, type TeamEvaluationStatus } from "../../lib/evaluations";
 import { apiRequest } from "../../lib/api";
 import { CACHE_KEYS, revalidateCached, useCachedData } from "../../lib/dataCache";
 import { useActiveDepartments } from "../../lib/departments";
@@ -16,7 +18,9 @@ import {
   useAttendanceModeOptions,
 } from "../../lib/attendanceModes";
 import { PermissionCode, permissions } from "../../types/rbac";
-import { EMPLOYMENT_STATUS_LABELS, SELECTABLE_EMPLOYMENT_STATUSES } from "../../types/employment";
+import { useEmployeeTypes } from "../../lib/employeeTypes";
+import { useAvailablePositions } from "../../lib/positions";
+import type { EmploymentStatus } from "../../types/employment";
 import "./EmployeesPage.css";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3001/api/v1";
@@ -47,7 +51,10 @@ type Employee = {
   employeeNo: string;
   firstName: string;
   lastName: string;
-  employmentStatus: "REGULAR" | "PROBATIONARY" | "PERMANENT_SEASONAL" | "PROBATIONARY_SEASONAL" | "SEPARATED";
+  // Existing Employment Status, set server-side from employeeType.
+  employmentStatus: EmploymentStatus;
+  employeeTypeId: string;
+  employeeType?: { id: string; name: string; employmentStatus: EmploymentStatus; isActive: boolean } | null;
   soloParentStatus: "NOT_APPLICABLE" | "ELIGIBLE" | "INELIGIBLE";
   civilStatus?: "SINGLE" | "MARRIED" | "WIDOWED" | "SEPARATED" | "ANNULLED";
   spouseEmployerName?: string | null;
@@ -60,6 +67,7 @@ type Employee = {
   archiveDate?: string;
   user?: { email: string } | null;
   department: { name: string; attendanceMode: string };
+  positionId: string;
   position: { title: string };
   supervisor?: { id: string; firstName: string; lastName: string } | null;
   faceConsentAcceptedAt?: string | null;
@@ -70,7 +78,7 @@ type Employee = {
 type AttendanceMode = string;
 type DepartmentAttendanceMode = string;
 
-type DepartmentOption = { name: string; attendanceMode: DepartmentAttendanceMode };
+type DepartmentOption = { id: string; name: string; attendanceMode: DepartmentAttendanceMode };
 
 type SupervisorOption = {
   id: string;
@@ -85,9 +93,11 @@ type EmployeeForm = {
   lastName: string;
   email: string;
   department: string;
-  position: string;
+  // Edit Employee's Position dropdown (Add Employee keeps its own state).
+  positionId: string;
   hireDate: string;
-  employmentStatus: "REGULAR" | "PROBATIONARY" | "PERMANENT_SEASONAL" | "PROBATIONARY_SEASONAL";
+  // Id of a row from Utilities → Employee Types.
+  employeeTypeId: string;
   attendanceMode: AttendanceMode;
   soloParentStatus: "NOT_APPLICABLE" | "ELIGIBLE" | "INELIGIBLE";
   civilStatus: "SINGLE" | "MARRIED" | "WIDOWED" | "SEPARATED" | "ANNULLED";
@@ -104,9 +114,9 @@ const initialForm: EmployeeForm = {
   lastName: "",
   email: "",
   department: "",
-  position: "",
+  positionId: "",
   hireDate: "",
-  employmentStatus: "REGULAR",
+  employeeTypeId: "",
   attendanceMode: "FIXED",
   soloParentStatus: "NOT_APPLICABLE",
   civilStatus: "SINGLE",
@@ -154,6 +164,25 @@ function getStatusTone(status: Employee["employmentStatus"]) {
   if (status === "SEPARATED") return "danger";
   return "warning";
 }
+
+const EVALUATION_STATUS_LABEL: Record<TeamEvaluationStatus["status"], string> = {
+  PENDING: "Pending Evaluation",
+  IN_PROGRESS: "In Progress",
+  COMPLETED: "Completed",
+  NOT_DUE: "Not Yet Due",
+};
+const EVALUATION_STATUS_TONE: Record<TeamEvaluationStatus["status"], "warning" | "role" | "success" | "neutral"> = {
+  PENDING: "warning",
+  IN_PROGRESS: "role",
+  COMPLETED: "success",
+  NOT_DUE: "neutral",
+};
+const EVALUATION_ACTION_LABEL: Record<TeamEvaluationStatus["status"], string> = {
+  PENDING: "Evaluate Employee",
+  IN_PROGRESS: "Continue Evaluation",
+  COMPLETED: "View Performance",
+  NOT_DUE: "",
+};
 
 function getAttendanceModeTone(mode: Employee["attendanceMode"]) {
   return mode === "FIELD" ? "role" : "neutral";
@@ -216,7 +245,7 @@ function getStatusLabel(employee: Employee) {
   if (employee.employmentStatus === "SEPARATED" && employee.archiveType) {
     return employee.archiveType;
   }
-  return EMPLOYMENT_STATUS_LABELS[employee.employmentStatus];
+  return employee.employeeType?.name ?? "Unspecified";
 }
 
 function getEmployeeName(employee: Employee) {
@@ -235,7 +264,7 @@ function matchesSearch(employee: Employee, query: string) {
     employee.user?.email ?? "",
     employee.department.name,
     employee.position.title,
-    employee.employmentStatus,
+    employee.employeeType?.name ?? "",
   ];
 
   return haystacks.some((value) => value.toLowerCase().includes(needle));
@@ -295,8 +324,29 @@ function AddEmployeeModal({
   }));
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
+  const { options: employeeTypeOptions } = useEmployeeTypes();
+
+  // Preselect the first active type (the list is oldest-first) once loaded,
+  // same as the old form defaulting to Regular.
+  useEffect(() => {
+    if (!form.employeeTypeId && employeeTypeOptions.length > 0) {
+      setForm((current) => (current.employeeTypeId ? current : { ...current, employeeTypeId: employeeTypeOptions[0].value }));
+    }
+  }, [employeeTypeOptions, form.employeeTypeId]);
 
   
+  // Position options depend on the selected department — whatever Utilities →
+  // Positions makes available there (e.g. Human Resources gets its HR set).
+  const [positionId, setPositionId] = useState("");
+  const selectedDepartmentId = departments.find((department) => department.name === form.department.trim())?.id;
+  const { positions: availablePositions, isLoading: arePositionsLoading } = useAvailablePositions(selectedDepartmentId);
+
+  // Department changed and the picked position isn't offered there → clear it.
+  useEffect(() => {
+    if (!positionId || arePositionsLoading) return;
+    if (!availablePositions.some((position) => position.id === positionId)) setPositionId("");
+  }, [positionId, availablePositions, arePositionsLoading]);
+
   const autoSupervisor = supervisors.find(
     (supervisor) => supervisor.department.name === form.department.trim(),
   );
@@ -322,6 +372,8 @@ function AddEmployeeModal({
     if (!form.email.trim()) return "Email is required.";
     if (!/^\S+@\S+\.\S+$/.test(form.email.trim())) return "Enter a valid email address.";
     if (!form.department.trim()) return "Department is required.";
+    if (!positionId) return "Position is required.";
+    if (!form.employeeTypeId) return "Employee Type is required.";
     return "";
   };
 
@@ -346,7 +398,8 @@ function AddEmployeeModal({
           lastName: form.lastName.trim(),
           email: form.email.trim(),
           department: form.department.trim(),
-          employmentStatus: form.employmentStatus,
+          positionId,
+          employeeTypeId: form.employeeTypeId,
           attendanceMode: form.attendanceMode,
           sex: form.sex,
           soloParentStatus: form.soloParentStatus,
@@ -406,6 +459,9 @@ function AddEmployeeModal({
               />
             )}
           </label>
+        </div>
+
+        <div className="employee-form-grid">
           {form.department.trim() && (
             <label>
               Supervisor
@@ -418,17 +474,32 @@ function AddEmployeeModal({
               />
             </label>
           )}
+          <label>
+            Position
+            <FormSelectDropdown
+              value={positionId}
+              onChange={setPositionId}
+              options={availablePositions.map((position) => ({ value: position.id, label: position.title }))}
+              placeholder={selectedDepartmentId ? "Select a position…" : "Select a department first…"}
+              ariaLabel="Position"
+              disabled={!selectedDepartmentId || availablePositions.length === 0}
+            />
+            {selectedDepartmentId && !arePositionsLoading && availablePositions.length === 0 && (
+              <span className="employee-form-hint">No positions are available for this department yet (Utilities → Positions).</span>
+            )}
+          </label>
         </div>
 
         <div className="employee-form-grid">
           <label>
-            Employment Status
+            Employee Type
             <FormSelectDropdown
-              value={form.employmentStatus}
-              onChange={(value) => setForm((current) => ({ ...current, employmentStatus: value as EmployeeForm["employmentStatus"] }))}
-              options={SELECTABLE_EMPLOYMENT_STATUSES.map((status) => ({ value: status, label: EMPLOYMENT_STATUS_LABELS[status] }))}
-              placeholder="Select employment status…"
-              ariaLabel="Employment Status"
+              value={form.employeeTypeId}
+              onChange={(value) => setForm((current) => ({ ...current, employeeTypeId: value }))}
+              options={employeeTypeOptions}
+              placeholder="Select employee type…"
+              ariaLabel="Employee Type"
+              disabled={employeeTypeOptions.length === 0}
             />
           </label>
           <label>
@@ -486,7 +557,6 @@ function EditEmployeeModal({
   employee,
   departments,
   attendanceModeOptions,
-  positions,
   supervisors,
   lockedDepartmentName,
   onClose,
@@ -497,7 +567,6 @@ function EditEmployeeModal({
   employee: Employee;
   departments: DepartmentOption[];
   attendanceModeOptions: AttendanceModeOption[];
-  positions: string[];
   supervisors: SupervisorOption[];
   lockedDepartmentName?: string;
   onClose: () => void;
@@ -510,9 +579,9 @@ function EditEmployeeModal({
     lastName: employee.lastName,
     email: employee.user?.email ?? "",
     department: employee.department.name,
-    position: employee.position.title,
+    positionId: employee.positionId,
     hireDate: getDateInputValue(employee.hireDate),
-    employmentStatus: employee.employmentStatus === "SEPARATED" ? "REGULAR" : employee.employmentStatus,
+    employeeTypeId: employee.employeeTypeId,
     attendanceMode: employee.attendanceMode ?? "FIXED",
     soloParentStatus: employee.soloParentStatus ?? "NOT_APPLICABLE",
     civilStatus: employee.civilStatus ?? "SINGLE",
@@ -521,6 +590,35 @@ function EditEmployeeModal({
     supervisorId: employee.supervisor?.id ?? "",
   });
   const [error, setError] = useState("");
+
+  // Same department-based Position list as Add Employee (Utilities →
+  // Positions). The employee's current position stays selectable while they
+  // remain in their current department, even if it's archived/not offered.
+  const editDepartmentId = departments.find((department) => department.name === form.department.trim())?.id;
+  const { positions: editAvailablePositions, isLoading: areEditPositionsLoading } = useAvailablePositions(editDepartmentId);
+  const keepsCurrentPosition =
+    form.department.trim() === employee.department.name && form.positionId === employee.positionId;
+  const positionOptions = [
+    ...(form.department.trim() === employee.department.name &&
+    !editAvailablePositions.some((position) => position.id === employee.positionId)
+      ? [{ value: employee.positionId, label: `${employee.position.title} (current)` }]
+      : []),
+    ...editAvailablePositions.map((position) => ({ value: position.id, label: position.title })),
+  ];
+
+  // Department changed and the picked position isn't offered there → clear it.
+  useEffect(() => {
+    if (!form.positionId || areEditPositionsLoading || keepsCurrentPosition) return;
+    if (!editAvailablePositions.some((position) => position.id === form.positionId)) {
+      setForm((current) => ({ ...current, positionId: "" }));
+    }
+  }, [form.positionId, editAvailablePositions, areEditPositionsLoading, keepsCurrentPosition]);
+
+  const { active: activeEmployeeTypes, byId: employeeTypesById } = useEmployeeTypes();
+  // The Employment Status of whichever Employee Type is currently picked in
+  // this form — what the leave/probation-dependent UI below reacts to.
+  const selectedEmployeeType = employeeTypesById.get(form.employeeTypeId) ?? employee.employeeType ?? null;
+  const selectedEmploymentStatus = selectedEmployeeType?.employmentStatus ?? employee.employmentStatus;
   const [spouseWorksElsewhere, setSpouseWorksElsewhere] = useState(Boolean(employee.spouseEmployerName));
   const [spouseUnemployed, setSpouseUnemployed] = useState(Boolean(employee.spouseUnemployed));
 
@@ -585,10 +683,10 @@ function EditEmployeeModal({
   // they're only offered to employees actually entitled to that leave type
   // — driven by whatever employment statuses HR has configured under
   // Utilities → Leave Types (Maternity/Paternity Leave's Applicable
-  // Statuses), not a hardcoded list. Reacts to the form's own
-  // employmentStatus so switching it in this same modal updates immediately.
+  // Statuses), not a hardcoded list. Reacts to the form's own Employee Type
+  // (via its Employment Status) so switching it in this modal updates immediately.
   const isEntitledToParentalLeave = Boolean(
-    genderLeaveType?.applicableStatuses.includes(form.employmentStatus),
+    genderLeaveType?.applicableStatuses.includes(selectedEmploymentStatus),
   );
 
   const adminGrantTypes = useMemo(() => {
@@ -677,7 +775,7 @@ function EditEmployeeModal({
     if (!form.email.trim()) return "Email is required.";
     if (!/^\S+@\S+\.\S+$/.test(form.email.trim())) return "Enter a valid email address.";
     if (!form.department.trim()) return "Department is required.";
-    if (!form.position.trim()) return "Position is required.";
+    if (!form.positionId) return "Position is required.";
     return "";
   };
 
@@ -717,8 +815,12 @@ function EditEmployeeModal({
       lastName: form.lastName.trim(),
       user: employee.user ? { ...employee.user, email: form.email.trim() } : employee.user,
       department: { name: form.department.trim(), attendanceMode: departmentMode ?? employee.department.attendanceMode },
-      position: { title: form.position.trim() },
-      employmentStatus: form.employmentStatus,
+      positionId: form.positionId,
+      position: { title: positionOptions.find((option) => option.value === form.positionId)?.label.replace(/ \(current\)$/, "") ?? employee.position.title },
+      employeeTypeId: form.employeeTypeId,
+      employeeType: selectedEmployeeType,
+      // An archived employee stays SEPARATED on edit (only Restore reactivates).
+      employmentStatus: employee.employmentStatus === "SEPARATED" ? "SEPARATED" : selectedEmploymentStatus,
       attendanceMode: form.attendanceMode,
       soloParentStatus: form.soloParentStatus,
       civilStatus: form.civilStatus,
@@ -736,8 +838,8 @@ function EditEmployeeModal({
         lastName: form.lastName.trim(),
         email: form.email.trim(),
         department: form.department.trim(),
-        position: form.position.trim(),
-        employmentStatus: form.employmentStatus,
+        positionId: form.positionId,
+        employeeTypeId: form.employeeTypeId,
         attendanceMode: form.attendanceMode,
         soloParentStatus: form.soloParentStatus,
         civilStatus: form.civilStatus,
@@ -818,17 +920,24 @@ function EditEmployeeModal({
             <input type="email" value={form.email} onChange={updateField("email")} required />
           </label>
           <label>
-            Employment Status
+            Employee Type
             <FormSelectDropdown
-              value={form.employmentStatus}
-              onChange={(value) => setForm((current) => ({ ...current, employmentStatus: value as EmployeeForm["employmentStatus"] }))}
-              options={SELECTABLE_EMPLOYMENT_STATUSES.map((status) => ({
-                value: status,
-                label: EMPLOYMENT_STATUS_LABELS[status],
-                disabled: status === restrictedStatus,
-              }))}
-              placeholder="Select employment status…"
-              ariaLabel="Employment Status"
+              value={form.employeeTypeId}
+              onChange={(value) => setForm((current) => ({ ...current, employeeTypeId: value }))}
+              options={[
+                // Kept even if since archived so the currently-assigned type still displays correctly.
+                ...(employee.employeeType && !activeEmployeeTypes.some((type) => type.id === employee.employeeTypeId)
+                  ? [{ value: employee.employeeTypeId, label: `${employee.employeeType.name} (archived)` }]
+                  : []),
+                ...activeEmployeeTypes.map((type) => ({
+                  value: type.id,
+                  label: type.name,
+                  // Still on probation: every type that would regularize them is locked.
+                  disabled: type.employmentStatus === restrictedStatus && type.id !== employee.employeeTypeId,
+                })),
+              ]}
+              placeholder="Select employee type…"
+              ariaLabel="Employee Type"
             />
           </label>
         </div>
@@ -856,12 +965,14 @@ function EditEmployeeModal({
           </label>
           <label>
             Position
-            <input type="text" value={form.position} onChange={updateField("position")} list="edit-employee-positions" required />
-            <datalist id="edit-employee-positions">
-              {positions.map((position) => (
-                <option key={position} value={position} />
-              ))}
-            </datalist>
+            <FormSelectDropdown
+              value={form.positionId}
+              onChange={(value) => setForm((current) => ({ ...current, positionId: value }))}
+              options={positionOptions}
+              placeholder="Select a position…"
+              ariaLabel="Position"
+              disabled={positionOptions.length === 0}
+            />
           </label>
         </div>
 
@@ -988,10 +1099,10 @@ function EditEmployeeModal({
         )}
 
         {/* Only a Regular employee is eligible for these admin-granted leave
-            types — reacts to the form's own employmentStatus so toggling the
-            dropdown in this same modal shows/hides it immediately, without
-            requiring a save. Doesn't touch grant/allocation logic itself. */}
-        {form.employmentStatus === "REGULAR" && adminGrantTypes.length > 0 && (
+            types — reacts to the form's own Employee Type (its Employment Status)
+            so toggling the dropdown in this same modal shows/hides it
+            immediately, without requiring a save. Doesn't touch grant/allocation logic itself. */}
+        {selectedEmploymentStatus === "REGULAR" && adminGrantTypes.length > 0 && (
           <div className="employee-leave-grants">
             <p className="employee-leave-grants-title">
               Additional Leave Types{isGrantsLoading ? " (loading…)" : ""}
@@ -1096,6 +1207,9 @@ function ViewEmployeeModal({
   onRegisterFace,
   canViewPerformance,
   onViewPerformance,
+  evaluation,
+  onOpenEvaluation,
+  onOpenSupervisorPerformance,
 }: {
   employee: Employee;
   attendanceModeOptions: AttendanceModeOption[];
@@ -1108,6 +1222,13 @@ function ViewEmployeeModal({
   onRegisterFace?: () => void;
   canViewPerformance: boolean;
   onViewPerformance: () => void;
+  // Supervisor only: this employee's evaluation status (from the evaluations
+  // table, not notifications) and the action to open the evaluation form.
+  evaluation?: TeamEvaluationStatus | null;
+  onOpenEvaluation?: () => void;
+  // Supervisor only, for any member of their own team — the read-only
+  // performance view (attendance summary + submitted evaluation if any).
+  onOpenSupervisorPerformance?: () => void;
 }) {
   // Same condition the "Register Face" button below is hidden for — without
   // this banner, the button just silently isn't there with no indication of
@@ -1142,8 +1263,15 @@ function ViewEmployeeModal({
               regularization review. Please review their performance and qualifications before converting their
               status to Regular.
             </p>
-            {canViewPerformance && (
-              <button type="button" className="outline-button" style={{ marginTop: 10 }} onClick={onViewPerformance}>
+            {/* Admin gets the Admin view (with Approve); the employee's own
+                Supervisor gets their read-only view — same button, same place. */}
+            {(canViewPerformance || onOpenSupervisorPerformance) && (
+              <button
+                type="button"
+                className="outline-button"
+                style={{ marginTop: 10 }}
+                onClick={canViewPerformance ? onViewPerformance : onOpenSupervisorPerformance}
+              >
                 View Performance
               </button>
             )}
@@ -1195,6 +1323,26 @@ function ViewEmployeeModal({
             {getAttendanceModeLabel(employee.attendanceMode, attendanceModeOptions)}
           </Badge>
         </div>
+        {onOpenSupervisorPerformance && (
+          <div>
+            <span>Evaluation</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+              {evaluation && (
+                <Badge tone={EVALUATION_STATUS_TONE[evaluation.status]}>
+                  {evaluation.status === "NOT_DUE" && evaluation.dueDate
+                    ? `Due ${new Date(evaluation.dueDate).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`
+                    : EVALUATION_STATUS_LABEL[evaluation.status]}
+                </Badge>
+              )}
+              {/* Already offered in the regularization banner above when it's shown. */}
+              {!isDueForRegularizationReview(employee) && (
+                <button type="button" className="employee-view-button" onClick={onOpenSupervisorPerformance}>
+                  View Performance
+                </button>
+              )}
+            </div>
+          </div>
+        )}
         {employee.soloParentStatus && employee.soloParentStatus !== "NOT_APPLICABLE" && (
           <div>
             <span>Solo Parent Status</span>
@@ -1273,6 +1421,13 @@ function ViewEmployeeModal({
           <button type="button" className="primary-button" onClick={onEdit}>
             <Pencil size={14} />
             Edit Employee
+          </button>
+        )}
+        {/* Supervisor: start/continue this team member's evaluation. */}
+        {evaluation && (evaluation.status === "PENDING" || evaluation.status === "IN_PROGRESS") && onOpenEvaluation && (
+          <button type="button" className="primary-button" onClick={onOpenEvaluation}>
+            <ClipboardList size={14} />
+            {EVALUATION_ACTION_LABEL[evaluation.status]}
           </button>
         )}
         <button type="button" className="outline-button" onClick={onClose}>
@@ -1402,7 +1557,7 @@ export function EmployeesPage({
   initialFocusEmployeeId,
   onFocusHandled,
 }: {
-  user?: { permissions: PermissionCode[]; roles?: string[]; departmentId?: string; department?: string };
+  user?: { permissions: PermissionCode[]; roles?: string[]; departmentId?: string; department?: string; employeeId?: string };
   
   onEmployeeCreated?: (employee: Employee) => void;
   onRegisterFace?: (employee: Employee) => void;
@@ -1418,10 +1573,26 @@ export function EmployeesPage({
   // (they already have their own submitted-evaluation view via the
   // notification's "Evaluate Employee" action).
   const isAdmin = roles.includes("ADMIN");
+  // A Supervisor reaches their team's evaluations right from Employee
+  // Details — the "Evaluation Required" notification is only a reminder.
+  const canEvaluate = roles.includes("SUPERVISOR") && (user?.permissions.includes(permissions.evaluationsWrite) ?? false);
+  const teamEvaluationsCache = useCachedData<TeamEvaluationStatus[]>(
+    canEvaluate ? "evaluation-team-status" : null,
+    getTeamEvaluationStatuses,
+  );
+  const [evaluatingEmployee, setEvaluatingEmployee] = useState<Employee | null>(null);
+  // Evaluation / View Performance only for the Supervisor's own team members
+  // who are still on probation (either track) — not Regular/Seasonal staff.
+  const isEvaluableBySupervisor = (employee: Employee) =>
+    canEvaluate &&
+    employee.supervisor?.id === user?.employeeId &&
+    (employee.employmentStatus === "PROBATIONARY" || employee.employmentStatus === "PROBATIONARY_SEASONAL");
+  const [supervisorPerformanceEmployee, setSupervisorPerformanceEmployee] = useState<Employee | null>(null);
   const lockedDepartmentName = isDepartmentLocked ? user?.department : undefined;
 
   const [departmentFilter, setDepartmentFilter] = useState("ALL");
-  const [modeFilter, setModeFilter] = useState<"ALL" | "FIELD" | "NON_FIELD" | "BOTH">("ALL");
+  const [employeeTypeFilter, setEmployeeTypeFilter] = useState("ALL");
+  const [modeFilter, setModeFilter] = useState<"ALL" | "FIELD" | "NON_FIELD">("ALL");
   const [nameSort, setNameSort] = useState<"asc" | "desc" | null>(null);
   const [showArchivedOnly, setShowArchivedOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -1452,6 +1623,7 @@ export function EmployeesPage({
 
   const { departments: activeDepartments, departmentNames: departments } = useActiveDepartments();
   const { forEmployees: attendanceModeOptions, all: allAttendanceModeOptions } = useAttendanceModeOptions();
+  const { options: employeeTypeFilterOptions } = useEmployeeTypes();
 
   useEffect(() => {
     if (!initialFocusEmployeeId) return;
@@ -1462,14 +1634,13 @@ export function EmployeesPage({
     }
   }, [initialFocusEmployeeId, employees, onFocusHandled]);
 
-  const positions = Array.from(new Set(employees.map((employee) => employee.position.title))).sort();
   const activeEmployeeCount = employees.filter((employee) => employee.employmentStatus !== "SEPARATED").length;
 
   const visibleEmployees = employees.filter((employee) => {
     if (departmentFilter !== "ALL" && employee.department.name !== departmentFilter) return false;
+    if (employeeTypeFilter !== "ALL" && employee.employeeTypeId !== employeeTypeFilter) return false;
     if (modeFilter === "FIELD" && (employee.department.attendanceMode === "BOTH" || employee.attendanceMode !== "FIELD")) return false;
     if (modeFilter === "NON_FIELD" && (employee.department.attendanceMode === "BOTH" || employee.attendanceMode === "FIELD")) return false;
-    if (modeFilter === "BOTH" && employee.department.attendanceMode !== "BOTH") return false;
     if (showArchivedOnly) {
       if (employee.employmentStatus !== "SEPARATED") return false;
     } else {
@@ -1490,7 +1661,7 @@ export function EmployeesPage({
     setNameSort((current) => (current === "asc" ? "desc" : current === "desc" ? null : "asc"));
   };
 
-  useEffect(() => setPage(1), [departmentFilter, modeFilter, showArchivedOnly, searchQuery, nameSort]);
+  useEffect(() => setPage(1), [departmentFilter, employeeTypeFilter, modeFilter, showArchivedOnly, searchQuery, nameSort]);
   const pageCount = Math.max(1, Math.ceil(sortedVisibleEmployees.length / EMPLOYEES_PAGE_SIZE));
   const pageSafe = Math.min(page, pageCount);
   const pagedEmployees = sortedVisibleEmployees.slice(
@@ -1587,11 +1758,10 @@ export function EmployeesPage({
           <DropdownFilter
             className="department-select"
             value={modeFilter}
-            onChange={(value) => setModeFilter(value as "ALL" | "FIELD" | "NON_FIELD" | "BOTH")}
+            onChange={(value) => setModeFilter(value as "ALL" | "FIELD" | "NON_FIELD")}
             options={[
               { value: "NON_FIELD", label: "Non-field" },
               { value: "FIELD", label: "Field" },
-              { value: "BOTH", label: "Both" },
             ]}
             allLabel="Non-field & Field"
             menuLabel="Filter by attendance mode"
@@ -1613,6 +1783,19 @@ export function EmployeesPage({
             />
           </div>
         )}
+
+        <div className="employees-filter-group">
+          <label className="employees-filter-label">Employee Type</label>
+          <DropdownFilter
+            className="department-select"
+            value={employeeTypeFilter}
+            onChange={setEmployeeTypeFilter}
+            options={employeeTypeFilterOptions}
+            allLabel="All Employee Types"
+            menuLabel="Filter by Employee Type"
+            ariaLabel="Filter employees by employee type"
+          />
+        </div>
 
         <div className="employees-filter-group employees-filter-search-group">
           <label className="employees-filter-label">Search</label>
@@ -1756,6 +1939,35 @@ export function EmployeesPage({
           onRegisterFace={onRegisterFace ? () => onRegisterFace(viewEmployee) : undefined}
           canViewPerformance={isAdmin}
           onViewPerformance={() => setViewingPerformanceEmployee(viewEmployee)}
+          evaluation={
+            isEvaluableBySupervisor(viewEmployee)
+              ? (teamEvaluationsCache.data ?? []).find((row) => row.employeeId === viewEmployee.id) ?? null
+              : null
+          }
+          onOpenEvaluation={() => setEvaluatingEmployee(viewEmployee)}
+          onOpenSupervisorPerformance={
+            isEvaluableBySupervisor(viewEmployee) ? () => setSupervisorPerformanceEmployee(viewEmployee) : undefined
+          }
+        />
+      )}
+
+      {evaluatingEmployee && (
+        <EvaluationModal
+          employeeId={evaluatingEmployee.id}
+          onClose={() => {
+            setEvaluatingEmployee(null);
+            // Draft saved / submitted → refresh the status shown in Employee Details.
+            teamEvaluationsCache.refresh().catch(() => undefined);
+          }}
+        />
+      )}
+
+      {supervisorPerformanceEmployee && (
+        <EvaluationViewModal
+          employeeId={supervisorPerformanceEmployee.id}
+          employeeName={getEmployeeName(supervisorPerformanceEmployee)}
+          viewer="supervisor"
+          onClose={() => setSupervisorPerformanceEmployee(null)}
         />
       )}
 
@@ -1773,7 +1985,6 @@ export function EmployeesPage({
           employee={editEmployee}
           departments={activeDepartments}
           attendanceModeOptions={attendanceModeOptions}
-          positions={positions}
           supervisors={supervisors}
           lockedDepartmentName={lockedDepartmentName}
           onClose={() => setEditEmployee(null)}

@@ -298,6 +298,7 @@ model Department {
   division_id    String?
   divisions      divisions?     @relation(fields: [division_id], references: [id])
   employees      Employee[]
+  positionLinks  PositionDepartment[]
   sections       sections[]
   workLocations  WorkLocation[]
 
@@ -331,12 +332,42 @@ model id_sequences {
   last_number Int @default(0)
 }
 
+// Which departments a Position is offered in (Utilities → Positions). ALL =
+// every department; ALL_EXCEPT = every department not listed in
+// PositionDepartment; ONLY = just the listed ones. New positions default to
+// ONLY with nothing listed, i.e. not offered anywhere until configured —
+// so a title typed into Edit Employee never pops up in Add Employee.
+enum PositionDepartmentScope {
+  ALL
+  ALL_EXCEPT
+  ONLY
+}
+
 model Position {
-  id        String     @id @default(uuid())
-  title     String
-  employees Employee[]
+  id              String                  @id @default(uuid())
+  title           String
+  // Archived positions aren't offered for new employees; anyone already
+  // holding one keeps it.
+  isActive        Boolean                 @default(true) @map("is_active")
+  departmentScope PositionDepartmentScope @default(ONLY) @map("department_scope")
+  createdAt       DateTime                @default(now()) @map("created_at")
+  employees       Employee[]
+  departments     PositionDepartment[]
 
   @@map("positions")
+}
+
+// The departments a Position's departmentScope refers to (the "except" or
+// "only" list). One Position row is shared across departments — never duplicated.
+model PositionDepartment {
+  positionId   String     @map("position_id")
+  departmentId String     @map("department_id")
+  position     Position   @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  department   Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@id([positionId, departmentId])
+  @@index([departmentId])
+  @@map("position_departments")
 }
 
 model Employee {
@@ -347,6 +378,13 @@ model Employee {
   lastName             String                 @map("last_name")
   departmentId         String                 @map("department_id")
   positionId           String                 @map("position_id")
+  // What HR sees and picks ("Regular Employee", "Temporary Employee", …) —
+  // admin-managed under Utilities → Employee Types. employmentStatus below
+  // is copied from this type's employmentStatus on every create/update, and
+  // is what all business rules (probation, leave eligibility, seasonal
+  // accrual) actually read. Kept even if the type is later archived.
+  employeeTypeId       String                 @map("employee_type_id")
+  employeeType         EmployeeType           @relation(fields: [employeeTypeId], references: [id])
   employmentStatus     EmploymentStatus       @default(REGULAR) @map("employment_status")
   // Set once, the moment an Admin manually converts this employee from
   // PROBATIONARY_SEASONAL to PERMANENT_SEASONAL (see EmployeesService.update)
@@ -423,7 +461,29 @@ model Employee {
   @@index([supervisorId])
   @@index([section_id])
   @@index([attendanceMode])
+  @@index([employeeTypeId])
   @@map("employees")
+}
+
+// Admin-managed list behind every Employee Type dropdown/filter (Utilities →
+// Employee Types) — the single source of truth for what's offered, never a
+// hardcoded frontend list. Each type carries the existing EmploymentStatus
+// its employees get (probation gating, leave eligibility, seasonal accrual
+// all keep reading Employee.employmentStatus, unchanged). Admin-added types
+// get REGULAR. Archiving a type only hides it from new assignments;
+// employees already on it keep it.
+model EmployeeType {
+  id             String           @id @default(uuid())
+  name           String           @unique
+  description    String?
+  employmentStatus EmploymentStatus @map("employment_status")
+  isActive       Boolean          @default(true) @map("is_active")
+  createdAt      DateTime         @default(now()) @map("created_at")
+  updatedAt      DateTime         @updatedAt @map("updated_at")
+  archivedAt     DateTime?        @map("archived_at")
+  employees      Employee[]
+
+  @@map("employee_types")
 }
 
 model WorkLocation {

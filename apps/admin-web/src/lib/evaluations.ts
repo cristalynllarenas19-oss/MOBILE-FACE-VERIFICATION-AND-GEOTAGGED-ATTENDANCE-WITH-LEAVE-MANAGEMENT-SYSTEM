@@ -59,6 +59,14 @@ export type AttendanceSummary = {
 // Admin-only, read-only — the most recent SUBMITTED evaluation for this
 // employee (never a Supervisor's in-progress draft, null if none exists yet)
 // plus an auto-generated attendance/punctuality summary over their tenure.
+// Supervisor-only, read-only — same shape as the Admin view, limited by the
+// backend to the caller's own team member and own submitted evaluation.
+export function getEmployeePerformanceForSupervisor(employeeId: string) {
+  return apiRequest<{ evaluation: SubmittedEvaluation | null; attendance: AttendanceSummary }>(
+    `/evaluations/employee/${employeeId}/performance`,
+  );
+}
+
 export function getEmployeeEvaluationForAdmin(employeeId: string) {
   return apiRequest<{ evaluation: SubmittedEvaluation | null; attendance: AttendanceSummary }>(
     `/evaluations/employee/${employeeId}/admin-view`,
@@ -80,4 +88,18 @@ export function submitEvaluation(
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+// Supervisor-only: evaluation status for each employee on the caller's team,
+// read from the evaluations table (never from notifications) — so Employee
+// Details can always reach an evaluation even after its notification is gone.
+export type TeamEvaluationStatus = {
+  employeeId: string;
+  status: "COMPLETED" | "IN_PROGRESS" | "PENDING" | "NOT_DUE";
+  dueDate: string | null;
+  submittedAt: string | null;
+};
+
+export function getTeamEvaluationStatuses() {
+  return apiRequest<TeamEvaluationStatus[]>("/evaluations/team-status");
 }

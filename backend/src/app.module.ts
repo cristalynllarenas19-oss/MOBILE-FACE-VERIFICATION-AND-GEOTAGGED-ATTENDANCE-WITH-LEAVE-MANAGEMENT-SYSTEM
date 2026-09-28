@@ -10,6 +10,7 @@ import { AuditLogsModule } from "./modules/audit-logs/audit-logs.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { BackupModule } from "./modules/backup/backup.module";
 import { DepartmentsModule } from "./modules/departments/departments.module";
+import { EmployeeTypesModule } from "./modules/employee-types/employee-types.module";
 import { EmployeesModule } from "./modules/employees/employees.module";
 import { EvaluationsModule } from "./modules/evaluations/evaluations.module";
 import { FaceVerificationModule } from "./modules/face-verification/face-verification.module";
@@ -20,6 +21,7 @@ import { LeaveTypesModule } from "./modules/leave/leave-types.module";
 import { LeaveBalancesModule } from "./modules/leave/leave-balances.module";
 import { LeaveAccrualModule } from "./modules/leave/leave-accrual.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
+import { PositionsModule } from "./modules/positions/positions.module";
 import { PrismaModule } from "./prisma/prisma.module";
 import { UsersModule } from "./modules/users/users.module";
 import { DashboardModule } from "./modules/dashboard/dashboard.module";
@@ -40,6 +42,8 @@ import { HealthController } from "./health.controller";
     DashboardModule,
     UsersModule,
     DepartmentsModule,
+    PositionsModule,
+    EmployeeTypesModule,
     EmployeesModule,
     EvaluationsModule,
     AttendanceModule,

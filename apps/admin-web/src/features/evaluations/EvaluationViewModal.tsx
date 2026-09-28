@@ -15,6 +15,7 @@ import {
   EvaluationRecommendation,
   SubmittedEvaluation,
   getEmployeeEvaluationForAdmin,
+  getEmployeePerformanceForSupervisor,
 } from "../../lib/evaluations";
 import "./EvaluationModal.css";
 
@@ -66,11 +67,15 @@ export function EvaluationViewModal({
   employeeName,
   onClose,
   onApproved,
+  viewer = "admin",
 }: {
   employeeId: string;
   employeeName: string;
   onClose: () => void;
-  onApproved: (updatedEmployee: any) => void;
+  onApproved?: (updatedEmployee: any) => void;
+  // "supervisor": the evaluating Supervisor's own read-only view — loads via
+  // the Supervisor endpoint and hides Admin-only Approve Regularization.
+  viewer?: "admin" | "supervisor";
 }) {
   const [isLoading, setIsLoading] = useState(true);
   const [evaluation, setEvaluation] = useState<SubmittedEvaluation | null>(null);
@@ -81,7 +86,7 @@ export function EvaluationViewModal({
 
   useEffect(() => {
     let cancelled = false;
-    getEmployeeEvaluationForAdmin(employeeId)
+    (viewer === "supervisor" ? getEmployeePerformanceForSupervisor : getEmployeeEvaluationForAdmin)(employeeId)
       .then((data) => {
         if (cancelled) return;
         setEvaluation(data.evaluation);
@@ -92,7 +97,7 @@ export function EvaluationViewModal({
     return () => {
       cancelled = true;
     };
-  }, [employeeId]);
+  }, [employeeId, viewer]);
 
   async function handleApprove() {
     setIsApproving(true);
@@ -101,7 +106,7 @@ export function EvaluationViewModal({
         method: "PATCH",
         body: JSON.stringify({ employmentStatus: "REGULAR" }),
       });
-      onApproved(updated);
+      onApproved?.(updated);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to approve regularization.");
@@ -183,7 +188,7 @@ export function EvaluationViewModal({
               <button type="button" className="outline-button" onClick={onClose}>
                 Close
               </button>
-              {evaluation && (
+              {evaluation && viewer === "admin" && (
                 <button
                   type="button"
                   className="evaluation-decision-button evaluation-decision-approve"

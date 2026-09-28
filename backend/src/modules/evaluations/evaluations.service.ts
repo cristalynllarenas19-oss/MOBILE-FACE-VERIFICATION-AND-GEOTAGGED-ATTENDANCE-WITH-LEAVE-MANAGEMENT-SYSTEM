@@ -204,6 +204,71 @@ export class EvaluationsService {
     });
   }
 
+  // Supervisor's read-only "View Performance" — the same submitted record and
+  // attendance summary the Admin view shows, but only for a member of the
+  // caller's own team and only their own submitted evaluation.
+  async findPerformanceForSupervisor(employeeId: string, supervisorEmployeeId: string) {
+    await this.assertOwnership(employeeId, supervisorEmployeeId);
+    const [evaluation, attendance] = await Promise.all([
+      this.prisma.probationaryEvaluation.findFirst({
+        where: { employeeId, supervisorId: supervisorEmployeeId, status: "SUBMITTED" },
+        include: { supervisor: { select: { firstName: true, lastName: true, department: { select: { name: true } } } } },
+      }),
+      this.computeAttendanceSummary(employeeId),
+    ]);
+    return { evaluation, attendance };
+  }
+
+  // Persistent access for the Supervisor (Employee Management → Employee
+  // Details → Evaluation, and the mobile Team list) — derived only from the
+  // probationary_evaluations table + the employee record, never from
+  // notifications, so a dismissed/deleted "Evaluation Required" notification
+  // can't hide an evaluation. One row per relevant employee:
+  //   COMPLETED   — submitted (kept forever as history, even after conversion)
+  //   IN_PROGRESS — draft saved
+  //   PENDING     — probationary, 6+ months in, nothing started yet
+  //   NOT_DUE     — probationary but not at 6 months yet (dueDate says when)
+  // Employees with no evaluation and not on probation are omitted.
+  async findTeamStatuses(supervisorEmployeeId: string) {
+    const [team, evaluations] = await Promise.all([
+      this.prisma.employee.findMany({
+        where: { supervisorId: supervisorEmployeeId },
+        select: { id: true, employmentStatus: true, hireDate: true },
+      }),
+      this.prisma.probationaryEvaluation.findMany({
+        where: { supervisorId: supervisorEmployeeId },
+        select: { employeeId: true, status: true, submittedAt: true },
+      }),
+    ]);
+
+    const byEmployee = new Map(evaluations.map((evaluation) => [evaluation.employeeId, evaluation]));
+    const rows: { employeeId: string; status: "COMPLETED" | "IN_PROGRESS" | "PENDING" | "NOT_DUE"; dueDate: Date | null; submittedAt: Date | null }[] = [];
+
+    for (const evaluation of evaluations) {
+      rows.push({
+        employeeId: evaluation.employeeId,
+        status: evaluation.status === "SUBMITTED" ? "COMPLETED" : "IN_PROGRESS",
+        dueDate: null,
+        submittedAt: evaluation.submittedAt,
+      });
+    }
+
+    for (const employee of team) {
+      if (byEmployee.has(employee.id)) continue;
+      if (employee.employmentStatus !== "PROBATIONARY" && employee.employmentStatus !== "PROBATIONARY_SEASONAL") continue;
+      const dueDate = new Date(employee.hireDate);
+      dueDate.setMonth(dueDate.getMonth() + PROBATION_MILESTONE_MONTHS);
+      rows.push({
+        employeeId: employee.id,
+        status: dueDate <= new Date() ? "PENDING" : "NOT_DUE",
+        dueDate,
+        submittedAt: null,
+      });
+    }
+
+    return rows;
+  }
+
   async findForSupervisor(employeeId: string, supervisorEmployeeId: string) {
     await this.assertOwnership(employeeId, supervisorEmployeeId);
     return this.prisma.probationaryEvaluation.findUnique({

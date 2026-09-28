@@ -19,6 +19,7 @@ import {
   SELECTABLE_EMPLOYMENT_STATUS_OPTIONS,
   formatEmploymentStatus,
 } from "../../types/employment";
+import { useEmployeeTypes } from "../../lib/employeeTypes";
 import type { Notification } from "./UtilitiesPage";
 
 type LeaveTypeKind = "GENERAL" | "MATERNITY" | "PATERNITY";
@@ -128,7 +129,11 @@ export function LeaveTypesTab({
 }) {
   const [leaveTypes, setLeaveTypes] = useState<LeaveType[]>([]);
   const [search, setSearch] = useState("");
-  const [classificationFilter, setClassificationFilter] = useState("ALL");
+  // Employee Type filter — options come from Utilities → Employee Types.
+  // A leave type matches when it applies to the selected type's Employment
+  // Status (the same applicableStatuses check as before).
+  const [employeeTypeFilter, setEmployeeTypeFilter] = useState("ALL");
+  const { options: employeeTypeOptions, byId: employeeTypesById } = useEmployeeTypes();
   const [page, setPage] = useState(1);
 
   const [formOpen, setFormOpen] = useState(false);
@@ -149,19 +154,19 @@ export function LeaveTypesTab({
 
   useEffect(() => {
     setPage(1);
-  }, [search, classificationFilter]);
+  }, [search, employeeTypeFilter]);
 
   const visibleLeaveTypes = useMemo(
     () =>
       leaveTypes.filter((type) => {
-        const matchesClassification =
-          classificationFilter === "ALL" ||
-          type.applicableStatuses.includes(classificationFilter as EmploymentStatus);
+        const filterStatus = employeeTypesById.get(employeeTypeFilter)?.employmentStatus;
+        const matchesEmployeeType =
+          employeeTypeFilter === "ALL" || (!!filterStatus && type.applicableStatuses.includes(filterStatus));
         const matchesSearch =
           !search.trim() || type.name.toLowerCase().includes(search.trim().toLowerCase());
-        return matchesClassification && matchesSearch;
+        return matchesEmployeeType && matchesSearch;
       }),
-    [leaveTypes, classificationFilter, search],
+    [leaveTypes, employeeTypeFilter, employeeTypesById, search],
   );
 
   const pageCount = Math.max(1, Math.ceil(visibleLeaveTypes.length / PAGE_SIZE));
@@ -338,12 +343,12 @@ export function LeaveTypesTab({
           </div>
           <DropdownFilter
             className="utilities-select"
-            value={classificationFilter}
-            onChange={setClassificationFilter}
-            options={SELECTABLE_EMPLOYMENT_STATUS_OPTIONS}
-            allLabel="All Classifications"
-            menuLabel="Filter by classification"
-            ariaLabel="Filter leave types by classification"
+            value={employeeTypeFilter}
+            onChange={setEmployeeTypeFilter}
+            options={employeeTypeOptions}
+            allLabel="All Employee Types"
+            menuLabel="Filter by Employee Type"
+            ariaLabel="Filter leave types by employee type"
           />
           {canManage && (
             <button className="primary-button" onClick={openCreateForm}>

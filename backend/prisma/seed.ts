@@ -24,6 +24,18 @@ const permissionRows = [
   ["geolocation:write", "Geolocation"],
   ["announcements:write", "Announcements"],
   ["evaluations:write", "Evaluations"],
+  ["employee-types:write", "Employee Types"],
+] as const;
+
+// Initial rows for Utilities → Employee Types — after first boot these are
+// HR-managed data (renamable/archivable in the app), so an existing row is
+// never overwritten here. Each carries the existing EmploymentStatus its
+// employees get.
+const initialEmployeeTypes = [
+  { name: "Regular Employee", employmentStatus: "REGULAR" },
+  { name: "Probationary Employee", employmentStatus: "PROBATIONARY" },
+  { name: "Permanent Seasonal Employee", employmentStatus: "PERMANENT_SEASONAL" },
+  { name: "Probationary Seasonal Employee", employmentStatus: "PROBATIONARY_SEASONAL" },
 ] as const;
 
 const rolePermissions: Record<RoleCode, string[]> = {
@@ -59,6 +71,7 @@ async function upsertUser(email: string, password: string, roleCode: RoleCode, e
   lastName: string;
   departmentId: string;
   positionId: string;
+  employeeTypeId: string;
   hireDate: Date;
 }) {
   const role = await prisma.role.findUniqueOrThrow({ where: { code: roleCode } });
@@ -188,12 +201,39 @@ async function main() {
     }
   }
 
+  for (const type of initialEmployeeTypes) {
+    await prisma.employeeType.upsert({ where: { name: type.name }, update: {}, create: type });
+  }
+  const regularEmployeeType = await prisma.employeeType.findUniqueOrThrow({ where: { name: "Regular Employee" } });
+
   const hr = await prisma.department.upsert({ where: { name: "Human Resources" }, update: {}, create: { name: "Human Resources" } });
   const production = await prisma.department.upsert({ where: { name: "Production" }, update: {}, create: { name: "Production" } });
   const quality = await prisma.department.upsert({ where: { name: "Quality Control" }, update: {}, create: { name: "Quality Control" } });
   const hrPosition = await prisma.position.upsert({ where: { id: "11111111-1111-4111-8111-111111111111" }, update: { title: "HR Personnel" }, create: { id: "11111111-1111-4111-8111-111111111111", title: "HR Personnel" } });
   const supervisorPosition = await prisma.position.upsert({ where: { id: "22222222-2222-4222-8222-222222222222" }, update: { title: "Department Supervisor" }, create: { id: "22222222-2222-4222-8222-222222222222", title: "Department Supervisor" } });
   const employeePosition = await prisma.position.upsert({ where: { id: "33333333-3333-4333-8333-333333333333" }, update: { title: "Leaf Processor" }, create: { id: "33333333-3333-4333-8333-333333333333", title: "Leaf Processor" } });
+
+  // Initial Utilities → Positions rows (one shared row each). Only created
+  // when missing — after first boot these are HR-managed data.
+  const initialPositions = [
+    { title: "Senior Manager", departmentScope: "ALL", departmentIds: [] as string[] },
+    { title: "Manager I", departmentScope: "ALL_EXCEPT", departmentIds: [hr.id] },
+    { title: "Manager II", departmentScope: "ALL_EXCEPT", departmentIds: [hr.id] },
+    { title: "Manager Trainee", departmentScope: "ONLY", departmentIds: [hr.id] },
+    { title: "HR Manager I", departmentScope: "ONLY", departmentIds: [hr.id] },
+    { title: "HR Manager II", departmentScope: "ONLY", departmentIds: [hr.id] },
+    { title: "HR Director", departmentScope: "ONLY", departmentIds: [hr.id] },
+  ] as const;
+  for (const position of initialPositions) {
+    if (await prisma.position.findFirst({ where: { title: position.title } })) continue;
+    await prisma.position.create({
+      data: {
+        title: position.title,
+        departmentScope: position.departmentScope,
+        departments: { create: position.departmentIds.map((departmentId) => ({ departmentId })) },
+      },
+    });
+  }
 
   // id/coordinates match the canonical Office record already live in
   // production — a since-deleted duplicate was previously seeded at a
@@ -217,6 +257,7 @@ async function main() {
     lastName: "Llarenas",
     departmentId: hr.id,
     positionId: hrPosition.id,
+    employeeTypeId: regularEmployeeType.id,
     hireDate: new Date("2021-01-15"),
   });
   const { employee: supervisor } = await upsertUser("supervisor@universal-leaf.com", "password123", "SUPERVISOR", {
@@ -225,6 +266,7 @@ async function main() {
     lastName: "Higoy",
     departmentId: production.id,
     positionId: supervisorPosition.id,
+    employeeTypeId: regularEmployeeType.id,
     hireDate: new Date("2020-05-10"),
   });
   const { employee, isNew: isNewEmployee } = await upsertUser("employee@universal-leaf.com", "password123", "EMPLOYEE", {
@@ -237,6 +279,7 @@ async function main() {
     // Employee -> Supervisor -> HR leave approval chain.
     departmentId: production.id,
     positionId: employeePosition.id,
+    employeeTypeId: regularEmployeeType.id,
     hireDate: new Date("2023-03-01"),
   });
   // Only wire the demo supervisor link on first bootstrap — on an

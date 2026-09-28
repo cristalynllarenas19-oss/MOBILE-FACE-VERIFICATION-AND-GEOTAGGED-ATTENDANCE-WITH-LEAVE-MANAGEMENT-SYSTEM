@@ -27,6 +27,7 @@ import {
   formatEmploymentStatus,
   SELECTABLE_EMPLOYMENT_STATUS_OPTIONS,
 } from "../../types/employment";
+import { useEmployeeTypes } from "../../lib/employeeTypes";
 import "./LeavePage.css";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -77,6 +78,7 @@ type LeaveRequest = {
     firstName: string;
     lastName: string;
     employmentStatus?: EmploymentStatus;
+    employeeTypeId?: string;
     department?: { name: string };
   };
   leaveType: { id: string; name: string };
@@ -101,6 +103,7 @@ type DirectoryEmployee = {
   firstName: string;
   lastName: string;
   employmentStatus: EmploymentStatus;
+  employeeTypeId?: string;
   department?: { name: string } | null;
   position?: { title: string } | null;
   attendanceMode?: string;
@@ -920,19 +923,17 @@ export function LeavePage({
   const directory = directoryCache.data ?? [];
 
   const { departmentNames: listDepartmentOptions } = useActiveDepartments();
+  // Options for both "All Employee Types" filters on this page — from
+  // Utilities → Employee Types. Filtering only; balances/requests unchanged.
+  const { options: employeeTypeOptions } = useEmployeeTypes();
 
   // Per-employee balance rows for the Leave Balances tab's employee table —
   // keyed by year + Employee Type so switching either automatically
   // refetches (new hires/classification changes/balance updates all show up
   // with no code change). Only fetched while the tab is actually open.
   const classificationBalancesCache = useCachedData<ClassificationBalanceRow[]>(
-    topTab === "balances" ? `leave-balances-by-classification:${summaryYear}:${monitorClassification}` : null,
-    () =>
-      apiRequest<ClassificationBalanceRow[]>(
-        `/leave-balances/by-classification?year=${summaryYear}${
-          monitorClassification === "ALL" ? "" : `&employmentStatus=${monitorClassification}`
-        }`,
-      ),
+    topTab === "balances" ? `leave-balances-by-classification:${summaryYear}:ALL` : null,
+    () => apiRequest<ClassificationBalanceRow[]>(`/leave-balances/by-classification?year=${summaryYear}`),
   );
   const classificationBalances = classificationBalancesCache.data ?? [];
 
@@ -1019,7 +1020,7 @@ export function LeavePage({
           (statusFilter === "REJECTED" && r.status === "NEEDS_REVISION");
         const matchesClassification =
           requestsClassificationFilter === "ALL" ||
-          r.employee.employmentStatus === requestsClassificationFilter;
+          r.employee.employeeTypeId === requestsClassificationFilter;
         const matchesSearch =
           !searchTerm.trim() ||
           getEmployeeName(r)
@@ -1172,6 +1173,7 @@ export function LeavePage({
         return employee ? { ...row, employee } : null;
       })
       .filter((row): row is ClassificationBalanceRow & { employee: DirectoryEmployee } => row !== null)
+      .filter((row) => monitorClassification === "ALL" || row.employee.employeeTypeId === monitorClassification)
       .filter((row) => {
         if (!listDepartmentFilter) return true;
         return row.employee.department?.name === listDepartmentFilter;
@@ -1191,7 +1193,7 @@ export function LeavePage({
     });
 
     return rows;
-  }, [classificationBalances, directory, listDepartmentFilter, listSearch, listSort]);
+  }, [classificationBalances, directory, listDepartmentFilter, listSearch, listSort, monitorClassification]);
 
   useEffect(
     () => setEmployeeListPage(1),
@@ -1451,7 +1453,7 @@ export function LeavePage({
                 className="leave-select"
                 value={requestsClassificationFilter}
                 onChange={setRequestsClassificationFilter}
-                options={SELECTABLE_EMPLOYMENT_STATUS_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+                options={employeeTypeOptions}
                 allLabel="All Employee Types"
                 menuLabel="Filter by employee type"
                 ariaLabel="Filter by employee type"
@@ -1643,7 +1645,7 @@ export function LeavePage({
                 className="employee-list-type-filter"
                 value={monitorClassification}
                 onChange={setMonitorClassification}
-                options={SELECTABLE_EMPLOYMENT_STATUS_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
+                options={employeeTypeOptions}
                 allLabel="All Employee Types"
                 allValue="ALL"
                 menuLabel="Filter by employee type"

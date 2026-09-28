@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Building2, CalendarClock, ClipboardList, DatabaseBackup, History, Megaphone, Timer } from "lucide-react";
+import { Briefcase, Building2, CalendarClock, ClipboardList, DatabaseBackup, History, IdCard, Megaphone, Timer } from "lucide-react";
 import { NotificationModal, type NotificationConfig } from "../../components/ui/NotificationModal";
 import { PermissionCode, permissions } from "../../types/rbac";
 import { LeaveTypesTab } from "./LeaveTypesTab";
@@ -7,12 +7,14 @@ import { UndertimeSettingsCard } from "./UndertimeSettingsCard";
 import { ShiftsTab } from "./ShiftsTab";
 import { AuditLogsTab } from "./AuditLogsTab";
 import { DepartmentsTab } from "./DepartmentsTab";
+import { PositionsTab } from "./PositionsTab";
 import { AnnouncementsTab } from "./AnnouncementsTab";
+import { EmployeeTypesTab } from "./EmployeeTypesTab";
 import { BackupRestoreTab } from "./BackupRestoreTab";
 import "./UtilitiesPage.css";
 
 export type { NotificationConfig as Notification } from "../../components/ui/NotificationModal";
-type UtilTab = "leave-types" | "undertime" | "shifts" | "departments" | "announcements" | "backup-restore" | "audit-logs";
+type UtilTab = "leave-types" | "undertime" | "shifts" | "departments" | "positions" | "announcements" | "employee-types" | "backup-restore" | "audit-logs";
 
 export function UtilitiesPage({ user }: { user?: { permissions: PermissionCode[] } }) {
   const canManageLeaveTypes = user?.permissions.includes(permissions.leaveTypesWrite) ?? true;
@@ -40,6 +42,12 @@ export function UtilitiesPage({ user }: { user?: { permissions: PermissionCode[]
         <button className={tab === "announcements" ? "active" : ""} onClick={() => setTab("announcements")}>
           <Megaphone size={14} /> Announcements
         </button>
+        <button className={tab === "positions" ? "active" : ""} onClick={() => setTab("positions")}>
+          <Briefcase size={14} /> Positions
+        </button>
+        <button className={tab === "employee-types" ? "active" : ""} onClick={() => setTab("employee-types")}>
+          <IdCard size={14} /> Employee Types
+        </button>
         <button className={tab === "backup-restore" ? "active" : ""} onClick={() => setTab("backup-restore")}>
           <DatabaseBackup size={14} /> Backup & Restore
         </button>
@@ -52,7 +60,9 @@ export function UtilitiesPage({ user }: { user?: { permissions: PermissionCode[]
       {tab === "undertime" && <UndertimeSettingsCard canManage={canManageLeaveTypes} notify={setNotification} />}
       {tab === "shifts" && <ShiftsTab canManageShifts={canManageShifts} notify={setNotification} />}
       {tab === "departments" && <DepartmentsTab user={user} notify={setNotification} />}
+      {tab === "positions" && <PositionsTab user={user} notify={setNotification} />}
       {tab === "announcements" && <AnnouncementsTab user={user} notify={setNotification} />}
+      {tab === "employee-types" && <EmployeeTypesTab user={user} notify={setNotification} />}
       {tab === "backup-restore" && <BackupRestoreTab notify={setNotification} />}
       {tab === "audit-logs" && <AuditLogsTab notify={setNotification} />}
     </>

@@ -41,12 +41,30 @@ export class CreateEmployeeDto {
   @IsString()
   department!: string;
 
+  // Id of a position offered in that department (Utilities → Positions) —
+  // validated in EmployeesService.create. Omitted only by older mobile
+  // builds, which fall back to the generic "Employee" position.
+  @IsOptional()
+  @IsString()
+  positionId?: string;
+
   @IsOptional()
   @IsDateString()
   hireDate?: string;
 
+  // Id of an active row from Utilities → Employee Types. The employee's
+  // employmentStatus (the business-rule field) is derived from that type's
+  // Employment Status in EmployeesService — never submitted directly anymore.
+  @IsOptional()
+  @IsString()
+  employeeTypeId?: string;
+
+  // Legacy alternative to employeeTypeId, still accepted from older mobile
+  // builds — resolved to the default type for that Employment Status. One of
+  // the two is required (checked in EmployeesService.create).
+  @IsOptional()
   @IsEnum(CreateEmployeeEmploymentStatus)
-  employmentStatus!: CreateEmployeeEmploymentStatus;
+  employmentStatus?: CreateEmployeeEmploymentStatus;
 
   // Validity is a DB-existence/availability check in EmployeesService, not a
   // compiled enum — the department's own configured mode may also override
@@ -104,13 +122,25 @@ export class UpdateEmployeeDto {
   @IsString()
   department?: string;
 
+  // Legacy free-text title; admin-web now sends positionId instead.
   @IsOptional()
   @IsString()
   position?: string;
 
+  // See CreateEmployeeDto.positionId — validated against the department.
+  @IsOptional()
+  @IsString()
+  positionId?: string;
+
   @IsOptional()
   @IsDateString()
   hireDate?: string;
+
+  // See CreateEmployeeDto.employeeTypeId / employmentStatus. employmentStatus
+  // here is also what Approve Regularization (EvaluationViewModal) sends.
+  @IsOptional()
+  @IsString()
+  employeeTypeId?: string;
 
   @IsOptional()
   @IsEnum(CreateEmployeeEmploymentStatus)

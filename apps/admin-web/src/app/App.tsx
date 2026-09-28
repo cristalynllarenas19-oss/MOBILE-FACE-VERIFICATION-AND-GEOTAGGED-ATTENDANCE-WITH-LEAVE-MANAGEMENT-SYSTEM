@@ -184,6 +184,9 @@ export default function App() {
       adminPermissions: authUser?.adminPermissions as PermissionCode[] | undefined,
       departmentId: authUser?.departmentId,
       department: authUser?.department,
+      // Lets Employee Management recognize the logged-in Supervisor's own
+      // team members (Evaluation / View Performance in Employee Details).
+      employeeId: authUser?.employeeId,
     }),
     [authUser],
   );

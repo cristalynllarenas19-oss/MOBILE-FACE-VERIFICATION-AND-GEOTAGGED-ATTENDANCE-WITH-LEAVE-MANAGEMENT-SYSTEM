@@ -18,6 +18,10 @@ import AestheticScrollView from "../../components/AestheticScrollView";
 import {
   TeamEmployee,
   CreateTeamEmployeeInput,
+  EmployeeTypeOption,
+  TeamEvaluationStatus,
+  getEmployeeTypes,
+  getTeamEvaluationStatuses,
   getTeamEmployees,
   createTeamEmployee,
   updateTeamEmployee,
@@ -28,34 +32,37 @@ import { useCachedData } from "../../utils/dataCache";
 type Props = {
   departmentName?: string;
   currentEmployeeId?: string;
+  // Opens the evaluation form (same one the notification opens).
+  onEvaluateEmployee?: (employeeId: string) => void;
 };
 
-const EMPLOYMENT_STATUSES = ["REGULAR", "PROBATIONARY", "PERMANENT_SEASONAL", "PROBATIONARY_SEASONAL"] as const;
+const EVALUATION_LABEL: Record<TeamEvaluationStatus["status"], string> = {
+  PENDING: "Evaluation pending · Evaluate",
+  IN_PROGRESS: "Evaluation in progress · Continue",
+  COMPLETED: "Evaluation completed · View",
+  NOT_DUE: "",
+};
 
-function getEmploymentStatusLabel(status: string) {
-  if (status === "REGULAR") return "Regular";
-  if (status === "PROBATIONARY") return "Probationary";
-  if (status === "PERMANENT_SEASONAL") return "Permanent Seasonal";
-  if (status === "PROBATIONARY_SEASONAL") return "Probationary Seasonal";
-  return status;
+function getEmployeeTypeLabel(employee: TeamEmployee) {
+  return employee.employeeType?.name ?? "—";
 }
 
 function getName(employee: TeamEmployee) {
   return `${employee.firstName} ${employee.lastName}`;
 }
 
-function emptyForm(departmentName?: string): CreateTeamEmployeeInput {
+function emptyForm(departmentName?: string, defaultEmployeeTypeId = ""): CreateTeamEmployeeInput {
   return {
     firstName: "",
     lastName: "",
     email: "",
     department: departmentName ?? "",
-    employmentStatus: "REGULAR",
+    employeeTypeId: defaultEmployeeTypeId,
     sex: "MALE",
   };
 }
 
-export default function TeamScreen({ departmentName, currentEmployeeId }: Props) {
+export default function TeamScreen({ departmentName, currentEmployeeId, onEvaluateEmployee }: Props) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [search, setSearch] = useState("");
 
@@ -69,6 +76,18 @@ export default function TeamScreen({ departmentName, currentEmployeeId }: Props)
   const { data: roster, isLoading, refresh } = useCachedData<TeamEmployee[]>(
     "team-employees",
     getTeamEmployees,
+  );
+  // Employee Type choices come from the API (admin-managed), oldest first.
+  const { data: employeeTypes } = useCachedData<EmployeeTypeOption[]>("employee-types", getEmployeeTypes);
+  const activeEmployeeTypes = employeeTypes ?? [];
+  // From the evaluations table, not notifications — see getTeamEvaluationStatuses.
+  const { data: evaluationStatuses } = useCachedData<TeamEvaluationStatus[]>(
+    "evaluation-team-status",
+    getTeamEvaluationStatuses,
+  );
+  const evaluationByEmployee = useMemo(
+    () => new Map((evaluationStatuses ?? []).map((row) => [row.employeeId, row])),
+    [evaluationStatuses],
   );
 
   // The roster endpoint returns every employee in the department,
@@ -100,7 +119,7 @@ export default function TeamScreen({ departmentName, currentEmployeeId }: Props)
 
   function openAdd() {
     setEditing(null);
-    setForm(emptyForm(departmentName));
+    setForm(emptyForm(departmentName, activeEmployeeTypes[0]?.id));
     setShowForm(true);
   }
 
@@ -112,7 +131,7 @@ export default function TeamScreen({ departmentName, currentEmployeeId }: Props)
       email: employee.email ?? "",
       department: departmentName ?? employee.department?.name ?? "",
       hireDate: employee.hireDate,
-      employmentStatus: (employee.employmentStatus as CreateTeamEmployeeInput["employmentStatus"]) ?? "REGULAR",
+      employeeTypeId: employee.employeeTypeId ?? "",
       attendanceMode: employee.attendanceMode,
       sex: employee.sex ?? "MALE",
     });
@@ -122,6 +141,10 @@ export default function TeamScreen({ departmentName, currentEmployeeId }: Props)
   async function handleSave() {
     if (!form.firstName.trim() || !form.lastName.trim() || (!editing && !form.email.trim())) {
       setResultModal({ status: "info", title: "Missing Information", message: "First name, last name, and email are required." });
+      return;
+    }
+    if (!form.employeeTypeId) {
+      setResultModal({ status: "info", title: "Missing Information", message: "Employee type is required." });
       return;
     }
 
@@ -206,11 +229,22 @@ export default function TeamScreen({ departmentName, currentEmployeeId }: Props)
                       <Text style={styles.rowName} numberOfLines={1}>{getName(employee)}</Text>
                       <View style={[styles.statusChip, employee.employmentStatus !== "REGULAR" && styles.statusChipMuted]}>
                         <Text style={[styles.statusChipText, employee.employmentStatus !== "REGULAR" && styles.statusChipTextMuted]}>
-                          {getEmploymentStatusLabel(employee.employmentStatus)}
+                          {getEmployeeTypeLabel(employee)}
                         </Text>
                       </View>
                     </View>
                     <Text style={styles.rowMeta}>{employee.position?.title ?? "—"} · {employee.employeeNo}</Text>
+                    {(() => {
+                      const evaluation = evaluationByEmployee.get(employee.id);
+                      if (!evaluation || evaluation.status === "NOT_DUE" || !onEvaluateEmployee) return null;
+                      return (
+                        <Pressable onPress={() => onEvaluateEmployee(employee.id)} hitSlop={6}>
+                          <Text style={[styles.evaluationLink, evaluation.status === "COMPLETED" && styles.evaluationLinkDone]}>
+                            {EVALUATION_LABEL[evaluation.status]}
+                          </Text>
+                        </Pressable>
+                      );
+                    })()}
                   </View>
                   <Pressable style={styles.iconButton} onPress={() => openEdit(employee)} hitSlop={6}>
                     <Ionicons name="pencil-outline" size={17} color="#1680D8" />
@@ -256,16 +290,22 @@ export default function TeamScreen({ departmentName, currentEmployeeId }: Props)
                 <Text style={styles.disabledText}>{form.department || "—"}</Text>
               </View>
 
-              <Text style={styles.label}>Employment Status</Text>
+              <Text style={styles.label}>Employee Type</Text>
               <View style={styles.chipRow}>
-                {EMPLOYMENT_STATUSES.map((status) => (
+                {[
+                  // Keep an archived type the employee already has visible/selected.
+                  ...(editing?.employeeType && !activeEmployeeTypes.some((t) => t.id === editing.employeeTypeId)
+                    ? [{ id: editing.employeeType.id, name: `${editing.employeeType.name} (archived)` }]
+                    : []),
+                  ...activeEmployeeTypes,
+                ].map((type) => (
                   <Pressable
-                    key={status}
-                    style={[styles.chip, form.employmentStatus === status && styles.chipActive]}
-                    onPress={() => setForm((f) => ({ ...f, employmentStatus: status }))}
+                    key={type.id}
+                    style={[styles.chip, form.employeeTypeId === type.id && styles.chipActive]}
+                    onPress={() => setForm((f) => ({ ...f, employeeTypeId: type.id }))}
                   >
-                    <Text style={[styles.chipText, form.employmentStatus === status && styles.chipTextActive]}>
-                      {status.replace("_", " ")}
+                    <Text style={[styles.chipText, form.employeeTypeId === type.id && styles.chipTextActive]}>
+                      {type.name}
                     </Text>
                   </Pressable>
                 ))}
@@ -363,6 +403,8 @@ const styles = StyleSheet.create({
   statusChipText: { fontSize: 9.5, fontWeight: "700", color: "#15803D" },
   statusChipTextMuted: { color: "#64748B" },
   rowMeta: { fontSize: 12, color: "#64748B", marginTop: 2 },
+  evaluationLink: { fontSize: 12, fontWeight: "700", color: "#B45309", marginTop: 4 },
+  evaluationLinkDone: { color: "#15803D" },
   iconButton: { width: 34, height: 34, borderRadius: 10, backgroundColor: "#F8FAFC", alignItems: "center", justifyContent: "center" },
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "flex-end" },
   modalCard: { maxHeight: "85%", backgroundColor: "#FFFFFF", borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20, paddingTop: 12 },

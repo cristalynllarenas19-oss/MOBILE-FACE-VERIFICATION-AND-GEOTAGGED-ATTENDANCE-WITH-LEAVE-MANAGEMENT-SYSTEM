@@ -6,9 +6,9 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Clock,
   Info,
   MapPinned,
-  ScanFace,
   TrendingUp,
   Users,
 } from "lucide-react";
@@ -77,10 +77,6 @@ type DashboardSummary = {
     pendingLeaves: number;
     geotaggedLogs: number;
   };
-  enrollment: {
-    enrolled: number;
-    total: number;
-  };
   geotagging: {
     assigned: number;
     total: number;
@@ -98,7 +94,6 @@ type DashboardSummary = {
 
 const initialSummary: DashboardSummary = {
   stats: { totalEmployees: 0, presentToday: 0, lateToday: 0, absentToday: 0, pendingLeaves: 0, geotaggedLogs: 0 },
-  enrollment: { enrolled: 0, total: 0 },
   geotagging: { assigned: 0, total: 0 },
   calendar: { monthLabel: "", days: [] },
   departmentAttendance: { today: [], week: [], month: [] },
@@ -248,7 +243,6 @@ export function DashboardPage({
     if (!summaryData) return initialSummary;
     return {
       stats: { ...initialSummary.stats, ...summaryData.stats },
-      enrollment: { ...initialSummary.enrollment, ...summaryData.enrollment },
       geotagging: { ...initialSummary.geotagging, ...summaryData.geotagging },
       calendar: { ...initialSummary.calendar, ...summaryData.calendar },
       departmentAttendance: { ...initialSummary.departmentAttendance, ...summaryData.departmentAttendance },
@@ -410,6 +404,7 @@ export function DashboardPage({
       <div className="stats-grid">
         <StatCard label="Total Employees"  value={summary.stats.totalEmployees}  icon={Users}         tone="blue"   />
         <StatCard label="Present Today"    value={summary.stats.presentToday}    icon={CheckCircle2}  tone="green"  />
+        <StatCard label="Late Today"       value={summary.stats.lateToday}       icon={Clock}         tone="yellow" />
         <StatCard label="Absent Today"     value={summary.stats.absentToday}     icon={AlertTriangle} tone="red"    />
         <StatCard label="On Leave Today"   value={onLeaveToday}                  icon={CalendarOff}   tone="pink"   />
         <StatCard
@@ -417,12 +412,6 @@ export function DashboardPage({
           value={summary.geotagging.assigned}
           icon={MapPinned}
           tone="teal"
-        />
-        <StatCard
-          label="Face Enrollment"
-          value={`${summary.enrollment.enrolled}/${summary.enrollment.total}`}
-          icon={ScanFace}
-          tone="purple"
         />
       </div>
 

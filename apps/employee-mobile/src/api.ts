@@ -2,8 +2,7 @@ import * as SecureStore from "expo-secure-store";
 import Constants from "expo-constants";
 import { clearDataCache } from "./utils/dataCache";
 
-const DEFAULT_API_BASE_URL = "https://mobile-face-verification-and-geotagged.onrender.com/api/v1";
-// "https://mobile-face-verification-and-geotagged.onrender.com/api/v1"
+const DEFAULT_API_BASE_URL = "https://backend-production-etala.up.railway.app/api/v1";
 // "http://localhost:3001/api/v1"
 function getMetroHost() {
   const metroHost = (
@@ -376,9 +375,12 @@ export type AppNotification = {
   createdAt: string;
 };
 
-// 60s, not 15s — Render's free tier can take 50+ seconds to wake a cold
-// instance, and a shorter timeout was aborting the very first request after
-// any period of inactivity, well before the server actually responded.
+// 60s, not 15s. Originally sized for Render's free tier, which could take
+// 50+ seconds to wake a cold instance — a shorter timeout was aborting the
+// very first request after any period of inactivity, well before the server
+// actually responded. Now pointed at Railway (see DEFAULT_API_BASE_URL
+// above), which doesn't sleep the same way, but kept generous rather than
+// re-tuned blind without measuring Railway's own worst case.
 const REQUEST_TIMEOUT_MS = 60000;
 
 async function fetchFromApi(path: string, options: RequestInit, token?: string | null) {
@@ -807,6 +809,8 @@ export type TeamEmployee = {
   lastName: string;
   email?: string;
   employmentStatus: string;
+  employeeTypeId?: string;
+  employeeType?: { id: string; name: string; isActive: boolean } | null;
   attendanceMode?: AttendanceMode;
   sex?: "MALE" | "FEMALE";
   hireDate?: string;
@@ -821,13 +825,22 @@ export type CreateTeamEmployeeInput = {
   email: string;
   department: string;
   hireDate?: string;
-  employmentStatus: "REGULAR" | "PROBATIONARY" | "PERMANENT_SEASONAL" | "PROBATIONARY_SEASONAL";
+  // Id of a row from admin-web's Utilities → Employee Types (see getEmployeeTypes).
+  employeeTypeId: string;
   attendanceMode?: AttendanceMode;
   sex: "MALE" | "FEMALE";
   supervisorId?: string;
 };
 
 export type UpdateTeamEmployeeInput = Partial<Omit<CreateTeamEmployeeInput, "email">> & { email?: string };
+
+// Active employee types — the only source for the Employee Type picker; the
+// list is admin-managed (Utilities → Employee Types), never hardcoded here.
+export type EmployeeTypeOption = { id: string; name: string; employmentStatus: string; isActive: boolean };
+
+export async function getEmployeeTypes() {
+  return apiRequest<EmployeeTypeOption[]>("/employee-types");
+}
 
 export async function getTeamEmployees() {
   return apiRequest<TeamEmployee[]>("/employees");
@@ -1088,4 +1101,18 @@ export async function submitEvaluation(employeeId: string, input: Required<Omit<
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+// Evaluation status for each employee on the Supervisor's team, read from the
+// evaluations table (never from notifications) — lets the Team tab open an
+// evaluation even after its "Evaluation Required" notification is gone.
+export type TeamEvaluationStatus = {
+  employeeId: string;
+  status: "COMPLETED" | "IN_PROGRESS" | "PENDING" | "NOT_DUE";
+  dueDate: string | null;
+  submittedAt: string | null;
+};
+
+export async function getTeamEvaluationStatuses() {
+  return apiRequest<TeamEvaluationStatus[]>("/evaluations/team-status");
 }

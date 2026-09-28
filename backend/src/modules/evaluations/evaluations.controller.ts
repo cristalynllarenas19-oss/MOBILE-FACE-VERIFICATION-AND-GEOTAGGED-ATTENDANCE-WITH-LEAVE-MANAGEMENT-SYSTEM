@@ -12,6 +12,14 @@ import { EvaluationsService } from "./evaluations.service";
 export class EvaluationsController {
   constructor(private readonly evaluationsService: EvaluationsService) {}
 
+  // Evaluation status of every employee on the caller's team — the
+  // notification-independent way into each evaluation.
+  @Get("team-status")
+  @RequirePermissions("evaluations:write")
+  findTeamStatuses(@Req() request: Request) {
+    return this.evaluationsService.findTeamStatuses((request as any).user.employeeId);
+  }
+
   @Get("employee/:employeeId")
   @RequirePermissions("evaluations:write")
   findMine(@Param("employeeId") employeeId: string, @Req() request: Request) {
@@ -38,6 +46,14 @@ export class EvaluationsController {
       this.evaluationsService.computeAttendanceSummary(employeeId),
     ]);
     return { evaluation, attendance };
+  }
+
+  // Supervisor counterpart of admin-view: read-only, ownership-checked in
+  // the service (own team member + own submitted evaluation only).
+  @Get("employee/:employeeId/performance")
+  @RequirePermissions("evaluations:write")
+  findPerformance(@Param("employeeId") employeeId: string, @Req() request: Request) {
+    return this.evaluationsService.findPerformanceForSupervisor(employeeId, (request as any).user.employeeId);
   }
 
   @Patch("employee/:employeeId/draft")

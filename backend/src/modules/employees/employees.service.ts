@@ -4,11 +4,13 @@ import * as argon2 from "argon2";
 import { generateTemporaryPassword } from "../../common/utils/password.util";
 import { PrismaService } from "../../prisma/prisma.service";
 import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
+import { EmployeeTypesService } from "../employee-types/employee-types.service";
 import { EvaluationsService } from "../evaluations/evaluations.service";
 import { GeolocationService } from "../geolocation/geolocation.service";
 import { LeaveAccrualService } from "../leave/leave-accrual.service";
 import { MailService } from "../mail/mail.service";
 import { NotificationsService } from "../notifications/notifications.service";
+import { PositionsService } from "../positions/positions.service";
 import { CreateEmployeeDto, UpdateEmployeeDto } from "./dto/create-employee.dto";
 
 const PROBATION_MILESTONE_NOTIFICATION_TYPE = "PROBATION_REGULARIZATION_DUE";
@@ -57,7 +59,22 @@ export class EmployeesService {
     private readonly notifications: NotificationsService,
     private readonly evaluations: EvaluationsService,
     private readonly leaveAccrual: LeaveAccrualService,
+    private readonly employeeTypes: EmployeeTypesService,
+    private readonly positions: PositionsService,
   ) {}
+
+  // Which EmployeeType row a create/update request is asking for. Prefers
+  // employeeTypeId (what both frontends send now); falls back to a bare
+  // employmentStatus from legacy callers. Returns undefined when neither is
+  // present (update: "leave unchanged").
+  private resolveRequestedEmployeeType(
+    dto: { employeeTypeId?: string; employmentStatus?: string },
+    currentTypeId?: string,
+  ) {
+    if (dto.employeeTypeId) return this.employeeTypes.resolveAssignable(dto.employeeTypeId, currentTypeId);
+    if (dto.employmentStatus) return this.employeeTypes.resolveDefaultForEmploymentStatus(dto.employmentStatus);
+    return undefined;
+  }
 
   
   private async resolveAttendanceMode(departmentAttendanceMode: string, requested?: string) {
@@ -79,7 +96,7 @@ export class EmployeesService {
     await this.evaluations.checkEvaluationsDue();
     return this.prisma.employee.findMany({
       where: departmentId ? { departmentId } : undefined,
-      include: { user: true, department: true, position: true, supervisor: true },
+      include: { user: true, department: true, position: true, supervisor: true, employeeType: true },
       // Newest-added employee first (LIFO), matching leave requests.
       orderBy: { createdAt: "desc" },
     });
@@ -201,6 +218,7 @@ export class EmployeesService {
         user: true,
         department: true,
         position: true,
+        employeeType: true,
         faceProfiles: { where: { enrollmentStatus: "ACTIVE" }, select: { id: true }, take: 1 },
       },
     });
@@ -226,7 +244,7 @@ export class EmployeesService {
     return this.prisma.employee.update({
       where: { id: employeeId },
       data: { profilePhotoData, profilePhotoMimeType },
-      include: { user: true, department: true, position: true },
+      include: { user: true, department: true, position: true, employeeType: true },
     });
   }
 
@@ -271,6 +289,10 @@ export class EmployeesService {
     if (existingUser) throw new ConflictException(`An account with the email "${dto.email}" already exists.`);
 
     const role = await this.prisma.role.findUniqueOrThrow({ where: { code: "EMPLOYEE" } });
+
+    const employeeType = await this.resolveRequestedEmployeeType(dto);
+    if (!employeeType) throw new BadRequestException("Employee Type is required.");
+    const employmentStatus = employeeType.employmentStatus;
    
     const department = scopeDepartmentId
       ? await this.prisma.department.findUniqueOrThrow({ where: { id: scopeDepartmentId } })
@@ -280,9 +302,12 @@ export class EmployeesService {
           create: { name: dto.department },
         });
     
-    const position =
-      (await this.prisma.position.findFirst({ where: { title: "Employee" } })) ??
-      (await this.prisma.position.create({ data: { title: "Employee" } }));
+    // Must be offered in this department (e.g. Human Resources + Manager I
+    // is rejected) — see PositionsService.isPositionAvailableIn.
+    const position = dto.positionId
+      ? await this.positions.assertAvailableIn(dto.positionId, department)
+      : (await this.prisma.position.findFirst({ where: { title: "Employee" } })) ??
+        (await this.prisma.position.create({ data: { title: "Employee" } }));
 
     
     const resolvedSupervisorId = await this.resolveSupervisorId(dto.supervisorId, department.id);
@@ -308,12 +333,13 @@ export class EmployeesService {
         departmentId: department.id,
         positionId: position.id,
         hireDate,
-        employmentStatus: dto.employmentStatus,
+        employeeTypeId: employeeType.id,
+        employmentStatus,
         // Hired directly as Permanent Seasonal (no probationary stretch to
         // skip) starts the accrual clock at hireDate itself — the usual case
         // (converted later from PROBATIONARY_SEASONAL) sets this in update()
         // instead, anchored to the conversion date.
-        ...(dto.employmentStatus === "PERMANENT_SEASONAL" ? { permanentSeasonalSince: hireDate } : {}),
+        ...(employmentStatus === "PERMANENT_SEASONAL" ? { permanentSeasonalSince: hireDate } : {}),
         attendanceMode,
         sex: dto.sex,
         soloParentStatus: dto.soloParentStatus ?? "NOT_APPLICABLE",
@@ -324,7 +350,7 @@ export class EmployeesService {
         requiresFaceConsent: true,
         ...(resolvedSupervisorId !== undefined ? { supervisorId: resolvedSupervisorId } : {}),
       },
-      include: { user: true, department: true, position: true, supervisor: true },
+      include: { user: true, department: true, position: true, supervisor: true, employeeType: true },
     });
 
     // Every new hire gets a starting Standard Shift + Office geotag,
@@ -364,6 +390,7 @@ export class EmployeesService {
         firstName: created.firstName,
         lastName: created.lastName,
         department: created.department.name,
+        employeeType: created.employeeType.name,
         employmentStatus: created.employmentStatus,
         attendanceMode: created.attendanceMode,
         sex: created.sex,
@@ -433,22 +460,30 @@ export class EmployeesService {
   async update(id: string, dto: UpdateEmployeeDto, context: AuditLogContext = {}, scopeDepartmentId?: string) {
     const employee = await this.prisma.employee.findUniqueOrThrow({
       where: { id },
-      include: { user: true, department: true, position: true },
+      include: { user: true, department: true, position: true, employeeType: true },
     });
 
     if (scopeDepartmentId && employee.departmentId !== scopeDepartmentId) {
       throw new ForbiddenException("You can only manage employees in your own department.");
     }
 
+    // The type carries the Employment Status; every rule below keys off
+    // nextStatus exactly as it used to key off a submitted employmentStatus.
+    // An archived (SEPARATED) employee keeps that status on edit — only
+    // restore() reactivates them (and their login) — so for them a type
+    // change just re-points employeeTypeId.
+    const nextType = await this.resolveRequestedEmployeeType(dto, employee.employeeTypeId);
+    const nextStatus = employee.employmentStatus === "SEPARATED" ? undefined : nextType?.employmentStatus;
+
     // Mirrors the frontend's disabled dropdown option — enforced here too so
     // the restriction can't be bypassed by calling the API directly. Uses
     // dto.hireDate when the same request also changes it, so a corrected
     // hire date is recalculated against rather than the stale stored one.
-    if (dto.employmentStatus && dto.employmentStatus === REGULARIZATION_TARGET_STATUS[employee.employmentStatus]) {
+    if (nextType && nextStatus && nextStatus === REGULARIZATION_TARGET_STATUS[employee.employmentStatus]) {
       const effectiveHireDate = dto.hireDate ? new Date(dto.hireDate) : employee.hireDate;
       if (effectiveHireDate > probationCutoffDate()) {
         throw new BadRequestException(
-          `This employee cannot be changed to ${dto.employmentStatus === "REGULAR" ? "Regular Employee" : "Permanent Seasonal Employee"} status until they complete ${PROBATION_MILESTONE_MONTHS} months of probation.`,
+          `This employee cannot be changed to ${nextType.name} until they complete ${PROBATION_MILESTONE_MONTHS} months of probation.`,
         );
       }
     }
@@ -464,10 +499,18 @@ export class EmployeesService {
     if (scopeDepartmentId && department && department.id !== scopeDepartmentId) {
       throw new ForbiddenException("You cannot move an employee to another department.");
     }
-    const position = dto.position
-      ? (await this.prisma.position.findFirst({ where: { title: dto.position } })) ??
-        (await this.prisma.position.create({ data: { title: dto.position } }))
-      : null;
+    // positionId (Edit Employee's dropdown) must be offered in the employee's
+    // (possibly new) department — unless it's simply their current position
+    // and they're staying put. A bare position title is the legacy path.
+    const movesDepartment = !!department && department.id !== employee.departmentId;
+    const position = dto.positionId
+      ? dto.positionId === employee.positionId && !movesDepartment
+        ? null
+        : await this.positions.assertAvailableIn(dto.positionId, department ?? employee.department)
+      : dto.position
+        ? (await this.prisma.position.findFirst({ where: { title: dto.position } })) ??
+          (await this.prisma.position.create({ data: { title: dto.position } }))
+        : null;
 
     // If the email is being changed, generate a new temporary password and update the user's password hash.
     const emailChanged = !!dto.email && dto.email !== employee.user?.email;
@@ -518,12 +561,13 @@ export class EmployeesService {
         ...(department ? { departmentId: department.id } : {}),
         ...(position ? { positionId: position.id } : {}),
         ...(dto.hireDate ? { hireDate: new Date(dto.hireDate) } : {}),
-        ...(dto.employmentStatus ? { employmentStatus: dto.employmentStatus } : {}),
+        ...(nextType ? { employeeTypeId: nextType.id } : {}),
+        ...(nextStatus ? { employmentStatus: nextStatus } : {}),
         // Anchors LeaveAccrualService's monthly qualifying-period grid to the
         // conversion moment itself, never the original hireDate — the 6-month
         // PROBATIONARY_SEASONAL stretch never earns anything (see
         // checkProbationaryMilestones above), so the clock can't start until now.
-        ...(dto.employmentStatus === "PERMANENT_SEASONAL" && employee.employmentStatus !== "PERMANENT_SEASONAL"
+        ...(nextStatus === "PERMANENT_SEASONAL" && employee.employmentStatus !== "PERMANENT_SEASONAL"
           ? { permanentSeasonalSince: new Date() }
           : {}),
         ...(resolvedAttendanceMode !== undefined ? { attendanceMode: resolvedAttendanceMode } : {}),
@@ -533,7 +577,7 @@ export class EmployeesService {
         ...(dto.spouseUnemployed !== undefined ? { spouseUnemployed: dto.spouseUnemployed } : {}),
         ...(resolvedSupervisorId !== undefined ? { supervisorId: resolvedSupervisorId } : {}),
       },
-      include: { user: true, department: true, position: true, supervisor: true },
+      include: { user: true, department: true, position: true, supervisor: true, employeeType: true },
     });
 
    
@@ -543,10 +587,10 @@ export class EmployeesService {
     }
 
   
-    if (dto.employmentStatus && dto.employmentStatus !== employee.employmentStatus) {
+    if (nextStatus && nextStatus !== employee.employmentStatus) {
       await this.evaluations.notifyOutcome(updated);
 
-      if (dto.employmentStatus === "PERMANENT_SEASONAL") {
+      if (nextStatus === "PERMANENT_SEASONAL") {
         await this.leaveAccrual.startAccrualForNewlyPermanentSeasonal(id);
       }
 
@@ -556,7 +600,7 @@ export class EmployeesService {
       // were still probationary.
       if (
         updated.sex &&
-        ENTITLED_TO_LEAVE_STATUSES.has(dto.employmentStatus) &&
+        ENTITLED_TO_LEAVE_STATUSES.has(nextStatus) &&
         !ENTITLED_TO_LEAVE_STATUSES.has(employee.employmentStatus)
       ) {
         await this.assignGenderLeaveType(id, updated.sex, updated.employmentStatus);
@@ -600,6 +644,7 @@ export class EmployeesService {
         lastName: employee.lastName,
         department: employee.department.name,
         position: employee.position.title,
+        employeeType: employee.employeeType.name,
         employmentStatus: employee.employmentStatus,
         attendanceMode: employee.attendanceMode,
       },
@@ -609,6 +654,7 @@ export class EmployeesService {
         lastName: updated.lastName,
         department: updated.department.name,
         position: updated.position.title,
+        employeeType: updated.employeeType.name,
         employmentStatus: updated.employmentStatus,
         attendanceMode: updated.attendanceMode,
       },
@@ -659,7 +705,7 @@ export class EmployeesService {
     const archived = await this.prisma.employee.update({
       where: { id },
       data: { employmentStatus: "SEPARATED" },
-      include: { user: true, department: true, position: true },
+      include: { user: true, department: true, position: true, employeeType: true },
     });
 
     await this.auditLogs.record({
@@ -688,7 +734,7 @@ export class EmployeesService {
   async restore(id: string, context: AuditLogContext = {}, scopeDepartmentId?: string) {
     const employee = await this.prisma.employee.findUniqueOrThrow({
       where: { id },
-      include: { user: true },
+      include: { user: true, employeeType: true },
     });
 
     if (scopeDepartmentId && employee.departmentId !== scopeDepartmentId) {
@@ -708,8 +754,11 @@ export class EmployeesService {
 
     const restored = await this.prisma.employee.update({
       where: { id },
-      data: { employmentStatus: "REGULAR" },
-      include: { user: true, department: true, position: true },
+      // Back to the Employment Status of the type they kept while archived —
+      // previously always REGULAR, which silently promoted a separated
+      // probationary employee on restore.
+      data: { employmentStatus: employee.employeeType.employmentStatus },
+      include: { user: true, department: true, position: true, employeeType: true },
     });
 
     await this.auditLogs.record({
@@ -720,7 +769,7 @@ export class EmployeesService {
       entityId: id,
       description: `Restored employee record for ${restored.firstName} ${restored.lastName}.`,
       oldValues: { employmentStatus: employee.employmentStatus, userStatus: employee.user?.status },
-      newValues: { employmentStatus: "REGULAR", userStatus: "ACTIVE" },
+      newValues: { employmentStatus: restored.employmentStatus, userStatus: "ACTIVE" },
     });
 
     return restored;

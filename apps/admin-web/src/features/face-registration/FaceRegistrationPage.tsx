@@ -222,6 +222,10 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
   const [archiveTarget, setArchiveTarget] = useState<FaceProfile | null>(null);
   const [archiving, setArchiving] = useState(false);
   const [consentRefreshing, setConsentRefreshing] = useState(false);
+  // Employee whose consent modal the admin closed with X — only hides the
+  // modal so the admin can move on (e.g. add another employee); consent
+  // stays pending and registration stays blocked.
+  const [consentDismissedFor, setConsentDismissedFor] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -1110,9 +1114,16 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
         </div>
       )}
 
-      {consentPending && selectedEmployee && (
+      {consentPending && selectedEmployee && consentDismissedFor !== selectedEmployee.id && (
         <div className="consent-modal-overlay">
           <div className="consent-modal">
+            <button
+              className="view-modal-close"
+              onClick={() => setConsentDismissedFor(selectedEmployee.id)}
+              aria-label="Close"
+            >
+              <X size={18} />
+            </button>
             <div className="consent-modal-icon">
               <AlertTriangle size={26} />
             </div>

@@ -13,7 +13,7 @@ import Header from "../components/Header";
 import BottomTab, { SUPERVISOR_TABS } from "../components/BottomTab";
 
 import { SupervisorTab } from "../types";
-import { EmployeeProfile, MobileUser, TeamEmployee, getMyProfile, getUnreadNotificationCount, getTeamLeaveRequests, getTeamEmployees } from "../api";
+import { EmployeeProfile, MobileUser, TeamEmployee, getMyProfile, getUnreadNotificationCount, getTeamLeaveRequests, getTeamEmployees, getTeamEvaluationStatuses } from "../api";
 import { CACHE_KEYS, cacheGet, cacheSet, revalidateCached, useCachedData } from "../utils/dataCache";
 
 const NOTIFICATION_POLL_MS = 5000;
@@ -102,14 +102,22 @@ export default function SupervisorMainScreen({ user, onLogout, canSwitchToEmploy
           visible={!!evaluatingEmployeeId}
           employeeId={evaluatingEmployeeId}
           employeeName={evaluatingEmployeeName || "Employee"}
-          onClose={() => setEvaluatingEmployeeId(null)}
+          onClose={() => {
+            setEvaluatingEmployeeId(null);
+            // Refresh the Team tab's evaluation status after a draft/submit.
+            revalidateCached("evaluation-team-status", getTeamEvaluationStatuses).catch(() => undefined);
+          }}
         />
       )}
 
       <View style={{ flex: 1, padding: 16 }}>
         {tab === "dashboard" && <SupervisorDashboardScreen departmentName={user?.department} />}
 
-        {tab === "team" && <TeamScreen departmentName={user?.department} currentEmployeeId={user?.employeeId} />}
+        {tab === "team" && <TeamScreen
+            departmentName={user?.department}
+            currentEmployeeId={user?.employeeId}
+            onEvaluateEmployee={setEvaluatingEmployeeId}
+          />}
 
         {tab === "leave" && (
           <SupervisorLeaveScreen
