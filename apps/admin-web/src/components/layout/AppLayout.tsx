@@ -4,6 +4,7 @@ import {
   CalendarClock,
   CheckSquare,
   ChevronDown,
+  ChevronUp,
   ClipboardList,
   LayoutDashboard,
   LogOut,
@@ -32,6 +33,7 @@ import { CACHE_KEYS, revalidateCached, useCachedData } from "../../lib/dataCache
 import { getLeaveRequests, getLeaveBalances } from "../../features/employee-portal/api";
 import { NotificationPanel } from "./NotificationPanel";
 import { NotificationDetailModal } from "./NotificationDetailModal";
+import { UTILITY_TABS } from "../../features/utilities/UtilitiesPage";
 import "./AppLayout.css";
 import "./NotificationPanel.css";
 
@@ -97,6 +99,7 @@ export function AppLayout({
   onNavigate,
   onSwitchView,
   onLogout,
+  activeUtilityTab,
   user,
 }: {
   children: ReactNode;
@@ -105,12 +108,14 @@ export function AppLayout({
   onNavigate: (page: string, entityId?: string) => void;
   onSwitchView: (view: "admin" | "employee") => void;
   onLogout: () => void;
+  activeUtilityTab?: string;
   user: User;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [utilitiesOpen, setUtilitiesOpen] = useState(activePage === "utilities");
   // Cache-first 
   const notificationsCache = useCachedData<AppNotification[]>(CACHE_KEYS.notifications, fetchNotifications);
   const notifications = notificationsCache.data ?? EMPTY_NOTIFICATIONS;
@@ -316,6 +321,41 @@ export function AppLayout({
         <nav className="nav-list">
           {visibleItems.map((item) => {
             const Icon = item.icon;
+            if (item.id === "utilities") {
+              return (
+                <div key={item.id} className="nav-group">
+                  <button
+                    className={`nav-link ${activePage === item.id ? "active" : ""}`}
+                    onClick={() => setUtilitiesOpen((open) => !open)}
+                    aria-expanded={utilitiesOpen}
+                  >
+                    <Icon size={17} />
+                    <span>{item.label}</span>
+                    {utilitiesOpen ? <ChevronUp size={16} className="nav-chevron" /> : <ChevronDown size={16} className="nav-chevron" />}
+                  </button>
+                  {utilitiesOpen && (
+                    <div className="nav-sublist">
+                      {UTILITY_TABS.map((sub) => {
+                        const SubIcon = sub.icon;
+                        return (
+                          <button
+                            key={sub.id}
+                            className={`nav-link nav-sublink ${activePage === item.id && activeUtilityTab === sub.id ? "active" : ""}`}
+                            onClick={() => {
+                              onNavigate(item.id, sub.id);
+                              setMenuOpen(false);
+                            }}
+                          >
+                            <SubIcon size={16} />
+                            <span>{sub.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            }
             return (
               <button
                 key={item.id}

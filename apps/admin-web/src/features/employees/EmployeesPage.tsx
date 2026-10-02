@@ -1233,55 +1233,16 @@ function ViewEmployeeModal({
   // performance view (attendance summary + submitted evaluation if any).
   onOpenSupervisorPerformance?: () => void;
 }) {
-  // Same condition the "Register Face" button below is hidden for — without
-  // this banner, the button just silently isn't there with no indication of
-  // why (see FaceRegistrationPage's own "Employee Consent Required" modal,
-  // which explains the same wait to an admin already on that page).
+  // Same condition the "Register Face" button below is disabled for — the
+  // banner explains why (see FaceRegistrationPage's own "Employee Consent
+  // Required" modal, which explains the same wait to an admin already on
+  // that page).
   const consentPending = Boolean(
     employee.requiresFaceConsent && !employee.faceConsentAcceptedAt && employee.employmentStatus !== "SEPARATED",
   );
 
   return (
     <EmployeeModal title="Employee Details" description={getEmployeeName(employee)} onClose={onClose}>
-      {consentPending && (
-        <div className="employee-consent-banner" role="alert">
-          <AlertTriangle size={22} className="employee-consent-banner-icon" />
-          <div>
-            <strong>Face consent pending</strong>
-            <p>
-              This employee hasn't accepted the face-data consent on the mobile app yet. Face registration is
-              unavailable until they log in and accept it.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {isDueForRegularizationReview(employee) && (
-        <div className="employee-regularization-banner" role="alert">
-          <UserCheck size={22} className="employee-regularization-banner-icon" />
-          <div>
-            <strong>Regularization review recommended</strong>
-            <p>
-              This employee has completed six (6) months of probationary employment and is eligible for
-              regularization review. Please review their performance and qualifications before converting their
-              status to Regular.
-            </p>
-            {/* Admin gets the Admin view (with Approve); the employee's own
-                Supervisor gets their read-only view — same button, same place. */}
-            {(canViewPerformance || onOpenSupervisorPerformance) && (
-              <button
-                type="button"
-                className="outline-button"
-                style={{ marginTop: 10 }}
-                onClick={canViewPerformance ? onViewPerformance : onOpenSupervisorPerformance}
-              >
-                View Performance
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
       <div className="employee-detail-grid">
         <div>
           <span>Email</span>
@@ -1337,7 +1298,7 @@ function ViewEmployeeModal({
                     : EVALUATION_STATUS_LABEL[evaluation.status]}
                 </Badge>
               )}
-              {/* Already offered in the regularization banner above when it's shown. */}
+              {/* Already offered in the regularization banner below when it's shown. */}
               {!isDueForRegularizationReview(employee) && (
                 <button type="button" className="employee-view-button" onClick={onOpenSupervisorPerformance}>
                   View Performance
@@ -1373,6 +1334,45 @@ function ViewEmployeeModal({
           </div>
         )}
       </div>
+
+      {isDueForRegularizationReview(employee) && (
+        <div className="employee-regularization-banner" role="alert">
+          <UserCheck size={22} className="employee-regularization-banner-icon" />
+          <div>
+            <strong>Regularization review recommended</strong>
+            <p>
+              This employee has completed six (6) months of probationary employment and is eligible for
+              regularization review. Please review their performance and qualifications before converting their
+              status to Regular.
+            </p>
+            {/* Admin gets the Admin view (with Approve); the employee's own
+                Supervisor gets their read-only view — same button, same place. */}
+            {(canViewPerformance || onOpenSupervisorPerformance) && (
+              <button
+                type="button"
+                className="outline-button"
+                style={{ marginTop: 10 }}
+                onClick={canViewPerformance ? onViewPerformance : onOpenSupervisorPerformance}
+              >
+                View Performance
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {consentPending && (
+        <div className="employee-consent-banner" role="alert">
+          <AlertTriangle size={22} className="employee-consent-banner-icon" />
+          <div>
+            <strong>Face consent pending</strong>
+            <p>
+              This employee hasn't accepted the face-data consent on the mobile app yet. Face registration is
+              unavailable until they log in and accept it.
+            </p>
+          </div>
+        </div>
+      )}
 
       {employee.employmentStatus === "SEPARATED" && (
         <div className="employee-archive-details">
@@ -1415,7 +1415,13 @@ function ViewEmployeeModal({
           </button>
         )}
         {canRegisterFace && onRegisterFace && (
-          <button type="button" className="primary-button" onClick={onRegisterFace}>
+          <button
+            type="button"
+            className="primary-button"
+            onClick={onRegisterFace}
+            disabled={consentPending}
+            title={consentPending ? "Waiting for the employee to accept the face-data consent on the mobile app" : undefined}
+          >
             <ScanFace size={14} />
             Register Face
           </button>
@@ -1457,8 +1463,15 @@ function ArchiveEmployeeModal({
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
 
-  const handleArchive = async (event: FormEvent<HTMLFormElement>) => {
+  // Step 1 is the Archive Type / Date / Reason form; submitting it only moves
+  // on to the "Are you sure?" step — nothing is saved until that's confirmed.
+  const handleFormSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setError("");
+    setConfirmed(true);
+  };
+
+  const handleArchive = async () => {
     setIsSaving(true);
     setError("");
 
@@ -1469,13 +1482,15 @@ function ArchiveEmployeeModal({
       });
       onArchived(archived);
     } catch (err) {
+      // Back to the form (entries kept) so the error is shown next to them.
       setError(err instanceof Error ? err.message : "Unable to archive employee.");
+      setConfirmed(false);
     } finally {
       setIsSaving(false);
     }
   };
 
-  if (!confirmed) {
+  if (confirmed) {
     return (
       <EmployeeModal title="" onClose={onClose} small>
         <div className="employee-confirm-body">
@@ -1490,10 +1505,11 @@ function ArchiveEmployeeModal({
             Their login will be deactivated.
           </p>
           <div className="employee-confirm-actions">
-            <button type="button" className="employee-archive-action" onClick={() => setConfirmed(true)}>
-              Archive Employee
+            <button type="button" className="employee-archive-action" onClick={handleArchive} disabled={isSaving}>
+              {isSaving ? "Archiving..." : "Archive Employee"}
             </button>
-            <button type="button" className="outline-button" onClick={onClose}>
+            {/* Back to the form with the entries kept. */}
+            <button type="button" className="outline-button" onClick={() => setConfirmed(false)} disabled={isSaving}>
               Cancel
             </button>
           </div>
@@ -1504,7 +1520,7 @@ function ArchiveEmployeeModal({
 
   return (
     <EmployeeModal title="Archive Employee" description={getEmployeeName(employee)} onClose={onClose} small>
-      <form className="employee-form" onSubmit={handleArchive}>
+      <form className="employee-form" onSubmit={handleFormSubmit}>
         <div className="employee-form-grid">
           <label>
             Archive Type
@@ -1541,10 +1557,10 @@ function ArchiveEmployeeModal({
         </label>
         {error && <p className="employee-form-error">{error}</p>}
         <div className="employee-form-actions">
-          <button type="submit" className="employee-archive-action" disabled={isSaving}>
-            {isSaving ? "Archiving..." : "Archive Employee"}
+          <button type="submit" className="employee-archive-action">
+            Archive Employee
           </button>
-          <button type="button" className="outline-button" onClick={onClose} disabled={isSaving}>
+          <button type="button" className="outline-button" onClick={onClose}>
             Cancel
           </button>
         </div>
@@ -1634,6 +1650,26 @@ export function EmployeesPage({
       onFocusHandled?.();
     }
   }, [initialFocusEmployeeId, employees, onFocusHandled]);
+
+  // While Employee Details is open for someone whose face consent is still
+  // pending, silently re-fetch every 5s so "Register Face" enables (and the
+  // banner clears) the moment they accept on mobile — no reopening needed.
+  const viewConsentPending = Boolean(viewEmployee?.requiresFaceConsent && !viewEmployee.faceConsentAcceptedAt);
+  useEffect(() => {
+    if (!viewConsentPending) return;
+    const interval = window.setInterval(() => {
+      employeesCache.refresh().catch(() => undefined);
+    }, 5000);
+    return () => window.clearInterval(interval);
+  }, [viewConsentPending, viewEmployee?.id]);
+
+  useEffect(() => {
+    if (!viewEmployee) return;
+    const fresh = employees.find((employee) => employee.id === viewEmployee.id);
+    if (fresh && fresh.faceConsentAcceptedAt !== viewEmployee.faceConsentAcceptedAt) {
+      setViewEmployee((current) => (current && current.id === fresh.id ? { ...current, faceConsentAcceptedAt: fresh.faceConsentAcceptedAt } : current));
+    }
+  }, [employees]);
 
   const activeEmployeeCount = employees.filter((employee) => employee.employmentStatus !== "SEPARATED").length;
 
@@ -1919,7 +1955,6 @@ export function EmployeesPage({
           canWrite={canWrite}
           canRegisterFace={Boolean(
             onRegisterFace &&
-              !(viewEmployee.requiresFaceConsent && !viewEmployee.faceConsentAcceptedAt) &&
               !registeredFaceEmployeeIds.has(viewEmployee.id) &&
               viewEmployee.employmentStatus !== "SEPARATED",
           )}

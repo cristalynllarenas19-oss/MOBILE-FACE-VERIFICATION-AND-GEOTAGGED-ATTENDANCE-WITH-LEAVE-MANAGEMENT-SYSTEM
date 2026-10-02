@@ -397,6 +397,49 @@
   padding-top: 4px;
 }
 
+/* Read-only Performance Evaluation view (EvaluationViewModal): wider, with
+   stats/ratings/comments laid out in columns so it fits without scrolling.
+   The evaluation form (EvaluationModal) keeps the narrow single column. */
+.evaluation-modal--view {
+  width: min(760px, 100%);
+}
+
+.evaluation-modal--view .evaluation-stat-grid {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.evaluation-modal--view .evaluation-detail-grid {
+  grid-template-columns: repeat(2, 1fr);
+  column-gap: 28px;
+}
+
+.evaluation-modal--view .evaluation-detail-grid > div:nth-last-child(-n + 2) {
+  border-bottom: none;
+}
+
+.evaluation-view-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28px;
+  align-items: start;
+}
+
+@media (max-width: 640px) {
+  .evaluation-modal--view .evaluation-stat-grid,
+  .evaluation-modal--view .evaluation-detail-grid,
+  .evaluation-view-columns {
+    grid-template-columns: 1fr;
+  }
+
+  .evaluation-modal--view .evaluation-stat-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .evaluation-modal--view .evaluation-detail-grid > div:nth-last-child(2) {
+    border-bottom: 1px solid #edf2f7;
+  }
+}
+
 @media (max-width: 480px) {
   .evaluation-modal-actions {
     flex-direction: column-reverse;

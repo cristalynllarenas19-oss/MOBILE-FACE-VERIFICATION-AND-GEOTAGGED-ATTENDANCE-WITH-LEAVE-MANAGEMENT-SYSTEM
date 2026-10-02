@@ -155,10 +155,34 @@
   margin-top: 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 2px;
   flex: 1 1 auto;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   min-height: 0;
+  margin-right: -12px;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: #94a3b8 #f1f5f9;
+}
+.nav-list::-webkit-scrollbar {
+  width: 4px;
+}
+.nav-list::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 2px;
+}
+.nav-list::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-radius: 2px;
+}
+.nav-list::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+.nav-list::-webkit-scrollbar-button {
+  display: none;
+  height: 0;
+  width: 0;
 }
 
 .nav-link {
@@ -168,7 +192,9 @@
   width: 100%;
 
   
-  flex: 0 1 42px;
+  /* Fixed row height (no shrinking) so expanding Utilities scrolls the
+     list instead of squeezing every item and shifting the layout. */
+  flex: 0 0 42px;
   min-height: 32px;
 
   padding: 8px 12px;
@@ -207,6 +233,30 @@
   background: #dbeafe;
   border-color: #82b1e7;
   font-weight: 650;
+}
+
+/* Utilities: collapsible parent with its sections listed underneath */
+.nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.nav-chevron {
+  margin-left: auto;
+}
+
+.nav-sublist {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 22px;
+}
+
+.nav-sublink {
+  flex: 0 0 auto;
+  padding: 6px 12px;
 }
 
 .sidebar-footer {

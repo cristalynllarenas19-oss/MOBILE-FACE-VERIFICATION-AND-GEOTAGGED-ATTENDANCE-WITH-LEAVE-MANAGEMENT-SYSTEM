@@ -117,7 +117,7 @@ export function EvaluationViewModal({
 
   return (
     <div className="evaluation-modal-backdrop" role="presentation">
-      <section className="evaluation-modal" role="dialog" aria-modal="true" aria-labelledby="evaluation-view-title">
+      <section className="evaluation-modal evaluation-modal--view" role="dialog" aria-modal="true" aria-labelledby="evaluation-view-title">
         <div className="evaluation-modal-header">
           <div>
             <h2 id="evaluation-view-title">Performance Evaluation</h2>
@@ -170,16 +170,22 @@ export function EvaluationViewModal({
                   </div>
                 </div>
 
-                <p className="evaluation-section-title">Supervisor's Comments</p>
-                <blockquote className="evaluation-quote">
-                  {evaluation.comments || "No comments provided."}
-                </blockquote>
+                <div className="evaluation-view-columns">
+                  <div>
+                    <p className="evaluation-section-title">Supervisor's Comments</p>
+                    <blockquote className="evaluation-quote">
+                      {evaluation.comments || "No comments provided."}
+                    </blockquote>
+                  </div>
 
-                <p className="evaluation-section-title">Supervisor Recommendation</p>
-                <div className="evaluation-badge-row">
-                  <Badge tone={evaluation.recommendation ? RECOMMENDATION_TONE[evaluation.recommendation] : "neutral"}>
-                    {evaluation.recommendation ? RECOMMENDATION_LABELS[evaluation.recommendation] : "—"}
-                  </Badge>
+                  <div>
+                    <p className="evaluation-section-title">Supervisor Recommendation</p>
+                    <div className="evaluation-badge-row">
+                      <Badge tone={evaluation.recommendation ? RECOMMENDATION_TONE[evaluation.recommendation] : "neutral"}>
+                        {evaluation.recommendation ? RECOMMENDATION_LABELS[evaluation.recommendation] : "—"}
+                      </Badge>
+                    </div>
+                  </div>
                 </div>
               </>
             )}

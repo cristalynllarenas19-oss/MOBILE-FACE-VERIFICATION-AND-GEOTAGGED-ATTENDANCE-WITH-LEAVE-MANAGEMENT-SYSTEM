@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Briefcase, Building2, CalendarClock, ClipboardList, DatabaseBackup, History, IdCard, Megaphone, Timer } from "lucide-react";
+import { Briefcase, Building2, CalendarClock, ClipboardList, DatabaseBackup, History, IdCard, Megaphone, Timer, type LucideIcon } from "lucide-react";
 import { NotificationModal, type NotificationConfig } from "../../components/ui/NotificationModal";
 import { PermissionCode, permissions } from "../../types/rbac";
 import { LeaveTypesTab } from "./LeaveTypesTab";
@@ -14,47 +14,30 @@ import { BackupRestoreTab } from "./BackupRestoreTab";
 import "./UtilitiesPage.css";
 
 export type { NotificationConfig as Notification } from "../../components/ui/NotificationModal";
-type UtilTab = "leave-types" | "undertime" | "shifts" | "departments" | "positions" | "announcements" | "employee-types" | "backup-restore" | "audit-logs";
+export type UtilTab = "leave-types" | "undertime" | "shifts" | "departments" | "positions" | "announcements" | "employee-types" | "backup-restore" | "audit-logs";
 
-export function UtilitiesPage({ user }: { user?: { permissions: PermissionCode[] } }) {
+// Rendered as the Utilities sub-items in the sidebar (AppLayout) — same
+// order, labels and icons as the former in-page tab bar.
+export const UTILITY_TABS: { id: UtilTab; label: string; icon: LucideIcon }[] = [
+  { id: "leave-types",    label: "Leave Types",      icon: ClipboardList },
+  { id: "undertime",      label: "Undertime",        icon: Timer },
+  { id: "shifts",         label: "Shifts",           icon: CalendarClock },
+  { id: "departments",    label: "Departments",      icon: Building2 },
+  { id: "announcements",  label: "Announcements",    icon: Megaphone },
+  { id: "positions",      label: "Positions",        icon: Briefcase },
+  { id: "employee-types", label: "Employee Types",   icon: IdCard },
+  { id: "backup-restore", label: "Backup & Restore", icon: DatabaseBackup },
+  { id: "audit-logs",     label: "Audit Logs",       icon: History },
+];
+
+export function UtilitiesPage({ user, tab = "leave-types" }: { user?: { permissions: PermissionCode[] }; tab?: UtilTab }) {
   const canManageLeaveTypes = user?.permissions.includes(permissions.leaveTypesWrite) ?? true;
   const canManageShifts = user?.permissions.includes(permissions.schedulesWrite) ?? true;
-  const [tab, setTab] = useState<UtilTab>("leave-types");
   const [notification, setNotification] = useState<NotificationConfig>(null);
 
   return (
     <>
       <NotificationModal notification={notification} onClose={() => setNotification(null)} />
-
-      <div className="filter-tabs utilities-tabs">
-        <button className={tab === "leave-types" ? "active" : ""} onClick={() => setTab("leave-types")}>
-          <ClipboardList size={14} /> Leave Types
-        </button>
-        <button className={tab === "undertime" ? "active" : ""} onClick={() => setTab("undertime")}>
-          <Timer size={14} /> Undertime
-        </button>
-        <button className={tab === "shifts" ? "active" : ""} onClick={() => setTab("shifts")}>
-          <CalendarClock size={14} /> Shifts
-        </button>
-        <button className={tab === "departments" ? "active" : ""} onClick={() => setTab("departments")}>
-          <Building2 size={14} /> Departments
-        </button>
-        <button className={tab === "announcements" ? "active" : ""} onClick={() => setTab("announcements")}>
-          <Megaphone size={14} /> Announcements
-        </button>
-        <button className={tab === "positions" ? "active" : ""} onClick={() => setTab("positions")}>
-          <Briefcase size={14} /> Positions
-        </button>
-        <button className={tab === "employee-types" ? "active" : ""} onClick={() => setTab("employee-types")}>
-          <IdCard size={14} /> Employee Types
-        </button>
-        <button className={tab === "backup-restore" ? "active" : ""} onClick={() => setTab("backup-restore")}>
-          <DatabaseBackup size={14} /> Backup & Restore
-        </button>
-        <button className={tab === "audit-logs" ? "active" : ""} onClick={() => setTab("audit-logs")}>
-          <History size={14} /> Audit Logs
-        </button>
-      </div>
 
       {tab === "leave-types" && <LeaveTypesTab canManage={canManageLeaveTypes} notify={setNotification} />}
       {tab === "undertime" && <UndertimeSettingsCard canManage={canManageLeaveTypes} notify={setNotification} />}

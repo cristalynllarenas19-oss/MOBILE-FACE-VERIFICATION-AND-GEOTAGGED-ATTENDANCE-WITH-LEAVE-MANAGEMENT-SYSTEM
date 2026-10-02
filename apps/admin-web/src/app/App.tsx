@@ -8,7 +8,7 @@ import { LoginPage } from "../features/login/LoginPage";
 import { ReportsPage } from "../features/reports/ReportsPage";
 import { SchedulesPage } from "../features/schedules/SchedulesPage";
 import { UsersPage } from "../features/users/UsersPage";
-import { UtilitiesPage } from "../features/utilities/UtilitiesPage";
+import { UtilitiesPage, type UtilTab } from "../features/utilities/UtilitiesPage";
 import { FaceRegistrationPage, FaceRegistrationEmployee } from "../features/face-registration/FaceRegistrationPage";
 import { GeotaggingPage } from "../features/geotagging/GeotaggingPage";
 // Employee self-service pages (mirrors employee-mobile)
@@ -66,6 +66,9 @@ export default function App() {
   // already selected; cleared on any normal navigation so a later visit to
   // Face Registration starts from a blank picker.
   const [faceRegistrationEmployee, setFaceRegistrationEmployee] = useState<FaceRegistrationEmployee | undefined>(undefined);
+  // Which Utilities section is open — picked from the Utilities sub-items in
+  // the sidebar (passed through onNavigate's entityId).
+  const [utilityTab, setUtilityTab] = useState<UtilTab>("leave-types");
 
   const navigateToAttendance = (filter: AttendanceNavigateFilter) => {
     setAttendanceFilter(filter);
@@ -79,6 +82,7 @@ export default function App() {
     setAttendanceFocusLogId(id === "attendance" ? entityId : undefined);
     setEmployeeFocusId(id === "employees" ? entityId : undefined);
     setFaceRegistrationEmployee(undefined);
+    if (id === "utilities" && entityId) setUtilityTab(entityId as UtilTab);
     setPage(id);
   };
 
@@ -250,6 +254,7 @@ export default function App() {
       onSwitchView={switchView}
       onLogout={handleLogout}
       onNavigate={handleNavigate}
+      activeUtilityTab={utilityTab}
       user={user}
     >
       {renderPage === "dashboard" && <DashboardPage user={user} onNavigateToAttendance={navigateToAttendance} />}
@@ -282,7 +287,7 @@ export default function App() {
       )}
       {renderPage === "schedules" && <SchedulesPage user={user} />}
       {renderPage === "reports" && <ReportsPage user={user} />}
-      {renderPage === "utilities" && <UtilitiesPage user={user} />}
+      {renderPage === "utilities" && <UtilitiesPage user={user} tab={utilityTab} />}
       {/* Employee self-service pages (mirrors employee-mobile) */}
       {needsFaceConsent ? (
         <FaceConsentPage
