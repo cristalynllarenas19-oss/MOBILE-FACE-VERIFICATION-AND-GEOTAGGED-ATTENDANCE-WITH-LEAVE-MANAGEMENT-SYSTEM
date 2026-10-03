@@ -216,6 +216,18 @@
   color: #1a3a5c;
 }
 
+/* Fixed width (not min-width) so every status pill in a column is the same
+   size regardless of label — sized to fit the longest one, "Pending
+   Cancellation". */
+.leave-table-card td .badge {
+  width: 140px;
+  height: 28px;
+  padding: 0 8px;
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 16%, transparent);
+}
+
 .leave-view-button {
   min-width: 94px;
   height: 38px;
@@ -291,7 +303,7 @@
    name and its "View Used Dates" button have space to sit on one line more
    often before wrapping — still capped and still fully responsive below it. */
 .leave-modal--balance {
-  width: min(680px, 100%);
+  width: min(780px, 100%);
 }
 
 .leave-modal-header {
@@ -1300,7 +1312,143 @@
 }
 
 .employee-balance-modal-body {
-  padding: 20px 24px 24px;
+  padding: 18px 24px 22px;
+}
+
+/* Summary on the left, one compact table on the right — fits without
+   scrolling for a normal number of leave types. */
+.employee-balance-layout {
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+}
+
+.employee-balance-summary {
+  padding: 18px 16px;
+  border-radius: 12px;
+  background: #f5f8fb;
+}
+
+.employee-balance-summary .employee-summary-ring-block {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 14px;
+}
+
+.employee-balance-summary .employee-summary-donut-wrap {
+  align-self: center;
+}
+
+.employee-balance-summary .employee-summary-stats {
+  gap: 0;
+}
+
+.employee-balance-summary .employee-summary-hero {
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
+.employee-balance-summary .employee-summary-hero-label {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.employee-balance-summary .employee-summary-stat-row {
+  justify-content: space-between;
+  padding: 7px 0;
+  border-top: 1px solid #e3e9f0;
+}
+
+.employee-balance-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 60px 60px 84px 84px;
+  align-items: center;
+  column-gap: 8px;
+  min-height: 36px;
+  padding: 4px 0;
+  border-bottom: 1px solid #eef2f6;
+}
+
+.employee-balance-row:last-child {
+  border-bottom: none;
+}
+
+.employee-balance-row--head {
+  min-height: 28px;
+  padding-top: 0;
+  border-bottom: 1px solid #dbe5ef;
+}
+
+.employee-balance-row--head span {
+  color: #94a3b8;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  text-align: right;
+}
+
+.employee-balance-row--head span:first-child {
+  text-align: left;
+}
+
+.employee-balance-row .employee-leave-row-label {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.employee-balance-num {
+  color: #52627a;
+  font-size: 12.5px;
+  font-weight: 500;
+  text-align: right;
+}
+
+.employee-balance-num--strong {
+  color: #062b59;
+  font-weight: 700;
+}
+
+/* Icon-only "view used dates" button (tooltip carries the label). */
+.employee-balance-link {
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid #dbe5ef;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #1680d8;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.employee-balance-link:hover {
+  background: #eef4fb;
+  border-color: #2979d0;
+}
+
+.employee-balance-muted {
+  color: #cbd5e1;
+  font-size: 12px;
+  text-align: center;
+  justify-self: end;
+  width: 28px;
+}
+
+@media (max-width: 640px) {
+  .employee-balance-layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .employee-balance-row {
+    grid-template-columns: minmax(0, 1fr) 44px 44px 64px 70px;
+  }
 }
 
 .employee-balance-empty {
@@ -1733,4 +1881,567 @@
 
 .leave-image-lightbox-close:hover {
   background: rgba(255, 255, 255, 0.22);
+}
+
+/* ── Accrual History: toolbar + "Accrual Details" modal ── */
+
+.accrual-toolbar {
+  justify-content: flex-start;
+  margin-bottom: 12px;
+}
+
+.accrual-toolbar .leave-search {
+  min-width: 260px;
+}
+
+.leave-modal--accrual {
+  width: min(780px, 100%);
+}
+
+.accrual-modal-body {
+  padding: 18px 24px 22px;
+}
+
+.accrual-employee {
+  display: grid;
+  /* Name takes the spare room; the two fields size to their own text so a
+     long Employee Type never wraps and both labels sit on the same line. */
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 14px 32px;
+}
+
+.accrual-employee .accrual-avatar + .accrual-employee-name {
+  margin-left: -18px;
+}
+
+.accrual-employee-field strong {
+  white-space: nowrap;
+}
+
+.accrual-avatar {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #1a3a5c;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.accrual-employee-name,
+.accrual-employee-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.accrual-employee-name strong {
+  color: #193d69;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.accrual-employee-name span,
+.accrual-employee-field span,
+.accrual-summary span {
+  color: #7b8794;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.accrual-employee-field strong,
+.accrual-summary strong {
+  color: #1a3a5c;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+/* The clicked period's figures as one quiet strip. */
+.accrual-summary {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr 1.2fr;
+  margin-top: 16px;
+  padding: 12px 6px;
+  border-radius: 10px;
+  background: #f5f8fb;
+}
+
+.accrual-summary > div {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  padding: 0 12px;
+  border-left: 1px solid #e3e9f0;
+}
+
+.accrual-summary > div:first-child {
+  border-left: none;
+}
+
+.accrual-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #1e4f8f;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.accrual-note svg {
+  flex-shrink: 0;
+}
+
+.accrual-section-title {
+  margin: 16px 0 6px;
+  color: #94a3b8;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+/* Only this list scrolls (long-tenured employees), never the whole modal. */
+.accrual-history-scroll {
+  max-height: 176px;
+  overflow-y: auto;
+  border: 1px solid #e3e9f0;
+  border-radius: 10px;
+  scrollbar-width: thin;
+  scrollbar-color: #b8c7d8 #f4f7fb;
+}
+
+.accrual-history-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.accrual-history-table th {
+  position: sticky;
+  top: 0;
+  padding: 8px 12px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e3e9f0;
+  color: #7b8794;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.accrual-history-table td {
+  padding: 7px 12px;
+  border-bottom: 1px solid #eef2f6;
+  color: #1a3a5c;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+}
+
+.accrual-history-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* The period this modal was opened from. */
+.accrual-history-table tr.current td {
+  background: #f5f9ff;
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .accrual-employee {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .accrual-employee-field strong {
+    white-space: normal;
+  }
+
+  .accrual-summary {
+    grid-template-columns: 1fr 1fr;
+    row-gap: 12px;
+  }
+
+  .accrual-summary > div {
+    border-left: none;
+  }
+}
+
+/* ── Leave Request Details (review modal): two columns, no page-long scroll ──
+   Scoped to .leave-modal--review so the other modals sharing these classes
+   keep their existing look. */
+
+.leave-modal--review {
+  width: min(860px, 100%);
+  max-height: calc(100vh - 36px);
+}
+
+.leave-modal--review .leave-modal-header {
+  padding: 16px 24px 12px;
+}
+
+.leave-review-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0 28px;
+  padding: 14px 24px 16px;
+  /* A little taller than the content strictly needs — roomier rows on the
+     left, a bigger history panel on the right. Capped so it still fits a
+     short screen. */
+  min-height: min(470px, calc(100vh - 176px));
+  scrollbar-width: thin;
+  scrollbar-color: #b8c7d8 #f4f7fb;
+}
+
+.leave-review-col {
+  min-width: 0;
+}
+
+/* Right column: the history panel takes whatever height the left column
+   leaves over and scrolls inside itself; the reviewer's inputs sit under it
+   at a fixed size. So the modal's height comes from the (short) details
+   column, never from how long a request's history is. */
+.leave-review-col--side {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.leave-review-history {
+  flex: 1 1 0;
+  min-height: 160px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px 12px 0;
+  border: 1px solid #e3e9f0;
+  border-radius: 10px;
+  background: #fbfcfe;
+  scrollbar-width: thin;
+  scrollbar-color: #b8c7d8 #f4f7fb;
+}
+
+.leave-review-history::-webkit-scrollbar {
+  width: 5px;
+}
+
+.leave-review-history::-webkit-scrollbar-thumb {
+  background: #b8c7d8;
+  border-radius: 999px;
+}
+
+.leave-review-title {
+  margin: 0 0 6px;
+  color: #94a3b8;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+/* Supporting document: a compact strip instead of a tall frame. */
+.leave-modal--review .leave-photo-frame {
+  margin: 0 0 12px;
+  border: 1px solid #e3e9f0;
+}
+
+.leave-modal--review .leave-photo-capture {
+  height: 96px;
+  max-height: 96px;
+}
+
+.leave-modal--review .leave-photo-empty {
+  height: 44px;
+  font-weight: 500;
+}
+
+/* Calm label → value rows. */
+.leave-modal--review .leave-detail-grid {
+  padding: 0;
+}
+
+.leave-modal--review .leave-detail-grid div {
+  min-height: 36px;
+  padding: 5px 0;
+  border-bottom: 1px solid #eef2f6;
+  gap: 16px;
+}
+
+.leave-modal--review .leave-detail-grid div:last-child {
+  border-bottom: none;
+}
+
+.leave-modal--review .leave-detail-grid span {
+  flex-shrink: 0;
+  font-weight: 500;
+}
+
+.leave-modal--review .leave-detail-grid strong {
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.leave-modal--review .leave-detail-grid .leave-balance-alert {
+  min-height: 0;
+  margin: 4px 0;
+}
+
+/* LeaveTimeline is shared (and inline-styled) — only its outer spacing is
+   reset here so it lines up with the column. */
+.leave-review-timeline > div {
+  margin-top: 0 !important;
+  padding: 0 !important;
+  border-top: none !important;
+}
+
+.leave-review-timeline p:first-child {
+  font-size: 10.5px !important;
+  letter-spacing: 0.6px !important;
+  margin-bottom: 8px !important;
+}
+
+.leave-modal--review .leave-remarks-field,
+.leave-modal--review .leave-requirements-checkbox,
+.leave-modal--review .leave-notes-thread {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.leave-modal--review .leave-remarks-field {
+  flex-shrink: 0;
+  gap: 4px;
+  padding-top: 8px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.leave-modal--review .leave-requirements-checkbox {
+  flex-shrink: 0;
+  padding-top: 8px;
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+
+/* Compact resubmission notes inside the history panel: no big image
+   thumbnails (the file name still opens the full preview), nothing wider
+   than the column. */
+.leave-modal--review .leave-notes-thread {
+  gap: 6px;
+  padding: 2px 0 8px;
+  min-width: 0;
+}
+
+.leave-modal--review .leave-notes-thread-label {
+  color: #94a3b8;
+  font-size: 10.5px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+}
+
+.leave-modal--review .leave-note {
+  min-width: 0;
+  padding: 7px 10px;
+  background: #ffffff;
+}
+
+.leave-modal--review .leave-note-header {
+  font-size: 12px;
+}
+
+.leave-modal--review .leave-note p {
+  margin-top: 2px;
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+
+.leave-modal--review .leave-note .leave-attachment-preview--inline,
+.leave-modal--review .leave-note .leave-attachment-link--inline {
+  width: 100%;
+  min-width: 0;
+  margin-top: 4px;
+  padding: 0;
+  border: none;
+  background: none;
+  flex-direction: row;
+  font-size: 11.5px;
+}
+
+.leave-modal--review .leave-note .leave-attachment-preview--inline img {
+  display: none;
+}
+
+.leave-modal--review .leave-note .leave-attachment-preview--inline span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.leave-modal--review .leave-remarks-field textarea {
+  height: 62px;
+  min-height: 62px;
+  padding: 8px 10px;
+  font-size: 12px;
+  resize: none;
+}
+
+/* One fixed-height input area: it shows either the review inputs or the
+   cancellation reason, so switching between them never resizes the modal. */
+.leave-review-inputs {
+  flex: 0 0 196px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* Cancelling is the only action (e.g. an approved request): a normal-size
+   reason box, leaving the rest of the column to the history panel. */
+.leave-review-inputs--compact {
+  flex: 0 0 auto;
+}
+
+.leave-modal--review .leave-review-inputs--compact .leave-remarks-field--fill textarea {
+  height: 78px;
+}
+
+.leave-modal--review .leave-remarks-field--fill {
+  flex: 1 1 auto;
+  grid-template-rows: auto 1fr;
+  min-height: 0;
+}
+
+.leave-modal--review .leave-remarks-field--fill textarea {
+  height: 100%;
+}
+
+/* Supporting document as one row in the details list. */
+.leave-review-doc {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #1680d8;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.leave-review-doc:hover {
+  text-decoration: underline;
+}
+
+.leave-review-doc img {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  border: 1px solid #dbe5ef;
+  object-fit: cover;
+}
+
+.leave-modal--review .leave-detail-grid .leave-review-doc-none {
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+/* Actions stay visible at the bottom; only the body scrolls, and only when
+   a request has an unusually long history. */
+.leave-review-actions {
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  padding: 10px 24px 12px;
+  border-top: 1px solid #e3e9f0;
+}
+
+.leave-review-actions .outline-button,
+.leave-review-actions .leave-reject-button,
+.leave-review-actions .primary-button {
+  height: 36px;
+}
+
+@media (max-width: 760px) {
+  .leave-review-body {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 14px;
+  }
+
+  .leave-review-history {
+    flex: 0 0 auto;
+    max-height: 220px;
+  }
+}
+
+.leave-remarks-field--disabled {
+  color: #b6c2cf;
+}
+
+.leave-remarks-field--disabled textarea {
+  background: #f5f8fb;
+  border-color: #e7edf3;
+  cursor: not-allowed;
+  resize: none;
+}
+
+/* The requirement box sits directly under its checkbox, no label of its own. */
+.leave-modal--review .leave-remarks-field--tight {
+  padding-top: 5px;
+}
+
+/* Review modal side panel: Approval Progress | Resubmission History tabs. */
+.leave-review-history--tabbed {
+  padding-top: 0;
+}
+
+.leave-review-history-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  gap: 4px;
+  margin: 0 -12px 10px;
+  padding: 8px 10px 0;
+  background: #fbfcfe;
+  border-bottom: 1px solid #e3e9f0;
+}
+
+.leave-review-history-tabs button {
+  padding: 6px 10px 8px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: #7b8794;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.leave-review-history-tabs button:hover {
+  color: #1a3a5c;
+}
+
+.leave-review-history-tabs button.active {
+  color: #193d69;
+  border-bottom-color: #2979d0;
+}
+
+/* The tab already names the view — hide each view's own heading. */
+.leave-review-history--tabbed .leave-review-timeline p:first-child,
+.leave-review-history--tabbed .leave-notes-thread-label {
+  display: none;
 }

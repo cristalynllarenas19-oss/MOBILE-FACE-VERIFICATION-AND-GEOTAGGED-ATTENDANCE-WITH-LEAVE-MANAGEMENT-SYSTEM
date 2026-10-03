@@ -10,6 +10,7 @@ import {
   Eye,
   FileText,
   IdCard,
+  Info,
   Paperclip,
   Search,
   X,
@@ -117,6 +118,28 @@ type ClassificationBalanceRow = {
   balances: { leaveTypeId: string; leaveTypeName: string; earnedDays: number; usedDays: number; remainingDays: number }[];
 };
 
+// A request is "open" while something is still waiting on it: a review, a
+// cancellation decision, the employee's resubmission, or an extension
+// decision. Everything else (approved / rejected / cancelled) is history.
+const OPEN_LEAVE_STATUSES = new Set(["PENDING", "SUPERVISOR_APPROVED", "CANCELLATION_PENDING", "NEEDS_REVISION"]);
+
+function isOpenLeaveRequest(r: { status: string; extensionRequested?: boolean; extensionApproved?: boolean | null }) {
+  return OPEN_LEAVE_STATUSES.has(r.status) || Boolean(r.extensionRequested && r.extensionApproved == null);
+}
+
+function openRequestGroup(r: { status: string }): "PENDING" | "CANCELLATION" | "REVISION" {
+  if (r.status === "CANCELLATION_PENDING") return "CANCELLATION";
+  if (r.status === "NEEDS_REVISION") return "REVISION";
+  return "PENDING";
+}
+
+const OPEN_REQUEST_TAB_LABEL = {
+  ALL: "All Open",
+  PENDING: "Pending",
+  CANCELLATION: "Cancellation Requests",
+  REVISION: "Needs Revision",
+} as const;
+
 const LEAVE_TABLE_PAGE_SIZE = 10;
 // Smaller than LEAVE_TABLE_PAGE_SIZE on purpose: this table sits inside the
 // compact Leave Balances Overview card, where a shorter page keeps its
@@ -126,6 +149,8 @@ const EMPLOYEE_LIST_PAGE_SIZE = 5;
 
 type LeaveAccrualHistoryRow = {
   id: string;
+  employeeId: string;
+  employeeNo: string;
   employeeName: string;
   employeeType: string;
   department: string;
@@ -343,6 +368,129 @@ function EmployeeSummaryDonut({ earnedDays, usedDays, remainingDays, balances }:
   );
 }
 
+// ─── Accrual Details modal (Accrual History → View) ─────────────────────────
+// The clicked qualifying period up top, then every period evaluated for that
+// same employee — read straight from the already-loaded accrual history.
+
+// A period that starts and ends on the same day shows as that one date.
+function formatAccrualPeriod(start: string, end: string) {
+  const from = formatDate(start);
+  const to = formatDate(end);
+  return from === to ? from : `${from} – ${to}`;
+}
+
+function AccrualStatusBadge({ status }: { status: LeaveAccrualHistoryRow["attendanceStatus"] }) {
+  return <Badge tone={status === "PERFECT" ? "success" : "danger"}>{status === "PERFECT" ? "Perfect" : "Absent"}</Badge>;
+}
+
+function AccrualDetailsModal({
+  row,
+  history,
+  onClose,
+}: {
+  row: LeaveAccrualHistoryRow;
+  // All of this employee's rows, newest period first.
+  history: LeaveAccrualHistoryRow[];
+  onClose: () => void;
+}) {
+  const initials = row.employeeName
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
+
+  return createPortal(
+    <div className="leave-modal-backdrop" role="presentation" onClick={onClose}>
+      <section
+        className="leave-modal leave-modal--accrual"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="accrual-modal-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="leave-modal-header">
+          <div>
+            <h2 id="accrual-modal-title">Accrual Details</h2>
+            <p>Leave accrual information and history</p>
+          </div>
+          <button className="icon-button" onClick={onClose} aria-label="Close">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="accrual-modal-body">
+          <div className="accrual-employee">
+            <span className="accrual-avatar">{initials}</span>
+            <div className="accrual-employee-name">
+              <strong>{row.employeeName}</strong>
+            </div>
+            <div className="accrual-employee-field">
+              <span>Employee Type</span>
+              <strong>{formatEmploymentStatus(row.employeeType)}</strong>
+            </div>
+            <div className="accrual-employee-field">
+              <span>Department</span>
+              <strong>{row.department}</strong>
+            </div>
+          </div>
+
+          <div className="accrual-summary">
+            <div>
+              <span>Qualifying Period</span>
+              <strong>{formatAccrualPeriod(row.cycleStart, row.cycleEnd)}</strong>
+            </div>
+            <div>
+              <span>Attendance Status</span>
+              <AccrualStatusBadge status={row.attendanceStatus} />
+            </div>
+            <div>
+              <span>Sick Leave Earned</span>
+              <strong>{row.sickLeaveEarned.toFixed(2)}</strong>
+            </div>
+            <div>
+              <span>Vacation Leave Earned</span>
+              <strong>{row.vacationLeaveEarned.toFixed(2)}</strong>
+            </div>
+          </div>
+
+          <p className="accrual-note">
+            <Info size={14} />
+            Accruals are based on attendance records. A qualifying period with an unexcused absence earns no
+            leave credit.
+          </p>
+
+          <p className="accrual-section-title">Accrual History</p>
+          <div className="accrual-history-scroll">
+            <table className="accrual-history-table">
+              <thead>
+                <tr>
+                  <th>Qualifying Period</th>
+                  <th>Attendance Status</th>
+                  <th>Sick Leave</th>
+                  <th>Vacation Leave</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map((entry) => (
+                  <tr key={entry.id} className={entry.id === row.id ? "current" : ""}>
+                    <td>{formatAccrualPeriod(entry.cycleStart, entry.cycleEnd)}</td>
+                    <td><AccrualStatusBadge status={entry.attendanceStatus} /></td>
+                    <td>{entry.sickLeaveEarned.toFixed(2)}</td>
+                    <td>{entry.vacationLeaveEarned.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </div>,
+    document.body,
+  );
+}
+
 // ─── Table pagination footer (shared by every table in this module) ────────
 
 function LeaveTablePagination({ page, pageCount, onChange }: {
@@ -405,7 +553,6 @@ function EmployeeLeaveTypeRow({
   allRequests: LeaveRequest[];
 }) {
   const [showUsedDates, setShowUsedDates] = useState(false);
-  const pct = earnedDays > 0 ? Math.min(100, Math.round((remainingDays / earnedDays) * 100)) : 0;
 
   const usedEntries = allRequests
     .filter(
@@ -418,29 +565,22 @@ function EmployeeLeaveTypeRow({
     .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
 
   return (
-    <div className="employee-leave-row-card">
+    <div className="employee-balance-row">
       <span className="employee-leave-row-label">
         <span className="employee-leave-row-dot" style={{ background: color }} />
         {label}
       </span>
-      <span className="employee-leave-row-meta">
-        Earned: <b>{earnedDays.toFixed(0)}</b>
-      </span>
-      <span className="employee-leave-row-meta">
-        Used: <b>{usedDays.toFixed(0)}</b>
-      </span>
-      <div className="employee-leave-row-track">
-        <div className="employee-leave-row-fill" style={{ width: `${pct}%`, background: color }} />
-      </div>
-      <div className="employee-leave-row-remaining">
-        <strong>{remainingDays.toFixed(0)}</strong> remaining
-      </div>
+      <span className="employee-balance-num">{earnedDays.toFixed(0)}</span>
+      <span className="employee-balance-num">{usedDays.toFixed(0)}</span>
+      <span className="employee-balance-num employee-balance-num--strong">{remainingDays.toFixed(0)}</span>
       <button
         type="button"
-        className="employee-leave-row-usedbtn"
+        className="employee-balance-link"
         onClick={() => setShowUsedDates(true)}
+        title="View used dates"
+        aria-label={`View used dates for ${label}`}
       >
-        View Used Dates
+        <CalendarIcon size={14} />
       </button>
 
       {showUsedDates &&
@@ -578,8 +718,8 @@ function EmployeeListViewButton({
                     <p className="employee-balance-empty-text">No leave balance records for this employee.</p>
                   </div>
                 ) : (
-                  <>
-                    <div className="employee-summary-row">
+                  <div className="employee-balance-layout">
+                    <div className="employee-balance-summary">
                       <EmployeeSummaryDonut
                         earnedDays={totalEarnedDays}
                         usedDays={totalUsedDays}
@@ -588,9 +728,14 @@ function EmployeeListViewButton({
                       />
                     </div>
 
-                    <p className="employee-summary-caption">{employee.firstName.toUpperCase()}'S BALANCE</p>
-
-                    <div className="employee-leave-row-list">
+                    <div className="employee-balance-table">
+                      <div className="employee-balance-row employee-balance-row--head">
+                        <span>Leave type</span>
+                        <span>Earned</span>
+                        <span>Used</span>
+                        <span>Remaining</span>
+                        <span>Used dates</span>
+                      </div>
                       {balances.map((b, index) => (
                         <EmployeeLeaveTypeRow
                           key={b.leaveTypeId}
@@ -606,7 +751,7 @@ function EmployeeListViewButton({
                         />
                       ))}
                     </div>
-                  </>
+                  </div>
                 )}
               </div>
             </section>
@@ -870,6 +1015,9 @@ export function LeavePage({
   const [historyPage, setHistoryPage] = useState(1);
   const [undertimePage, setUndertimePage] = useState(1);
   const [accrualPage, setAccrualPage] = useState(1);
+  const [accrualSearch, setAccrualSearch] = useState("");
+  const [accrualDepartmentFilter, setAccrualDepartmentFilter] = useState("ALL");
+  const [viewingAccrual, setViewingAccrual] = useState<LeaveAccrualHistoryRow | null>(null);
   const [employeeListPage, setEmployeeListPage] = useState(1);
 
   const requestsCache = useCachedData<LeaveRequest[]>("admin-leave-requests", () =>
@@ -1000,24 +1148,23 @@ export function LeavePage({
   }, [reviewRequest]);
 
 
+  // The two tabs split one list by whether a request still needs something:
+  // Leave Requests = still open (HR's to-do list), Leave History = decided
+  // (the record). Display only — a request moves tabs by itself the moment
+  // its status changes; nothing about filing/approval is different.
+  const openRequests = useMemo(() => requests.filter(isOpenLeaveRequest), [requests]);
+  const decidedRequests = useMemo(() => requests.filter((r) => !isOpenLeaveRequest(r)), [requests]);
+
   const statusCounts = useMemo(() => {
-    const counts = { ALL: requests.length, PENDING: 0, APPROVED: 0, REJECTED: 0 };
-    for (const r of requests) {
-      if (r.status === "PENDING" || r.status === "CANCELLATION_PENDING") counts.PENDING += 1;
-      else if (r.status === "APPROVED" || r.status === "SUPERVISOR_APPROVED") counts.APPROVED += 1;
-      else if (r.status === "REJECTED" || r.status === "NEEDS_REVISION") counts.REJECTED += 1;
-    }
+    const counts = { ALL: openRequests.length, PENDING: 0, CANCELLATION: 0, REVISION: 0 };
+    for (const r of openRequests) counts[openRequestGroup(r)] += 1;
     return counts;
-  }, [requests]);
+  }, [openRequests]);
 
   const visibleRequests = useMemo(
     () =>
-      requests.filter((r) => {
-        const matchesStatus =
-          statusFilter === "ALL" ||
-          r.status === statusFilter ||
-          (statusFilter === "PENDING" && r.status === "CANCELLATION_PENDING") ||
-          (statusFilter === "REJECTED" && r.status === "NEEDS_REVISION");
+      openRequests.filter((r) => {
+        const matchesStatus = statusFilter === "ALL" || openRequestGroup(r) === statusFilter;
         const matchesClassification =
           requestsClassificationFilter === "ALL" ||
           r.employee.employeeTypeId === requestsClassificationFilter;
@@ -1028,7 +1175,7 @@ export function LeavePage({
             .includes(searchTerm.trim().toLowerCase());
         return matchesStatus && matchesClassification && matchesSearch;
       }),
-    [requests, statusFilter, requestsClassificationFilter, searchTerm]
+    [openRequests, statusFilter, requestsClassificationFilter, searchTerm]
   );
 
   useEffect(() => setRequestsPage(1), [statusFilter, requestsClassificationFilter, searchTerm]);
@@ -1057,7 +1204,7 @@ export function LeavePage({
 
   const visibleHistoryRequests = useMemo(
     () =>
-      requests
+      decidedRequests
         .filter((r) => {
           const matchesType =
             typeFilter === "ALL" || r.leaveType.id === typeFilter;
@@ -1073,7 +1220,7 @@ export function LeavePage({
           return matchesType && matchesDepartment && matchesDate && matchesSearch;
         })
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
-    [requests, typeFilter, historyDepartmentFilter, dateFiledFilter, searchTerm]
+    [decidedRequests, typeFilter, historyDepartmentFilter, dateFiledFilter, searchTerm]
   );
 
   useEffect(
@@ -1094,9 +1241,50 @@ export function LeavePage({
     undertimePageSafe * LEAVE_TABLE_PAGE_SIZE,
   );
 
-  const accrualPageCount = Math.max(1, Math.ceil(accrualHistory.length / LEAVE_TABLE_PAGE_SIZE));
+  // Search + Department filter for the Accrual History table (display only).
+  const visibleAccrualHistory = useMemo(() => {
+    const query = accrualSearch.trim().toLowerCase();
+    // One summary row per employee (the list arrives newest-first, so the
+    // first row seen is their latest period): Qualifying Period spans their
+    // first period's start to their last period's end, Sick/Vacation Leave
+    // Earned are totals across all periods, and Attendance Status / Date
+    // Credited come from the latest period. Each period on its own is in
+    // that row's View modal.
+    const summaries = new Map<
+      string,
+      { latest: LeaveAccrualHistoryRow; spanStart: string; spanEnd: string; totalSick: number; totalVacation: number; absences: number }
+    >();
+    for (const row of accrualHistory) {
+      const summary = summaries.get(row.employeeId);
+      if (!summary) {
+        summaries.set(row.employeeId, {
+          latest: row,
+          spanStart: row.cycleStart,
+          spanEnd: row.cycleEnd,
+          totalSick: row.sickLeaveEarned,
+          totalVacation: row.vacationLeaveEarned,
+          absences: row.attendanceStatus === "VIOLATED" ? 1 : 0,
+        });
+        continue;
+      }
+      if (row.attendanceStatus === "VIOLATED") summary.absences += 1;
+      if (new Date(row.cycleStart) < new Date(summary.spanStart)) summary.spanStart = row.cycleStart;
+      if (new Date(row.cycleEnd) > new Date(summary.spanEnd)) summary.spanEnd = row.cycleEnd;
+      summary.totalSick += row.sickLeaveEarned;
+      summary.totalVacation += row.vacationLeaveEarned;
+    }
+    return Array.from(summaries.values()).filter(({ latest }) => {
+      if (query && !latest.employeeName.toLowerCase().includes(query)) return false;
+      if (accrualDepartmentFilter !== "ALL" && latest.department !== accrualDepartmentFilter) return false;
+      return true;
+    });
+  }, [accrualHistory, accrualSearch, accrualDepartmentFilter]);
+
+  useEffect(() => setAccrualPage(1), [accrualSearch, accrualDepartmentFilter]);
+
+  const accrualPageCount = Math.max(1, Math.ceil(visibleAccrualHistory.length / LEAVE_TABLE_PAGE_SIZE));
   const accrualPageSafe = Math.min(accrualPage, accrualPageCount);
-  const pagedAccrualHistory = accrualHistory.slice(
+  const pagedAccrualHistory = visibleAccrualHistory.slice(
     (accrualPageSafe - 1) * LEAVE_TABLE_PAGE_SIZE,
     accrualPageSafe * LEAVE_TABLE_PAGE_SIZE,
   );
@@ -1109,6 +1297,18 @@ export function LeavePage({
   // PENDING until HR/Admin acts on it directly (mirrors the backend guard in
   // leave.service.ts). An Admin reviewing their own request is unaffected.
   const isOwnRequest = Boolean(reviewRequest && user?.employeeId && reviewRequest.employee.id === user.employeeId);
+  // Review modal only: when a request can be both reviewed and cancelled,
+  // the Cancellation Reason box replaces the review inputs after "Cancel
+  // Leave" is clicked, instead of all of them showing at once. Pure display
+  // state — cancelRequest/reviewLeave themselves are untouched.
+  const [cancelMode, setCancelMode] = useState(false);
+  // Which of the two history views the review modal's side panel shows.
+  const [historyTab, setHistoryTab] = useState<"progress" | "notes">("progress");
+  useEffect(() => {
+    setCancelMode(false);
+    setHistoryTab("progress");
+  }, [reviewRequest?.id]);
+  const reviewHasNotes = Boolean(reviewRequest?.notes && reviewRequest.notes.length > 0);
 
   // Approval is single-step now; SUPERVISOR_APPROVED only lingers on legacy
   // rows from the old two-step flow, and either role can finalize those.
@@ -1436,13 +1636,13 @@ export function LeavePage({
         <>
           <div className="leave-toolbar">
             <div className="filter-tabs">
-              {(["ALL", "PENDING", "APPROVED", "REJECTED"] as const).map((tab) => (
+              {(["ALL", "PENDING", "CANCELLATION", "REVISION"] as const).map((tab) => (
                 <button
                   key={tab}
                   className={statusFilter === tab ? "active" : ""}
                   onClick={() => setStatusFilter(tab)}
                 >
-                  {tab === "ALL" ? "All Leave" : tab.charAt(0) + tab.slice(1).toLowerCase()}
+                  {OPEN_REQUEST_TAB_LABEL[tab]}
                   {" "}({statusCounts[tab]})
                 </button>
               ))}
@@ -1491,8 +1691,8 @@ export function LeavePage({
                 {visibleRequests.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="leave-empty-state">
-                      {requests.length === 0
-                        ? "No leave requests found."
+                      {openRequests.length === 0
+                        ? "No leave requests are waiting. Decided requests are in Leave History."
                         : "No leave requests match your current filters."}
                     </td>
                   </tr>
@@ -1590,8 +1790,8 @@ export function LeavePage({
                 {visibleHistoryRequests.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="leave-empty-state">
-                      {requests.length === 0
-                        ? "No leave history found."
+                      {decidedRequests.length === 0
+                        ? "No leave history yet."
                         : "No leave history matches your current filters."}
                     </td>
                   </tr>
@@ -1610,7 +1810,7 @@ export function LeavePage({
                       <td data-label="Action">
                         <button
                           className="leave-view-button"
-                          onClick={() => { setReviewRequest(r); setRemarks(""); setRequiresAdditionalRequirements(false); setRequirementDetails(""); setCancelNote(""); setHistoryViewOnly(true); }}
+                          onClick={() => { setReviewRequest(r); setRemarks(""); setRequiresAdditionalRequirements(false); setRequirementDetails(""); setCancelNote(""); setHistoryViewOnly(false); }}
                         >
                           <Eye size={14} /> View
                         </button>
@@ -1776,6 +1976,28 @@ export function LeavePage({
       )}
 
       {topTab === "accrual" && (
+        <>
+        <div className="leave-table-toolbar accrual-toolbar">
+          <div className="leave-search">
+            <Search size={14} />
+            <input
+              type="text"
+              value={accrualSearch}
+              onChange={(e) => setAccrualSearch(e.target.value)}
+              placeholder="Search employee name..."
+              aria-label="Search accrual history by employee name"
+            />
+          </div>
+          <DropdownFilter
+            className="leave-select"
+            value={accrualDepartmentFilter}
+            onChange={setAccrualDepartmentFilter}
+            options={listDepartmentOptions.map((name) => ({ value: name, label: name }))}
+            allLabel="All Departments"
+            menuLabel="Filter by Department"
+            ariaLabel="Filter accrual history by department"
+          />
+        </div>
         <section className="table-card leave-table-card">
           <div className="leave-table-scroll">
           <table>
@@ -1783,32 +2005,41 @@ export function LeavePage({
               <tr>
                 <th>EMPLOYEE</th>
                 <th>EMPLOYEE TYPE</th>
+                <th>DEPARTMENT</th>
                 <th>QUALIFYING PERIOD</th>
                 <th>ATTENDANCE STATUS</th>
                 <th>SICK LEAVE EARNED</th>
                 <th>VACATION LEAVE EARNED</th>
-                <th>DATE CREDITED</th>
+                <th>ACTION</th>
               </tr>
             </thead>
             <tbody>
-              {accrualHistory.length === 0 ? (
+              {visibleAccrualHistory.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="leave-empty-state">No leave accrual history yet.</td>
+                  <td colSpan={8} className="leave-empty-state">
+                    {accrualHistory.length === 0 ? "No leave accrual history yet." : "No accrual records match your search."}
+                  </td>
                 </tr>
               ) : (
-                pagedAccrualHistory.map((row) => (
-                  <tr key={row.id}>
+                pagedAccrualHistory.map(({ latest: row, spanStart, spanEnd, totalSick, totalVacation, absences }) => (
+                  <tr key={row.employeeId}>
                     <td data-label="Employee">{row.employeeName}</td>
                     <td data-label="Employee Type">{formatEmploymentStatus(row.employeeType)}</td>
-                    <td data-label="Qualifying Period">{formatDate(row.cycleStart)} – {formatDate(row.cycleEnd)}</td>
+                    <td data-label="Department">{row.department}</td>
+                    <td data-label="Qualifying Period">{formatAccrualPeriod(spanStart, spanEnd)}</td>
                     <td data-label="Attendance Status">
-                      <Badge tone={row.attendanceStatus === "PERFECT" ? "success" : "danger"}>
-                        {row.attendanceStatus === "PERFECT" ? "Perfect" : "Violated"}
+                      {/* Whole-history summary: every absence-ended period counts once. */}
+                      <Badge tone={absences === 0 ? "success" : "danger"}>
+                        {absences === 0 ? "Perfect" : `${absences} absence${absences === 1 ? "" : "s"}`}
                       </Badge>
                     </td>
-                    <td data-label="Sick Leave Earned">{row.sickLeaveEarned.toFixed(2)}</td>
-                    <td data-label="Vacation Leave Earned">{row.vacationLeaveEarned.toFixed(2)}</td>
-                    <td data-label="Date Credited">{formatDate(row.creditedAt)}</td>
+                    <td data-label="Sick Leave Earned">{totalSick.toFixed(2)}</td>
+                    <td data-label="Vacation Leave Earned">{totalVacation.toFixed(2)}</td>
+                    <td data-label="Action">
+                      <button type="button" className="leave-view-button" onClick={() => setViewingAccrual(row)}>
+                        <Eye size={14} /> View
+                      </button>
+                    </td>
                   </tr>
                 ))
               )}
@@ -1817,13 +2048,22 @@ export function LeavePage({
           </div>
           <LeaveTablePagination page={accrualPageSafe} pageCount={accrualPageCount} onChange={setAccrualPage} />
         </section>
+        </>
+      )}
+
+      {viewingAccrual && (
+        <AccrualDetailsModal
+          row={viewingAccrual}
+          history={accrualHistory.filter((entry) => entry.employeeId === viewingAccrual.employeeId)}
+          onClose={() => setViewingAccrual(null)}
+        />
       )}
 
       {/* ── Review modal ── */}
       {reviewRequest && (
         <div className="leave-modal-backdrop" role="presentation">
           <section
-            className="leave-modal"
+            className="leave-modal leave-modal--review"
             role="dialog"
             aria-modal="true"
             aria-labelledby="leave-review-title"
@@ -1842,51 +2082,47 @@ export function LeavePage({
               </button>
             </div>
 
-            <div className="leave-modal-body">
-            <div
-              className={`leave-photo-frame${
-                attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData) &&
-                !reviewRequest.attachmentMimeType?.startsWith("image/")
-                  ? " leave-photo-frame--file"
-                  : ""
-              }`}
-            >
-              {attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData) ? (
-                reviewRequest.attachmentMimeType?.startsWith("image/") ? (
-                  <button
-                    type="button"
-                    className="leave-photo-capture-button"
-                    onClick={() =>
-                      setImagePreview({
-                        src: attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData)!,
-                        name: reviewRequest.attachmentName ?? "Supporting document",
-                        mimeType: reviewRequest.attachmentMimeType ?? "image/*",
-                      })
-                    }
-                  >
-                    <img
-                      className="leave-photo-capture"
-                      src={attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData)!}
-                      alt={reviewRequest.attachmentName ?? "Supporting document"}
-                    />
-                  </button>
-                ) : (
-                  <a
-                    className="leave-attachment-link leave-attachment-link--inline"
-                    href={attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData)!}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
-                    <FileText size={14} /> {reviewRequest.attachmentName ?? "View document"}
-                  </a>
-                )
-              ) : (
-                <div className="leave-photo-empty">No document submitted</div>
-              )}
-            </div>
-
+            {/* Layout only: request details on the left, approval progress +
+                the reviewer's inputs on the right, actions pinned below. */}
+            <div className="leave-modal-body leave-review-body">
+            <div className="leave-review-col">
+            <p className="leave-review-title">Request Details</p>
             <div className="leave-detail-grid">
-              <div><span>Employee</span><strong>{getEmployeeName(reviewRequest)}</strong></div>
+              <div>
+                <span>Supporting Document</span>
+                {attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData) ? (
+                  reviewRequest.attachmentMimeType?.startsWith("image/") ? (
+                    <button
+                      type="button"
+                      className="leave-review-doc"
+                      onClick={() =>
+                        setImagePreview({
+                          src: attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData)!,
+                          name: reviewRequest.attachmentName ?? "Supporting document",
+                          mimeType: reviewRequest.attachmentMimeType ?? "image/*",
+                        })
+                      }
+                    >
+                      <img
+                        src={attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData)!}
+                        alt={reviewRequest.attachmentName ?? "Supporting document"}
+                      />
+                      View image
+                    </button>
+                  ) : (
+                    <a
+                      className="leave-review-doc"
+                      href={attachmentSrc(reviewRequest.attachmentMimeType, reviewRequest.attachmentData)!}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      <FileText size={14} /> View document
+                    </a>
+                  )
+                ) : (
+                  <strong className="leave-review-doc-none">None submitted</strong>
+                )}
+              </div>
               <div><span>Department</span><strong>{reviewRequest.employee.department?.name ?? "Unassigned"}</strong></div>
               <div><span>Employee Type</span><strong>{formatEmploymentStatus(reviewRequest.employee.employmentStatus)}</strong></div>
               <div><span>Leave Type</span><strong>{reviewRequest.leaveType.name}</strong></div>
@@ -1908,7 +2144,7 @@ export function LeavePage({
                 <div>
                   <span>Leave Balance ({matchingBalance.year})</span>
                   <strong className={wouldExceedBalance ? "leave-balance-warning" : ""}>
-                    {formatEmploymentStatus(reviewRequest.employee.employmentStatus)} — {matchingBalance.remainingDays} of {matchingBalance.earnedDays} days remaining
+                    {matchingBalance.remainingDays} of {matchingBalance.earnedDays} days remaining
                   </strong>
                 </div>
               )}
@@ -1942,10 +2178,42 @@ export function LeavePage({
 
               <div><span>Reason</span><strong>{reviewRequest.reason}</strong></div>
             </div>
+            </div>
 
-            <LeaveTimeline history={reviewRequest.history} status={reviewRequest.status} />
+            <div className="leave-review-col leave-review-col--side">
+            {/* Approval Progress and the Resubmission History are separate
+                views of this one panel (tabs appear only when there are notes). */}
+            <div className={`leave-review-history${reviewHasNotes ? " leave-review-history--tabbed" : ""}`}>
+            {reviewHasNotes && (
+              <div className="leave-review-history-tabs" role="tablist">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={historyTab === "progress"}
+                  className={historyTab === "progress" ? "active" : ""}
+                  onClick={() => setHistoryTab("progress")}
+                >
+                  Approval Progress
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={historyTab === "notes"}
+                  className={historyTab === "notes" ? "active" : ""}
+                  onClick={() => setHistoryTab("notes")}
+                >
+                  Resubmission History ({reviewRequest.notes?.length ?? 0})
+                </button>
+              </div>
+            )}
 
-            {reviewRequest.notes && reviewRequest.notes.length > 0 && (
+            {(!reviewHasNotes || historyTab === "progress") && (
+              <div className="leave-review-timeline">
+                <LeaveTimeline history={reviewRequest.history} status={reviewRequest.status} />
+              </div>
+            )}
+
+            {reviewRequest.notes && reviewRequest.notes.length > 0 && historyTab === "notes" && (
               <div className="leave-notes-thread">
                 <span className="leave-notes-thread-label">Requirements / Resubmission History</span>
                 {reviewRequest.notes.map((note) => (
@@ -2001,57 +2269,72 @@ export function LeavePage({
               </div>
             )}
 
+            </div>
+
             {!historyViewOnly && isOwnRequest && !isAdmin && (
               <p className="leave-remarks-field">
                 This is your own leave request — a Supervisor cannot approve or reject it. It stays pending until HR/Admin reviews it.
               </p>
             )}
 
-            {!historyViewOnly && canReviewRequest && (
-              <>
-                <label className="leave-remarks-field">
-                  Add Remarks
-                  <textarea
-                    value={remarks}
-                    onChange={(e) => setRemarks(e.target.value)}
-                    placeholder="Optional review notes"
-                  />
-                </label>
+            {!historyViewOnly && (canReviewRequest || canCancelRequest) && (
+              <div className={`leave-review-inputs${canReviewRequest ? "" : " leave-review-inputs--compact"}`}>
+                {canReviewRequest && !(canCancelRequest && cancelMode) ? (
+                  <>
+                    <label className="leave-remarks-field">
+                      Add Remarks
+                      <textarea
+                        value={remarks}
+                        onChange={(e) => setRemarks(e.target.value)}
+                        placeholder="Optional review notes"
+                      />
+                    </label>
 
-                <label className="leave-requirements-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={requiresAdditionalRequirements}
-                    onChange={(e) => setRequiresAdditionalRequirements(e.target.checked)}
-                  />
-                  <span>Reject because it requires additional requirements (employee can resubmit)</span>
-                </label>
+                    <label className="leave-requirements-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={requiresAdditionalRequirements}
+                        onChange={(e) => {
+                          setRequiresAdditionalRequirements(e.target.checked);
+                          // Unticking empties the (now disabled) box below.
+                          if (!e.target.checked) setRequirementDetails("");
+                        }}
+                      />
+                      <span>Reject because it requires additional requirements (employee can resubmit)</span>
+                    </label>
 
-                {requiresAdditionalRequirements && (
-                  <label className="leave-remarks-field">
-                    Requirement needed
+                    {/* Always shown (disabled until the box above is ticked) so
+                        the modal keeps one height instead of jumping. */}
+                    <label className={`leave-remarks-field leave-remarks-field--tight${requiresAdditionalRequirements ? "" : " leave-remarks-field--disabled"}`}>
+                      <textarea
+                        aria-label="Requirement needed"
+                        value={requirementDetails}
+                        onChange={(e) => setRequirementDetails(e.target.value)}
+                        placeholder={
+                          requiresAdditionalRequirements
+                            ? "Requirement needed — e.g. medical certificate, proof of travel"
+                            : "Requirement needed (tick the box above first)"
+                        }
+                        disabled={!requiresAdditionalRequirements}
+                      />
+                    </label>
+                  </>
+                ) : (
+                  <label className="leave-remarks-field leave-remarks-field--fill">
+                    Cancellation Reason
                     <textarea
-                      value={requirementDetails}
-                      onChange={(e) => setRequirementDetails(e.target.value)}
-                      placeholder="e.g. Medical certificate, proof of travel..."
+                      value={cancelNote}
+                      onChange={(e) => setCancelNote(e.target.value)}
+                      placeholder="Why is this leave request being cancelled?"
                     />
                   </label>
                 )}
-              </>
+              </div>
             )}
+            </div>
+            </div>
 
-            {!historyViewOnly && canCancelRequest && (
-              <label className="leave-remarks-field">
-                Cancellation Reason
-                <textarea
-                  value={cancelNote}
-                  onChange={(e) => setCancelNote(e.target.value)}
-                  placeholder="Why is this leave request being cancelled?"
-                />
-              </label>
-            )}
-
-            <div className="leave-detail-actions">
+            <div className="leave-detail-actions leave-review-actions">
               {!historyViewOnly && canDecideCancellation && (
                 <>
                   <button className="leave-reject-button" onClick={() => decideCancellation("deny")} disabled={isSaving}>
@@ -2062,7 +2345,7 @@ export function LeavePage({
                   </button>
                 </>
               )}
-              {!historyViewOnly && canReviewRequest && (
+              {!historyViewOnly && canReviewRequest && !(canCancelRequest && cancelMode) && (
                 <>
                   <button className="leave-reject-button" onClick={() => reviewLeave("reject")} disabled={isSaving}>
                     {requiresAdditionalRequirements ? "Reject & Request Resubmission" : "Reject"}
@@ -2074,7 +2357,17 @@ export function LeavePage({
                   )}
                 </>
               )}
-              {!historyViewOnly && canCancelRequest && (
+              {!historyViewOnly && canCancelRequest && canReviewRequest && !cancelMode && (
+                <button className="outline-button" onClick={() => setCancelMode(true)} disabled={isSaving}>
+                  Cancel Leave…
+                </button>
+              )}
+              {!historyViewOnly && canCancelRequest && canReviewRequest && cancelMode && (
+                <button className="outline-button" onClick={() => setCancelMode(false)} disabled={isSaving}>
+                  Back to Review
+                </button>
+              )}
+              {!historyViewOnly && canCancelRequest && (!canReviewRequest || cancelMode) && (
                 <button className="leave-reject-button" onClick={cancelRequest} disabled={isSaving || !cancelNote.trim()}>
                   Cancel Leave
                 </button>
@@ -2096,7 +2389,6 @@ export function LeavePage({
               >
                 Close
               </button>
-            </div>
             </div>
           </section>
         </div>

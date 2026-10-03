@@ -1,7 +1,7 @@
 import "leaflet/dist/leaflet.css";
 
 import { Component, FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, Edit3, Eye, MapPin, Plus, Power, PowerOff, Save, Search, Trash2, Users, X } from "lucide-react";
+import { Check, ChevronDown, Edit3, Eye, MapPin, Plus, Power, PowerOff, Save, Search, Trash2, UserMinus, Users, X } from "lucide-react";
 import L from "leaflet";
 import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
 import markerIconUrl from "leaflet/dist/images/marker-icon.png";
@@ -104,10 +104,13 @@ function ViewAreaEmployeesModal({
   location,
   employeeList,
   onClose,
+  onUnassign,
 }: {
   location: GeotaggedLocation;
   employeeList: EmployeeOption[];
   onClose: () => void;
+  // Omitted for users without geolocation write access — no button shown.
+  onUnassign?: (employee: EmployeeOption) => void;
 }) {
   const [deptFilter, setDeptFilter] = useState("ALL");
 
@@ -196,6 +199,17 @@ function ViewAreaEmployeesModal({
                     {employee.position?.title && <span>{employee.position.title}</span>}
                     {employee.user?.email && <span>{employee.user.email}</span>}
                   </div>
+                  {onUnassign && (
+                    <button
+                      type="button"
+                      className="icon-button location-action-btn location-action-btn--delete"
+                      onClick={() => onUnassign(employee)}
+                      aria-label={`Unassign ${employee.firstName} ${employee.lastName} from ${location.name}`}
+                      title="Unassign employee"
+                    >
+                      <UserMinus size={13} />
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
@@ -389,12 +403,19 @@ function GeotaggingPageContent({
         return fullName.includes(query) || department.includes(query);
       })
       .sort((a, b) => {
-        const aAssigned = currentLocationAssignedIds.has(a.id);
-        const bAssigned = currentLocationAssignedIds.has(b.id);
-        if (aAssigned !== bAssigned) return aAssigned ? -1 : 1;
+        // Assigned to this area first, then everyone who can still be
+        // assigned, then the greyed-out "already assigned to another area"
+        // rows last — so the pickable employees are never buried.
+        const rank = (employee: EmployeeOption) => {
+          if (currentLocationAssignedIds.has(employee.id)) return 0;
+          const isAssignedElsewhere = assignedEmployees.has(employee.id) && employee.attendanceMode !== "FIELD";
+          return isAssignedElsewhere ? 2 : 1;
+        };
+        const rankDiff = rank(a) - rank(b);
+        if (rankDiff !== 0) return rankDiff;
         return `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`);
       });
-  }, [currentLocationAssignedIds, departmentFilter, employeeSearch, employees]);
+  }, [assignedEmployees, currentLocationAssignedIds, departmentFilter, employeeSearch, employees]);
 
   const employeeModeCounts = useMemo(
     () => ({
@@ -737,6 +758,43 @@ function GeotaggingPageContent({
       tone: "danger",
       onConfirm: () => removeLocation(location),
     });
+  }
+
+  // Unassign straight from the "view employees" modal — one employee at a
+  // time, applied immediately (unlike the checklist panel's Save Assignments).
+  function confirmUnassignEmployee(location: GeotaggedLocation, employee: EmployeeOption) {
+    const name = `${employee.firstName} ${employee.lastName}`;
+    setConfirmConfig({
+      title: "Unassign Employee",
+      description: `Are you sure you want to unassign ${name} from "${location.name}"? They will no longer be able to record attendance in this area.`,
+      confirmLabel: "Unassign",
+      tone: "danger",
+      onConfirm: () => unassignEmployee(location, employee),
+    });
+  }
+
+  async function unassignEmployee(location: GeotaggedLocation, employee: EmployeeOption) {
+    try {
+      const updated = await apiRequest<GeotaggedLocation>(
+        `/geolocation/locations/${location.id}/employees/${employee.id}`,
+        { method: "DELETE" },
+      );
+      setLocations((current) => current.map((loc) => (loc.id === updated.id ? updated : loc)));
+      // Keep the assignments checklist in step if this same area is open there.
+      if (editingLocationId === location.id) removeEmployeeFromCurrentLocation(employee.id);
+      setNotice({
+        type: "success",
+        title: "Employee Unassigned",
+        message: `${employee.firstName} ${employee.lastName} was unassigned from "${location.name}".`,
+      });
+    } catch (error) {
+      console.error("Failed to unassign employee", error);
+      setNotice({
+        type: "error",
+        title: "Couldn't Unassign Employee",
+        message: error instanceof Error ? error.message : "Failed to unassign employee.",
+      });
+    }
   }
 
   async function removeLocation(location: GeotaggedLocation) {
@@ -1477,6 +1535,7 @@ function GeotaggingPageContent({
           location={viewingLocation}
           employeeList={getLocationEmployees(viewingLocation)}
           onClose={() => setViewingLocationId(null)}
+          onUnassign={canWrite ? (employee) => confirmUnassignEmployee(viewingLocation, employee) : undefined}
         />
       )}
 

@@ -64,14 +64,21 @@ export class LeaveAccrualService {
       where: { employeeId: { in: employeeIds } },
       orderBy: { cycleEnd: "desc" },
       distinct: ["employeeId"],
-      select: { employeeId: true, cycleEnd: true },
+      select: { employeeId: true, cycleEnd: true, outcome: true },
     });
-    const lastCycleEndByEmployee = new Map(lastRecords.map((r) => [r.employeeId, r.cycleEnd]));
+    const lastRecordByEmployee = new Map(lastRecords.map((r) => [r.employeeId, r]));
 
     const cursors = new Map<string, Date>();
     let earliestCursor: Date | null = null;
     for (const emp of employees) {
-      const cursor = toLocalMidnight(lastCycleEndByEmployee.get(emp.id) ?? emp.permanentSeasonalSince!);
+      // A VIOLATED period ends ON the absence day, so the next period starts
+      // the day after it — same rule the loop below applies within one run.
+      // Resuming on the absence day itself (as this used to) re-evaluated
+      // that same absence on the next run and saved it as a second record.
+      // A PERFECT period's cycleEnd is already the next period's first day.
+      const last = lastRecordByEmployee.get(emp.id);
+      const cursor = toLocalMidnight(last?.cycleEnd ?? emp.permanentSeasonalSince!);
+      if (last?.outcome === "VIOLATED") cursor.setDate(cursor.getDate() + 1);
       cursors.set(emp.id, cursor);
       if (!earliestCursor || cursor < earliestCursor) earliestCursor = cursor;
     }
@@ -273,6 +280,7 @@ export class LeaveAccrualService {
       include: {
         employee: {
           select: {
+            employeeNo: true,
             firstName: true,
             lastName: true,
             employmentStatus: true,
@@ -284,6 +292,9 @@ export class LeaveAccrualService {
 
     return records.map((record) => ({
       id: record.id,
+      // Lets the Accrual Details modal group one employee's periods together.
+      employeeId: record.employeeId,
+      employeeNo: record.employee.employeeNo,
       employeeName: `${record.employee.firstName} ${record.employee.lastName}`,
       employeeType: record.employee.employmentStatus,
       department: record.employee.department.name,

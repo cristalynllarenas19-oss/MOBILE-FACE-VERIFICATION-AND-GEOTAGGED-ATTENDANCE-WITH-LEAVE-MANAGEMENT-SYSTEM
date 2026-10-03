@@ -198,7 +198,8 @@ function AttendanceDetailsModal({
   const [remarks, setRemarks] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
-  const [isFacePreviewOpen, setIsFacePreviewOpen] = useState(false);
+  // Enlarged view of whichever photo was clicked (registered or captured).
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
   const registeredFace = record.employee.faceProfiles?.[0]?.referenceImageData;
 
   const availablePhotoTabs = photoTabOrder.filter((tab) => record.logs.some((log) => log.logType === tab));
@@ -252,7 +253,12 @@ function AttendanceDetailsModal({
 
   return (
     <div className="attendance-modal-backdrop" role="presentation">
-      <section className="attendance-modal" role="dialog" aria-modal="true" aria-labelledby="attendance-modal-title">
+      <section
+        className={`attendance-modal${record.isSynthetic ? " attendance-modal--single" : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="attendance-modal-title"
+      >
         <div className="attendance-modal-header">
           <div>
             <h2 id="attendance-modal-title">Attendance Details</h2>
@@ -267,98 +273,123 @@ function AttendanceDetailsModal({
           <p className="attendance-flagged-banner">
             <AlertTriangle size={16} />
             Face did not match the enrolled profile for this account. Compare the registered photo against the
-            captured photo below before deciding.
+            captured photo before deciding.
           </p>
         )}
 
-        {record.isSynthetic ? (
-          <p className="attendance-synthetic-note">
-            No attendance record — this employee is marked {getStatusLabel(record.status).toLowerCase()} for this date.
-          </p>
-        ) : (
-          <>
-            <div className="attendance-detail-grid">
-              <div>
-                <span>Registered Face</span>
-                {registeredFace ? (
-                  <button type="button" className="attendance-face-thumb-button" onClick={() => setIsFacePreviewOpen(true)}>
-                    <img className="attendance-face-thumb" src={registeredFace} alt="Registered face" />
-                  </button>
-                ) : (
-                  <strong>Not stored</strong>
-                )}
+        {/* Two columns: photo comparison + verification on the left, record
+            details on the right — sized to fit without scrolling. */}
+        <div className="attendance-modal-body">
+          {!record.isSynthetic && (
+            <div className="attendance-modal-col">
+              {availablePhotoTabs.length > 0 && (
+                <div className="attendance-photo-tabs">
+                  {availablePhotoTabs.map((tab) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      className={`attendance-photo-tab${activePhotoTab === tab ? " active" : ""}`}
+                      onClick={() => setActivePhotoTab(tab)}
+                    >
+                      {photoTabLabel(tab)}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div className="attendance-compare">
+                <figure className="attendance-compare-item">
+                  <figcaption>Registered Face</figcaption>
+                  {registeredFace ? (
+                    <button type="button" className="attendance-compare-photo" onClick={() => setPreviewImage(registeredFace)}>
+                      <img src={registeredFace} alt="Registered face" />
+                    </button>
+                  ) : (
+                    <div className="attendance-compare-photo attendance-photo-empty">Not stored</div>
+                  )}
+                </figure>
+                <figure className="attendance-compare-item">
+                  <figcaption>{photoTabLabel(activePhotoTab)} Capture</figcaption>
+                  {photoUri(selectedLog) ? (
+                    <button
+                      type="button"
+                      className="attendance-compare-photo"
+                      onClick={() => setPreviewImage(photoUri(selectedLog))}
+                    >
+                      <img src={photoUri(selectedLog) ?? undefined} alt={`${photoTabLabel(activePhotoTab)} capture`} />
+                    </button>
+                  ) : (
+                    <div className="attendance-compare-photo attendance-photo-empty">No photo captured</div>
+                  )}
+                </figure>
+              </div>
+
+              {/* The one number the reviewer is here to judge. */}
+              <div className="attendance-match">
+                <strong>{selectedLog?.faceSimilarityScore ? `${selectedLog.faceSimilarityScore}%` : "N/A"}</strong>
+                <div>
+                  <span>Face match score</span>
+                  <em>{selectedLog?.verificationStatus ? getStatusLabel(selectedLog.verificationStatus) : "No log"}</em>
+                </div>
+              </div>
+
+              <div className="attendance-rows">
+                <div><span>Captured at</span><strong>{selectedLog ? new Date(selectedLog.capturedAt).toLocaleString() : "No log"}</strong></div>
+                <div><span>Failure reason</span><strong>{selectedLog?.failureReason ?? "None"}</strong></div>
               </div>
             </div>
+          )}
 
-            {availablePhotoTabs.length > 0 && (
-              <div className="attendance-photo-tabs">
-                {availablePhotoTabs.map((tab) => (
-                  <button
-                    key={tab}
-                    type="button"
-                    className={`attendance-photo-tab${activePhotoTab === tab ? " active" : ""}`}
-                    onClick={() => setActivePhotoTab(tab)}
-                  >
-                    {photoTabLabel(tab)}
-                  </button>
-                ))}
-              </div>
+          <div className="attendance-modal-col">
+            {record.isSynthetic && (
+              <p className="attendance-synthetic-note">
+                No attendance record — this employee is marked {getStatusLabel(record.status).toLowerCase()} for this date.
+              </p>
             )}
 
-            <div className="attendance-photo-frame">
-              {photoUri(selectedLog) ? (
-                <img className="attendance-photo-capture" src={photoUri(selectedLog) ?? undefined} alt={`${photoTabLabel(activePhotoTab)} capture`} />
-              ) : (
-                <div className="attendance-photo-empty">No photo captured</div>
+            <div className="attendance-section-title">Employee</div>
+            <div className="attendance-rows">
+              <div><span>Name</span><strong>{getName(record)}</strong></div>
+              <div><span>Position</span><strong>{record.employee.position?.title ?? "—"}</strong></div>
+              <div><span>Department</span><strong>{record.employee.department.name}</strong></div>
+            </div>
+
+            <div className="attendance-section-title">Attendance</div>
+            <div className="attendance-rows">
+              <div><span>Status</span><Badge tone={getStatusTone(record.status)}>{getStatusLabel(record.status)}</Badge></div>
+              {record.status === "ON_LEAVE" && (
+                <div><span>Leave type</span><strong>{record.leaveTypeName ?? "—"}</strong></div>
               )}
             </div>
-
-            <div className="attendance-detail-grid">
-              <div><span>Captured At</span><strong>{selectedLog ? new Date(selectedLog.capturedAt).toLocaleString() : "No log"}</strong></div>
-              <div><span>Face Match Score</span><strong>{selectedLog?.faceSimilarityScore ? `${selectedLog.faceSimilarityScore}%` : "N/A"}</strong></div>
-              <div><span>Verification Status</span><strong>{selectedLog?.verificationStatus ? getStatusLabel(selectedLog.verificationStatus) : "No log"}</strong></div>
-              <div><span>Failure Reason</span><strong>{selectedLog?.failureReason ?? "None"}</strong></div>
+            <div className="attendance-times">
+              <div><span>Time In</span><strong>{formatTime(record.timeInAt, record.status)}</strong></div>
+              <div><span>Lunch Out</span><strong>{formatTime(record.lunchOutAt, record.status)}</strong></div>
+              <div><span>Lunch In</span><strong>{formatTime(record.lunchInAt, record.status)}</strong></div>
+              <div><span>Time Out</span><strong>{formatTime(record.timeOutAt, record.status)}</strong></div>
             </div>
-          </>
-        )}
 
-        <div className="attendance-section-title">Employee &amp; Attendance</div>
-        <div className="attendance-detail-grid attendance-modal-main-grid">
-          <div><span>Employee Name</span><strong>{getName(record)}</strong></div>
-          <div><span>Position</span><strong>{record.employee.position?.title ?? "—"}</strong></div>
-          <div><span>Department</span><strong>{record.employee.department.name}</strong></div>
-          <div><span>Site</span><strong>{record.workLocation?.name ?? "—"}</strong></div>
-          <div><span>Date</span><strong>{formatDate(record.attendanceDate)}</strong></div>
-          <div><span>Time In</span><strong>{formatTime(record.timeInAt, record.status)}</strong></div>
-          <div><span>Time Out</span><strong>{formatTime(record.timeOutAt, record.status)}</strong></div>
-          <div><span>Lunch Out</span><strong>{formatTime(record.lunchOutAt, record.status)}</strong></div>
-          <div><span>Lunch In</span><strong>{formatTime(record.lunchInAt, record.status)}</strong></div>
-          <div><span>Status</span><Badge tone={getStatusTone(record.status)}>{getStatusLabel(record.status)}</Badge></div>
-          {record.status === "ON_LEAVE" && (
-            <div><span>Leave Type</span><strong>{record.leaveTypeName ?? "—"}</strong></div>
-          )}
+            <div className="attendance-section-title">Location</div>
+            <div className="attendance-rows">
+              <div><span>Site</span><strong>{record.workLocation?.name ?? "—"}</strong></div>
+              {!record.isSynthetic && (
+                <>
+                  <div><span>Distance from site</span><strong>{selectedLog ? `${Math.round(Number(selectedLog.distanceFromSiteMeters))}m` : "No log"}</strong></div>
+                  <div>
+                    <span>Coordinates</span>
+                    {selectedLog ? (
+                      <a className="attendance-map-link" href={`https://www.google.com/maps?q=${mapQuery}`} target="_blank" rel="noreferrer">
+                        <MapPin size={13} /> {selectedLog.latitude}, {selectedLog.longitude}
+                      </a>
+                    ) : (
+                      <strong>No log</strong>
+                    )}
+                  </div>
+                  <div><span>Remarks</span><strong>{record.adminRemarks?.remarks ?? "None"}</strong></div>
+                </>
+              )}
+            </div>
+          </div>
         </div>
-
-        {!record.isSynthetic && (
-          <>
-            <div className="attendance-section-title">Geotagging</div>
-            <div className="attendance-detail-grid">
-              <div><span>Latitude & Longitude</span><strong>{selectedLog ? `${selectedLog.latitude}, ${selectedLog.longitude}` : "No log"}</strong></div>
-              <div><span>Distance from Site</span><strong>{selectedLog ? `${Math.round(Number(selectedLog.distanceFromSiteMeters))}m` : "No log"}</strong></div>
-              <div>
-                <span>Map Preview</span>
-                {selectedLog ? (
-                  <a className="attendance-map-link" href={`https://www.google.com/maps?q=${mapQuery}`} target="_blank" rel="noreferrer">
-                    <MapPin size={14} /> Open Map
-                  </a>
-                ) : (
-                  <strong>No log</strong>
-                )}
-              </div>
-              <div><span>Latest Remarks</span><strong>{record.adminRemarks?.remarks ?? "None"}</strong></div>
-            </div>
-          </>
-        )}
 
         <div className="attendance-admin-actions">
           {error && <p className="attendance-form-error">{error}</p>}
@@ -383,16 +414,16 @@ function AttendanceDetailsModal({
         </div>
       </section>
 
-      {isFacePreviewOpen && registeredFace && (
-        <div className="attendance-face-preview-backdrop" role="presentation" onClick={() => setIsFacePreviewOpen(false)}>
+      {previewImage && (
+        <div className="attendance-face-preview-backdrop" role="presentation" onClick={() => setPreviewImage(null)}>
           <button
             className="icon-button attendance-face-preview-close"
-            onClick={() => setIsFacePreviewOpen(false)}
-            aria-label="Close registered face preview"
+            onClick={() => setPreviewImage(null)}
+            aria-label="Close photo preview"
           >
             <X size={18} />
           </button>
-          <img className="attendance-face-preview-image" src={registeredFace} alt="Registered face" onClick={(event) => event.stopPropagation()} />
+          <img className="attendance-face-preview-image" src={previewImage} alt="Enlarged photo" onClick={(event) => event.stopPropagation()} />
         </div>
       )}
     </div>

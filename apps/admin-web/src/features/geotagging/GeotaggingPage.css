@@ -1589,6 +1589,12 @@
   align-items: flex-end;
   gap: 2px;
   flex-shrink: 0;
+  /* Pushes meta (and the Unassign button after it) to the right edge. */
+  margin-left: auto;
+}
+
+.geotagging-modal-employee-row .location-action-btn {
+  flex-shrink: 0;
 }
 
 .geotagging-modal-employee-meta span {
@@ -1693,6 +1699,7 @@
 
   .geotagging-modal-employee-meta {
     align-items: flex-start;
+    margin-left: 0;
   }
 
   .geotagging-modal-employee-meta span {
