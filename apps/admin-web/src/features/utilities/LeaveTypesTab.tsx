@@ -431,233 +431,241 @@ export function LeaveTypesTab({
               </button>
             </div>
 
-            <div className="utilities-modal-body">
-              <label className="utilities-field">
-                <span className="utilities-field-label">
-                  Leave Type Name <span className="utilities-required">*</span>
-                </span>
-                <input
-                  className="utilities-input"
-                  type="text"
-                  value={form.name}
-                  onChange={(e) => {
-                    setForm((c) => ({ ...c, name: e.target.value }));
-                    setNameError(null);
-                  }}
-                  placeholder="e.g. Emergency Leave"
-                  autoFocus
-                />
-                {nameError && <span className="utilities-field-error">{nameError}</span>}
-              </label>
-
-              <div className="utilities-field">
-                <span className="utilities-field-label">Leave Kind</span>
-                <div className="utilities-segmented">
-                  {LEAVE_TYPE_KIND_OPTIONS.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      className={form.kind === option.value ? "active" : ""}
-                      onClick={() => setForm((c) => ({ ...c, kind: option.value }))}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-                {form.kind !== "GENERAL" && (
-                  <span className="utilities-field-hint">
-                    {form.kind === "MATERNITY"
-                      ? "Restricted to female employees; new female hires are auto-enrolled here."
-                      : "Restricted to male employees; new male hires are auto-enrolled here."}
-                  </span>
-                )}
-              </div>
-
-              <div className="utilities-field">
-                <span className="utilities-field-label">Applicable Classifications</span>
-                <div className="utilities-classification-options">
-                  <label className="utilities-checkbox utilities-checkbox--locked">
-                    <input type="checkbox" checked readOnly disabled />
-                    <span>Regular (always included)</span>
-                  </label>
-                  {OPTIONAL_STATUS_OPTIONS.map((option) => (
-                    <label className="utilities-checkbox" key={option.value}>
-                      <input
-                        type="checkbox"
-                        checked={form.classifications.includes(option.value)}
-                        onChange={(e) =>
-                          setForm((c) => ({
-                            ...c,
-                            classifications: e.target.checked
-                              ? [...c.classifications, option.value]
-                              : c.classifications.filter((s) => s !== option.value),
-                          }))
-                        }
-                      />
-                      <span>{option.label}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div className="utilities-field">
-                <span className="utilities-field-label">Default Days per Year</span>
-                <div className="utilities-segmented">
-                  <button
-                    type="button"
-                    className={!form.isUnlimitedDays ? "active" : ""}
-                    onClick={() => setForm((c) => ({ ...c, isUnlimitedDays: false }))}
-                  >
-                    Fixed number of days
-                  </button>
-                  <button
-                    type="button"
-                    className={form.isUnlimitedDays ? "active" : ""}
-                    onClick={() => setForm((c) => ({ ...c, isUnlimitedDays: true }))}
-                  >
-                    As Needed
-                  </button>
-                </div>
-                {!form.isUnlimitedDays && (
-                  <input
-                    className="utilities-input"
-                    type="number"
-                    min={1}
-                    value={form.defaultDays}
-                    onChange={(e) => setForm((c) => ({ ...c, defaultDays: e.target.value }))}
-                  />
-                )}
-              </div>
-
-              <label className="utilities-checkbox">
-                <input
-                  type="checkbox"
-                  checked={form.requiresDocument}
-                  onChange={(e) => setForm((c) => ({ ...c, requiresDocument: e.target.checked }))}
-                />
-                <span>Requires supporting document</span>
-              </label>
-
-              {form.requiresDocument && (
+            <div className="utilities-modal-body utilities-leave-type-form-grid">
+              <div className="utilities-form-panel utilities-form-panel--primary">
+                <span className="utilities-form-panel-title">Basics</span>
                 <label className="utilities-field">
-                  <span className="utilities-field-label">Requires supporting document after how many days</span>
+                  <span className="utilities-field-label">
+                    Leave Type Name <span className="utilities-required">*</span>
+                  </span>
                   <input
                     className="utilities-input"
-                    type="number"
-                    min={0}
-                    value={form.supportingDocumentAfterDays}
-                    onChange={(e) => setForm((c) => ({ ...c, supportingDocumentAfterDays: e.target.value }))}
-                    placeholder="e.g. 2 (leave blank to always require it)"
+                    type="text"
+                    value={form.name}
+                    onChange={(e) => {
+                      setForm((c) => ({ ...c, name: e.target.value }));
+                      setNameError(null);
+                    }}
+                    placeholder="e.g. Emergency Leave"
+                    autoFocus
                   />
+                  {nameError && <span className="utilities-field-error">{nameError}</span>}
                 </label>
-              )}
 
-              <label className="utilities-checkbox">
-                <input
-                  type="checkbox"
-                  checked={form.requiresHrValidation}
-                  onChange={(e) => setForm((c) => ({ ...c, requiresHrValidation: e.target.checked }))}
-                />
-                <span>Requires HR validation</span>
-              </label>
+                <div className="utilities-field">
+                  <span className="utilities-field-label">Leave Kind</span>
+                  <div className="utilities-segmented">
+                    {LEAVE_TYPE_KIND_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className={form.kind === option.value ? "active" : ""}
+                        onClick={() => setForm((c) => ({ ...c, kind: option.value }))}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                  {form.kind !== "GENERAL" && (
+                    <span className="utilities-field-hint">
+                      {form.kind === "MATERNITY"
+                        ? "Restricted to female employees; new female hires are auto-enrolled here."
+                        : "Restricted to male employees; new male hires are auto-enrolled here."}
+                    </span>
+                  )}
+                </div>
 
-              <label className="utilities-checkbox">
-                <input
-                  type="checkbox"
-                  checked={form.requiresEhsActivation}
-                  onChange={(e) => setForm((c) => ({ ...c, requiresEhsActivation: e.target.checked }))}
-                />
-                <span>Requires EHS activation</span>
-              </label>
-
-              <label className="utilities-checkbox">
-                <input
-                  type="checkbox"
-                  checked={form.requiresAdminGrant}
-                  onChange={(e) => setForm((c) => ({ ...c, requiresAdminGrant: e.target.checked }))}
-                />
-                <span>Admin-grant only (employee applies to HR/Admin, who grants it per employee)</span>
-              </label>
-
-              <label className="utilities-checkbox">
-                <input
-                  type="checkbox"
-                  checked={form.isSingleDayOnly}
-                  onChange={(e) => setForm((c) => ({ ...c, isSingleDayOnly: e.target.checked }))}
-                />
-                <span>Single day only (each request is automatically 1 day, no date range)</span>
-              </label>
-
-              <label className="utilities-checkbox">
-                <input
-                  type="checkbox"
-                  checked={form.advanceFilingAllowed}
-                  onChange={(e) => setForm((c) => ({ ...c, advanceFilingAllowed: e.target.checked }))}
-                />
-                <span>Allow advance filing (uncheck for a type like Sick Leave that can only be filed for today, never a future date)</span>
-              </label>
-
-              <label className="utilities-checkbox">
-                <input
-                  type="checkbox"
-                  checked={form.cancellationAllowed}
-                  onChange={(e) => setForm((c) => ({ ...c, cancellationAllowed: e.target.checked }))}
-                />
-                <span>Allow employee cancellation after approval</span>
-              </label>
-
-              {form.cancellationAllowed && (
-                <div className="utilities-field-row utilities-cancellation-cutoff-row">
-                  <label className="utilities-field">
-                    <span className="utilities-field-label">Cancellation Cutoff</span>
+                <div className="utilities-field">
+                  <span className="utilities-field-label">Default Days per Year</span>
+                  <div className="utilities-segmented">
+                    <button
+                      type="button"
+                      className={!form.isUnlimitedDays ? "active" : ""}
+                      onClick={() => setForm((c) => ({ ...c, isUnlimitedDays: false }))}
+                    >
+                      Fixed days
+                    </button>
+                    <button
+                      type="button"
+                      className={form.isUnlimitedDays ? "active" : ""}
+                      onClick={() => setForm((c) => ({ ...c, isUnlimitedDays: true }))}
+                    >
+                      As needed
+                    </button>
+                  </div>
+                  {!form.isUnlimitedDays && (
                     <input
                       className="utilities-input"
                       type="number"
-                      min={0}
-                      value={form.cancellationCutoffValue}
-                      onChange={(e) => setForm((c) => ({ ...c, cancellationCutoffValue: e.target.value }))}
+                      min={1}
+                      value={form.defaultDays}
+                      onChange={(e) => setForm((c) => ({ ...c, defaultDays: e.target.value }))}
                     />
+                  )}
+                </div>
+
+                <div className="utilities-field">
+                  <span className="utilities-field-label">Applicable Classifications</span>
+                  <div className="utilities-classification-options">
+                    <label className="utilities-checkbox utilities-checkbox--locked">
+                      <input type="checkbox" checked readOnly disabled />
+                      <span>Regular (always included)</span>
+                    </label>
+                    {OPTIONAL_STATUS_OPTIONS.map((option) => (
+                      <label className="utilities-checkbox" key={option.value}>
+                        <input
+                          type="checkbox"
+                          checked={form.classifications.includes(option.value)}
+                          onChange={(e) =>
+                            setForm((c) => ({
+                              ...c,
+                              classifications: e.target.checked
+                                ? [...c.classifications, option.value]
+                                : c.classifications.filter((s) => s !== option.value),
+                            }))
+                          }
+                        />
+                        <span>{option.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="utilities-form-panel">
+                <span className="utilities-form-panel-title">Rules</span>
+                <div className="utilities-compact-checklist">
+                  <label className="utilities-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={form.requiresDocument}
+                      onChange={(e) => setForm((c) => ({ ...c, requiresDocument: e.target.checked }))}
+                    />
+                    <span>Requires supporting document</span>
                   </label>
-                  <label className="utilities-field">
-                    <span className="utilities-field-label">Unit</span>
-                    <select
-                      className="utilities-input"
-                      value={form.cancellationCutoffUnit}
-                      onChange={(e) =>
-                        setForm((c) => ({
-                          ...c,
-                          cancellationCutoffUnit: e.target.value as CancellationCutoffUnit,
-                        }))
-                      }
-                    >
-                      {CANCELLATION_CUTOFF_UNIT_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                    <span className="utilities-field-hint">Use 0 hours for before shift starts.</span>
+
+                  {form.requiresDocument && (
+                    <label className="utilities-field">
+                      <span className="utilities-field-label">Requires supporting document after how many days</span>
+                      <input
+                        className="utilities-input"
+                        type="number"
+                        min={0}
+                        value={form.supportingDocumentAfterDays}
+                        onChange={(e) => setForm((c) => ({ ...c, supportingDocumentAfterDays: e.target.value }))}
+                        placeholder="e.g. 2 (leave blank to always require it)"
+                      />
+                    </label>
+                  )}
+
+                  <label className="utilities-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={form.requiresHrValidation}
+                      onChange={(e) => setForm((c) => ({ ...c, requiresHrValidation: e.target.checked }))}
+                    />
+                    <span>Requires HR validation</span>
+                  </label>
+
+                  <label className="utilities-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={form.requiresEhsActivation}
+                      onChange={(e) => setForm((c) => ({ ...c, requiresEhsActivation: e.target.checked }))}
+                    />
+                    <span>Requires EHS activation</span>
+                  </label>
+
+                  <label className="utilities-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={form.requiresAdminGrant}
+                      onChange={(e) => setForm((c) => ({ ...c, requiresAdminGrant: e.target.checked }))}
+                    />
+                    <span>Admin-grant only (employee applies to HR/Admin, who grants it per employee)</span>
+                  </label>
+
+                  <label className="utilities-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={form.isSingleDayOnly}
+                      onChange={(e) => setForm((c) => ({ ...c, isSingleDayOnly: e.target.checked }))}
+                    />
+                    <span>Single day only (each request is automatically 1 day, no date range)</span>
+                  </label>
+
+                  <label className="utilities-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={form.advanceFilingAllowed}
+                      onChange={(e) => setForm((c) => ({ ...c, advanceFilingAllowed: e.target.checked }))}
+                    />
+                    <span>Allow advance filing (uncheck for a type like Sick Leave that can only be filed for today, never a future date)</span>
+                  </label>
+
+                  <label className="utilities-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={form.cancellationAllowed}
+                      onChange={(e) => setForm((c) => ({ ...c, cancellationAllowed: e.target.checked }))}
+                    />
+                    <span>Allow employee cancellation after approval</span>
+                  </label>
+
+                  {form.cancellationAllowed && (
+                    <div className="utilities-field-row utilities-cancellation-cutoff-row">
+                      <label className="utilities-field">
+                        <span className="utilities-field-label">Cancellation Cutoff</span>
+                        <input
+                          className="utilities-input"
+                          type="number"
+                          min={0}
+                          value={form.cancellationCutoffValue}
+                          onChange={(e) => setForm((c) => ({ ...c, cancellationCutoffValue: e.target.value }))}
+                        />
+                      </label>
+                      <label className="utilities-field">
+                        <span className="utilities-field-label">Unit</span>
+                        <select
+                          className="utilities-input"
+                          value={form.cancellationCutoffUnit}
+                          onChange={(e) =>
+                            setForm((c) => ({
+                              ...c,
+                              cancellationCutoffUnit: e.target.value as CancellationCutoffUnit,
+                            }))
+                          }
+                        >
+                          {CANCELLATION_CUTOFF_UNIT_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="utilities-field-hint">Use 0 hours for before shift starts.</span>
+                      </label>
+                    </div>
+                  )}
+
+                  <label className="utilities-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={form.isAutoCredited}
+                      onChange={(e) => setForm((c) => ({ ...c, isAutoCredited: e.target.checked }))}
+                    />
+                    <span>Auto-credited (every eligible regular employee gets this balance automatically each year)</span>
+                  </label>
+
+                  <label className="utilities-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={form.isTransferable}
+                      onChange={(e) => setForm((c) => ({ ...c, isTransferable: e.target.checked }))}
+                    />
+                    <span>Transferable (days can be transferred from another employee's leave, e.g. Added Paternity Leave)</span>
                   </label>
                 </div>
-              )}
-
-              <label className="utilities-checkbox">
-                <input
-                  type="checkbox"
-                  checked={form.isAutoCredited}
-                  onChange={(e) => setForm((c) => ({ ...c, isAutoCredited: e.target.checked }))}
-                />
-                <span>Auto-credited (every eligible regular employee gets this balance automatically each year)</span>
-              </label>
-
-              <label className="utilities-checkbox">
-                <input
-                  type="checkbox"
-                  checked={form.isTransferable}
-                  onChange={(e) => setForm((c) => ({ ...c, isTransferable: e.target.checked }))}
-                />
-                <span>Transferable (days can be transferred from another employee's leave, e.g. Added Paternity Leave)</span>
-              </label>
+              </div>
             </div>
 
             <div className="utilities-modal-actions">
@@ -695,35 +703,36 @@ export function LeaveTypesTab({
               </button>
             </div>
 
-            <div className="utilities-modal-body">
-              <div className="utilities-audit-detail-grid">
-                <div>
-                  <span>Default Days/Year</span>
-                  <strong>{formatDefaultDays(viewLeaveType)}</strong>
-                </div>
-                <div>
+            <div className="utilities-modal-body utilities-leave-type-view-body">
+              <div className="utilities-leave-type-summary">
+                <span>Default Days/Year</span>
+                <strong>{formatDefaultDays(viewLeaveType)}</strong>
+              </div>
+
+              <div className="utilities-audit-detail-grid utilities-leave-type-detail-grid">
+                <div className="utilities-leave-type-detail-item">
                   <span>Leave Kind</span>
                   <Badge tone={viewLeaveType.kind === "GENERAL" ? "neutral" : "warning"}>
                     {LEAVE_TYPE_KIND_OPTIONS.find((o) => o.value === viewLeaveType.kind)?.label ?? viewLeaveType.kind}
                   </Badge>
                 </div>
-                <div>
+                <div className="utilities-leave-type-detail-item">
                   <span>Applicable Classifications</span>
                   <strong>{viewLeaveType.applicableStatuses.map(formatEmploymentStatus).join(", ")}</strong>
                 </div>
-                <div>
+                <div className="utilities-leave-type-detail-item">
                   <span>Auto-Credited</span>
                   <Badge tone={viewLeaveType.isAutoCredited ? "success" : "neutral"}>
                     {viewLeaveType.isAutoCredited ? "Yes" : "No"}
                   </Badge>
                 </div>
-                <div>
+                <div className="utilities-leave-type-detail-item">
                   <span>Transferable</span>
                   <Badge tone={viewLeaveType.isTransferable ? "warning" : "neutral"}>
                     {viewLeaveType.isTransferable ? "Yes" : "No"}
                   </Badge>
                 </div>
-                <div>
+                <div className="utilities-leave-type-detail-item">
                   <span>Requires Document</span>
                   <Badge tone={viewLeaveType.requiresDocument ? "warning" : "neutral"}>
                     {viewLeaveType.requiresDocument
@@ -733,49 +742,49 @@ export function LeaveTypesTab({
                       : "Not required"}
                   </Badge>
                 </div>
-                <div>
+                <div className="utilities-leave-type-detail-item">
                   <span>Requires HR Validation</span>
                   <Badge tone={viewLeaveType.requiresHrValidation ? "warning" : "neutral"}>
                     {viewLeaveType.requiresHrValidation ? "Required" : "Not required"}
                   </Badge>
                 </div>
                 {viewLeaveType.requiresEhsActivation && (
-                  <div>
+                  <div className="utilities-leave-type-detail-item">
                     <span>EHS Activation</span>
                     <Badge tone={viewLeaveType.ehsActivated ? "success" : "neutral"}>
                       {viewLeaveType.ehsActivated ? "Active" : "Inactive"}
                     </Badge>
                   </div>
                 )}
-                <div>
+                <div className="utilities-leave-type-detail-item">
                   <span>Admin-Grant Only</span>
                   <Badge tone={viewLeaveType.requiresAdminGrant ? "warning" : "neutral"}>
                     {viewLeaveType.requiresAdminGrant ? "Yes - granted per employee" : "No - available to all"}
                   </Badge>
                 </div>
-                <div>
+                <div className="utilities-leave-type-detail-item">
                   <span>Single Day Only</span>
                   <Badge tone={viewLeaveType.isSingleDayOnly ? "warning" : "neutral"}>
                     {viewLeaveType.isSingleDayOnly ? "Yes" : "No"}
                   </Badge>
                 </div>
-                <div>
+                <div className="utilities-leave-type-detail-item">
                   <span>Advance Filing</span>
                   <Badge tone={viewLeaveType.advanceFilingAllowed ? "neutral" : "warning"}>
                     {viewLeaveType.advanceFilingAllowed ? "Allowed" : "Today only — no future dates"}
                   </Badge>
                 </div>
-                <div>
+                <div className="utilities-leave-type-detail-item">
                   <span>Cancellation Cutoff</span>
                   <strong>{formatCancellationCutoff(viewLeaveType)}</strong>
                 </div>
-                <div>
+                <div className="utilities-leave-type-detail-item">
                   <span>Status</span>
                   <Badge tone={viewLeaveType.isActive ? "success" : "neutral"}>
                     {viewLeaveType.isActive ? "Active" : "Inactive"}
                   </Badge>
                 </div>
-                <div>
+                <div className="utilities-leave-type-detail-item">
                   <span>Created</span>
                   <strong>
                     {formatDate(viewLeaveType.createdAt)}

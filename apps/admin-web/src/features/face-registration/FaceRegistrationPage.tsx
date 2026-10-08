@@ -492,7 +492,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
     setMessage(cameraActive ? "Capture reset. Begin the guided capture again." : "Start the camera for a guided face capture.");
   }
 
-  function saveEnrollment() {
+  async function saveEnrollment() {
     if (!selectedEmployee) {
       setMessage("Select an employee first.");
       return;
@@ -505,6 +505,8 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
       setMessage("Capture the face sample before registering.");
       return;
     }
+    setBusy(true);
+    setMessage("Registering face photo...");
     try {
       const employeeToRegister = selectedEmployee;
       const enrollmentIdBeingEdited = editingEnrollmentId;
@@ -513,23 +515,23 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
       const wasReRegistration = Boolean(
         enrollmentIdBeingEdited || enrollments.some((item) => item.employeeId === employeeToRegister.id),
       );
-      apiRequest<FaceProfile>("/face-profiles", {
+      const saved = await apiRequest<FaceProfile>("/face-profiles", {
         method: "POST",
         body: JSON.stringify({
           employeeId: employeeToRegister.id,
           referenceImageData: preview,
           descriptors,
         }),
-      }).then((saved) => {
-        setEnrollments((current) =>
-          current.some((item) => item.id === saved.id)
-            ? current.map((item) => (item.id === saved.id ? saved : item))
-            : [saved, ...current],
-        );
-        setLastRegisteredEmployee(employeeToRegister);
-        setLastActionWasEdit(wasReRegistration);
-        setShowSuccessModal(true);
       });
+      setEnrollments((current) =>
+        current.some((item) => item.id === saved.id)
+          ? current.map((item) => (item.id === saved.id ? saved : item))
+          : [saved, ...current],
+      );
+      setLastRegisteredEmployee(employeeToRegister);
+      setLastActionWasEdit(wasReRegistration);
+      setShowSuccessModal(true);
+      setShowCapturePreview(false);
       // Registering the handed-over employee ends the locked handoff; an edit
       // done while the handoff is still pending re-selects them instead.
       const handoffPending = Boolean(initialEmployee && !handoffCompleted);
@@ -544,6 +546,8 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
       stopCamera();
     } catch {
       setMessage("Unable to register the face profile. Check the backend connection and try again.");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -1032,13 +1036,15 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
             <div className="view-modal-actions">
               <button
                 className="primary-button"
-                onClick={() => { setShowCapturePreview(false); saveEnrollment(); }}
+                onClick={saveEnrollment}
+                disabled={busy}
               >
-                <CheckCircle2 size={16} /> Looks Good
+                <CheckCircle2 size={16} /> {busy ? "Registering..." : "Looks Good"}
               </button>
               <button
                 className="outline-button"
                 onClick={() => { setShowCapturePreview(false); resetCapture(); startCamera(); }}
+                disabled={busy}
               >
                 <RotateCcw size={16} /> Retake
               </button>

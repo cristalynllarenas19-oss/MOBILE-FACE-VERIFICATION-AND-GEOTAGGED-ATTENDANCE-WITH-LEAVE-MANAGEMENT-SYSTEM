@@ -73,6 +73,15 @@ type ReportData = {
 };
 
 type ReportTab = "ALL" | "attendance" | "leave" | "schedules" | "employees" | "leaveBalances";
+type SavePicker = (options: {
+  suggestedName: string;
+  types: { description: string; accept: Record<string, string[]> }[];
+}) => Promise<{
+  createWritable: () => Promise<{
+    write: (data: Blob) => Promise<void>;
+    close: () => Promise<void>;
+  }>;
+}>;
 
 const REPORT_TYPE_LABELS: Record<ReportTab, string> = {
   ALL: "All Reports",
@@ -120,6 +129,39 @@ function loadImageDataUrl(src: string): Promise<{ dataUrl: string; width: number
     img.onerror = () => reject(new Error("Failed to load logo"));
     img.src = src;
   });
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+async function saveBlob(blob: Blob, filename: string, description: string, mimeType: string, extension: string) {
+  const showSaveFilePicker = (window as unknown as { showSaveFilePicker?: SavePicker }).showSaveFilePicker;
+
+  if (!showSaveFilePicker) {
+    downloadBlob(blob, filename);
+    return true;
+  }
+
+  try {
+    const handle = await showSaveFilePicker({
+      suggestedName: filename,
+      types: [{ description, accept: { [mimeType]: [extension] } }],
+    });
+    const writable = await handle.createWritable();
+    await writable.write(blob);
+    await writable.close();
+    return true;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") return false;
+    downloadBlob(blob, filename);
+    return true;
+  }
 }
 
 function formatSex(sex?: string | null) {
@@ -294,7 +336,7 @@ export function ReportsPage({
 
   const generatedRangeLabel = `Generated: ${filters.from ? formatDate(filters.from) : "—"} to ${filters.to ? formatDate(filters.to) : "—"}`;
 
-  const exportCsv = () => {
+  const exportCsv = async () => {
     const aRows = [
       ["Employee", "Department", "Site", "Date", "Time In", "Time Out", "Lunch Break", "Status"],
       ...filteredAttendance.map((r) => [
@@ -338,13 +380,9 @@ export function ReportsPage({
     const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\r\n");
     // Leading BOM tells Excel the file is UTF-8 — without it Excel reads it
     // as ANSI and "—" shows up as "â€”".
-    const url = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" }));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `${tab === "ALL" ? "all" : tab}-report.csv`;
-    link.click();
-    URL.revokeObjectURL(url);
-    loadReport();
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+    const saved = await saveBlob(blob, `${tab === "ALL" ? "all" : tab}-report.csv`, "CSV file", "text/csv", ".csv");
+    if (saved) loadReport();
   };
 
   const exportPdf = async () => {
@@ -450,8 +488,9 @@ export function ReportsPage({
       );
     }
 
-    doc.save(`${tab === "ALL" ? "all" : tab}-report.pdf`);
-    loadReport();
+    const blob = doc.output("blob") as Blob;
+    const saved = await saveBlob(blob, `${tab === "ALL" ? "all" : tab}-report.pdf`, "PDF file", "application/pdf", ".pdf");
+    if (saved) loadReport();
   };
 
   return (

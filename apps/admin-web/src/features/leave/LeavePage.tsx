@@ -1297,15 +1297,9 @@ export function LeavePage({
   // PENDING until HR/Admin acts on it directly (mirrors the backend guard in
   // leave.service.ts). An Admin reviewing their own request is unaffected.
   const isOwnRequest = Boolean(reviewRequest && user?.employeeId && reviewRequest.employee.id === user.employeeId);
-  // Review modal only: when a request can be both reviewed and cancelled,
-  // the Cancellation Reason box replaces the review inputs after "Cancel
-  // Leave" is clicked, instead of all of them showing at once. Pure display
-  // state — cancelRequest/reviewLeave themselves are untouched.
-  const [cancelMode, setCancelMode] = useState(false);
   // Which of the two history views the review modal's side panel shows.
   const [historyTab, setHistoryTab] = useState<"progress" | "notes">("progress");
   useEffect(() => {
-    setCancelMode(false);
     setHistoryTab("progress");
   }, [reviewRequest?.id]);
   const reviewHasNotes = Boolean(reviewRequest?.notes && reviewRequest.notes.length > 0);
@@ -2279,7 +2273,7 @@ export function LeavePage({
 
             {!historyViewOnly && (canReviewRequest || canCancelRequest) && (
               <div className={`leave-review-inputs${canReviewRequest ? "" : " leave-review-inputs--compact"}`}>
-                {canReviewRequest && !(canCancelRequest && cancelMode) ? (
+                {canReviewRequest ? (
                   <>
                     <label className="leave-remarks-field">
                       Add Remarks
@@ -2345,7 +2339,7 @@ export function LeavePage({
                   </button>
                 </>
               )}
-              {!historyViewOnly && canReviewRequest && !(canCancelRequest && cancelMode) && (
+              {!historyViewOnly && canReviewRequest && (
                 <>
                   <button className="leave-reject-button" onClick={() => reviewLeave("reject")} disabled={isSaving}>
                     {requiresAdditionalRequirements ? "Reject & Request Resubmission" : "Reject"}
@@ -2357,17 +2351,7 @@ export function LeavePage({
                   )}
                 </>
               )}
-              {!historyViewOnly && canCancelRequest && canReviewRequest && !cancelMode && (
-                <button className="outline-button" onClick={() => setCancelMode(true)} disabled={isSaving}>
-                  Cancel Leave…
-                </button>
-              )}
-              {!historyViewOnly && canCancelRequest && canReviewRequest && cancelMode && (
-                <button className="outline-button" onClick={() => setCancelMode(false)} disabled={isSaving}>
-                  Back to Review
-                </button>
-              )}
-              {!historyViewOnly && canCancelRequest && (!canReviewRequest || cancelMode) && (
+              {!historyViewOnly && canCancelRequest && !canReviewRequest && (
                 <button className="leave-reject-button" onClick={cancelRequest} disabled={isSaving || !cancelNote.trim()}>
                   Cancel Leave
                 </button>
