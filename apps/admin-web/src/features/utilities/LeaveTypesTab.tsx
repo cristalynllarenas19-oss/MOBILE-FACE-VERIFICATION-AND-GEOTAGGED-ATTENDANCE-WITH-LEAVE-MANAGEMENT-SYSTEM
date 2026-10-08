@@ -13,10 +13,10 @@ import {
 import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { ConfirmDialog, type ConfirmDialogConfig } from "../../components/ui/ConfirmDialog";
+import { MultiSelectDropdown } from "../../components/ui/MultiSelectDropdown";
 import { apiRequest } from "../../lib/api";
 import {
   type EmploymentStatus,
-  SELECTABLE_EMPLOYMENT_STATUS_OPTIONS,
   formatEmploymentStatus,
 } from "../../types/employment";
 import { useEmployeeTypes } from "../../lib/employeeTypes";
@@ -65,12 +65,6 @@ const CANCELLATION_CUTOFF_UNIT_OPTIONS: { value: CancellationCutoffUnit; label: 
   { value: "WORKING_DAYS_BEFORE_START", label: "Working days before start" },
   { value: "HOURS_BEFORE_SHIFT_START", label: "Hours before shift start" },
 ];
-
-// Every leave type always includes Regular - admins only choose which of these
-// additional classifications also get it. Separated is deliberately excluded
-// here (via SELECTABLE_EMPLOYMENT_STATUS_OPTIONS) — it's only ever set by the
-// Archive flow, never something a leave type should be configured to target.
-const OPTIONAL_STATUS_OPTIONS = SELECTABLE_EMPLOYMENT_STATUS_OPTIONS.filter((o) => o.value !== "REGULAR");
 
 const PAGE_SIZE = 10;
 
@@ -133,7 +127,10 @@ export function LeaveTypesTab({
   // A leave type matches when it applies to the selected type's Employment
   // Status (the same applicableStatuses check as before).
   const [employeeTypeFilter, setEmployeeTypeFilter] = useState("ALL");
-  const { options: employeeTypeOptions, byId: employeeTypesById } = useEmployeeTypes();
+  const { options: employeeTypeOptions, byId: employeeTypesById, active } = useEmployeeTypes();
+  // Separated is only ever set by the Archive flow, never something a leave
+  // type should be configured to target.
+  const activeEmployeeTypes = active.filter((type) => type.employmentStatus !== "SEPARATED");
   const [page, setPage] = useState(1);
 
   const [formOpen, setFormOpen] = useState(false);
@@ -145,6 +142,31 @@ export function LeaveTypesTab({
 
   const [viewLeaveType, setViewLeaveType] = useState<LeaveType | null>(null);
   const [confirmConfig, setConfirmConfig] = useState<ConfirmDialogConfig | null>(null);
+
+  // Applicable Employee Types picker — options come from Utilities → Employee
+  // Types, but a leave type still stores Employment Statuses, so each option
+  // stands for its type's status. Regular is always included, so types with
+  // that status stay ticked.
+  const applicableTypeIds = activeEmployeeTypes
+    .filter((type) => type.employmentStatus === "REGULAR" || form.classifications.includes(type.employmentStatus))
+    .map((type) => type.id);
+
+  const handleApplicableTypesChange = (nextValues: string[]) => {
+    const toggledId =
+      nextValues.find((id) => !applicableTypeIds.includes(id)) ?? applicableTypeIds.find((id) => !nextValues.includes(id));
+    const status = toggledId ? employeeTypesById.get(toggledId)?.employmentStatus : undefined;
+    setForm((c) => {
+      // Clear button: back to Regular only.
+      if (nextValues.length === 0) return { ...c, classifications: [] };
+      if (!status || status === "REGULAR") return c;
+      return {
+        ...c,
+        classifications: c.classifications.includes(status)
+          ? c.classifications.filter((s) => s !== status)
+          : [...c.classifications, status],
+      };
+    });
+  };
 
   const loadLeaveTypes = () => {
     apiRequest<LeaveType[]>("/leave-types").then(setLeaveTypes).catch(() => undefined);
@@ -505,30 +527,24 @@ export function LeaveTypesTab({
                 </div>
 
                 <div className="utilities-field">
-                  <span className="utilities-field-label">Applicable Classifications</span>
-                  <div className="utilities-classification-options">
-                    <label className="utilities-checkbox utilities-checkbox--locked">
-                      <input type="checkbox" checked readOnly disabled />
-                      <span>Regular (always included)</span>
-                    </label>
-                    {OPTIONAL_STATUS_OPTIONS.map((option) => (
-                      <label className="utilities-checkbox" key={option.value}>
-                        <input
-                          type="checkbox"
-                          checked={form.classifications.includes(option.value)}
-                          onChange={(e) =>
-                            setForm((c) => ({
-                              ...c,
-                              classifications: e.target.checked
-                                ? [...c.classifications, option.value]
-                                : c.classifications.filter((s) => s !== option.value),
-                            }))
-                          }
-                        />
-                        <span>{option.label}</span>
-                      </label>
-                    ))}
-                  </div>
+                  <span className="utilities-field-label">Applicable Employee Types</span>
+                  <MultiSelectDropdown
+                    values={applicableTypeIds}
+                    onChange={handleApplicableTypesChange}
+                    options={activeEmployeeTypes.map((type) => ({
+                      value: type.id,
+                      label: type.employmentStatus === "REGULAR" ? `${type.name} (always included)` : type.name,
+                    }))}
+                    placeholder="Select employee types…"
+                    menuLabel="Employee Types"
+                    ariaLabel="Select applicable employee types"
+                  />
+                  <span className="utilities-field-hint">
+                    {activeEmployeeTypes
+                      .filter((type) => applicableTypeIds.includes(type.id))
+                      .map((type) => type.name)
+                      .join(", ")}
+                  </span>
                 </div>
               </div>
 
@@ -704,12 +720,17 @@ export function LeaveTypesTab({
             </div>
 
             <div className="utilities-modal-body utilities-leave-type-view-body">
-              <div className="utilities-leave-type-summary">
-                <span>Default Days/Year</span>
-                <strong>{formatDefaultDays(viewLeaveType)}</strong>
-              </div>
-
               <div className="utilities-audit-detail-grid utilities-leave-type-detail-grid">
+                <div className="utilities-leave-type-detail-item">
+                  <span>Default Days/Year</span>
+                  <strong>{formatDefaultDays(viewLeaveType)}</strong>
+                </div>
+                <div className="utilities-leave-type-detail-item">
+                  <span>Status</span>
+                  <Badge tone={viewLeaveType.isActive ? "success" : "neutral"}>
+                    {viewLeaveType.isActive ? "Active" : "Inactive"}
+                  </Badge>
+                </div>
                 <div className="utilities-leave-type-detail-item">
                   <span>Leave Kind</span>
                   <Badge tone={viewLeaveType.kind === "GENERAL" ? "neutral" : "warning"}>
@@ -717,7 +738,7 @@ export function LeaveTypesTab({
                   </Badge>
                 </div>
                 <div className="utilities-leave-type-detail-item">
-                  <span>Applicable Classifications</span>
+                  <span>Applicable Employee Types</span>
                   <strong>{viewLeaveType.applicableStatuses.map(formatEmploymentStatus).join(", ")}</strong>
                 </div>
                 <div className="utilities-leave-type-detail-item">
@@ -759,7 +780,7 @@ export function LeaveTypesTab({
                 <div className="utilities-leave-type-detail-item">
                   <span>Admin-Grant Only</span>
                   <Badge tone={viewLeaveType.requiresAdminGrant ? "warning" : "neutral"}>
-                    {viewLeaveType.requiresAdminGrant ? "Yes - granted per employee" : "No - available to all"}
+                    {viewLeaveType.requiresAdminGrant ? "Yes" : "No"}
                   </Badge>
                 </div>
                 <div className="utilities-leave-type-detail-item">
@@ -771,18 +792,12 @@ export function LeaveTypesTab({
                 <div className="utilities-leave-type-detail-item">
                   <span>Advance Filing</span>
                   <Badge tone={viewLeaveType.advanceFilingAllowed ? "neutral" : "warning"}>
-                    {viewLeaveType.advanceFilingAllowed ? "Allowed" : "Today only — no future dates"}
+                    {viewLeaveType.advanceFilingAllowed ? "Allowed" : "Today only"}
                   </Badge>
                 </div>
                 <div className="utilities-leave-type-detail-item">
                   <span>Cancellation Cutoff</span>
                   <strong>{formatCancellationCutoff(viewLeaveType)}</strong>
-                </div>
-                <div className="utilities-leave-type-detail-item">
-                  <span>Status</span>
-                  <Badge tone={viewLeaveType.isActive ? "success" : "neutral"}>
-                    {viewLeaveType.isActive ? "Active" : "Inactive"}
-                  </Badge>
                 </div>
                 <div className="utilities-leave-type-detail-item">
                   <span>Created</span>

@@ -779,9 +779,16 @@
   object-fit: cover;
 }
 
-.capture-preview-photo {
-  width: 280px;
-  height: 280px;
+.view-modal-photo-archived {
+  align-items: center;
+  color: #94a3b8;
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  font-weight: 600;
+  gap: 10px;
+  height: 100%;
+  justify-content: center;
 }
 
 .view-modal h3 {
@@ -1198,5 +1205,124 @@
 
   .view-modal-actions {
     flex-direction: column;
+  }
+}
+/* Capture review modal */
+.capture-review-modal {
+  border: 1px solid #dbe5ef;
+  border-radius: 22px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.28);
+  max-height: calc(100vh - 40px);
+  max-width: 480px;
+  overflow-y: auto;
+  padding: 28px 30px 26px;
+}
+
+.capture-review-close {
+  background: #f4f7fb;
+  border: 1px solid #dbe5ef;
+  border-radius: 9px;
+  height: 28px;
+  width: 28px;
+}
+
+.capture-review-photo {
+  border: 3px solid #e3ebf4;
+  border-radius: 20px;
+  box-shadow: 0 8px 22px rgba(26, 58, 92, 0.14);
+  height: 200px;
+  margin-bottom: 14px;
+  width: 200px;
+}
+
+.capture-review-badge {
+  align-items: center;
+  background: #e6effa;
+  border-radius: 999px;
+  color: #1a3a5c;
+  display: inline-flex;
+  font-size: 12px;
+  font-weight: 700;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 5px 12px;
+}
+
+.capture-review-modal h3 {
+  color: #1a3a5c;
+  font-size: 22px;
+}
+
+.capture-review-modal .view-modal-sub {
+  margin-bottom: 18px;
+}
+
+.capture-review-info {
+  background: #f8fafc;
+  border: 1px solid #dbe5ef;
+  border-radius: 14px;
+  margin: 0 0 22px;
+  padding: 2px 16px;
+  text-align: left;
+}
+
+.capture-review-info > div {
+  align-items: center;
+  column-gap: 14px;
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  padding: 11px 0;
+}
+
+.capture-review-info > div + div {
+  border-top: 1px solid #e3ebf4;
+}
+
+.capture-review-info svg {
+  color: #1a3a5c;
+  grid-row: span 2;
+}
+
+.capture-review-info dt {
+  color: #64748b;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.capture-review-info dd {
+  color: #0f172a;
+  font-size: 13.5px;
+  font-weight: 600;
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.capture-review-info dd.capture-review-name {
+  font-weight: 800;
+}
+
+.capture-review-actions {
+  gap: 12px;
+}
+
+.capture-review-actions button {
+  align-items: center;
+  border-radius: 11px;
+  display: inline-flex;
+  gap: 8px;
+  justify-content: center;
+  min-height: 44px;
+}
+
+@media (max-width: 640px) {
+  .capture-review-modal {
+    padding: 22px 18px 20px;
+  }
+
+  .capture-review-photo {
+    height: 170px;
+    width: 170px;
   }
 }

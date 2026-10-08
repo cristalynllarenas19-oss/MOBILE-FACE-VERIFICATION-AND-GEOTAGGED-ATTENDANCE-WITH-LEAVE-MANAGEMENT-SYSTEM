@@ -1137,15 +1137,15 @@
 
 .utilities-audit-detail-grid--compact {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px 18px;
+  gap: 0 18px;
   border: none;
   border-radius: 0;
   overflow: visible;
 }
 
 .utilities-audit-detail-grid--compact > div {
-  min-height: 42px;
-  padding: 6px 0 8px;
+  min-height: 46px;
+  padding: 7px 0;
   border: none;
   border-bottom: 1px solid #edf2f7;
   align-items: flex-start;
@@ -1154,9 +1154,12 @@
   gap: 4px;
 }
 
-.utilities-audit-detail-grid--compact > div:first-child,
-.utilities-audit-detail-grid--compact > div:nth-child(5) {
+.utilities-audit-detail-grid--compact > div.full {
   grid-column: 1 / -1;
+}
+
+.utilities-audit-detail-grid--compact > div.full:last-child {
+  border-bottom: none;
 }
 
 .utilities-audit-detail-grid--compact span {
@@ -1197,21 +1200,6 @@
 
 .utilities-audit-detail-grid--compact .badge::before {
   display: none;
-}
-
-.audit-view-note {
-  display: grid;
-  gap: 4px;
-  padding: 2px 0 8px;
-  border-bottom: 1px solid #edf2f7;
-}
-
-.audit-view-note .utilities-hint {
-  margin: 0;
-  color: #163a5f;
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1.35;
 }
 
 .utilities-shift-detail-grid {
@@ -1302,44 +1290,17 @@
   padding: 12px 18px 8px;
 }
 
-.utilities-leave-type-summary {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: center;
-  gap: 18px;
-  min-height: 34px;
-  padding: 0 0 10px;
-  border-bottom: 1px solid #e5edf5;
-}
-
-.utilities-leave-type-summary span {
-  color: #64748b;
-  font-size: 11px;
-  font-weight: 800;
-  text-transform: none;
-  letter-spacing: 0;
-}
-
-.utilities-leave-type-summary strong {
-  color: #1a3a5c;
-  font-size: 18px;
-  line-height: 1;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-  justify-self: start;
-}
-
 .utilities-leave-type-detail-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px 18px;
+  gap: 0 18px;
   border: none;
   border-radius: 0;
   overflow: visible;
 }
 
 .utilities-audit-detail-grid .utilities-leave-type-detail-item {
-  min-height: 52px;
-  padding: 9px 0;
+  min-height: 46px;
+  padding: 7px 0;
   border: none;
   border-bottom: 1px solid #edf2f7;
   border-radius: 0;
@@ -1387,7 +1348,7 @@
   white-space: normal;
   text-align: left;
   box-shadow: none !important;
-  text-transform: capitalize !important;
+  text-transform: none !important;
   letter-spacing: 0;
 }
 
@@ -1979,7 +1940,7 @@
   word-break: break-word;
 }
 
-/* ── Action column: fixed-width badge wrapper ── */
+/* ── Action column: plain colored text (no pill) so long actions stay readable ── */
 
 .utilities-action-cell {
   display: flex;
@@ -1987,14 +1948,14 @@
 }
 
 .utilities-action-cell .badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  box-sizing: border-box;
-  width: 170px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  min-width: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: inherit !important;
+  font-size: 13px;
+  white-space: normal;
 }
 
 /* ── Search input with leading icon + clear (x) button ── */

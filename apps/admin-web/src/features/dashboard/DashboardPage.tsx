@@ -1,6 +1,5 @@
 import {
   AlertTriangle,
-  BarChart3,
   Calendar as CalendarIcon,
   CalendarOff,
   CheckCircle2,
@@ -36,7 +35,6 @@ const WEEKDAY_FULL_NAME: Record<string, string> = {
   Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday",
   Fri: "Friday", Sat: "Saturday", Sun: "Sunday",
 };
-
 
 function niceAxisTicks(maxValue: number): number[] {
   const target = Math.max(maxValue, 1) / 4;
@@ -525,6 +523,7 @@ export function DashboardPage({
               (() => {
                 const ticks = niceAxisTicks(Math.max(...trendChart.bars.map((bar) => bar.absences)));
                 const chartMax = ticks[0];
+                const activeDayTotal = trendChart.bars.find((bar) => bar.day === activeTrendDay)?.absences ?? 0;
                 return (
                   <>
                     <div className="trend-chart-row">
@@ -538,7 +537,7 @@ export function DashboardPage({
                           {ticks.map((tick) => (
                             <div
                               key={tick}
-                              className="trend-chart-gridline"
+                              className={`trend-chart-gridline${tick === 0 ? " baseline" : ""}`}
                               style={{ bottom: `${chartMax > 0 ? (tick / chartMax) * 100 : 0}%` }}
                             />
                           ))}
@@ -583,36 +582,41 @@ export function DashboardPage({
                     </div>
 
                     <div className="trend-insights">
-                      <div className="trend-insight-card red">
+                      <div
+                        className="trend-insight-card"
+                        title={
+                          topDepartmentForActiveDay
+                            ? `Top department: ${topDepartmentForActiveDay.department} (${topDepartmentForActiveDay.total})`
+                            : undefined
+                        }
+                      >
                         <span className="trend-insight-icon red">
-                          <BarChart3 size={15} />
+                          <CalendarIcon size={15} />
                         </span>
                         <div className="trend-insight-body">
-                          <span className="trend-insight-label">Highest Absence Day</span>
+                          <span className="trend-insight-label">
+                            {activeTrendDay === trendChart.peakDay ? "Highest Absence Day" : "Selected Day"}
+                          </span>
                           <strong className="trend-insight-value red">
-                            {topDepartmentForActiveDay?.department ?? "No data"}
+                            {(activeTrendDay && WEEKDAY_FULL_NAME[activeTrendDay]) || "No data"}
                           </strong>
                         </div>
                         <div className="trend-insight-count-block">
-                          <strong className="trend-insight-count-number red">
-                            {topDepartmentForActiveDay?.total ?? 0}
-                          </strong>
-                          <span className="trend-insight-count-label">
-                            absence{topDepartmentForActiveDay?.total === 1 ? "" : "s"}
-                          </span>
+                          <strong className="trend-insight-count-number red">{activeDayTotal}</strong>
+                          <span className="trend-insight-count-label">absence{activeDayTotal === 1 ? "" : "s"}</span>
                         </div>
                       </div>
                       {trendChart.topDepartment && (
-                        <div className="trend-insight-card amber">
-                          <span className="trend-insight-icon amber">
+                        <div className="trend-insight-card">
+                          <span className="trend-insight-icon blue">
                             <Users size={15} />
                           </span>
                           <div className="trend-insight-body">
                             <span className="trend-insight-label">Department with Most Absences</span>
-                            <strong className="trend-insight-value amber">{trendChart.topDepartment.department}</strong>
+                            <strong className="trend-insight-value">{trendChart.topDepartment.department}</strong>
                           </div>
                           <div className="trend-insight-count-block">
-                            <strong className="trend-insight-count-number amber">{trendChart.topDepartment.total}</strong>
+                            <strong className="trend-insight-count-number">{trendChart.topDepartment.total}</strong>
                             <span className="trend-insight-count-label">
                               absence{trendChart.topDepartment.total === 1 ? "" : "s"}
                             </span>

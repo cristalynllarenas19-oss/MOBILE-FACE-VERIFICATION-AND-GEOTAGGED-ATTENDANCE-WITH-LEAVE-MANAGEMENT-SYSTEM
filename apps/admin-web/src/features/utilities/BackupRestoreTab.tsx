@@ -49,16 +49,42 @@ function actionTone(trigger?: BackupTrigger): "role" | "warning" {
   return trigger === "pre-restore" ? "warning" : "role";
 }
 
+// Same File System Access shape ReportsPage's saveBlob uses, plus the
+// optional remove() used to clean up a picked-but-never-written file.
+type SaveFileHandle = {
+  createWritable: () => Promise<{
+    write: (data: Blob) => Promise<void>;
+    close: () => Promise<void>;
+  }>;
+  remove?: () => Promise<void>;
+};
+type SavePicker = (options: {
+  suggestedName: string;
+  types: { description: string; accept: Record<string, string[]> }[];
+}) => Promise<SaveFileHandle>;
+
+// Mirrors the backend's backupStamp() so the name pre-filled in the save
+// dialog matches what the backup will be called in Backup History.
+function suggestedBackupName(date = new Date()) {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const hours24 = date.getHours();
+  const suffix = hours24 >= 12 ? "PM" : "AM";
+  return `Backup_${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}_${pad(hours24 % 12 || 12)}${pad(date.getMinutes())}${suffix}.sql`;
+}
+
 // Backend streams the file as a blob (not JSON), so this bypasses apiRequest
-// and drives an anchor click instead — same client-side-save pattern as the
-// Reports CSV export, but with the auth header a real file endpoint needs.
-async function downloadBackupFile(filename: string) {
+// — same as the Reports export, but with the auth header a real file
+// endpoint needs.
+async function fetchBackupBlob(filename: string) {
   const token = localStorage.getItem("accessToken");
   const response = await fetch(`${API_BASE_URL}/backups/${encodeURIComponent(filename)}/download`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (!response.ok) throw new Error(await response.text());
-  const blob = await response.blob();
+  return response.blob();
+}
+
+function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -70,11 +96,19 @@ async function downloadBackupFile(filename: string) {
 type RestoreResult = { restoredTables: number; preRestoreSnapshot: string };
 type FileValidation = "checking" | "valid" | "invalid";
 
-// Same shape check as the backend's validatePayload — catches an obviously
-// wrong file client-side before the admin can even click Restore Data,
-// rather than only finding out after a round trip to the server.
+// First line of every .sql backup the backend writes (its SQL_HEADER).
+const SQL_BACKUP_HEADER = "-- ETALA backup";
+
+// Same first-pass check the backend does — catches an obviously wrong file
+// client-side before the admin can even click Restore Data, rather than
+// only finding out after a round trip to the server. A .sql backup is
+// recognised by its header line; anything else is checked as the older
+// .json format.
 async function looksLikeBackupFile(file: File): Promise<boolean> {
   try {
+    const head = await file.slice(0, SQL_BACKUP_HEADER.length).text();
+    if (head === SQL_BACKUP_HEADER) return true;
+    if (file.name.toLowerCase().endsWith(".sql")) return false;
     const parsed = JSON.parse(await file.text());
     return !!parsed && typeof parsed === "object" && typeof parsed.tables === "object" && parsed.tables !== null;
   } catch {
@@ -132,16 +166,56 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
   const pagedBackups = visibleBackups.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const createBackup = async () => {
+    // The save dialog has to open first, straight off the click — browsers
+    // refuse to show it once the (slow) backup request has used up the user
+    // gesture. Browsers without the picker fall back to a normal download.
+    const showSaveFilePicker = (window as unknown as { showSaveFilePicker?: SavePicker }).showSaveFilePicker;
+    let handle: SaveFileHandle | null = null;
+    if (showSaveFilePicker) {
+      try {
+        handle = await showSaveFilePicker({
+          suggestedName: suggestedBackupName(),
+          types: [{ description: "SQL backup file", accept: { "application/sql": [".sql"] } }],
+        });
+      } catch (err) {
+        // Cancelled the dialog — no backup is created.
+        if (err instanceof DOMException && err.name === "AbortError") return;
+      }
+    }
+
     setIsCreating(true);
+    let record: BackupRecord;
     try {
-      const record = await apiRequest<BackupRecord>("/backups", { method: "POST" });
+      record = await apiRequest<BackupRecord>("/backups", { method: "POST" });
       setBackups((current) => [record, ...current]);
-      notify({ type: "success", title: "Backup Created", message: `"${record.name}" created successfully.` });
     } catch (err) {
+      // The picker already created an empty file at the chosen location.
+      await handle?.remove?.().catch(() => undefined);
       notify({
         type: "error",
         title: "Couldn't Create Backup",
         message: err instanceof Error ? err.message : "Failed to create backup.",
+      });
+      setIsCreating(false);
+      return;
+    }
+
+    try {
+      const blob = await fetchBackupBlob(record.name);
+      if (handle) {
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+      } else {
+        downloadBlob(blob, record.name);
+      }
+      notify({ type: "success", title: "Backup Created", message: `"${record.name}" created successfully.` });
+    } catch (err) {
+      await handle?.remove?.().catch(() => undefined);
+      notify({
+        type: "error",
+        title: "Backup Created, But Not Saved",
+        message: `"${record.name}" is in Backup History, but saving it to the chosen location failed${err instanceof Error && err.message ? `: ${err.message}` : "."}`,
       });
     } finally {
       setIsCreating(false);
@@ -214,7 +288,7 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
 
   const downloadBackup = async (backup: BackupRecord) => {
     try {
-      await downloadBackupFile(backup.name);
+      downloadBlob(await fetchBackupBlob(backup.name), backup.name);
     } catch (err) {
       notify({
         type: "error",
@@ -267,7 +341,7 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
           <input
             ref={fileInputRef}
             type="file"
-            accept=".json"
+            accept=".sql,.json"
             hidden
             onChange={(e) => {
               handleFileSelected(e.target.files?.[0] ?? null);
@@ -429,8 +503,8 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
                   <button type="button" className="primary-button" onClick={chooseFile}>
                     Choose Backup File
                   </button>
-                  <p className="backup-restore-dropzone-hint">Select a valid JSON backup file.</p>
-                  <span className="backup-restore-filetype-chip">JSON (.json)</span>
+                  <p className="backup-restore-dropzone-hint">Select a valid SQL backup file.</p>
+                  <span className="backup-restore-filetype-chip">SQL (.sql)</span>
                 </div>
               ) : (
                 <>

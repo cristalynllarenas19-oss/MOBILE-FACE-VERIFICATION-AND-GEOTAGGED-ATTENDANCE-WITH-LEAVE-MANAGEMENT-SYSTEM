@@ -771,7 +771,7 @@ export class AttendanceService {
     }
 
     const faceProfile = (await this.prisma.faceProfile.findFirst({
-      where: { employeeId: dto.employeeId, enrollmentStatus: "ACTIVE" },
+      where: { employeeId: dto.employeeId, enrollmentStatus: "ACTIVE", isArchived: false },
       orderBy: { enrolledAt: "desc" },
     })) as any;
 

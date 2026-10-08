@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Archive, Briefcase, Eye, Pencil, Plus, RotateCcw, Search, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { ConfirmDialog, type ConfirmDialogConfig } from "../../components/ui/ConfirmDialog";
+import { MultiSelectDropdown } from "../../components/ui/MultiSelectDropdown";
 import { apiRequest } from "../../lib/api";
 import { useActiveDepartments } from "../../lib/departments";
 import { type Position, type PositionDepartmentScope, revalidatePositions, usePositions } from "../../lib/positions";
@@ -11,11 +12,7 @@ import "../employees/EmployeesPage.css";
 
 const PAGE_SIZE = 10;
 
-const SCOPE_OPTIONS: { value: PositionDepartmentScope; label: string }[] = [
-  { value: "ALL", label: "All departments" },
-  { value: "ALL_EXCEPT", label: "All except…" },
-  { value: "ONLY", label: "Only…" },
-];
+const ALL_DEPARTMENTS_VALUE = "__ALL_DEPARTMENTS__";
 
 function availabilityLabel(position: Position) {
   const names = position.departments.map((link) => link.department.name).sort().join(", ");
@@ -78,8 +75,16 @@ export function PositionsTab({
   const openForm = (position: Position | null) => {
     setEditing(position);
     setTitle(position?.title ?? "");
-    setScope(position?.departmentScope ?? "ALL");
-    setDepartmentIds(position?.departments.map((link) => link.departmentId) ?? []);
+    // "All except…" is no longer offered: a position saved with that scope
+    // opens as the equivalent explicit list of departments.
+    const linkedIds = position?.departments.map((link) => link.departmentId) ?? [];
+    if (position?.departmentScope === "ALL_EXCEPT") {
+      setScope("ONLY");
+      setDepartmentIds(departments.filter((department) => !linkedIds.includes(department.id)).map((department) => department.id));
+    } else {
+      setScope(position?.departmentScope ?? "ONLY");
+      setDepartmentIds(linkedIds);
+    }
     setTitleError(null);
     setViewPosition(null);
     setFormOpen(true);
@@ -91,8 +96,24 @@ export function PositionsTab({
     setTitleError(null);
   };
 
-  const toggleDepartment = (id: string) =>
-    setDepartmentIds((current) => (current.includes(id) ? current.filter((d) => d !== id) : [...current, id]));
+  // "Select All" ticks every department and saves as the ALL scope (so it also
+  // covers departments added later). Unticking a single department drops back
+  // to an explicit list; ticking the last one by hand counts as Select All.
+  const handleDepartmentsChange = (nextValues: string[]) => {
+    const hasAll = nextValues.includes(ALL_DEPARTMENTS_VALUE);
+    const ids = nextValues.filter((value) => value !== ALL_DEPARTMENTS_VALUE);
+    const everyTicked = departments.length > 0 && departments.every((department) => ids.includes(department.id));
+    if (scope === "ALL") {
+      // Select All itself was unticked (or Clear was pressed) → nothing selected.
+      setScope("ONLY");
+      setDepartmentIds(hasAll ? ids : []);
+    } else if (hasAll || everyTicked) {
+      setScope("ALL");
+      setDepartmentIds([]);
+    } else {
+      setDepartmentIds(ids);
+    }
+  };
 
   const needsDepartments = scope !== "ALL";
   const canSubmit = Boolean(title.trim()) && (!needsDepartments || departmentIds.length > 0);
@@ -299,51 +320,37 @@ export function PositionsTab({
 
               <div className="utilities-field">
                 <span className="utilities-field-label">
-                  Available In <span className="utilities-required">*</span>
+                  Departments <span className="utilities-required">*</span>
                 </span>
-                <div className="utilities-segmented">
-                  {/* "All except…" is no longer offered; it only still appears
-                      when editing a position already saved with that scope. */}
-                  {SCOPE_OPTIONS.filter(
-                    (option) => option.value !== "ALL_EXCEPT" || editing?.departmentScope === "ALL_EXCEPT",
-                  ).map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      className={scope === option.value ? "active" : ""}
-                      onClick={() => setScope(option.value)}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-                <span className="utilities-field-hint">
-                  {scope === "ALL"
-                    ? "Offered in every department, including departments added later."
-                    : scope === "ALL_EXCEPT"
-                      ? "Offered in every department except the ones checked below, including departments added later."
-                      : "Offered only in the departments checked below."}
-                </span>
+                <MultiSelectDropdown
+                  values={
+                    scope === "ALL" ? [ALL_DEPARTMENTS_VALUE, ...departments.map((department) => department.id)] : departmentIds
+                  }
+                  triggerLabel={scope === "ALL" ? "All Departments" : undefined}
+                  onChange={handleDepartmentsChange}
+                  options={[
+                    { value: ALL_DEPARTMENTS_VALUE, label: "Select All" },
+                    ...departments.map((department) => ({ value: department.id, label: department.name })),
+                  ]}
+                  placeholder="Select departments…"
+                  menuLabel="Departments"
+                  ariaLabel="Select departments"
+                />
+                {scope === "ALL" ? (
+                  <span className="utilities-field-hint">Offered in every department, including departments added later.</span>
+                ) : departmentIds.length === 0 ? (
+                  <span className="utilities-field-error">Select at least one department.</span>
+                ) : (
+                  departmentIds.length > 1 && (
+                    <span className="utilities-field-hint">
+                      {departments
+                        .filter((department) => departmentIds.includes(department.id))
+                        .map((department) => department.name)
+                        .join(", ")}
+                    </span>
+                  )
+                )}
               </div>
-
-              {needsDepartments && (
-                <div className="utilities-field">
-                  <span className="utilities-field-label">{scope === "ALL_EXCEPT" ? "Except" : "Departments"}</span>
-                  <div className="utilities-classification-options">
-                    {departments.map((department) => (
-                      <label className="utilities-checkbox" key={department.id}>
-                        <input
-                          type="checkbox"
-                          checked={departmentIds.includes(department.id)}
-                          onChange={() => toggleDepartment(department.id)}
-                        />
-                        <span>{department.name}</span>
-                      </label>
-                    ))}
-                  </div>
-                  {departmentIds.length === 0 && <span className="utilities-field-error">Select at least one department.</span>}
-                </div>
-              )}
             </div>
 
             <div className="utilities-modal-actions">

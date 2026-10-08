@@ -2382,7 +2382,7 @@ export function LeavePage({
       {reviewUndertime && (
         <div className="leave-modal-backdrop" role="presentation">
           <section
-            className="leave-modal"
+            className="leave-modal leave-modal--undertime"
             role="dialog"
             aria-modal="true"
             aria-labelledby="undertime-review-title"
@@ -2402,13 +2402,13 @@ export function LeavePage({
             </div>
 
             <div className="leave-modal-body">
+              <p className="leave-review-title">Filing Details</p>
               <div className="leave-detail-grid">
-                <div><span>Employee</span><strong>{reviewUndertime.employee.firstName} {reviewUndertime.employee.lastName}</strong></div>
                 <div><span>Department</span><strong>{reviewUndertime.employee.department?.name ?? "Unassigned"}</strong></div>
                 {reviewUndertime.attendanceRecord && (
                   <>
                     <div><span>Attendance Date</span><strong>{formatDate(reviewUndertime.attendanceRecord.attendanceDate)}</strong></div>
-                    <div><span>Late Minutes</span><strong>{reviewUndertime.attendanceRecord.lateMinutes}</strong></div>
+                    <div><span>Late Minutes</span><strong>{reviewUndertime.attendanceRecord.lateMinutes} min</strong></div>
                   </>
                 )}
                 <div><span>Date Filed</span><strong>{formatDate(reviewUndertime.createdAt)}</strong></div>
@@ -2441,22 +2441,22 @@ export function LeavePage({
                   />
                 </label>
               )}
+            </div>
 
-              <div className="leave-detail-actions">
-                {canReviewUndertime && (
-                  <>
-                    <button className="leave-reject-button" onClick={() => reviewUndertimeFiling("reject")} disabled={isSaving}>
-                      Reject
-                    </button>
-                    <button className="primary-button" onClick={() => reviewUndertimeFiling("approve")} disabled={isSaving}>
-                      Approve
-                    </button>
-                  </>
-                )}
-                <button className="outline-button" onClick={() => setReviewUndertime(null)} disabled={isSaving}>
-                  Close
-                </button>
-              </div>
+            <div className="leave-detail-actions leave-review-actions">
+              {canReviewUndertime && (
+                <>
+                  <button className="leave-reject-button" onClick={() => reviewUndertimeFiling("reject")} disabled={isSaving}>
+                    Reject
+                  </button>
+                  <button className="primary-button" onClick={() => reviewUndertimeFiling("approve")} disabled={isSaving}>
+                    Approve
+                  </button>
+                </>
+              )}
+              <button className="outline-button" onClick={() => setReviewUndertime(null)} disabled={isSaving}>
+                Close
+              </button>
             </div>
           </section>
         </div>

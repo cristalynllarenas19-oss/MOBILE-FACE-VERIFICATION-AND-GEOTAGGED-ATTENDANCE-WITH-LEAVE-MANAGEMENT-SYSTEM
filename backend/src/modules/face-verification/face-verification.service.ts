@@ -291,7 +291,7 @@ export class FaceVerificationService implements OnModuleInit {
   // probe another employee's enrolled similarity score.
   async matchEmployeeFace(employeeId: string, imageBase64: string) {
     const faceProfile = (await this.prisma.faceProfile.findFirst({
-      where: { employeeId, enrollmentStatus: "ACTIVE" },
+      where: { employeeId, enrollmentStatus: "ACTIVE", isArchived: false },
       orderBy: { enrolledAt: "desc" },
     })) as any;
 

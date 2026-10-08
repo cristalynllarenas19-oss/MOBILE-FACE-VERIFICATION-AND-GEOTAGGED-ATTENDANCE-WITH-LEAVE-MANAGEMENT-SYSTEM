@@ -17,7 +17,10 @@ export function MultiSelectDropdown({
   menuLabel,
   ariaLabel,
   className = "",
+  triggerLabel: triggerLabelOverride,
 }: {
+  // Replaces the default "N selected" summary on the trigger.
+  triggerLabel?: string;
   values: string[];
   options: MultiSelectOption[];
   onChange: (values: string[]) => void;
@@ -62,7 +65,9 @@ export function MultiSelectDropdown({
 
   const selectedSet = new Set(values);
   const isFiltered = values.length > 0;
-  const triggerLabel = !isFiltered
+  const triggerLabel = triggerLabelOverride
+    ? triggerLabelOverride
+    : !isFiltered
     ? placeholder
     : values.length === 1
       ? options.find((option) => option.value === values[0])?.label ?? placeholder

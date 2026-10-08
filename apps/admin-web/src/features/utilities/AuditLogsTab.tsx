@@ -38,7 +38,10 @@ function formatDateTime(value: string) {
 }
 
 function formatAction(action: string) {
-  return action.replace(/_/g, " ");
+  return action
+    .replace(/_/g, " ")
+    .toLowerCase()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function actorName(log: AuditLog) {
@@ -313,15 +316,15 @@ export function AuditLogsTab({
             </div>
 
             <div className="utilities-modal-body audit-view-body">
-              <div className="utilities-audit-section-label">Audit Information</div>
+              {/* Date & time is already the modal subtitle, so it isn't repeated here. */}
               <div className="utilities-audit-detail-grid utilities-audit-detail-grid--compact">
-                <div>
-                  <span>Date &amp; Time</span>
-                  <strong>{formatDateTime(viewLog.createdAt)}</strong>
-                </div>
                 <div>
                   <span>Actor</span>
                   <strong>{actorName(viewLog)}</strong>
+                </div>
+                <div>
+                  <span>User Role</span>
+                  <strong>{actorRoleLabel(viewLog)}</strong>
                 </div>
                 <div>
                   <span>Module</span>
@@ -332,27 +335,21 @@ export function AuditLogsTab({
                   <Badge tone={actionTone(viewLog.action)}>{formatAction(viewLog.action)}</Badge>
                 </div>
                 <div>
-                  <span>User Role</span>
-                  <strong>{actorRoleLabel(viewLog)}</strong>
-                </div>
-                <div>
                   <span>Affected Record</span>
                   <strong>{affectedRecordLabel(viewLog)}</strong>
                 </div>
                 <div>
                   <span>IP Address</span>
-                  <strong>{viewLog.ipAddress ?? "N/A"}</strong>
+                  <strong>{viewLog.ipAddress ?? "—"}</strong>
                 </div>
-              </div>
-
-              <div className="audit-view-note">
-                <span className="utilities-field-label">Description</span>
-                <p className="utilities-hint">{auditMeta(viewLog).description ?? "No description recorded."}</p>
-              </div>
-
-              <div className="audit-view-note">
-                <span className="utilities-field-label">Device / Browser</span>
-                <p className="utilities-hint">{auditMeta(viewLog).userAgent ?? "Not available"}</p>
+                <div className="full">
+                  <span>Description</span>
+                  <strong>{auditMeta(viewLog).description ?? "—"}</strong>
+                </div>
+                <div className="full">
+                  <span>Device / Browser</span>
+                  <strong>{auditMeta(viewLog).userAgent ?? "—"}</strong>
+                </div>
               </div>
 
               {false && changeRows.length > 0 && (

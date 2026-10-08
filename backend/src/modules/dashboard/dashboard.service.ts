@@ -72,6 +72,7 @@ export class DashboardService {
       this.prisma.faceProfile.findMany({
         where: {
           enrollmentStatus: "ACTIVE",
+          isArchived: false,
           employee: { employmentStatus: { not: "SEPARATED" }, ...(departmentId ? { departmentId } : {}) },
         },
         distinct: ["employeeId"],

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Req } from "@nestjs/common";
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req } from "@nestjs/common";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
 import { getAuditContext } from "../../common/utils/audit-context.util";
 import { FaceProfilesService } from "./face-profiles.service";
@@ -11,8 +11,8 @@ export class FaceProfilesController {
 
   @Get()
   @RequirePermissions("users:write")
-  findAll() {
-    return this.faceProfilesService.findAll();
+  findAll(@Query("includeArchived") includeArchived?: string) {
+    return this.faceProfilesService.findAll(includeArchived === "true");
   }
 
   @Post()

@@ -14,6 +14,9 @@ import { PositionsService } from "../positions/positions.service";
 import { CreateEmployeeDto, UpdateEmployeeDto } from "./dto/create-employee.dto";
 
 const PROBATION_MILESTONE_NOTIFICATION_TYPE = "PROBATION_REGULARIZATION_DUE";
+// The employee's own copy — sent only once Admin has actually converted them
+// off probation. The "review recommended" milestone above stays Admin-only.
+const EMPLOYEE_REGULARIZED_NOTIFICATION_TYPE = "EMPLOYEE_REGULARIZED";
 const PROBATION_MILESTONE_MONTHS = 6;
 
 // The date a probationary hire must have started on or before to have
@@ -219,7 +222,7 @@ export class EmployeesService {
         department: true,
         position: true,
         employeeType: true,
-        faceProfiles: { where: { enrollmentStatus: "ACTIVE" }, select: { id: true }, take: 1 },
+        faceProfiles: { where: { enrollmentStatus: "ACTIVE", isArchived: false }, select: { id: true }, take: 1 },
       },
     });
 
@@ -589,6 +592,16 @@ export class EmployeesService {
   
     if (nextStatus && nextStatus !== employee.employmentStatus) {
       await this.evaluations.notifyOutcome(updated);
+
+      if (nextStatus === REGULARIZATION_TARGET_STATUS[employee.employmentStatus]) {
+        const statusLabel = nextStatus === "PERMANENT_SEASONAL" ? "Permanent Seasonal" : "Regular";
+        await this.notifications.notifyUsers([updated.userId], {
+          title: "Employment Status Updated",
+          message: `Congratulations, ${updated.firstName}! You have completed your probationary period and are now a ${statusLabel} employee.`,
+          type: EMPLOYEE_REGULARIZED_NOTIFICATION_TYPE,
+          entityId: updated.id,
+        });
+      }
 
       if (nextStatus === "PERMANENT_SEASONAL") {
         await this.leaveAccrual.startAccrualForNewlyPermanentSeasonal(id);

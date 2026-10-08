@@ -11,9 +11,9 @@ export class FaceProfilesService {
     private readonly auditLogs: AuditLogsService,
   ) {}
 
-  findAll() {
-    return this.prisma.faceProfile.findMany({
-      where: { isArchived: false },
+  async findAll(includeArchived = false) {
+    const profiles = await this.prisma.faceProfile.findMany({
+      where: includeArchived ? {} : { isArchived: false },
       include: {
         employee: {
           include: { department: true, position: true, user: true, supervisor: true },
@@ -21,6 +21,21 @@ export class FaceProfilesService {
       },
       orderBy: { enrolledAt: "desc" },
     });
+    if (!includeArchived) return profiles;
+
+    // One row per employee: the active profile, or else the most recently
+    // archived one, so an archived face still lists its employee.
+    const activeEmployeeIds = new Set(profiles.filter((p) => !p.isArchived).map((p) => p.employeeId));
+    const seenArchived = new Set<string>();
+    return profiles
+      .filter((p) => {
+        if (!p.isArchived) return true;
+        if (activeEmployeeIds.has(p.employeeId) || seenArchived.has(p.employeeId)) return false;
+        seenArchived.add(p.employeeId);
+        return true;
+      })
+      // Archived face data stays in the database but is never sent out.
+      .map((p) => (p.isArchived ? { ...p, referenceImageData: null, descriptors: null } : p));
   }
 
   async create(dto: UpsertFaceProfileDto, context: AuditLogContext = {}) {

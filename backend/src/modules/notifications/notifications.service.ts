@@ -1,5 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
-import { Cron, CronExpression } from "@nestjs/schedule";
+import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 
 export type NotifyPayload = {
@@ -9,16 +8,35 @@ export type NotifyPayload = {
   entityId?: string;
 };
 
-const RETENTION_DAYS = 7;
+// Only Announcement notifications expire — every other type (leave,
+// attendance, regularization, ...) is kept indefinitely. Same literal
+// AnnouncementsService stamps on the rows it creates.
+const ANNOUNCEMENT_NOTIFICATION_TYPE = "ANNOUNCEMENT";
+const ANNOUNCEMENT_RETENTION_DAYS = 7;
 
-function retentionCutoff() {
-  return new Date(Date.now() - RETENTION_DAYS * 24 * 60 * 60 * 1000);
+function announcementCutoff() {
+  return new Date(Date.now() - ANNOUNCEMENT_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+}
+
+// An announcement's Notification rows are created in the same request that
+// publishes it, so the row's createdAt is the announcement's publication
+// date — reading the notification never moves it. `type: null` is spelled
+// out because a SQL `<>` comparison silently drops untyped rows.
+// Expiry only hides the row from its recipient; it is never deleted, since
+// AnnouncementsService computes the admin's delivered/viewed counts and
+// recipient list from these same rows.
+function notExpiredFilter() {
+  return {
+    OR: [
+      { type: null },
+      { type: { not: ANNOUNCEMENT_NOTIFICATION_TYPE } },
+      { createdAt: { gte: announcementCutoff() } },
+    ],
+  };
 }
 
 @Injectable()
 export class NotificationsService {
-  private readonly logger = new Logger(NotificationsService.name);
-
   constructor(private readonly prisma: PrismaService) {}
 
   async notifyUsers(userIds: string[], payload: NotifyPayload) {
@@ -38,7 +56,7 @@ export class NotificationsService {
 
   findForUser(userId: string) {
     return this.prisma.notification.findMany({
-      where: { userId, createdAt: { gte: retentionCutoff() } },
+      where: { userId, ...notExpiredFilter() },
       orderBy: { createdAt: "desc" },
       take: 50,
     });
@@ -46,20 +64,9 @@ export class NotificationsService {
 
   async unreadCount(userId: string) {
     const count = await this.prisma.notification.count({
-      where: { userId, readAt: null, createdAt: { gte: retentionCutoff() } },
+      where: { userId, readAt: null, ...notExpiredFilter() },
     });
     return { count };
-  }
-
-  // Rows past the retention window are hidden from findForUser/unreadCount
-  // immediately via the createdAt filter above; this daily sweep is just
-  // what actually reclaims the storage.
-  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
-  async purgeExpired() {
-    const { count } = await this.prisma.notification.deleteMany({
-      where: { createdAt: { lt: retentionCutoff() } },
-    });
-    if (count > 0) this.logger.log(`Purged ${count} notification(s) older than ${RETENTION_DAYS} days.`);
   }
 
   markRead(id: string, userId: string) {
@@ -69,9 +76,11 @@ export class NotificationsService {
     });
   }
 
+  // Skips expired announcements the user can no longer see, so "Mark all
+  // read" can't inflate an old announcement's viewed count.
   markAllRead(userId: string) {
     return this.prisma.notification.updateMany({
-      where: { userId, readAt: null },
+      where: { userId, readAt: null, ...notExpiredFilter() },
       data: { readAt: new Date() },
     });
   }

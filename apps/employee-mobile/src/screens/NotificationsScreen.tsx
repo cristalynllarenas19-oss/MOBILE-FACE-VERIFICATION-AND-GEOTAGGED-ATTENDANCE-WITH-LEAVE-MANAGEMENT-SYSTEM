@@ -119,6 +119,7 @@ const NOTIFICATION_ICON_MAP: Record<string, { name: keyof typeof Ionicons.glyphM
   PROBATION_REGULARIZATION_DUE: { name: "ribbon-outline", category: "pending" },
   SUPERVISOR_EVALUATION_REQUIRED: { name: "clipboard-outline", category: "pending" },
   EVALUATION_CONVERSION_OUTCOME: { name: "ribbon-outline", category: "info" },
+  EMPLOYEE_REGULARIZED: { name: "ribbon-outline", category: "success" },
   ATTENDANCE_FLAGGED: { name: "alert-circle-outline", category: "pending" },
   ATTENDANCE_VALIDATED: { name: "shield-checkmark-outline", category: "success" },
   ATTENDANCE_FAKE_ATTEMPT: { name: "warning-outline", category: "critical" },

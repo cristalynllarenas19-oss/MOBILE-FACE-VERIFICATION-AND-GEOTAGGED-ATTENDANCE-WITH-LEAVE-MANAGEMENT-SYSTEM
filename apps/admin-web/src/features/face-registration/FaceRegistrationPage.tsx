@@ -1,6 +1,6 @@
 import * as faceapi from "face-api.js";
-import { AlertTriangle, Archive, Camera, CheckCircle2, Eye, Pencil, RotateCcw, ScanFace, Search, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { AlertTriangle, Archive, Building2, Calendar, Camera, Check, CheckCircle2, Eye, Pencil, RefreshCw, RotateCcw, ScanFace, Search, User, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { apiRequest } from "../../lib/api";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { Badge } from "../../components/ui/Badge";
@@ -65,6 +65,7 @@ type FaceProfile = {
   referenceImageData: string | null;
   enrollmentStatus: "PENDING" | "ACTIVE" | "REJECTED";
   enrolledAt: string | null;
+  isArchived?: boolean;
   employee: Employee;
 };
 
@@ -213,7 +214,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
   const [lastRegisteredEmployee, setLastRegisteredEmployee] = useState<Employee | null>(null);
   const [lastActionWasEdit, setLastActionWasEdit] = useState(false);
   const [listDepartmentFilter, setListDepartmentFilter] = useState<string>("ALL");
-  const [listModeFilter, setListModeFilter] = useState<"ALL" | "FIELD" | "FIXED">("ALL");
+  const [listModeFilter, setListModeFilter] = useState<"ALL" | "FIELD" | "FIXED" | "ARCHIVED">("ALL");
   const [listSearch, setListSearch] = useState("");
   const [enrollmentsPage, setEnrollmentsPage] = useState(1);
   const [viewProfile, setViewProfile] = useState<FaceProfile | null>(null);
@@ -229,7 +230,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
 
   useEffect(() => {
     Promise.all([
-      apiRequest<FaceProfile[]>("/face-profiles"),
+      apiRequest<FaceProfile[]>("/face-profiles?includeArchived=true"),
       faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
       faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL),
       faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
@@ -239,7 +240,9 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
         setModelsReady(true);
         setMessage(
           initialEmployee
-            ? `Employee added successfully. Start the camera to register ${employeeLabel(initialEmployee)}'s face.`
+            ? faceProfiles.some((item) => item.employeeId === initialEmployee.id)
+              ? `Start the camera to register ${employeeLabel(initialEmployee)}'s face.`
+              : `Employee added successfully. Start the camera to register ${employeeLabel(initialEmployee)}'s face.`
             : "",
         );
       })
@@ -513,7 +516,8 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
       // The backend upserts by employee: an active profile gets replaced in
       // place, so re-registration never stacks duplicate rows.
       const wasReRegistration = Boolean(
-        enrollmentIdBeingEdited || enrollments.some((item) => item.employeeId === employeeToRegister.id),
+        enrollmentIdBeingEdited ||
+          enrollments.some((item) => item.employeeId === employeeToRegister.id && !item.isArchived),
       );
       const saved = await apiRequest<FaceProfile>("/face-profiles", {
         method: "POST",
@@ -526,7 +530,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
       setEnrollments((current) =>
         current.some((item) => item.id === saved.id)
           ? current.map((item) => (item.id === saved.id ? saved : item))
-          : [saved, ...current],
+          : [saved, ...current.filter((item) => item.employeeId !== saved.employeeId)],
       );
       setLastRegisteredEmployee(employeeToRegister);
       setLastActionWasEdit(wasReRegistration);
@@ -555,7 +559,9 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
     setArchiving(true);
     apiRequest(`/face-profiles/${id}/archive`, { method: "PATCH", body: JSON.stringify({}) })
       .then(() => {
-        setEnrollments((current) => current.filter((item) => item.id !== id));
+        setEnrollments((current) =>
+          current.map((item) => (item.id === id ? { ...item, isArchived: true, referenceImageData: null } : item)),
+        );
         setArchiveTarget(null);
       })
       .finally(() => setArchiving(false));
@@ -599,18 +605,24 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
       );
     });
 
+  // Archived faces live only under the Archived tab, never the active ones.
+  const activeEnrollments = enrollmentsBeforeModeFilter.filter((item) => !item.isArchived);
+  const archivedEnrollments = enrollmentsBeforeModeFilter.filter((item) => item.isArchived);
   const enrollmentModeCounts = {
-    all: enrollmentsBeforeModeFilter.length,
-    field: enrollmentsBeforeModeFilter.filter((item) => item.employee.attendanceMode === "FIELD").length,
-    fixed: enrollmentsBeforeModeFilter.filter((item) => item.employee.attendanceMode !== "FIELD").length,
+    all: activeEnrollments.length,
+    field: activeEnrollments.filter((item) => item.employee.attendanceMode === "FIELD").length,
+    fixed: activeEnrollments.filter((item) => item.employee.attendanceMode !== "FIELD").length,
+    archived: archivedEnrollments.length,
   };
 
   const visibleEnrollments =
-    listModeFilter === "ALL"
-      ? enrollmentsBeforeModeFilter
-      : enrollmentsBeforeModeFilter.filter((item) =>
-          listModeFilter === "FIELD" ? item.employee.attendanceMode === "FIELD" : item.employee.attendanceMode !== "FIELD",
-        );
+    listModeFilter === "ARCHIVED"
+      ? archivedEnrollments
+      : listModeFilter === "ALL"
+        ? activeEnrollments
+        : activeEnrollments.filter((item) =>
+            listModeFilter === "FIELD" ? item.employee.attendanceMode === "FIELD" : item.employee.attendanceMode !== "FIELD",
+          );
 
   useEffect(() => setEnrollmentsPage(1), [listDepartmentFilter, listModeFilter, listSearch]);
   const enrollmentsPageCount = Math.max(1, Math.ceil(visibleEnrollments.length / ENROLLMENTS_PAGE_SIZE));
@@ -625,9 +637,15 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
   // resets the capture without unlocking the search.
   const isPreselectedNewEmployee = Boolean(initialEmployee && !editingEnrollmentId && !handoffCompleted);
 
-  const selectedEnrollment = selectedEmployee
+  // Display-only timestamp for the capture review modal.
+  const capturedAt = useMemo(() => new Date(), [preview]);
+
+  const selectedProfile = selectedEmployee
     ? enrollments.find((item) => item.employeeId === selectedEmployee.id) ?? null
     : null;
+  const selectedEnrollment = selectedProfile && !selectedProfile.isArchived ? selectedProfile : null;
+  // An archived face still belongs to an existing employee, never a new one.
+  const selectedFaceArchived = Boolean(selectedProfile?.isArchived);
 
   // Blocks Face Registration until the employee accepts the face-data
   // consent on mobile — see the "Employee Consent Required" modal below.
@@ -681,38 +699,34 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
     <div className="face-page">
       <div className="face-workspace">
         <section className="face-card capture-card" ref={captureCardRef}>
-          {/* The handoff view already recaps the new employee next to the
-              camera, so the summary tiles would only repeat it. */}
-          {!isPreselectedNewEmployee && (
-            <div className="capture-summary">
-              <div>
-                <p>{editingEnrollmentId ? "Editing photo for" : "Selected employee"}</p>
-                <strong>{selectedEmployee ? employeeLabel(selectedEmployee) : "None selected"}</strong>
-              </div>
-              <div>
-                <p>Status</p>
-                <strong
-                  className={
-                    cameraActive ? (faceFrame && !eyewearDetected ? "status-face-detected" : "status-face-missing") : undefined
-                  }
-                >
-                  {cameraActive
-                    ? eyewearDetected
-                      ? "Remove eyeglasses"
-                      : faceFrame
-                        ? "Face detected"
-                        : "No face detected"
-                    : selectedEmployee
-                      ? "Ready for capture"
-                      : "Choose an employee first"}
-                </strong>
-              </div>
-              <div className="stat-inline-card">
-                <span className="stat-value">{enrollments.length}</span>
-                <span className="stat-label">Registered Employees</span>
-              </div>
+          <div className="capture-summary">
+            <div>
+              <p>{editingEnrollmentId ? "Editing photo for" : "Selected employee"}</p>
+              <strong>{selectedEmployee ? employeeLabel(selectedEmployee) : "None selected"}</strong>
             </div>
-          )}
+            <div>
+              <p>Status</p>
+              <strong
+                className={
+                  cameraActive ? (faceFrame && !eyewearDetected ? "status-face-detected" : "status-face-missing") : undefined
+                }
+              >
+                {cameraActive
+                  ? eyewearDetected
+                    ? "Remove eyeglasses"
+                    : faceFrame
+                      ? "Face detected"
+                      : "No face detected"
+                  : selectedEmployee
+                    ? "Ready for capture"
+                    : "Choose an employee first"}
+              </strong>
+            </div>
+            <div className="stat-inline-card">
+              <span className="stat-value">{enrollments.filter((item) => !item.isArchived).length}</span>
+              <span className="stat-label">Registered Employees</span>
+            </div>
+          </div>
 
           <div className="capture-stage">
             {cameraActive ? (
@@ -791,7 +805,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
           <div className="form-title-row">
             <div>
               <p className="form-kicker">{editingEnrollmentId ? "Editing" : "Face Registration"}</p>
-              <h3>{editingEnrollmentId ? "Update Face Photo" : selectedEmployee ? "New Employee" : "No Employee Selected"}</h3>
+              <h3>{editingEnrollmentId ? "Update Face Photo" : selectedEmployee ? (selectedFaceArchived ? "Existing Employee" : "New Employee") : "No Employee Selected"}</h3>
             </div>
           </div>
 
@@ -802,7 +816,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
           {selectedEmployee ? (
             <div className="selected-employee-card new-employee-details reregister-details">
               <div className="new-employee-details-name">
-                <p>{editingEnrollmentId ? "Editing photo for" : "New employee"}</p>
+                <p>{editingEnrollmentId ? "Editing photo for" : selectedFaceArchived ? "Selected employee" : "New employee"}</p>
                 <strong>{employeeLabel(selectedEmployee)}</strong>
               </div>
               <div>
@@ -844,7 +858,9 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
                     ? selectedEnrollment.enrolledAt
                       ? `Registered · ${new Date(selectedEnrollment.enrolledAt).toLocaleDateString()}`
                       : "Registered"
-                    : "Not yet registered"}
+                    : selectedFaceArchived
+                      ? "Archived · not registered"
+                      : "Not yet registered"}
                 </strong>
               </div>
             </div>
@@ -889,7 +905,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
         <div className="list-heading">
           <div className="list-heading-left">
             <h3>Registered Employees</h3>
-            <div className="registered-mode-tabs" role="tablist" aria-label="Filter registered employees by attendance mode">
+            <div className="registered-mode-tabs" role="tablist" aria-label="Filter registered employees by attendance mode or archived status">
               <button
                 type="button"
                 role="tab"
@@ -919,6 +935,16 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
               >
                 {formatAttendanceMode("FIXED", attendanceModeOptions)}
                 <span className="registered-mode-tab-count">{enrollmentModeCounts.fixed}</span>
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={listModeFilter === "ARCHIVED"}
+                className={`registered-mode-tab${listModeFilter === "ARCHIVED" ? " is-selected" : ""}`}
+                onClick={() => setListModeFilter("ARCHIVED")}
+              >
+                Archived
+                <span className="registered-mode-tab-count">{enrollmentModeCounts.archived}</span>
               </button>
             </div>
           </div>
@@ -958,7 +984,11 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
         ) : (
           <>
             {visibleEnrollments.length === 0 ? (
-              <p className="empty-enrollments">No registered employees match this search or filter.</p>
+              <p className="empty-enrollments">
+                {listModeFilter === "ARCHIVED"
+                  ? "No archived face registrations match this search or filter."
+                  : "No registered employees match this search or filter."}
+              </p>
             ) : (
               <div className="table-card">
                 <div className="enrollment-table-scroll">
@@ -978,7 +1008,11 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
                         <td data-label="Name">{employeeLabel(item.employee)}</td>
                         <td data-label="Department">{item.employee.department?.name ?? "Unknown"}</td>
                         <td data-label="Status">
-                          <Badge tone={enrollmentStatusTone(item.enrollmentStatus)}>{item.enrollmentStatus}</Badge>
+                          {item.isArchived ? (
+                            <Badge tone="neutral">ARCHIVED</Badge>
+                          ) : (
+                            <Badge tone={enrollmentStatusTone(item.enrollmentStatus)}>{item.enrollmentStatus}</Badge>
+                          )}
                         </td>
                         <td data-label="Date Registered">
                           {item.enrolledAt ? new Date(item.enrolledAt).toLocaleDateString() : "Pending"}
@@ -1020,33 +1054,55 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
 
       {showCapturePreview && preview && (
         // The handoff view has no separate register button, so the preview
-        // must be resolved with "Looks Good" or "Retake" — not dismissed.
+        // must be resolved with "Confirm & Register" or "Retake" — not dismissed.
         <div className="view-modal-overlay" onClick={isPreselectedNewEmployee ? undefined : closeCapturePreview}>
-          <div className="view-modal" onClick={(event) => event.stopPropagation()}>
+          <div className="view-modal capture-review-modal" onClick={(event) => event.stopPropagation()}>
             {!isPreselectedNewEmployee && (
-              <button className="view-modal-close" onClick={closeCapturePreview} aria-label="Close">
-                <X size={18} />
+              <button className="view-modal-close capture-review-close" onClick={closeCapturePreview} aria-label="Close">
+                <X size={15} />
               </button>
             )}
-            <div className="view-modal-photo capture-preview-photo">
+            <div className="view-modal-photo capture-review-photo">
               <img src={preview} alt="Captured face preview" />
             </div>
-            <h3>Captured Photo</h3>
-            <p className="view-modal-sub">Review the captured image. Close this preview to continue.</p>
-            <div className="view-modal-actions">
+            <span className="capture-review-badge"><Camera size={13} /> Face Captured</span>
+            <h3>Review Captured Photo</h3>
+            <p className="view-modal-sub">Make sure the face is clearly visible before continuing.</p>
+            <dl className="capture-review-info">
+              <div>
+                <User size={18} />
+                <dt>Employee</dt>
+                <dd className="capture-review-name">{selectedEmployee ? employeeLabel(selectedEmployee) : "—"}</dd>
+              </div>
+              <div>
+                <Building2 size={18} />
+                <dt>Department</dt>
+                <dd>{selectedEmployee?.department?.name ?? "—"}</dd>
+              </div>
+              <div>
+                <Calendar size={18} />
+                <dt>Captured</dt>
+                <dd>
+                  {capturedAt.toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })}
+                  {" · "}
+                  {capturedAt.toLocaleTimeString()}
+                </dd>
+              </div>
+            </dl>
+            <div className="view-modal-actions capture-review-actions">
               <button
                 className="primary-button"
                 onClick={saveEnrollment}
                 disabled={busy}
               >
-                <CheckCircle2 size={16} /> {busy ? "Registering..." : "Looks Good"}
+                <Check size={16} /> {busy ? "Registering..." : "Confirm & Register"}
               </button>
               <button
                 className="outline-button"
                 onClick={() => { setShowCapturePreview(false); resetCapture(); startCamera(); }}
                 disabled={busy}
               >
-                <RotateCcw size={16} /> Retake
+                <RefreshCw size={16} /> Retake
               </button>
             </div>
           </div>
@@ -1061,7 +1117,11 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
             </button>
 
             <div className="view-modal-photo">
-              <img src={viewProfile.referenceImageData ?? ""} alt={`Registered face for ${employeeLabel(viewProfile.employee)}`} />
+              {viewProfile.isArchived ? (
+                <div className="view-modal-photo-archived"><ScanFace size={56} /><span>Face archived</span></div>
+              ) : (
+                <img src={viewProfile.referenceImageData ?? ""} alt={`Registered face for ${employeeLabel(viewProfile.employee)}`} />
+              )}
             </div>
             <h3>{employeeLabel(viewProfile.employee)}</h3>
             <p className="view-modal-sub">
@@ -1074,7 +1134,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
             <dl className="view-modal-details">
               <div>
                 <dt>Status</dt>
-                <dd>{viewProfile.enrollmentStatus}</dd>
+                <dd>{viewProfile.isArchived ? "ARCHIVED" : viewProfile.enrollmentStatus}</dd>
               </div>
               <div>
                 <dt>Date of Registration</dt>
@@ -1085,12 +1145,14 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
               <button className="primary-button" onClick={() => editProfilePhoto(viewProfile)}>
                 <Pencil size={16} /> Re-register Face
               </button>
-              <button
-                className="archive-button"
-                onClick={() => { setArchiveTarget(viewProfile); closeViewModal(); }}
-              >
-                <Archive size={16} /> Archive
-              </button>
+              {!viewProfile.isArchived && (
+                <button
+                  className="archive-button"
+                  onClick={() => { setArchiveTarget(viewProfile); closeViewModal(); }}
+                >
+                  <Archive size={16} /> Archive
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -1115,10 +1177,10 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
               Are you sure you want to archive the face profile for{" "}
               <strong>{employeeLabel(archiveTarget.employee)}</strong>?
               <br />
-              This removes them from the registered employees list until re-registered.
+              Only the face registration is archived — the employee record is kept and can be re-registered anytime.
               <br />
               <span className="delete-modal-id">
-                {archiveTarget.employee.employeeNo} · {archiveTarget.employee.department?.name ?? "No department"}
+                {archiveTarget.employee.department?.name ?? "No department"}
               </span>
             </p>
             <div className="delete-modal-actions">
