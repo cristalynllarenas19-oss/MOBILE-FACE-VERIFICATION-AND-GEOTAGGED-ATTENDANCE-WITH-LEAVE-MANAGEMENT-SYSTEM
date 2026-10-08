@@ -90,12 +90,12 @@ const PAGE_SIZE = 10;
 // value matches JS Date.getDay() (0=Sunday..6=Saturday); displayed Mon-first.
 // Sunday is excluded — it's a fixed company-wide day off, never selectable.
 const WEEKDAYS = [
-  { label: "Mon", value: 1 },
-  { label: "Tue", value: 2 },
-  { label: "Wed", value: 3 },
-  { label: "Thu", value: 4 },
-  { label: "Fri", value: 5 },
-  { label: "Sat", value: 6 },
+  { label: "Monday", value: 1 },
+  { label: "Tuesday", value: 2 },
+  { label: "Wednesday", value: 3 },
+  { label: "Thursday", value: 4 },
+  { label: "Friday", value: 5 },
+  { label: "Saturday", value: 6 },
 ];
 
 function formatWorkingDays(days: number[]): string {
@@ -401,7 +401,7 @@ export function ShiftsTab({
             </div>
 
             <form onSubmit={submitForm}>
-              <div className="utilities-modal-body">
+              <div className="utilities-modal-body shift-form-body">
                 <label className="utilities-field">
                   <span className="utilities-field-label">
                     Shift Name <span className="utilities-required">*</span>
@@ -421,118 +421,122 @@ export function ShiftsTab({
                   {nameError && <span className="utilities-field-error">{nameError}</span>}
                 </label>
 
-                <div className="utilities-field-row">
-                  <label className="utilities-field">
-                    <span className="utilities-field-label">
-                      Start Time <span className="utilities-required">*</span>
-                    </span>
-                    <input
-                      className="utilities-input"
-                      type="time"
-                      value={form.startTime}
-                      onChange={(e) => {
-                        setForm((c) => ({ ...c, startTime: e.target.value }));
-                        setTimeError(null);
-                      }}
-                      required
-                    />
-                  </label>
-                  <label className="utilities-field">
-                    <span className="utilities-field-label">
-                      End Time <span className="utilities-required">*</span>
-                    </span>
-                    <input
-                      className="utilities-input"
-                      type="time"
-                      value={form.endTime}
-                      onChange={(e) => {
-                        setForm((c) => ({ ...c, endTime: e.target.value }));
-                        setTimeError(null);
-                      }}
-                      required
-                    />
-                  </label>
-                </div>
-                {timeError ? (
-                  <span className="utilities-field-error">{timeError}</span>
-                ) : (
-                  liveHours && <span className="utilities-hint">Total working hours: {liveHours}</span>
-                )}
+                <div className="shift-form-grid">
+                  <div className="shift-form-section">
+                    <div className="utilities-field-row shift-time-row">
+                      <label className="utilities-field">
+                        <span className="utilities-field-label">
+                          Start Time <span className="utilities-required">*</span>
+                        </span>
+                        <input
+                          className="utilities-input"
+                          type="time"
+                          value={form.startTime}
+                          onChange={(e) => {
+                            setForm((c) => ({ ...c, startTime: e.target.value }));
+                            setTimeError(null);
+                          }}
+                          required
+                        />
+                      </label>
+                      <label className="utilities-field">
+                        <span className="utilities-field-label">
+                          End Time <span className="utilities-required">*</span>
+                        </span>
+                        <input
+                          className="utilities-input"
+                          type="time"
+                          value={form.endTime}
+                          onChange={(e) => {
+                            setForm((c) => ({ ...c, endTime: e.target.value }));
+                            setTimeError(null);
+                          }}
+                          required
+                        />
+                      </label>
+                    </div>
+                    {timeError ? (
+                      <span className="utilities-field-error">{timeError}</span>
+                    ) : (
+                      liveHours && <span className="shift-inline-note">Total: {liveHours}</span>
+                    )}
+                  </div>
 
-                <div className="utilities-field-row utilities-equal-field-row utilities-quad-field-row">
-                  <label className="utilities-field">
-                    <span className="utilities-field-label">Morning Break (minutes)</span>
-                    <input
-                      className="utilities-input"
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={form.morningBreakMinutes}
-                      onChange={(e) => setForm((c) => ({ ...c, morningBreakMinutes: e.target.value }))}
-                      placeholder="0"
-                    />
-                  </label>
-                  <label className="utilities-field">
-                    <span className="utilities-field-label">Afternoon Break (minutes)</span>
-                    <input
-                      className="utilities-input"
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={form.afternoonBreakMinutes}
-                      onChange={(e) => setForm((c) => ({ ...c, afternoonBreakMinutes: e.target.value }))}
-                      placeholder="0"
-                    />
-                  </label>
-                  <label className="utilities-field">
-                    <span className="utilities-field-label">Late Threshold (minutes)</span>
-                    <input
-                      className="utilities-input"
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={form.lateThresholdMinutes}
-                      onChange={(e) => setForm((c) => ({ ...c, lateThresholdMinutes: e.target.value }))}
-                      placeholder="0"
-                    />
-                  </label>
-                  <label className="utilities-field">
-                    <span className="utilities-field-label">Undertime Threshold (minutes)</span>
-                    <input
-                      className="utilities-input"
-                      type="number"
-                      min="0"
-                      step="1"
-                      value={form.undertimeThresholdMinutes}
-                      onChange={(e) => setForm((c) => ({ ...c, undertimeThresholdMinutes: e.target.value }))}
-                      placeholder="0"
-                    />
-                  </label>
-                </div>
+                  <div className="shift-form-section">
+                    <div className="utilities-field-row shift-break-grid">
+                      <label className="utilities-field">
+                        <span className="utilities-field-label">Morning Break</span>
+                        <input
+                          className="utilities-input"
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={form.morningBreakMinutes}
+                          onChange={(e) => setForm((c) => ({ ...c, morningBreakMinutes: e.target.value }))}
+                          placeholder="0"
+                        />
+                      </label>
+                      <label className="utilities-field">
+                        <span className="utilities-field-label">Afternoon Break</span>
+                        <input
+                          className="utilities-input"
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={form.afternoonBreakMinutes}
+                          onChange={(e) => setForm((c) => ({ ...c, afternoonBreakMinutes: e.target.value }))}
+                          placeholder="0"
+                        />
+                      </label>
+                      <label className="utilities-field">
+                        <span className="utilities-field-label">Lunch Break</span>
+                        <input
+                          className="utilities-input"
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={form.lunchBreakMinutes}
+                          onChange={(e) => setForm((c) => ({ ...c, lunchBreakMinutes: e.target.value }))}
+                          placeholder="0"
+                        />
+                      </label>
+                    </div>
+                  </div>
 
-                <label className="utilities-field">
-                  <span className="utilities-field-label">Lunch Break (minutes)</span>
-                  <input
-                    className="utilities-input"
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={form.lunchBreakMinutes}
-                    onChange={(e) => setForm((c) => ({ ...c, lunchBreakMinutes: e.target.value }))}
-                    placeholder="0"
-                  />
-                </label>
-                <span className="utilities-hint">
-                  For a straight schedule (no morning/afternoon breaks), set Morning and Afternoon to 0 and Lunch to 30.
-                </span>
+                  <div className="shift-form-section">
+                    <div className="utilities-field-row shift-threshold-grid">
+                      <label className="utilities-field">
+                        <span className="utilities-field-label">Late Threshold</span>
+                        <input
+                          className="utilities-input"
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={form.lateThresholdMinutes}
+                          onChange={(e) => setForm((c) => ({ ...c, lateThresholdMinutes: e.target.value }))}
+                          placeholder="0"
+                        />
+                      </label>
+                      <label className="utilities-field">
+                        <span className="utilities-field-label">Undertime Threshold</span>
+                        <input
+                          className="utilities-input"
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={form.undertimeThresholdMinutes}
+                          onChange={(e) => setForm((c) => ({ ...c, undertimeThresholdMinutes: e.target.value }))}
+                          placeholder="0"
+                        />
+                      </label>
+                    </div>
+                  </div>
+                </div>
 
                 <div className="utilities-field">
                   <span className="utilities-field-label">
                     Working Days <span className="utilities-required">*</span>
                   </span>
-                  <p className="utilities-hint" style={{ marginTop: 0, marginBottom: 6 }}>
-                    Select the days this shift will be scheduled.
-                  </p>
                   <div className="shift-working-days">
                     {WEEKDAYS.map((day) => (
                       <label key={day.value} className="shift-working-day-toggle">
@@ -548,16 +552,15 @@ export function ShiftsTab({
                   {daysError && <span className="utilities-field-error">{daysError}</span>}
                 </div>
 
-                <label className="utilities-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={form.enableRounding}
-                    onChange={(e) => setForm((c) => ({ ...c, enableRounding: e.target.checked }))}
-                  />
-                  <span>Enable rounding rules</span>
-                </label>
-
-                {form.enableRounding && (
+                <div className="shift-form-options">
+                  <label className="utilities-checkbox shift-option-toggle">
+                    <input
+                      type="checkbox"
+                      checked={form.enableRounding}
+                      onChange={(e) => setForm((c) => ({ ...c, enableRounding: e.target.checked }))}
+                    />
+                    <span>Enable rounding rules</span>
+                  </label>
                   <label className="utilities-field">
                     <span className="utilities-field-label">Rounding Interval (minutes)</span>
                     <input
@@ -566,10 +569,11 @@ export function ShiftsTab({
                       min="1"
                       step="1"
                       value={form.roundingIntervalMinutes}
+                      disabled={!form.enableRounding}
                       onChange={(e) => setForm((c) => ({ ...c, roundingIntervalMinutes: e.target.value }))}
                     />
                   </label>
-                )}
+                </div>
 
                 <label className="utilities-checkbox">
                   <input
@@ -579,9 +583,6 @@ export function ShiftsTab({
                   />
                   <span>Auto shift adjustment</span>
                 </label>
-                <span className="utilities-hint">
-                  If an employee arrives within another shift's late threshold window, automatically apply that shift's rules for the day.
-                </span>
               </div>
 
               <div className="utilities-modal-actions">
@@ -604,7 +605,7 @@ export function ShiftsTab({
       {/* ── View Shift modal ── */}
       {viewShift && (
         <div className="utilities-modal-backdrop" role="presentation">
-          <section className="utilities-modal utilities-modal--sm" role="dialog" aria-modal="true" aria-labelledby="view-shift-title">
+          <section className="utilities-modal utilities-modal--sm utilities-modal--shift-view" role="dialog" aria-modal="true" aria-labelledby="view-shift-title">
             <div className="utilities-modal-header">
               <div>
                 <h2 id="view-shift-title">{viewShift.name}</h2>
@@ -615,8 +616,97 @@ export function ShiftsTab({
               </button>
             </div>
 
-            <div className="utilities-modal-body">
-              <div className="utilities-audit-detail-grid">
+            <div className="utilities-modal-body shift-view-body">
+              <div className="utilities-shift-summary">
+                <span>Time</span>
+                <strong>{formatTime12h(viewShift.startTime)} - {formatTime12h(viewShift.endTime)}</strong>
+              </div>
+
+              <div className="shift-view-form-grid">
+                <div className="shift-form-section">
+                  <div className="shift-view-readonly-row shift-view-break-row">
+                    <div>
+                      <span>Morning Break</span>
+                      <strong>{viewShift.morningBreakMinutes}</strong>
+                    </div>
+                    <div>
+                      <span>Afternoon Break</span>
+                      <strong>{viewShift.afternoonBreakMinutes}</strong>
+                    </div>
+                    <div>
+                      <span>Lunch Break</span>
+                      <strong>{viewShift.lunchBreakMinutes}</strong>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="shift-form-section">
+                  <div className="shift-view-readonly-row">
+                    <div>
+                      <span>Late Threshold</span>
+                      <strong>{viewShift.lateThresholdMinutes}</strong>
+                    </div>
+                    <div>
+                      <span>Undertime Threshold</span>
+                      <strong>{viewShift.undertimeThresholdMinutes}</strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="utilities-field shift-view-working-days">
+                <span className="utilities-field-label">Working Days</span>
+                <div className="shift-working-days">
+                  {WEEKDAYS.filter((day) => viewShift.workingDays.includes(day.value)).map((day) => (
+                    <span
+                      key={day.value}
+                      className="shift-working-day-toggle shift-working-day-toggle--readonly selected"
+                    >
+                      {day.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              <div className="shift-form-options shift-view-options">
+                <div className="shift-view-check-row">
+                  <span className={viewShift.enableRounding ? "checked" : ""} />
+                  <strong>Rounding rules</strong>
+                  <em>{viewShift.enableRounding ? `Every ${viewShift.roundingIntervalMinutes} min` : "Disabled"}</em>
+                </div>
+                <div className="shift-view-check-row">
+                  <span className={viewShift.autoShiftAdjustment ? "checked" : ""} />
+                  <strong>Auto shift adjustment</strong>
+                  <em>{viewShift.autoShiftAdjustment ? "Enabled" : "Disabled"}</em>
+                </div>
+              </div>
+
+              <div className="shift-view-meta-grid">
+                <div>
+                  <span>Employees Assigned</span>
+                  <strong>{viewShift._count?.schedules ?? 0}</strong>
+                </div>
+                <div>
+                  <span>Status</span>
+                  <strong>{viewShift.isActive ? "Active" : "Inactive"}</strong>
+                </div>
+                <div>
+                  <span>Created</span>
+                  <strong>
+                    {formatDate(viewShift.createdAt)}
+                    {actorDisplayName(viewShift.createdByUser) ? ` - ${actorDisplayName(viewShift.createdByUser)}` : ""}
+                  </strong>
+                </div>
+                <div>
+                  <span>Last Updated</span>
+                  <strong>
+                    {formatDate(viewShift.updatedAt)}
+                    {actorDisplayName(viewShift.updatedByUser) ? ` - ${actorDisplayName(viewShift.updatedByUser)}` : ""}
+                  </strong>
+                </div>
+              </div>
+
+              <div className="utilities-audit-detail-grid utilities-shift-detail-grid">
                 <div>
                   <span>Time</span>
                   <strong>{formatTime12h(viewShift.startTime)} – {formatTime12h(viewShift.endTime)}</strong>

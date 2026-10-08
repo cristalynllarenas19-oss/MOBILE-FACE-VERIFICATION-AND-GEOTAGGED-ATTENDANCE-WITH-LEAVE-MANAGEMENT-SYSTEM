@@ -301,7 +301,7 @@ export function AuditLogsTab({
       {/* ── Audit log detail modal ── */}
       {viewLog && (
         <div className="utilities-modal-backdrop" role="presentation">
-          <section className="utilities-modal" role="dialog" aria-modal="true" aria-labelledby="audit-view-title">
+          <section className="utilities-modal utilities-modal--audit-view" role="dialog" aria-modal="true" aria-labelledby="audit-view-title">
             <div className="utilities-modal-header">
               <div>
                 <h2 id="audit-view-title">Audit Log Detail</h2>
@@ -312,9 +312,9 @@ export function AuditLogsTab({
               </button>
             </div>
 
-            <div className="utilities-modal-body">
+            <div className="utilities-modal-body audit-view-body">
               <div className="utilities-audit-section-label">Audit Information</div>
-              <div className="utilities-audit-detail-grid">
+              <div className="utilities-audit-detail-grid utilities-audit-detail-grid--compact">
                 <div>
                   <span>Date &amp; Time</span>
                   <strong>{formatDateTime(viewLog.createdAt)}</strong>
@@ -345,17 +345,17 @@ export function AuditLogsTab({
                 </div>
               </div>
 
-              <div className="utilities-field">
+              <div className="audit-view-note">
                 <span className="utilities-field-label">Description</span>
                 <p className="utilities-hint">{auditMeta(viewLog).description ?? "No description recorded."}</p>
               </div>
 
-              <div className="utilities-field">
+              <div className="audit-view-note">
                 <span className="utilities-field-label">Device / Browser</span>
                 <p className="utilities-hint">{auditMeta(viewLog).userAgent ?? "Not available"}</p>
               </div>
 
-              {changeRows.length > 0 && (
+              {false && changeRows.length > 0 && (
                 <>
                   <div className="utilities-audit-section-label">Changes</div>
                   <div className="utilities-audit-diff-table-wrap">
@@ -363,15 +363,15 @@ export function AuditLogsTab({
                       <thead>
                         <tr>
                           <th>Field</th>
-                          {viewLog.oldValues != null && <th>Previous Value</th>}
-                          <th>{viewLog.oldValues != null ? "New Value" : "Value"}</th>
+                          {viewLog!.oldValues != null && <th>Previous Value</th>}
+                          <th>{viewLog!.oldValues != null ? "New Value" : "Value"}</th>
                         </tr>
                       </thead>
                       <tbody>
                         {changeRows.map((row) => (
                           <tr key={row.key} className={row.changed ? "changed" : ""}>
                             <td>{row.key}</td>
-                            {viewLog.oldValues != null && <td>{row.before ?? "—"}</td>}
+                            {viewLog!.oldValues != null && <td>{row.before ?? "—"}</td>}
                             <td>{row.after ?? "—"}</td>
                           </tr>
                         ))}
@@ -381,7 +381,7 @@ export function AuditLogsTab({
                 </>
               )}
 
-              {changeRows.length === 0 && !hasRawJson && (
+              {false && changeRows.length === 0 && !hasRawJson && (
                 <p className="utilities-hint">No additional details were recorded for this entry.</p>
               )}
             </div>
