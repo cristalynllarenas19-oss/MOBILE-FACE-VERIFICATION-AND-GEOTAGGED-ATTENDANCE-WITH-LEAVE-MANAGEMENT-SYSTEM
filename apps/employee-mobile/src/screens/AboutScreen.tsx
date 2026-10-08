@@ -12,12 +12,16 @@ export default function AboutScreen({ onClose }: Props) {
   const version = appConfig.expo.version ?? "1.0.0";
 
   return (
-    <AestheticScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Pressable onPress={onClose} style={styles.backButton} hitSlop={10}>
-        <Ionicons name="arrow-back" size={24} color="#062B59" />
-      </Pressable>
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Pressable onPress={onClose} style={styles.backButton} hitSlop={10}>
+          <Ionicons name="chevron-back" size={24} color="#062B59" />
+        </Pressable>
+        <Text style={styles.title}>About</Text>
+        <View style={styles.headerSpacer} />
+      </View>
 
-      <Text style={styles.title}>About</Text>
+      <AestheticScrollView contentContainerStyle={styles.content}>
       <Text style={styles.appName}>Universal Leaf Attendance</Text>
       <Text style={styles.version}>Version {version}</Text>
 
@@ -53,16 +57,20 @@ export default function AboutScreen({ onClose }: Props) {
         contacting your HR department. By using this application, you confirm that you have read, understood, and
         agree to this Data Privacy Consent.
       </Text>
-    </AestheticScrollView>
+      </AestheticScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#FFFFFF" },
-  content: { paddingHorizontal: 20, paddingTop: 4, paddingBottom: 40 },
-  backButton: { width: 40, height: 40, justifyContent: "center" },
-  title: { fontSize: 22, fontWeight: "700", color: "#062B59", marginTop: 0 },
-  appName: { fontSize: 15, fontWeight: "700", color: "#334155", marginTop: 14 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingTop: 4, marginBottom: 4 },
+  backButton: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "#F1F5F9" },
+  // Balances the back button's width so the title sits truly centered.
+  headerSpacer: { width: 36 },
+  title: { fontSize: 17, fontWeight: "700", color: "#062B59" },
+  content: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 40 },
+  appName: { fontSize: 15, fontWeight: "700", color: "#334155" },
   version: { fontSize: 12, color: "#64748B", marginTop: 2, marginBottom: 20 },
   sectionHeading: {
     fontSize: 13,

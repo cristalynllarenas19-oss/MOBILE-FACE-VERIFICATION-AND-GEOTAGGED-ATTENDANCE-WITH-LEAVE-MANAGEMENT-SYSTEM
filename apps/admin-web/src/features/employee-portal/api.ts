@@ -378,11 +378,13 @@ export type MySchedule = {
   endsOn?: string | null;
   // 0=Sunday..6=Saturday, matches JS Date.getDay().
   workingDays: number[];
+  shift: { id: string; name: string; startTime: string; endTime: string };
 };
 
 // The signed-in employee's own active schedule assignment(s) — used to mark
-// their non-working days on the leave-filing calendar (mirrors
-// employee-mobile's api.ts getMySchedules).
+// their non-working days on the leave-filing calendar and to render the
+// Settings "My Schedule" view (mirrors employee-mobile's api.ts
+// getMySchedules).
 export function getMySchedules() {
   return apiRequest<MySchedule[]>("/schedules/mine");
 }

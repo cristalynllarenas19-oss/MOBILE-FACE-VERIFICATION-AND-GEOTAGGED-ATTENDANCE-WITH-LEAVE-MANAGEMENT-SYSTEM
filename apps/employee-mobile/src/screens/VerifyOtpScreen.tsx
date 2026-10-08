@@ -65,7 +65,7 @@ export default function VerifyOtpScreen({ email, onVerified, onBack }: Props) {
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <View style={styles.content}>
           <Pressable onPress={onBack} style={styles.backButton} hitSlop={10}>
-            <Ionicons name="arrow-back" size={24} color="#062B59" />
+            <Ionicons name="chevron-back" size={24} color="#062B59" />
           </Pressable>
 
           <Ionicons name="mail-unread-outline" size={48} color="#062B59" style={{ marginBottom: 12 }} />
@@ -104,7 +104,15 @@ export default function VerifyOtpScreen({ email, onVerified, onBack }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F1F5F9" },
   content: { flex: 1, paddingHorizontal: 24, paddingTop: 20 },
-  backButton: { width: 40, height: 40, justifyContent: "center", marginBottom: 12 },
+  backButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F1F5F9",
+    marginBottom: 16,
+  },
   title: { fontSize: 26, fontWeight: "700", color: "#062B59" },
   subtitle: { color: "#64748B", marginTop: 8, marginBottom: 28, fontSize: 14, lineHeight: 20 },
   label: { color: "#334155", fontWeight: "600", marginBottom: 8, fontSize: 15 },

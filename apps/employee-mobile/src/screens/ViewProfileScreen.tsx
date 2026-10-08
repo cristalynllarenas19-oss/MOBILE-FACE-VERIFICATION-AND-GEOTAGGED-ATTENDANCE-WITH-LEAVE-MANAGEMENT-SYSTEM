@@ -58,11 +58,13 @@ export default function ViewProfileScreen({ onClose }: Props) {
 
   return (
     <View style={styles.container}>
-      <Pressable onPress={onClose} style={styles.backButton} hitSlop={10}>
-        <Ionicons name="arrow-back" size={24} color="#062B59" />
-      </Pressable>
-
-      <Text style={styles.title}>My Profile</Text>
+      <View style={styles.header}>
+        <Pressable onPress={onClose} style={styles.backButton} hitSlop={10}>
+          <Ionicons name="chevron-back" size={24} color="#062B59" />
+        </Pressable>
+        <Text style={styles.title}>My Profile</Text>
+        <View style={styles.headerSpacer} />
+      </View>
 
       {isLoading ? (
         <ActivityIndicator size="large" color="#1680D8" style={{ marginTop: 20 }} />
@@ -132,8 +134,11 @@ function InfoRow({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#FFFFFF", paddingHorizontal: 20, paddingTop: 4, paddingBottom: 16 },
-  backButton: { width: 40, height: 40, justifyContent: "center" },
-  title: { fontSize: 20, fontWeight: "700", color: "#062B59", marginTop: 0, marginBottom: 12 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 },
+  backButton: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "#F1F5F9" },
+  // Balances the back button's width so the title sits truly centered.
+  headerSpacer: { width: 36 },
+  title: { fontSize: 17, fontWeight: "700", color: "#062B59" },
   avatarWrap: { alignSelf: "center", marginBottom: 12 },
   avatar: { width: 68, height: 68, borderRadius: 34 },
   avatarPlaceholder: { backgroundColor: "#F1F5F9", alignItems: "center", justifyContent: "center" },

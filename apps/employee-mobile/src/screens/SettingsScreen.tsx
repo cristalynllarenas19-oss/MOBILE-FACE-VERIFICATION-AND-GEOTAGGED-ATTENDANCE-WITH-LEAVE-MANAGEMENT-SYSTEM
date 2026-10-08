@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { EmployeeProfile, getMyProfile } from "../api";
 import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
 import ViewProfileScreen from "./ViewProfileScreen";
+import MyScheduleScreen from "./MyScheduleScreen";
 import ChangePasswordScreen from "./ChangePasswordScreen";
 import AboutScreen from "./AboutScreen";
 
@@ -14,7 +15,7 @@ type Props = {
   onSwitchToSupervisorPortal?: () => void;
 };
 
-type SettingsView = "root" | "profile" | "password" | "about";
+type SettingsView = "root" | "profile" | "schedule" | "password" | "about";
 
 export default function SettingsScreen({ onLogout, onProfileChanged, canSwitchToSupervisorPortal, onSwitchToSupervisorPortal }: Props) {
   const [view, setView] = useState<SettingsView>("root");
@@ -37,6 +38,9 @@ export default function SettingsScreen({ onLogout, onProfileChanged, canSwitchTo
         }}
       />
     );
+  }
+  if (view === "schedule") {
+    return <MyScheduleScreen onClose={() => setView("root")} />;
   }
   if (view === "password") {
     return <ChangePasswordScreen onClose={() => setView("root")} />;
@@ -70,6 +74,7 @@ export default function SettingsScreen({ onLogout, onProfileChanged, canSwitchTo
       <Text style={styles.cardTitle}>Settings</Text>
 
       <SettingsRow icon="person-outline" tint="#1680D8" label="My Profile" onPress={() => setView("profile")} />
+      <SettingsRow icon="calendar-outline" tint="#7C3AED" label="My Schedule" onPress={() => setView("schedule")} />
       <SettingsRow icon="key-outline" tint="#15803D" label="Change Password" onPress={() => setView("password")} />
       {canSwitchToSupervisorPortal && onSwitchToSupervisorPortal && (
         <SettingsRow icon="swap-horizontal-outline" tint="#DB2777" label="Switch to Supervisor View" onPress={onSwitchToSupervisorPortal} />

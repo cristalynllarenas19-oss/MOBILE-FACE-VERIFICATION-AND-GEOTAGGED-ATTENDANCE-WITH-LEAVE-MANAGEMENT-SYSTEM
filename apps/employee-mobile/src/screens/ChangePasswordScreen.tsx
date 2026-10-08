@@ -40,36 +40,44 @@ export default function ChangePasswordScreen({ onClose }: Props) {
   }
 
   return (
-    <AestheticScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      <Pressable onPress={onClose} style={styles.backButton} hitSlop={10}>
-        <Ionicons name="arrow-back" size={24} color="#062B59" />
-      </Pressable>
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Pressable onPress={onClose} style={styles.backButton} hitSlop={10}>
+          <Ionicons name="chevron-back" size={24} color="#062B59" />
+        </Pressable>
+        <Text style={styles.title}>Change Password</Text>
+        <View style={styles.headerSpacer} />
+      </View>
 
-      <Text style={styles.title}>Change Password</Text>
-      <Text style={styles.subtitle}>Enter your current password and choose a new one.</Text>
+      <AestheticScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <Text style={styles.subtitle}>Enter your current password and choose a new one.</Text>
 
-      <Text style={styles.label}>Current Password</Text>
-      <TextInput style={styles.input} value={currentPassword} onChangeText={setCurrentPassword} secureTextEntry autoCapitalize="none" />
+        <Text style={styles.label}>Current Password</Text>
+        <TextInput style={styles.input} value={currentPassword} onChangeText={setCurrentPassword} secureTextEntry autoCapitalize="none" />
 
-      <Text style={styles.label}>New Password</Text>
-      <TextInput style={styles.input} value={newPassword} onChangeText={setNewPassword} secureTextEntry autoCapitalize="none" />
+        <Text style={styles.label}>New Password</Text>
+        <TextInput style={styles.input} value={newPassword} onChangeText={setNewPassword} secureTextEntry autoCapitalize="none" />
 
-      <Text style={styles.label}>Confirm New Password</Text>
-      <TextInput style={styles.input} value={confirmPassword} onChangeText={setConfirmPassword} secureTextEntry autoCapitalize="none" />
+        <Text style={styles.label}>Confirm New Password</Text>
+        <TextInput style={styles.input} value={confirmPassword} onChangeText={setConfirmPassword} secureTextEntry autoCapitalize="none" />
 
-      <Pressable style={styles.button} onPress={handleSave} disabled={isSaving}>
-        <Text style={styles.buttonText}>{isSaving ? "Saving..." : "Update Password"}</Text>
-      </Pressable>
-    </AestheticScrollView>
+        <Pressable style={styles.button} onPress={handleSave} disabled={isSaving}>
+          <Text style={styles.buttonText}>{isSaving ? "Saving..." : "Update Password"}</Text>
+        </Pressable>
+      </AestheticScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#FFFFFF" },
-  content: { paddingHorizontal: 20, paddingTop: 4, paddingBottom: 40 },
-  backButton: { width: 40, height: 40, justifyContent: "center" },
-  title: { fontSize: 22, fontWeight: "700", color: "#062B59", marginTop: 0 },
-  subtitle: { color: "#64748B", marginTop: 6, marginBottom: 20, fontSize: 13 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 20, paddingTop: 4, marginBottom: 4 },
+  backButton: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "#F1F5F9" },
+  // Balances the back button's width so the title sits truly centered.
+  headerSpacer: { width: 36 },
+  title: { fontSize: 17, fontWeight: "700", color: "#062B59" },
+  content: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 40 },
+  subtitle: { color: "#64748B", marginTop: 0, marginBottom: 20, fontSize: 13 },
   label: { color: "#334155", fontWeight: "600", marginBottom: 6, marginTop: 14, fontSize: 14 },
   input: {
     height: 50,

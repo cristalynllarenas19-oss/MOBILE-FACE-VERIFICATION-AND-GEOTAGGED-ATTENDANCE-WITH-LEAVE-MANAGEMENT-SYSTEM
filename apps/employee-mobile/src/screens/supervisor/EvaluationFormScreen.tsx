@@ -144,7 +144,7 @@ export default function EvaluationFormScreen({ visible, employeeId, employeeName
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.header}>
-          <Pressable onPress={onClose} style={({ pressed }) => [styles.headerButton, pressed && styles.headerButtonPressed]} hitSlop={8}>
+          <Pressable onPress={onClose} style={styles.backButton} hitSlop={8}>
             <Ionicons name="chevron-back" size={24} color="#062B59" />
           </Pressable>
           <View style={{ flex: 1 }}>
@@ -282,8 +282,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#E2E8F0",
   },
-  headerButton: { minWidth: 40, paddingVertical: 4, paddingHorizontal: 4 },
-  headerButtonPressed: { opacity: 0.6 },
+  backButton: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "#F1F5F9" },
   headerTitle: { fontSize: 17, fontWeight: "700", color: "#062B59" },
   headerSubtitle: { fontSize: 13, color: "#64748B", marginTop: 1 },
   content: { padding: 16, paddingBottom: 32, gap: 6 },

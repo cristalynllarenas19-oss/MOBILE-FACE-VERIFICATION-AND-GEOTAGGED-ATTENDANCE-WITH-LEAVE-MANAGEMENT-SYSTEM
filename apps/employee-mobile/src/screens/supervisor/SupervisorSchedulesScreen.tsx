@@ -38,11 +38,11 @@ export default function SupervisorSchedulesScreen({ onClose }: Props) {
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.headerRow}>
-        <Pressable onPress={onClose} hitSlop={10}>
-          <Ionicons name="chevron-back" size={22} color="#062B59" />
+        <Pressable onPress={onClose} style={styles.backButton} hitSlop={10}>
+          <Ionicons name="chevron-back" size={24} color="#062B59" />
         </Pressable>
         <Text style={styles.headerTitle}>Schedules</Text>
-        <View style={{ width: 22 }} />
+        <View style={styles.headerSpacer} />
       </View>
 
       {isLoading ? (
@@ -93,6 +93,8 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1 },
   centered: { flex: 1, alignItems: "center", justifyContent: "center" },
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14 },
+  backButton: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "#F1F5F9" },
+  headerSpacer: { width: 36 },
   headerTitle: { fontSize: 16, fontWeight: "700", color: "#062B59" },
   list: { paddingBottom: 24, gap: 10 },
   card: { flexDirection: "row", alignItems: "flex-start", gap: 12, backgroundColor: "#FFFFFF", borderRadius: 16, padding: 14, ...cardShadow },

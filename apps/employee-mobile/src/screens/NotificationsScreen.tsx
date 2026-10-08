@@ -455,10 +455,7 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.header}>
-          <Pressable
-            onPress={onClose}
-            style={({ pressed }) => [styles.headerButton, pressed && styles.headerButtonPressed]}
-          >
+          <Pressable onPress={onClose} style={styles.backButton}>
             <Ionicons name="chevron-back" size={24} color="#062B59" />
           </Pressable>
           <Text style={styles.headerTitle}>Notifications</Text>
@@ -771,6 +768,14 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: "#E2E8F0",
+  },
+  backButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#F1F5F9",
   },
   headerButton: {
     minWidth: 40,

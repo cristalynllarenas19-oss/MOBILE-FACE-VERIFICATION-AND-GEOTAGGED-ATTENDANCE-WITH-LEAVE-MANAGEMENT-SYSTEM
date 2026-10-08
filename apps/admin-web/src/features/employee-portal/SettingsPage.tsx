@@ -1,9 +1,9 @@
-import { CSSProperties, FormEvent, ReactNode, useRef, useState } from "react";
+import { CSSProperties, FormEvent, ReactNode, useMemo, useRef, useState } from "react";
 import {
-  ArrowLeft, Briefcase, Building2, Camera, ChevronRight,
+  ArrowLeft, Briefcase, Building2, Calendar, Camera, ChevronLeft, ChevronRight,
   Eye, EyeOff, Info, Lock, Mail, Phone, User,
 } from "lucide-react";
-import { EmployeeProfile, getMyProfile, changePassword, updateMyPhoto } from "./api";
+import { EmployeeProfile, MySchedule, getMyProfile, getMySchedules, changePassword, updateMyPhoto } from "./api";
 import { AuthUser, updateDefaultView } from "../../lib/api";
 import { CACHE_KEYS, useCachedData } from "../../lib/dataCache";
 import "./EmployeePortal.css";
@@ -13,7 +13,66 @@ import "./EmployeePortal.css";
 const APP_VERSION = "0.1.0";
 
 type Props   = { user: AuthUser; onDefaultViewChange: (view: "ADMIN" | "EMPLOYEE") => void };
-type Section = "menu" | "profile" | "password" | "about";
+type Section = "menu" | "profile" | "schedule" | "password" | "about";
+
+// Index matches JS Date.getDay() (0=Sunday..6=Saturday), same convention as
+// MySchedule.workingDays and employee-mobile's MyScheduleScreen. Single
+// letters fit the hero card's compact mini-row dots.
+const DAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"];
+// Two letters for the calendar's header row, so Sunday and Saturday don't
+// both render as an ambiguous "S" there.
+const CALENDAR_DAY_LABELS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+const MONTH_LABELS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+function toDateOnly(date: Date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+function isSameDay(a: Date, b: Date) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+function formatScheduleDate(value?: string | null) {
+  return value
+    ? new Date(value).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" })
+    : "Present";
+}
+
+// "08:00" -> "8:00 AM" — only used for the hero time range, where it reads
+// better than the 24h strings shown elsewhere (shift management, etc).
+function formatShiftTime(value: string) {
+  const [h, m] = value.split(":").map(Number);
+  const period = h >= 12 ? "PM" : "AM";
+  const displayHour = h % 12 === 0 ? 12 : h % 12;
+  return `${displayHour}:${String(m).padStart(2, "0")} ${period}`;
+}
+
+// Which (if any) of the employee's schedule assignments covers this date.
+// Assignments shouldn't overlap in practice, but mySchedules is sorted
+// startsOn-desc, so the most recently-started match wins if they ever do.
+function scheduleForDate(schedules: MySchedule[], date: Date) {
+  return schedules.find((schedule) => {
+    const start = toDateOnly(new Date(schedule.startsOn));
+    if (date < start) return false;
+    if (!schedule.endsOn) return true;
+    return date <= toDateOnly(new Date(schedule.endsOn));
+  });
+}
+
+// Sunday is a fixed company-wide rest day for every role (see
+// schedules.service.ts's assertValidWorkingDays) regardless of whether a
+// schedule assignment happens to be on file for that date — so it always
+// plots as a (legible) day off rather than falling through to the muted
+// "no schedule" treatment.
+function dayKind(schedules: MySchedule[], date: Date): "working" | "off" | "none" {
+  if (date.getDay() === 0) return "off";
+  const schedule = scheduleForDate(schedules, date);
+  if (!schedule) return "none";
+  return schedule.workingDays.includes(date.getDay()) ? "working" : "off";
+}
 
 // ── Design tokens ────────────────────────────────────────────────────────────
 // Matched to the reference mock: deep navy headings/icons/button, soft gray
@@ -31,8 +90,11 @@ const COLORS = {
   white:        "#FFFFFF",
   // Per-row icon tints — matches employee-mobile's SettingsScreen row colors.
   profileBlue:  "#1680D8",
+  scheduleViolet:"#7C3AED",
   passwordGreen:"#15803D",
   aboutGray:    "#64748B",
+  shiftAmberBg: "#FEF3C7",
+  shiftAmberFg: "#92400E",
 } as const;
 
 function avatarUri(p: EmployeeProfile) {
@@ -48,6 +110,22 @@ export function SettingsPage({ user, onDefaultViewChange }: Props) {
     getMyProfile,
   );
   const [section,   setSection]   = useState<Section>("menu");
+
+  // Own active schedule assignment(s) — same cache key LeavePage uses, so
+  // this reuses whatever's already fetched instead of refetching.
+  const { data: mySchedules, isLoading: isLoadingSchedules } = useCachedData<MySchedule[]>(
+    user.employeeId ? CACHE_KEYS.mySchedules(user.employeeId) : null,
+    () => getMySchedules(),
+  );
+  const today = toDateOnly(new Date());
+  const [scheduleViewMonth, setScheduleViewMonth] = useState(() => toDateOnly(new Date()));
+  // The shift summary card always reflects "today's" assignment (or the most
+  // recent one, if today falls outside every range) — independent of
+  // whichever month the calendar below is navigated to.
+  const currentSchedule = useMemo(
+    () => (mySchedules ? scheduleForDate(mySchedules, today) ?? mySchedules[0] : undefined),
+    [mySchedules, today],
+  );
 
   // default view preference (multi-role accounts only)
   const [defaultView, setDefaultView] = useState(user.defaultView);
@@ -69,7 +147,7 @@ export function SettingsPage({ user, onDefaultViewChange }: Props) {
   const [photoStatus, setPhotoStatus] = useState<{ ok: boolean; msg: string } | null>(null);
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
-  const [hoveredRow, setHoveredRow] = useState<"profile" | "password" | "about" | null>(null);
+  const [hoveredRow, setHoveredRow] = useState<"profile" | "schedule" | "password" | "about" | null>(null);
   const [backHover, setBackHover] = useState(false);
 
   async function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -147,24 +225,28 @@ export function SettingsPage({ user, onDefaultViewChange }: Props) {
   return (
     <div className="emp-form-page">
 
-      {section !== "menu" && (
-        <button
-          onClick={() => { setSection("menu"); setPwdStatus(null); setPhotoStatus(null); }}
-          onMouseEnter={() => setBackHover(true)}
-          onMouseLeave={() => setBackHover(false)}
-          style={{ ...backBtn, opacity: backHover ? 0.6 : 1 }}
-          aria-label="Back"
-        >
-          <ArrowLeft size={24} color={COLORS.navy} strokeWidth={2.25} />
-        </button>
+      {section === "menu" ? (
+        <h2 style={pageTitle}>Settings</h2>
+      ) : (
+        <div style={headerRow}>
+          <button
+            onClick={() => { setSection("menu"); setPwdStatus(null); setPhotoStatus(null); }}
+            onMouseEnter={() => setBackHover(true)}
+            onMouseLeave={() => setBackHover(false)}
+            style={{ ...backBtn, opacity: backHover ? 0.6 : 1 }}
+            aria-label="Back"
+          >
+            <ArrowLeft size={22} color={COLORS.navy} strokeWidth={2.25} />
+          </button>
+          <h2 style={headerTitle}>
+            {section === "profile"  ? "My Profile"       :
+             section === "schedule" ? "My Schedule"       :
+             section === "about"    ? "About"            :
+                                      "Change Password"}
+          </h2>
+          <div style={headerSpacer} />
+        </div>
       )}
-
-      <h2 style={pageTitle}>
-        {section === "menu"     ? "Settings"         :
-         section === "profile"  ? "My Profile"       :
-         section === "about"    ? "About"            :
-                                  "Change Password"}
-      </h2>
 
       {section === "password" && (
         <p style={pageSubtitle}>Enter your current password and change a new one.</p>
@@ -201,6 +283,15 @@ export function SettingsPage({ user, onDefaultViewChange }: Props) {
             hovered={hoveredRow === "profile"}
             onHover={(v) => setHoveredRow(v ? "profile" : null)}
             onPress={() => setSection("profile")}
+          />
+          <div style={dividerLine} />
+          <MenuRow
+            icon={<Calendar size={18} color={COLORS.scheduleViolet} strokeWidth={1.9} />}
+            tint={COLORS.scheduleViolet}
+            label="My Schedule"
+            hovered={hoveredRow === "schedule"}
+            onHover={(v) => setHoveredRow(v ? "schedule" : null)}
+            onPress={() => setSection("schedule")}
           />
           <div style={dividerLine} />
           <MenuRow
@@ -325,6 +416,56 @@ export function SettingsPage({ user, onDefaultViewChange }: Props) {
         </div>
       )}
 
+      {/* ── MY SCHEDULE ──────────────────────────────────────────────────── */}
+      {section === "schedule" && (
+        <div>
+          {isLoadingSchedules && <p style={centerNote}>Loading…</p>}
+          {!isLoadingSchedules && (!mySchedules || mySchedules.length === 0) && (
+            <p style={centerNote}>
+              You don't have a shift schedule assigned yet. Contact HR/Admin if this doesn't look right.
+            </p>
+          )}
+          {!isLoadingSchedules && mySchedules && mySchedules.length > 0 && currentSchedule && (
+            <>
+              <div style={scheduleCard}>
+                <div style={scheduleCardHeaderRow}>
+                  <span style={scheduleCardEyebrow}>CURRENT SCHEDULE</span>
+                  <span style={shiftNameBadge}>
+                    <Briefcase size={11} color={COLORS.profileBlue} strokeWidth={2} />
+                    {currentSchedule.shift.name}
+                  </span>
+                </div>
+
+                <p style={scheduleTimeHero}>
+                  {formatShiftTime(currentSchedule.shift.startTime)} – {formatShiftTime(currentSchedule.shift.endTime)}
+                </p>
+
+                <div style={weekMiniRow}>
+                  {DAY_LABELS.map((label, day) => (
+                    <span key={day} style={weekMiniDot(currentSchedule.workingDays.includes(day))}>
+                      {label}
+                    </span>
+                  ))}
+                </div>
+
+                <div style={scheduleCardDivider} />
+
+                <p style={scheduleDateText}>
+                  <Calendar size={13} color={COLORS.labelGray} strokeWidth={2} style={{ verticalAlign: -2, marginRight: 6 }} />
+                  Effective {formatScheduleDate(currentSchedule.startsOn)} → {formatScheduleDate(currentSchedule.endsOn)}
+                </p>
+              </div>
+
+              <ScheduleCalendar schedules={mySchedules} viewMonth={scheduleViewMonth} onChangeMonth={setScheduleViewMonth} today={today} />
+
+              <p style={footerNote}>
+                This is managed by HR/Admin. Contact HR/Admin if your schedule needs to be updated.
+              </p>
+            </>
+          )}
+        </div>
+      )}
+
       {/* ── CHANGE PASSWORD ─────────────────────────────────────────────── */}
       {section === "password" && (
         <form onSubmit={handleChangePassword}>
@@ -433,6 +574,72 @@ function MenuRow({
   );
 }
 
+function ScheduleCalendar({
+  schedules, viewMonth, onChangeMonth, today,
+}: {
+  schedules: MySchedule[]; viewMonth: Date; onChangeMonth: (date: Date) => void; today: Date;
+}) {
+  const year = viewMonth.getFullYear();
+  const month = viewMonth.getMonth();
+  const firstOfMonth = new Date(year, month, 1);
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const leadingBlanks = firstOfMonth.getDay();
+
+  const cells: Array<Date | null> = [];
+  for (let i = 0; i < leadingBlanks; i++) cells.push(null);
+  for (let day = 1; day <= daysInMonth; day++) cells.push(new Date(year, month, day));
+
+  return (
+    <div style={calendarCard}>
+      <div style={calendarMonthRow}>
+        <button type="button" onClick={() => onChangeMonth(new Date(year, month - 1, 1))} style={calendarNavBtn}>
+          <ChevronLeft size={18} color={COLORS.navy} />
+        </button>
+        <span style={calendarMonthLabel}>{MONTH_LABELS[month]} {year}</span>
+        <button type="button" onClick={() => onChangeMonth(new Date(year, month + 1, 1))} style={calendarNavBtn}>
+          <ChevronRight size={18} color={COLORS.navy} />
+        </button>
+      </div>
+
+      <div style={calendarWeekdayRow}>
+        {CALENDAR_DAY_LABELS.map((label, i) => (
+          <span key={i} style={calendarWeekdayLabel}>{label}</span>
+        ))}
+      </div>
+
+      <div style={calendarGrid}>
+        {cells.map((date, index) => {
+          if (!date) return <div key={index} />;
+          const kind = dayKind(schedules, date);
+          const isToday = isSameDay(date, today);
+          return (
+            <div key={index} style={calendarCell}>
+              <span style={calendarDay(kind, isToday)}>
+                {date.getDate()}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      <div style={calendarLegendRow}>
+        <span style={calendarLegendItem}>
+          <span style={{ ...calendarLegendDot, background: COLORS.navy }} />
+          Working day
+        </span>
+        <span style={calendarLegendItem}>
+          <span style={{ ...calendarLegendDot, background: COLORS.shiftAmberBg }} />
+          Day off
+        </span>
+        <span style={calendarLegendItem}>
+          <span style={{ ...calendarLegendDot, background: COLORS.divider }} />
+          No schedule
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function PwdField({
   label, value, onChange, show, onToggle,
 }: {
@@ -468,9 +675,22 @@ const pageSubtitle: CSSProperties = {
   color: COLORS.subtitleGray, fontSize: 14, margin: "0 0 28px",
 };
 
+// Mirrors employee-mobile's screen header: a rounded chip back button with
+// the title centered between it and a same-width spacer.
+const headerRow: CSSProperties = {
+  display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14,
+};
+
+const headerTitle: CSSProperties = {
+  color: COLORS.navy, fontSize: 20, fontWeight: 800, margin: 0, letterSpacing: -0.3,
+};
+
+const headerSpacer: CSSProperties = { width: 36 };
+
 const backBtn: CSSProperties = {
-  background: "none", border: "none", cursor: "pointer",
-  padding: 0, marginBottom: 18, display: "flex",
+  width: 36, height: 36, borderRadius: 18,
+  background: COLORS.divider, border: "none", cursor: "pointer",
+  display: "flex", alignItems: "center", justifyContent: "center",
   transition: "opacity 0.15s ease",
 };
 
@@ -572,9 +792,109 @@ const detailIconWrap: CSSProperties = {
 const detailLabel: CSSProperties = { color: COLORS.labelGray, fontSize: 13, fontWeight: 500 };
 const detailValue: CSSProperties = { color: COLORS.navy, fontSize: 17, fontWeight: 700 };
 
+const scheduleCard: CSSProperties = {
+  background: COLORS.white, border: `1px solid ${COLORS.border}`,
+  borderRadius: 18, padding: 14, marginBottom: 10,
+};
+
+const scheduleCardHeaderRow: CSSProperties = {
+  display: "flex", alignItems: "center", justifyContent: "space-between",
+};
+
+const scheduleCardEyebrow: CSSProperties = {
+  fontSize: 10, fontWeight: 700, color: COLORS.labelGray, letterSpacing: 0.6,
+};
+
+const shiftNameBadge: CSSProperties = {
+  display: "inline-flex", alignItems: "center", gap: 5,
+  background: "#EFF6FF", color: COLORS.profileBlue,
+  fontSize: 11, fontWeight: 700,
+  padding: "3px 8px", borderRadius: 8,
+};
+
+// The hero: this is what the whole card exists to show, so it's the single
+// biggest, boldest thing on it (mirrors employee-mobile's MyScheduleScreen).
+const scheduleTimeHero: CSSProperties = {
+  fontSize: 23, fontWeight: 800, color: COLORS.navy, letterSpacing: -0.5, margin: "6px 0 0", textAlign: "center",
+};
+
+const weekMiniRow: CSSProperties = {
+  display: "flex", justifyContent: "space-between", marginTop: 10,
+};
+
+function weekMiniDot(active: boolean): CSSProperties {
+  return {
+    display: "flex", alignItems: "center", justifyContent: "center",
+    width: 26, height: 26, borderRadius: 8,
+    background: active ? COLORS.navy : COLORS.divider,
+    color: active ? COLORS.white : COLORS.labelGray,
+    fontSize: 11, fontWeight: 700,
+  };
+}
+
+const scheduleCardDivider: CSSProperties = { height: 1, background: COLORS.divider, margin: "10px 0 8px" };
+
+const scheduleDateText: CSSProperties = { color: COLORS.subtitleGray, fontSize: 12, margin: 0, display: "flex", alignItems: "center", justifyContent: "center" };
+
+const calendarCard: CSSProperties = {
+  background: COLORS.white, border: `1px solid ${COLORS.border}`,
+  borderRadius: 18, padding: 14,
+};
+
+const calendarMonthRow: CSSProperties = {
+  display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8,
+};
+
+const calendarNavBtn: CSSProperties = {
+  border: "none", background: "none", cursor: "pointer", padding: 3, display: "flex",
+};
+
+const calendarMonthLabel: CSSProperties = { fontSize: 14, fontWeight: 700, color: COLORS.navy };
+
+const calendarWeekdayRow: CSSProperties = {
+  display: "grid", gridTemplateColumns: "repeat(7, 1fr)", marginBottom: 2,
+};
+
+const calendarWeekdayLabel: CSSProperties = {
+  textAlign: "center", fontSize: 10, fontWeight: 700, color: COLORS.labelGray,
+};
+
+const calendarGrid: CSSProperties = {
+  display: "grid", gridTemplateColumns: "repeat(7, 1fr)", rowGap: 3,
+};
+
+const calendarCell: CSSProperties = {
+  display: "flex", alignItems: "center", justifyContent: "center", padding: "2px 0",
+};
+
+function calendarDay(kind: "working" | "off" | "none", isToday: boolean): CSSProperties {
+  return {
+    display: "flex", alignItems: "center", justifyContent: "center",
+    width: 27, height: 27, borderRadius: 8,
+    fontSize: 12, fontWeight: 600,
+    background: kind === "working" ? COLORS.navy : kind === "off" ? COLORS.shiftAmberBg : "transparent",
+    color: kind === "working" ? COLORS.white : kind === "off" ? "#D97706" : kind === "none" ? "#CBD5E1" : COLORS.navyText,
+    // Today's ring layers on top of whichever fill (or none) the day already
+    // has — doesn't replace the working/off/no-schedule color coding.
+    boxShadow: isToday ? `inset 0 0 0 2px ${COLORS.profileBlue}` : "none",
+  };
+}
+
+const calendarLegendRow: CSSProperties = {
+  display: "flex", justifyContent: "center", gap: 14, marginTop: 8, flexWrap: "wrap",
+};
+
+const calendarLegendItem: CSSProperties = {
+  display: "flex", alignItems: "center", gap: 5, fontSize: 10.5, color: COLORS.subtitleGray,
+};
+
+const calendarLegendDot: CSSProperties = {
+  display: "inline-block", width: 9, height: 9, borderRadius: 4.5,
+};
+
 const footerNote: CSSProperties = {
-  color: COLORS.labelGray, fontSize: 13, textAlign: "center",
-  lineHeight: 1.5, margin: "20px 12px 0",
+  color: COLORS.labelGray, fontSize: 12, textAlign: "center",
+  lineHeight: 1.4, margin: "12px 12px 0",
 };
 
 const pwdFieldWrap: CSSProperties = { marginBottom: 26 };
