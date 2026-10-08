@@ -17,6 +17,7 @@ import {
   Bell as BellIcon,
 } from "lucide-react";
 import { AppNotification } from "../../lib/notifications";
+import { stripFormattingTokens } from "../../lib/richText";
 
 // Category carries the color (scannable at a glance); the glyph disambiguates
 // the specific type within it. See the "Notification Icon System" audit —
@@ -117,7 +118,7 @@ export function NotificationPanel({
               </span>
               <span className="notification-item-body">
                 <strong>{notification.title}</strong>
-                <p>{notification.message}</p>
+                <p>{notification.type === "ANNOUNCEMENT" ? stripFormattingTokens(notification.message) : notification.message}</p>
                 <time>{timeAgo(notification.createdAt)}</time>
               </span>
               {!notification.readAt && <span className="notification-item-dot" aria-hidden="true" />}

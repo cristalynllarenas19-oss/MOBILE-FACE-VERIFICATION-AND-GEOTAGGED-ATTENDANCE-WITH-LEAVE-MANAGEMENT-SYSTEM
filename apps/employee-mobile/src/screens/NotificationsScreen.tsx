@@ -33,9 +33,11 @@ import {
 } from "../api";
 import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
 import { FormattedAnnouncementText, stripFormattingTokens } from "../utils/richText";
+import { saveDataUriToDevice } from "../utils/downloadImage";
 import ResultModal, { ResultModalStatus } from "../components/ResultModal";
 import AestheticScrollView from "../components/AestheticScrollView";
 import AestheticFlatList from "../components/AestheticFlatList";
+import { ZoomableImage } from "../components/ZoomableImage";
 
 // Stable fallbacks so downstream filters don't recompute on every render
 // while the cache/network is still empty.
@@ -254,6 +256,32 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
   const [isPickingFile, setIsPickingFile] = useState(false);
   const [note, setNote] = useState("");
   const [justResubmittedId, setJustResubmittedId] = useState<string | null>(null);
+
+  // Full-screen viewer for an announcement's attached image (opened by
+  // tapping it inside FormattedAnnouncementText) and the Download action
+  // inside that viewer.
+  const [viewingImage, setViewingImage] = useState<{ url: string; name: string } | null>(null);
+  const [isDownloadingImage, setIsDownloadingImage] = useState(false);
+  const [downloadResult, setDownloadResult] = useState<{ status: ResultModalStatus; title: string; message: string } | null>(null);
+
+  async function handleDownloadImage() {
+    if (!viewingImage || isDownloadingImage) return;
+    setIsDownloadingImage(true);
+    try {
+      await saveDataUriToDevice(viewingImage.url, viewingImage.name);
+      // Saving now happens silently (straight to Photos, no share sheet),
+      // so this confirmation is the only sign the user gets that it worked.
+      setDownloadResult({ status: "approved", title: "Saved", message: "Image saved to your Photos." });
+    } catch (error) {
+      setDownloadResult({
+        status: "error",
+        title: "Download Failed",
+        message: error instanceof Error ? error.message : "Couldn't save this image.",
+      });
+    } finally {
+      setIsDownloadingImage(false);
+    }
+  }
 
   // Re-fetches after a mutation (e.g. resubmitting a leave request);
   // initial loads happen inside each useCachedData hook.
@@ -556,7 +584,11 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
 
               <AestheticScrollView contentContainerStyle={styles.detailScrollContent}>
                 {detailNotification.type === "ANNOUNCEMENT" ? (
-                  <FormattedAnnouncementText message={detailNotification.message} textStyle={styles.detailMessage} />
+                  <FormattedAnnouncementText
+                    message={detailNotification.message}
+                    textStyle={styles.detailMessage}
+                    onImagePress={setViewingImage}
+                  />
                 ) : (
                   <Text style={styles.detailMessage}>{detailNotification.message}</Text>
                 )}
@@ -750,6 +782,43 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
       title={reviewResult?.title ?? ""}
       message={reviewResult?.message ?? ""}
       onClose={() => setReviewResult(null)}
+    />
+
+    <Modal visible={!!viewingImage} transparent animationType="fade" onRequestClose={() => setViewingImage(null)}>
+      <View style={styles.imageViewerOverlay}>
+        <BlurView
+          intensity={65}
+          tint="dark"
+          experimentalBlurMethod="dimezisBlurView"
+          style={StyleSheet.absoluteFillObject}
+        />
+        <View style={styles.imageViewerContent} pointerEvents="box-none">
+          {viewingImage && <ZoomableImage uri={viewingImage.url} style={styles.imageViewerMedia} />}
+          <Pressable
+            style={({ pressed }) => [styles.imageViewerDownloadButton, pressed && styles.imageViewerDownloadButtonPressed]}
+            onPress={handleDownloadImage}
+            disabled={isDownloadingImage}
+          >
+            {isDownloadingImage ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Ionicons name="download-outline" size={18} color="#FFFFFF" />
+            )}
+            <Text style={styles.imageViewerDownloadText}>{isDownloadingImage ? "Saving…" : "Download"}</Text>
+          </Pressable>
+        </View>
+        <Pressable style={styles.imageViewerCloseButton} onPress={() => setViewingImage(null)} hitSlop={10}>
+          <Ionicons name="close" size={22} color="#FFFFFF" />
+        </Pressable>
+      </View>
+    </Modal>
+
+    <ResultModal
+      visible={!!downloadResult}
+      status={downloadResult?.status ?? "info"}
+      title={downloadResult?.title ?? ""}
+      message={downloadResult?.message ?? ""}
+      onClose={() => setDownloadResult(null)}
     />
     </>
   );
@@ -1191,6 +1260,47 @@ const styles = StyleSheet.create({
   },
   viewLeaveButtonText: {
     color: "#1680D8",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  imageViewerOverlay: { flex: 1, alignItems: "center", padding: 16, paddingTop: 70 },
+  // Image + Download button are siblings in normal flex flow (not
+  // absolutely positioned at a fixed pixel offset) so the button always
+  // lands below the image with a real gap, regardless of screen height.
+  // The image itself is flex: 1 (not a fixed %) so it grows to fill all
+  // space left over after the button — as big as the screen allows.
+  imageViewerContent: { flex: 1, width: "100%", alignItems: "center" },
+  imageViewerMedia: { flex: 1, width: "100%", borderRadius: 12, backgroundColor: "#FFFFFF" },
+  imageViewerCloseButton: {
+    position: "absolute",
+    top: 16,
+    right: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.3)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  imageViewerDownloadButton: {
+    marginTop: 32,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 24,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.3)",
+  },
+  imageViewerDownloadButtonPressed: {
+    opacity: 0.8,
+  },
+  imageViewerDownloadText: {
+    color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "700",
   },

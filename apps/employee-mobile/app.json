@@ -40,7 +40,15 @@
       ],
       "expo-secure-store",
       "expo-asset",
-      "expo-audio"
+      "expo-audio",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow E-TALA to save downloaded images to your photos.",
+          "savePhotosPermission": "Allow E-TALA to save downloaded images to your photos.",
+          "isAccessMediaLocationEnabled": false
+        }
+      ]
     ],
     "extra": {
       "eas": {

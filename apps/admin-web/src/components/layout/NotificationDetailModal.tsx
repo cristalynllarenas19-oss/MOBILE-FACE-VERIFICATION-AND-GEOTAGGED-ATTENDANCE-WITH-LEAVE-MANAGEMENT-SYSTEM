@@ -1,6 +1,7 @@
 import { AppNotification } from "../../lib/notifications";
 import { NotificationIcon, notificationCategory } from "./NotificationPanel";
 import { ModalCloseButton } from "../ui/ModalCloseButton";
+import { renderFormattedText } from "../../lib/richText";
 import "./NotificationDetailModal.css";
 
 function formatFullDate(value: string) {
@@ -50,18 +51,19 @@ export function NotificationDetailModal({
 
         <h2 id="notif-detail-title" className="notif-detail-title">{notification.title}</h2>
         <p className="notif-detail-time">{formatFullDate(notification.createdAt)}</p>
-        <p className="notif-detail-message">{notification.message}</p>
+        {notification.type === "ANNOUNCEMENT" ? (
+          <div className="notif-detail-message">{renderFormattedText(notification.message)}</div>
+        ) : (
+          <p className="notif-detail-message">{notification.message}</p>
+        )}
 
-        <div className="notif-detail-actions">
-          {onViewLeaveRequest && (
+        {onViewLeaveRequest && (
+          <div className="notif-detail-actions">
             <button type="button" className="notif-detail-secondary" onClick={onViewLeaveRequest}>
               View Leave Request
             </button>
-          )}
-          <button type="button" className="notif-detail-primary" onClick={onClose}>
-            Close
-          </button>
-        </div>
+          </div>
+        )}
       </section>
     </div>
   );

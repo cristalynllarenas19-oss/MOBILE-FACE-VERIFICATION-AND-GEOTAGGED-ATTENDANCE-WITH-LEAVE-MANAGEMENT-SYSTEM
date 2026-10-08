@@ -1,4 +1,6 @@
 import { ReactNode, createElement } from "react";
+import { AnnouncementImage } from "../components/ui/AnnouncementImage";
+import "./richText.css";
 
 // A deliberately small, custom formatting syntax (not full Markdown) that
 // the AnnouncementsTab toolbar writes and renderFormattedText reads back.
@@ -27,10 +29,14 @@ function renderInline(line: string): ReactNode[] {
 
     const [, imgAlt, imgUrl, linkText, linkUrl, bold, underline, strike, code, italic] = match;
     if (imgUrl !== undefined) {
-      nodes.push(createElement("img", { key: key++, src: imgUrl, alt: imgAlt, className: "announcement-inline-image" }));
+      nodes.push(createElement(AnnouncementImage, { key: key++, src: imgUrl, alt: imgAlt }));
     } else if (linkUrl !== undefined) {
       nodes.push(
-        createElement("a", { key: key++, href: linkUrl, target: "_blank", rel: "noreferrer" }, linkText || linkUrl),
+        createElement(
+          "a",
+          { key: key++, href: linkUrl, target: "_blank", rel: "noreferrer", className: "announcement-link" },
+          linkText || linkUrl,
+        ),
       );
     } else if (bold !== undefined) {
       nodes.push(createElement("strong", { key: key++ }, bold));
@@ -61,4 +67,22 @@ export function renderFormattedText(message: string): ReactNode {
     }
     return createElement("p", { key: index, className: "announcement-view-line" }, renderInline(line));
   });
+}
+
+// Mirrors employee-mobile's richText.tsx — plain-text fallback for contexts
+// that can't render styled segments (the NotificationPanel preview list).
+// Formatting markers are stripped rather than shown as literal
+// asterisks/underscores/raw data: URIs.
+export function stripFormattingTokens(message: string) {
+  return message
+    .replace(/!\[[^\]]*\]\([^)\s]+\)/g, "[Image]")
+    .replace(/\[([^\]]*)\]\([^)\s]+\)/g, "$1")
+    .replace(/\*\*([^*]+)\*\*/g, "$1")
+    .replace(/__([^_]+)__/g, "$1")
+    .replace(/~~([^~]+)~~/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\*([^*]+)\*/g, "$1")
+    .replace(/^#\s+/gm, "")
+    .replace(/\n+/g, " ")
+    .trim();
 }

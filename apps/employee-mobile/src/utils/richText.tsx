@@ -1,5 +1,6 @@
 import React from "react";
-import { Image, Linking, StyleSheet, Text, TextStyle } from "react-native";
+import { Image, Linking, Pressable, StyleSheet, Text, TextStyle, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 
 // Mirrors apps/admin-web/src/lib/richText.ts — the AnnouncementsTab compose
 // toolbar writes this same small custom syntax (not full Markdown) into the
@@ -74,13 +75,37 @@ function renderInlineSegments(line: string, baseKey: string): React.ReactNode[] 
   return nodes;
 }
 
-export function FormattedAnnouncementText({ message, textStyle }: { message: string; textStyle?: TextStyle }) {
+export function FormattedAnnouncementText({
+  message,
+  textStyle,
+  onImagePress,
+}: {
+  message: string;
+  textStyle?: TextStyle;
+  // Tapping an attached image opens it full-screen (see NotificationsScreen's
+  // viewer modal) instead of just sitting there as a static picture.
+  onImagePress?: (image: { url: string; name: string }) => void;
+}) {
   return (
     <>
       {message.split("\n").map((line, index) => {
         const imageMatch = line.trim().match(IMAGE_ONLY_REGEX);
         if (imageMatch) {
-          return <Image key={index} source={{ uri: imageMatch[2] }} style={styles.image} resizeMode="cover" />;
+          const image = <Image source={{ uri: imageMatch[2] }} style={styles.image} resizeMode="cover" />;
+          if (!onImagePress) return <React.Fragment key={index}>{image}</React.Fragment>;
+          return (
+            <Pressable key={index} onPress={() => onImagePress({ url: imageMatch[2], name: imageMatch[1] || "image" })}>
+              <View>
+                {image}
+                <View style={styles.imageTapHintOverlay} pointerEvents="none">
+                  <View style={styles.imageTapHintPill}>
+                    <Ionicons name="eye-outline" size={13} color="#FFFFFF" />
+                    <Text style={styles.imageTapHintText}>Tap to view</Text>
+                  </View>
+                </View>
+              </View>
+            </Pressable>
+          );
         }
         if (line.startsWith("# ")) {
           return (
@@ -128,7 +153,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     paddingHorizontal: 3,
   },
-  link: { color: "#1680D8", textDecorationLine: "underline" },
+  link: { color: "#1680D8", fontWeight: "700", textDecorationLine: "underline" },
   heading: { fontWeight: "700", fontSize: 16 },
   imagePlaceholder: { color: "#94A3B8", fontStyle: "italic" },
   image: {
@@ -137,5 +162,28 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: "#E2E8F0",
     marginVertical: 6,
+  },
+  imageTapHintOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 6,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  imageTapHintPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    backgroundColor: "rgba(15, 23, 42, 0.62)",
+  },
+  imageTapHintText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "700",
   },
 });

@@ -79,7 +79,6 @@
   width: 100%;
 }
 
-.notif-detail-primary,
 .notif-detail-secondary {
   flex: 1 1 auto;
   height: 40px;
@@ -89,19 +88,6 @@
   font-weight: 700;
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease;
-}
-
-.notif-detail-primary {
-  border: 1.5px solid transparent;
-  background: #1a3a5c;
-  color: #ffffff;
-}
-
-.notif-detail-primary:hover {
-  background: #2979d0;
-}
-
-.notif-detail-secondary {
   border: 1.5px solid #b8c7d8;
   background: #ffffff;
   color: #1a3a5c;

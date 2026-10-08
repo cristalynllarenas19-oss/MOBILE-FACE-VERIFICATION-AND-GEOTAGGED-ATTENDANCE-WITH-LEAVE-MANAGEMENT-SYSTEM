@@ -173,12 +173,21 @@ export function AnnouncementsTab({
   const [showSchedulePicker, setShowSchedulePicker] = useState(false);
   const [scheduledAtInput, setScheduledAtInput] = useState("");
   const [isHeadingLine, setIsHeadingLine] = useState(false);
+  const [showLinkPopover, setShowLinkPopover] = useState(false);
+  const [linkTextInput, setLinkTextInput] = useState("");
+  const [linkUrlInput, setLinkUrlInput] = useState("");
+  // Attached images never appear as text in the textarea (no raw base64,
+  // no placeholder token either) — they're tracked separately and shown as
+  // thumbnail chips, then appended to the message as data: URIs on save.
+  const [attachedImages, setAttachedImages] = useState<{ id: string; name: string; dataUrl: string }[]>([]);
 
   const messageRef = useRef<HTMLTextAreaElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
   const historyRef = useRef<string[]>([""]);
   const historyIndexRef = useRef(0);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const linkSelectionRef = useRef<{ start: number; end: number } | null>(null);
+  const imageIdCounterRef = useRef(0);
 
   const [viewId, setViewId] = useState<string | null>(null);
   const [viewDetail, setViewDetail] = useState<AnnouncementDetail | null>(null);
@@ -357,13 +366,19 @@ export function AnnouncementsTab({
   // value/selection, let the caller build the next value + where the
   // cursor should land, commit it, then restore focus and selection (the
   // re-render from commitMessage briefly steals both).
+  // `range` lets a caller supply a selection captured earlier (e.g. before
+  // focus moved into a popover input, which would otherwise collapse the
+  // textarea's own selectionStart/End).
   function applyToTextarea(
     build: (value: string, start: number, end: number) => { next: string; selStart: number; selEnd: number },
+    range?: { start: number; end: number },
   ) {
     const textarea = messageRef.current;
     if (!textarea) return;
-    const { value, selectionStart, selectionEnd } = textarea;
-    const { next, selStart, selEnd } = build(value, selectionStart, selectionEnd);
+    const { value } = textarea;
+    const start = range?.start ?? textarea.selectionStart;
+    const end = range?.end ?? textarea.selectionEnd;
+    const { next, selStart, selEnd } = build(value, start, end);
     commitMessage(next, { immediate: true });
     requestAnimationFrame(() => {
       textarea.focus();
@@ -391,28 +406,77 @@ export function AnnouncementsTab({
     });
   }
 
-  function insertLink() {
+  // Opens the in-modal link popover (replaces window.prompt, which rendered
+  // as an ugly native browser dialog) and captures the current selection
+  // first, since focus is about to move into the popover's inputs.
+  function openLinkPopover() {
     const textarea = messageRef.current;
-    const selected = textarea ? textarea.value.slice(textarea.selectionStart, textarea.selectionEnd) : "";
-    const url = window.prompt("Link URL");
+    const start = textarea?.selectionStart ?? message.length;
+    const end = textarea?.selectionEnd ?? message.length;
+    linkSelectionRef.current = { start, end };
+    setLinkTextInput(textarea ? textarea.value.slice(start, end) : "");
+    setLinkUrlInput("");
+    setShowLinkPopover(true);
+  }
+
+  function closeLinkPopover() {
+    setShowLinkPopover(false);
+    linkSelectionRef.current = null;
+  }
+
+  function confirmLink() {
+    const url = linkUrlInput.trim();
     if (!url) return;
-    const text = selected || window.prompt("Link text", url) || url;
+    const text = linkTextInput.trim() || url;
+    const range = linkSelectionRef.current ?? undefined;
     applyToTextarea((value, start, end) => {
       const token = `[${text}](${url})`;
       const next = value.slice(0, start) + token + value.slice(end);
       const pos = start + token.length;
       return { next, selStart: pos, selEnd: pos };
-    });
+    }, range);
+    closeLinkPopover();
   }
 
   function insertImage() {
     imageInputRef.current?.click();
   }
 
-  // Embeds the picked file as a data: URI directly in the message — same
-  // base64-in-the-record pattern the leave-request attachment flow already
-  // uses (backend/src/modules/leave/leave.service.ts), so no separate file
-  // storage/upload endpoint is needed for something this small.
+  // Pulls any already-embedded `![alt](data:...)` images out of a message
+  // (e.g. reopening a draft saved before this fix, or a prior edit session)
+  // into the attachedImages list, leaving the text clean of both raw
+  // base64 and placeholder tokens.
+  function extractImagesFromMessage(raw: string): { text: string; images: { id: string; name: string; dataUrl: string }[] } {
+    const images: { id: string; name: string; dataUrl: string }[] = [];
+    imageIdCounterRef.current = 0;
+    const text = raw
+      .replace(/!\[([^\]]*)\]\((data:[^)]+)\)\n?/g, (_match, alt: string, dataUrl: string) => {
+        images.push({ id: `img${imageIdCounterRef.current++}`, name: alt || "image", dataUrl });
+        return "";
+      })
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+    return { text, images };
+  }
+
+  // Appends attached images as their own markdown-image lines so the
+  // backend/mobile app keep seeing exactly the same message shape as
+  // before this fix — only the compose UI itself no longer shows the
+  // base64 text while editing.
+  function composeFinalMessage(text: string): string {
+    const imageLines = attachedImages.map((img) => `![${img.name}](${img.dataUrl})`);
+    return [text, ...imageLines].filter((part) => part.length > 0).join("\n\n");
+  }
+
+  function removeAttachedImage(id: string) {
+    setAttachedImages((current) => current.filter((img) => img.id !== id));
+  }
+
+  // Reads the picked file as a data: URI — same base64-in-the-record
+  // pattern the leave-request attachment flow already uses (backend/src/
+  // modules/leave/leave.service.ts), so no separate file storage/upload
+  // endpoint is needed for something this small. It's kept out of the
+  // textarea entirely and shown as a thumbnail chip instead.
   function handleImageFileSelected(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
@@ -426,12 +490,8 @@ export function AnnouncementsTab({
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = reader.result as string;
-      applyToTextarea((value, start, end) => {
-        const token = `![${file.name}](${dataUrl})`;
-        const next = value.slice(0, start) + token + value.slice(end);
-        const pos = start + token.length;
-        return { next, selStart: pos, selEnd: pos };
-      });
+      const id = `img${imageIdCounterRef.current++}`;
+      setAttachedImages((current) => [...current, { id, name: file.name, dataUrl }]);
     };
     reader.readAsDataURL(file);
   }
@@ -497,6 +557,8 @@ export function AnnouncementsTab({
     setTitle("");
     setMessage("");
     resetHistory("");
+    setAttachedImages([]);
+    imageIdCounterRef.current = 0;
     setAllEmployees(false);
     setSelectedDepartmentIds(new Set());
     setTargetSupervisorsOnly(false);
@@ -515,8 +577,10 @@ export function AnnouncementsTab({
   const openEditForm = (announcement: AnnouncementListItem) => {
     setEditingId(announcement.id);
     setTitle(announcement.title);
-    setMessage(announcement.message);
-    resetHistory(announcement.message);
+    const { text: displayMessage, images } = extractImagesFromMessage(announcement.message);
+    setMessage(displayMessage);
+    resetHistory(displayMessage);
+    setAttachedImages(images);
     const isAllEmployees =
       announcement.targetDepartmentIds.length === 0 &&
       !announcement.targetSupervisorsOnly &&
@@ -556,7 +620,7 @@ export function AnnouncementsTab({
   const submitForm = async () => {
     const trimmedTitle = title.trim();
     const trimmedMessage = message.trim();
-    if (!trimmedTitle || !trimmedMessage) {
+    if (!trimmedTitle || (!trimmedMessage && attachedImages.length === 0)) {
       setFormError("Title and message are both required.");
       return;
     }
@@ -570,7 +634,7 @@ export function AnnouncementsTab({
     try {
       const published = await saveAnnouncement({
         title: trimmedTitle,
-        message: trimmedMessage,
+        message: composeFinalMessage(trimmedMessage),
         status: "PUBLISHED",
         ...recipientsPayload(),
       });
@@ -592,7 +656,7 @@ export function AnnouncementsTab({
   const saveDraft = async () => {
     const trimmedTitle = title.trim();
     const trimmedMessage = message.trim();
-    if (!trimmedTitle && !trimmedMessage) {
+    if (!trimmedTitle && !trimmedMessage && attachedImages.length === 0) {
       setFormError("Add a title or message before saving a draft.");
       return;
     }
@@ -602,7 +666,7 @@ export function AnnouncementsTab({
     try {
       await saveAnnouncement({
         title: trimmedTitle,
-        message: trimmedMessage,
+        message: composeFinalMessage(trimmedMessage),
         status: "DRAFT",
         ...recipientsPayload(),
       });
@@ -617,7 +681,7 @@ export function AnnouncementsTab({
   };
 
   function openSchedulePicker() {
-    if (!title.trim() || !message.trim()) {
+    if (!title.trim() || (!message.trim() && attachedImages.length === 0)) {
       setFormError("Title and message are both required.");
       return;
     }
@@ -645,7 +709,7 @@ export function AnnouncementsTab({
     try {
       await saveAnnouncement({
         title: title.trim(),
-        message: message.trim(),
+        message: composeFinalMessage(message.trim()),
         status: "SCHEDULED",
         scheduledAt: scheduledDate.toISOString(),
         ...recipientsPayload(),
@@ -972,7 +1036,47 @@ export function AnnouncementsTab({
                 <span className="announcement-toolbar-divider" />
                 <button type="button" aria-label="Bulleted list" onClick={() => prefixLines(() => "• ")}><List size={15} /></button>
                 <button type="button" aria-label="Numbered list" onClick={() => prefixLines((i) => `${i + 1}. `)}><ListOrdered size={15} /></button>
-                <button type="button" aria-label="Insert link" onClick={insertLink}><Link2 size={15} /></button>
+                <div className="announcement-link-popover-wrap">
+                  <button type="button" aria-label="Insert link" onClick={openLinkPopover}><Link2 size={15} /></button>
+                  {showLinkPopover && (
+                    <div className="announcement-link-popover" role="dialog" aria-label="Insert link">
+                      <label htmlFor="announcement-link-text-input">Link text</label>
+                      <input
+                        id="announcement-link-text-input"
+                        type="text"
+                        value={linkTextInput}
+                        onChange={(e) => setLinkTextInput(e.target.value)}
+                        placeholder="Text to display"
+                      />
+                      <label htmlFor="announcement-link-url-input">Link URL</label>
+                      <input
+                        id="announcement-link-url-input"
+                        type="text"
+                        value={linkUrlInput}
+                        onChange={(e) => setLinkUrlInput(e.target.value)}
+                        placeholder="https://example.com"
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            confirmLink();
+                          } else if (e.key === "Escape") {
+                            e.preventDefault();
+                            closeLinkPopover();
+                          }
+                        }}
+                      />
+                      <div className="announcement-schedule-popover-actions">
+                        <button type="button" className="outline-button" onClick={closeLinkPopover}>
+                          Cancel
+                        </button>
+                        <button type="button" className="announcement-send-button" onClick={confirmLink} disabled={!linkUrlInput.trim()}>
+                          Insert
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
                 <button type="button" aria-label="Insert image" onClick={insertImage}><ImageIcon size={15} /></button>
                 <input
                   ref={imageInputRef}
@@ -997,6 +1101,25 @@ export function AnnouncementsTab({
                 onKeyUp={updateHeadingState}
                 placeholder="Content composition here..."
               />
+
+              {attachedImages.length > 0 && (
+                <div className="announcement-attachment-list">
+                  {attachedImages.map((img) => (
+                    <div key={img.id} className="announcement-attachment-chip">
+                      <img src={img.dataUrl} alt={img.name} className="announcement-attachment-thumb" />
+                      <span className="announcement-attachment-name" title={img.name}>{img.name}</span>
+                      <button
+                        type="button"
+                        className="announcement-attachment-remove"
+                        onClick={() => removeAttachedImage(img.id)}
+                        aria-label={`Remove ${img.name}`}
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               <div className="announcement-compose-row announcement-priority-row">
                 <span className="announcement-compose-row-label">Priority</span>
@@ -1053,7 +1176,7 @@ export function AnnouncementsTab({
                 <button
                   className="announcement-send-button"
                   onClick={submitForm}
-                  disabled={isSaving || !title.trim() || !message.trim() || !hasAnyRecipients}
+                  disabled={isSaving || !title.trim() || (!message.trim() && attachedImages.length === 0) || !hasAnyRecipients}
                 >
                   {isSaving ? "Publishing…" : "Send"}
                 </button>

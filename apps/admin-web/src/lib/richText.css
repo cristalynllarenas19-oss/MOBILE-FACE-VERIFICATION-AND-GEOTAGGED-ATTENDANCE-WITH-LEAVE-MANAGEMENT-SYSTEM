@@ -1,0 +1,9 @@
+.announcement-link {
+  color: #1680d8;
+  font-weight: 700;
+  text-decoration: underline;
+}
+
+.announcement-link:hover {
+  color: #0f5ea8;
+}
