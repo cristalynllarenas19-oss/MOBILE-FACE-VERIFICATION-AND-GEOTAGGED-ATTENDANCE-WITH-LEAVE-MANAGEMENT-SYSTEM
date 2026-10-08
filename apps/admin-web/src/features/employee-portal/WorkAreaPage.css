@@ -3,10 +3,24 @@
   max-width: 750px;
 }
 
+/* This page is sized to fit without scrolling, so the shared page shell's
+   scrollbar (.page-content, used by every other admin/employee page — left
+   untouched there since e.g. long tables genuinely need it) is turned off
+   specifically while this page is showing. */
+.page-content:has(.work-area-page) {
+  overflow: hidden !important;
+}
+
+/* Tighter than the default page title spacing — this page is sized to fit
+   without the page itself needing to scroll. */
+.work-area-page .emp-page-title {
+  margin-bottom: 14px;
+}
+
 .work-area-shell {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 14px;
 }
 
 .work-area-info {
@@ -25,15 +39,19 @@
   position: static;
 }
 
+/* Sized to fit inside the page without the page itself needing to scroll
+   (mirrors employee-mobile's compact WorkAreaScreen sizing) rather than the
+   old 430px, which pushed the page past typical viewport heights. */
 .work-area-map-col .work-area-map-div {
-  height: 430px;
+  height: 340px;
   border-radius: 16px;
   overflow: hidden;
   border: 1px solid #dbe5ef;
+  box-shadow: var(--emp-shadow-card);
 }
 
 .work-area-map-col .work-area-map-placeholder {
-  height: 400px;
+  height: 340px;
   border-radius: 16px;
   border: 1px solid #dbe5ef;
   background: #f8fafc;
@@ -42,6 +60,7 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
+  box-shadow: var(--emp-shadow-card);
 }
 
 @media (max-width: 900px) {
@@ -51,6 +70,88 @@
 
   .work-area-map-col .work-area-map-div,
   .work-area-map-col .work-area-map-placeholder {
-    height: 320px;
+    height: 260px;
   }
+}
+
+/* ── Leaflet zoom control — restyled to match the app's card language
+   instead of Leaflet's bare, dated-looking default squares. Scoped to this
+   page so it doesn't affect the admin Geotagging map's own map controls. ── */
+.work-area-page .leaflet-control-zoom {
+  border: none !important;
+  border-radius: 12px !important;
+  overflow: hidden;
+  box-shadow: var(--emp-shadow-card);
+}
+
+.work-area-page .leaflet-control-zoom a {
+  width: 34px !important;
+  height: 34px !important;
+  line-height: 34px !important;
+  background: #ffffff !important;
+  color: var(--emp-navy) !important;
+  font-size: 18px !important;
+  font-weight: 700 !important;
+  border: none !important;
+  transition: background 0.15s ease;
+}
+
+.work-area-page .leaflet-control-zoom a:hover {
+  background: #f1f5f9 !important;
+}
+
+.work-area-page .leaflet-control-zoom-in {
+  border-bottom: 1px solid #eef2f6 !important;
+}
+
+.work-area-page .leaflet-control-attribution {
+  border-radius: 8px 0 0 0 !important;
+  font-size: 10.5px !important;
+}
+
+/* ── Hover tooltips — styled badges instead of Leaflet's plain white boxes
+   (mirrors employee-mobile's buildMapHtml). Navy for the site name, green
+   for "You are here" (matches the green location dot). Both show on hover,
+   no click needed — simpler than a popup, and there's nothing to close. ── */
+.work-area-page .site-tooltip {
+  background: var(--emp-navy);
+  color: #ffffff;
+  border: none;
+  border-radius: 12px;
+  padding: 10px 16px;
+  min-width: 128px;
+  text-align: center;
+  box-shadow: 0 6px 18px rgba(6, 43, 89, 0.3);
+}
+/* No connector arrow — it kept landing visually off from the pin
+   depending on zoom/marker position, so the bubble floats above the pin
+   on its own instead. */
+.work-area-page .site-tooltip::before {
+  display: none;
+}
+.work-area-page .site-tooltip-title {
+  font-size: 13.5px;
+  font-weight: 800;
+  color: #ffffff;
+  margin: 0 0 3px;
+  letter-spacing: -0.1px;
+}
+.work-area-page .site-tooltip-meta {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.68);
+}
+
+.work-area-page .you-are-here-tooltip {
+  background: #17a34a;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 11.5px;
+  font-weight: 700;
+  box-shadow: 0 3px 8px rgba(23, 163, 74, 0.3);
+}
+.work-area-page .you-are-here-tooltip.leaflet-tooltip-top::before {
+  border-top-color: #17a34a;
 }

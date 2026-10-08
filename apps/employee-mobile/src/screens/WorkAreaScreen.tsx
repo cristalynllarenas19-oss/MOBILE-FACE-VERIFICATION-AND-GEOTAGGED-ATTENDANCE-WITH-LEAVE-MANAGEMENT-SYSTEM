@@ -7,6 +7,7 @@ import { WorkLocation, getMyWorkLocation, getMyWorkLocations } from "../api";
 import { CACHE_KEYS, cacheGet, cacheSet } from "../utils/dataCache";
 import { distanceInMeters } from "../utils/geofence";
 import AestheticScrollView from "../components/AestheticScrollView";
+import EmptyState from "../components/EmptyState";
 
 type Props = {
   employeeId?: string;
@@ -26,6 +27,58 @@ function buildMapHtml(location: WorkLocation, userLat: number | null, userLon: n
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <style>
     html, body, #map { height: 100%; margin: 0; padding: 0; }
+
+    /* Restyled zoom control — matches the app's card language instead of
+       Leaflet's bare, dated-looking default squares (mirrors admin-web's
+       WorkAreaPage.css). */
+    .leaflet-control-zoom {
+      border: none !important;
+      border-radius: 12px !important;
+      overflow: hidden;
+      box-shadow: 0 1px 3px rgba(6, 43, 89, 0.06), 0 1px 2px rgba(6, 43, 89, 0.04);
+    }
+    .leaflet-control-zoom a {
+      width: 34px !important;
+      height: 34px !important;
+      line-height: 34px !important;
+      background: #FFFFFF !important;
+      color: #062B59 !important;
+      font-size: 18px !important;
+      font-weight: 700 !important;
+      border: none !important;
+    }
+    .leaflet-control-zoom-in {
+      border-bottom: 1px solid #EEF2F6 !important;
+    }
+    .leaflet-control-attribution {
+      border-radius: 8px 0 0 0 !important;
+      font-size: 10px !important;
+    }
+
+    /* Popup bubbles — styled badges instead of Leaflet's plain white boxes
+       (mirrors admin-web's WorkAreaPage.css). Navy for the site name, green
+       for "You are here" (matches the green location dot, and skips the
+       close button since there's nothing more to read). */
+    .site-popup .leaflet-popup-content-wrapper {
+      background: #062B59; color: #FFFFFF; border-radius: 12px;
+      box-shadow: 0 6px 18px rgba(6, 43, 89, 0.3);
+    }
+    .site-popup .leaflet-popup-content { margin: 10px 12px; font-size: 12px; line-height: 1.3; }
+    .site-popup-title { font-size: 12.5px; font-weight: 800; color: #FFFFFF; margin: 0 0 2px; letter-spacing: -0.1px; text-align: center; }
+    .site-popup-meta { font-size: 10.5px; font-weight: 600; color: rgba(255,255,255,0.68); text-align: center; }
+    .site-popup .leaflet-popup-tip { background: #062B59; box-shadow: none; }
+    .site-popup .leaflet-popup-close-button {
+      color: rgba(255,255,255,0.65) !important;
+      top: 6px !important; right: 8px !important;
+      font-size: 14px !important; font-weight: 700 !important;
+    }
+    .you-popup .leaflet-popup-content-wrapper {
+      background: #17A34A; color: #FFFFFF; border-radius: 10px;
+      box-shadow: 0 4px 14px rgba(23, 163, 74, 0.3);
+    }
+    .you-popup .leaflet-popup-content { margin: 6px 12px; font-size: 11.5px; font-weight: 700; }
+    .you-popup .leaflet-popup-tip { background: #17A34A; box-shadow: none; }
+    .you-popup .leaflet-popup-close-button { display: none; }
   </style>
 </head>
 <body>
@@ -37,15 +90,33 @@ function buildMapHtml(location: WorkLocation, userLat: number | null, userLon: n
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
 
-    L.marker([${lat}, ${lon}]).addTo(map).bindPopup(${JSON.stringify(location.name)});
+    // No shadowUrl — Leaflet's default drop-shadow is a skewed, hard-edged
+    // shape that doesn't sit under the pin the way a shadow normally would,
+    // which read as "the pointer isn't aligned" (mirrors admin-web's
+    // WorkAreaPage.tsx). A plain pin reads cleaner.
+    const siteIcon = L.icon({
+      iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+      iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+      iconSize: [25, 41],
+      iconAnchor: [12, 41],
+      popupAnchor: [1, -34],
+    });
+
+    L.marker([${lat}, ${lon}], { icon: siteIcon }).addTo(map).bindPopup(
+      '<div class="site-popup-title">' + ${JSON.stringify(location.name)} + '</div><div class="site-popup-meta">Radius: ${radius}m</div>',
+      // minWidth stops a short name (e.g. "SLC") from shrinking the whole
+      // bubble down to it — "Radius: 120m" then has nowhere to go but
+      // wrap/overlap the close button. Not so wide that it dwarfs the map.
+      { className: 'site-popup', minWidth: 130 }
+    );
     L.circle([${lat}, ${lon}], { radius: ${radius}, color: '#1680D8', fillColor: '#1680D8', fillOpacity: 0.15 }).addTo(map);
 
     ${
       userLat !== null && userLon !== null
         ? `
     const userMarker = L.circleMarker([${userLat}, ${userLon}], {
-      radius: 8, color: '#DC2626', fillColor: '#DC2626', fillOpacity: 0.9
-    }).addTo(map).bindPopup('You are here');
+      radius: 8, color: '#FFFFFF', weight: 2, fillColor: '#17A34A', fillOpacity: 1
+    }).addTo(map).bindPopup('You are here', { className: 'you-popup' });
     const bounds = L.latLngBounds([[${lat}, ${lon}], [${userLat}, ${userLon}]]);
     map.fitBounds(bounds, { padding: [40, 40] });
     `
@@ -139,8 +210,7 @@ export default function WorkAreaScreen({ employeeId, attendanceMode }: Props) {
   if (error) {
     return (
       <View style={styles.centered}>
-        <Ionicons name="warning-outline" size={36} color="#DC2626" />
-        <Text style={styles.emptyText}>{error}</Text>
+        <EmptyState icon="warning-outline" title={error} />
       </View>
     );
   }
@@ -153,9 +223,11 @@ export default function WorkAreaScreen({ employeeId, attendanceMode }: Props) {
         contentContainerStyle={styles.centered}
         refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} colors={["#1680D8"]} />}
       >
-        <Ionicons name="location-outline" size={36} color="#94A3B8" />
-        <Text style={styles.emptyText}>No client/work sites have been assigned to you yet.</Text>
-        <Text style={styles.emptySubText}>Contact your supervisor if you believe this is a mistake.</Text>
+        <EmptyState
+          icon="location-outline"
+          title="No client/work sites have been assigned to you yet."
+          message="Contact your supervisor if you believe this is a mistake."
+        />
       </AestheticScrollView>
     );
   }
@@ -166,9 +238,11 @@ export default function WorkAreaScreen({ employeeId, attendanceMode }: Props) {
         contentContainerStyle={styles.centered}
         refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} colors={["#1680D8"]} />}
       >
-        <Ionicons name="location-outline" size={36} color="#94A3B8" />
-        <Text style={styles.emptyText}>No geotagged work area has been assigned to you yet.</Text>
-        <Text style={styles.emptySubText}>Contact HR if you believe this is a mistake.</Text>
+        <EmptyState
+          icon="location-outline"
+          title="No geotagged work area has been assigned to you yet."
+          message="Contact HR if you believe this is a mistake."
+        />
       </AestheticScrollView>
     );
   }
@@ -183,6 +257,13 @@ export default function WorkAreaScreen({ employeeId, attendanceMode }: Props) {
         )
       : null;
   const isInside = distance != null && selectedSite != null && distance <= Number(selectedSite.radiusMeters);
+  // Inside, the headline number is "how far from the pin" (small = well
+  // within range); outside, it's more useful as "how far past the fence"
+  // than the raw distance from a centre point you're nowhere near.
+  const heroDistance =
+    distance != null && selectedSite != null
+      ? Math.round(isInside ? distance : distance - Number(selectedSite.radiusMeters))
+      : null;
 
   return (
     <View style={styles.container}>
@@ -210,24 +291,62 @@ export default function WorkAreaScreen({ employeeId, attendanceMode }: Props) {
       {selectedSite && (
         <>
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>{selectedSite.name}</Text>
-            <Text style={styles.cardSubtitle}>Authorized radius: {Number(selectedSite.radiusMeters)}m</Text>
-          </View>
+            <View
+              style={[
+                styles.cardAccent,
+                distance != null && (isInside ? styles.cardAccentIn : styles.cardAccentOut),
+              ]}
+            />
+            <View style={styles.cardInner}>
+              <Text style={styles.cardEyebrow}>WORK AREA</Text>
 
-          {distance != null && (
-            <View style={[styles.banner, { backgroundColor: isInside ? "#ECFDF3" : "#FEF2F2" }]}>
-              <Ionicons
-                name={isInside ? "checkmark-circle" : "alert-circle"}
-                size={20}
-                color={isInside ? "#17A34A" : "#DC2626"}
-              />
-              <Text style={[styles.bannerText, { color: isInside ? "#15803D" : "#B91C1C" }]}>
-                {isInside
-                  ? `You are ${Math.round(distance)}m away — inside this site's work area.`
-                  : `You are ${Math.round(distance)}m away — outside this site's work area.`}
-              </Text>
+              <View style={styles.cardTopRow}>
+                <View
+                  style={[
+                    styles.siteIconWrap,
+                    distance != null && (isInside ? styles.siteIconWrapIn : styles.siteIconWrapOut),
+                  ]}
+                >
+                  <Ionicons
+                    name="location"
+                    size={20}
+                    color={distance == null ? "#1680D8" : isInside ? "#17A34A" : "#DC2626"}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.cardTitle}>{selectedSite.name}</Text>
+                  <Text style={styles.cardSubtitle}>Authorized radius: {Number(selectedSite.radiusMeters)}m</Text>
+                </View>
+                {distance != null && (
+                  <View style={[styles.statusBadge, { backgroundColor: isInside ? "#ECFDF3" : "#FEF2F2" }]}>
+                    <Ionicons
+                      name={isInside ? "checkmark-circle" : "alert-circle"}
+                      size={13}
+                      color={isInside ? "#17A34A" : "#DC2626"}
+                    />
+                    <Text style={[styles.statusBadgeText, { color: isInside ? "#15803D" : "#B91C1C" }]}>
+                      {isInside ? "In range" : "Out of range"}
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              {heroDistance != null && (
+                <>
+                  <View style={styles.cardDivider} />
+                  <View style={styles.distanceBlock}>
+                    <Text style={styles.distanceValue}>
+                      {Math.abs(heroDistance)}
+                      <Text style={styles.distanceUnit}> m</Text>
+                    </Text>
+                    <Text style={styles.distanceLabel}>
+                      {isInside ? "from centre — inside the work area" : "beyond the boundary"}
+                    </Text>
+                  </View>
+                </>
+              )}
             </View>
-          )}
+          </View>
 
           <View style={styles.mapWrapper}>
             <WebView
@@ -236,11 +355,30 @@ export default function WorkAreaScreen({ employeeId, attendanceMode }: Props) {
               style={styles.map}
             />
           </View>
+
+          <View style={styles.mapLegendRow}>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: "#1680D8" }]} />
+              <Text style={styles.legendText}>Work area</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: "#17A34A" }]} />
+              <Text style={styles.legendText}>Your location</Text>
+            </View>
+          </View>
         </>
       )}
     </View>
   );
 }
+
+const cardShadow = {
+  shadowColor: "#0F172A",
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.06,
+  shadowRadius: 8,
+  elevation: 2,
+};
 
 const styles = StyleSheet.create({
   container: {
@@ -250,8 +388,6 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 10,
-    padding: 24,
   },
   siteChipRow: {
     flexGrow: 0,
@@ -288,54 +424,122 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 14,
-    padding: 16,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: "#E2E8F0",
     marginBottom: 12,
+    overflow: "hidden",
+    ...cardShadow,
   },
+  // Thin status strip across the top of the card — neutral blue until a GPS
+  // fix lands, then reacts to in/out-of-range like the icon badge below it.
+  cardAccent: {
+    height: 4,
+    backgroundColor: "#1680D8",
+  },
+  cardAccentIn: { backgroundColor: "#17A34A" },
+  cardAccentOut: { backgroundColor: "#DC2626" },
+  cardInner: {
+    padding: 14,
+  },
+  cardEyebrow: {
+    fontSize: 10.5,
+    fontWeight: "700",
+    color: "#94A3B8",
+    letterSpacing: 0.6,
+    marginBottom: 8,
+  },
+  cardTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  siteIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: "#EFF6FF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  siteIconWrapIn: { backgroundColor: "#ECFDF3" },
+  siteIconWrapOut: { backgroundColor: "#FEF2F2" },
   cardTitle: {
     color: "#062B59",
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: "700",
   },
   cardSubtitle: {
     color: "#64748B",
-    fontSize: 13,
-    marginTop: 4,
+    fontSize: 12.5,
+    marginTop: 2,
   },
-  banner: {
+  statusBadge: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 12,
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
   },
-  bannerText: {
-    flex: 1,
-    fontSize: 13,
-    fontWeight: "600",
+  statusBadgeText: {
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  cardDivider: {
+    height: 1,
+    backgroundColor: "#F1F5F9",
+    marginVertical: 12,
+  },
+  distanceBlock: {
+    alignItems: "center",
+  },
+  distanceValue: {
+    fontSize: 34,
+    fontWeight: "800",
+    color: "#062B59",
+    letterSpacing: -0.5,
+  },
+  distanceUnit: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#64748B",
+  },
+  distanceLabel: {
+    fontSize: 12.5,
+    color: "#64748B",
+    marginTop: 2,
   },
   mapWrapper: {
     flex: 1,
-    borderRadius: 14,
+    borderRadius: 16,
     overflow: "hidden",
     borderWidth: 1,
     borderColor: "#E2E8F0",
+    ...cardShadow,
   },
   map: {
     flex: 1,
   },
-  emptyText: {
-    color: "#475569",
-    fontSize: 14,
-    fontWeight: "600",
-    textAlign: "center",
+  mapLegendRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    gap: 20,
+    marginTop: 10,
   },
-  emptySubText: {
-    color: "#94A3B8",
-    fontSize: 12,
-    textAlign: "center",
+  legendItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  legendDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+  },
+  legendText: {
+    fontSize: 11,
+    color: "#64748B",
+    fontWeight: "600",
   },
 });
