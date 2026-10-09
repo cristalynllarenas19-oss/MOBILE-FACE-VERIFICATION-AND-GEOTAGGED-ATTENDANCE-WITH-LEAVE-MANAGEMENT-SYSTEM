@@ -50,6 +50,8 @@ import {
   getReportsSummary,
   forgotPassword,
   setUnauthorizedHandler,
+  markAppActive,
+  hasIdleTimedOut,
 } from "./src/api";
 import { CACHE_KEYS, cacheGet, cacheSet, prefetchCached, revalidateCached } from "./src/utils/dataCache";
 import { getFriendlyReason, getFlaggedAttemptMessage } from "./src/utils/attendanceMessages";
@@ -64,6 +66,33 @@ const GEOFENCE_POLL_MS = 15000;
 // How often to re-check face-registration status while it's still pending —
 // matches the admin-side consent poll interval in FaceRegistrationPage.tsx.
 const FACE_ENROLLMENT_POLL_MS = 5000;
+
+// How often to re-fetch the employee's assigned work location(s) while the
+// app stays open — so an admin's edit to a geotagged area (coordinates,
+// radius, active/inactive, assignment) reaches a logged-in phone on its own.
+// The server re-reads the area on every attendance submission regardless;
+// this only keeps the on-screen "inside/outside the work area" state current.
+const WORK_LOCATION_SYNC_MS = 30000;
+
+// Longest a Time In/Out tap waits for that same re-fetch before falling
+// back to the last known area (the server still makes the final decision).
+const WORK_LOCATION_TAP_SYNC_TIMEOUT_MS = 2500;
+
+// Stable fingerprint of what matters about a set of work locations, so an
+// unchanged sync result doesn't replace state and re-render the screen.
+function workLocationsSignature(locations: WorkLocation[]) {
+  return locations
+    .map(
+      (location) =>
+        `${location.id}:${location.name}:${Number(location.latitude)}:${Number(location.longitude)}:${Number(location.radiusMeters)}:${Number(location.allowedAccuracyMeters)}`,
+    )
+    .sort()
+    .join("|");
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | null> {
+  return Promise.race([promise, new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs))]);
+}
 
 type ResultModalState = {
   status: ResultModalStatus;
@@ -170,6 +199,12 @@ export default function App() {
 
     async function restoreSavedSession() {
       try {
+        // Reopened after being closed longer than the idle limit — log out
+        // first, so restoreSession() below finds nothing and the login
+        // screen is shown instead of the last user's portal.
+        if (await hasIdleTimedOut()) {
+          await logout();
+        }
         const restoredUser = await restoreSession();
         if (isMounted && restoredUser) {
           setUser(restoredUser);
@@ -198,6 +233,28 @@ export default function App() {
       refreshEligibility(user.employeeId, user.attendanceMode);
     }
   }, [user?.employeeId]);
+
+  // Idle auto-logout while signed in: the time is recorded whenever the app
+  // leaves the screen, and checked when it comes back. Away longer than the
+  // limit → the normal logout, back to the login screen.
+  useEffect(() => {
+    if (!user?.id) return;
+    void markAppActive();
+    const appStateSub = AppState.addEventListener("change", (state) => {
+      if (state !== "active") {
+        void markAppActive();
+        return;
+      }
+      void (async () => {
+        if (await hasIdleTimedOut()) {
+          await handleLogout(true);
+          return;
+        }
+        await markAppActive();
+      })();
+    });
+    return () => appStateSub.remove();
+  }, [user?.id]);
 
   // A poll's setInterval doesn't reliably keep firing while the app is
   // backgrounded (the OS suspends JS timers), so re-check eligibility when
@@ -268,24 +325,40 @@ export default function App() {
     };
   }, [user?.employeeId]);
 
+  // Keeps the assigned work location(s) current while the app stays open
+  // (the foreground-return refresh above only covers reopening it).
+  useEffect(() => {
+    const employeeId = user?.employeeId;
+    if (!employeeId) return;
+    const interval = setInterval(() => {
+      if (AppState.currentState !== "active") return;
+      void syncWorkLocations(employeeId, user.attendanceMode);
+    }, WORK_LOCATION_SYNC_MS);
+    return () => clearInterval(interval);
+  }, [user?.employeeId, user?.attendanceMode]);
+
   // "checking" until a fix comes back, "unavailable" when permission is
   // denied or nothing is assigned to compare against, otherwise "inside"/
   // "outside" based on distance to the nearest assigned work location.
-  const geofenceStatus: GeofenceStatus = locationPermissionDenied || assignedWorkLocations.length === 0
-    ? "unavailable"
-    : currentPosition == null
-      ? "checking"
-      : assignedWorkLocations.some(
-          (location) =>
-            distanceInMeters(
-              currentPosition.latitude,
-              currentPosition.longitude,
-              Number(location.latitude),
-              Number(location.longitude),
-            ) <= Number(location.radiusMeters),
-        )
-        ? "inside"
-        : "outside";
+  function computeGeofenceStatus(locations: WorkLocation[]): GeofenceStatus {
+    return locationPermissionDenied || locations.length === 0
+      ? "unavailable"
+      : currentPosition == null
+        ? "checking"
+        : locations.some(
+            (location) =>
+              distanceInMeters(
+                currentPosition.latitude,
+                currentPosition.longitude,
+                Number(location.latitude),
+                Number(location.longitude),
+              ) <= Number(location.radiusMeters),
+          )
+          ? "inside"
+          : "outside";
+  }
+
+  const geofenceStatus = computeGeofenceStatus(assignedWorkLocations);
 
   // Warm every read-only tab after sign-in/restoration. This is deliberately
   // deferred until the landing screen is visible: the user gets there first,
@@ -360,6 +433,33 @@ export default function App() {
       console.error("Failed to load attendance eligibility", error);
       setAssignedWorkLocations([]);
       setEligibility({ faceEnrolled: false, hasWorkLocation: false, hasScheduleToday: false });
+    }
+  }
+
+  // Re-fetches only the assigned work location(s) — the same request and
+  // cache keys refreshEligibility uses. Returns the latest list, or null if
+  // it couldn't be fetched; on failure the last known area is left as it is
+  // (never cleared), and the next sync retries once the connection is back.
+  async function syncWorkLocations(employeeId: string, attendanceMode?: string): Promise<WorkLocation[] | null> {
+    try {
+      const latest =
+        attendanceMode === "FIELD"
+          ? await revalidateCached(CACHE_KEYS.workArea(employeeId, "field"), getMyWorkLocations)
+          : await revalidateCached(CACHE_KEYS.workArea(employeeId, "fixed"), getMyWorkLocation).then((location) =>
+              location ? [location] : [],
+            );
+      setAssignedWorkLocations((current) =>
+        workLocationsSignature(current) === workLocationsSignature(latest) ? current : latest,
+      );
+      setEligibility((current) =>
+        !current || current.hasWorkLocation === latest.length > 0
+          ? current
+          : { ...current, hasWorkLocation: latest.length > 0 },
+      );
+      return latest;
+    } catch (error) {
+      console.warn("Failed to sync work locations", error);
+      return null;
     }
   }
 
@@ -489,12 +589,26 @@ export default function App() {
     // supervisor-notified unresolved attempt (see hasUnresolvedFlaggedAttempt
     // on the backend) takes priority over the geofence message since it's an
     // admin-side hold, not something moving closer to the work area fixes.
+    //
+    // The work area is re-fetched first, so a geotag the admin changed in
+    // the last few seconds is what this check uses. If that can't finish
+    // quickly (weak/no connection), the last known area is used instead —
+    // the server re-validates against the current area on submission anyway.
+    const latestWorkLocations = await withTimeout(
+      syncWorkLocations(user.employeeId, user.attendanceMode),
+      WORK_LOCATION_TAP_SYNC_TIMEOUT_MS,
+    );
+    const currentEligibility =
+      eligibility && latestWorkLocations
+        ? { ...eligibility, hasWorkLocation: latestWorkLocations.length > 0 }
+        : eligibility;
+    const currentGeofenceStatus = computeGeofenceStatus(latestWorkLocations ?? assignedWorkLocations);
     const eligibilityMessage =
-      getEligibilityMessage(eligibility) ??
+      getEligibilityMessage(currentEligibility) ??
       (options.bypassFlagLock
         ? null
         : getUnauthorizedAttemptMessage(Boolean(todayAttendance?.hasUnresolvedFlaggedAttempt), applicableAction)) ??
-      getGeofenceMessage(geofenceStatus, applicableAction);
+      getGeofenceMessage(currentGeofenceStatus, applicableAction);
     if (eligibilityMessage) {
       setResultModal({
         status: "error",

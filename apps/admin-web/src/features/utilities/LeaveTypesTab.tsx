@@ -21,6 +21,7 @@ import {
 } from "../../types/employment";
 import { useEmployeeTypes } from "../../lib/employeeTypes";
 import type { Notification } from "./UtilitiesPage";
+import "../employees/EmployeesPage.css";
 
 type LeaveTypeKind = "GENERAL" | "MATERNITY" | "PATERNITY";
 type CancellationCutoffUnit = "WORKING_DAYS_BEFORE_START" | "HOURS_BEFORE_SHIFT_START";
@@ -131,6 +132,9 @@ export function LeaveTypesTab({
   // Separated is only ever set by the Archive flow, never something a leave
   // type should be configured to target.
   const activeEmployeeTypes = active.filter((type) => type.employmentStatus !== "SEPARATED");
+  // Archive filter — same behavior as the Positions/Departments tabs: the
+  // default view lists active leave types only, "Archived" lists the rest.
+  const [showArchivedOnly, setShowArchivedOnly] = useState(false);
   const [page, setPage] = useState(1);
 
   const [formOpen, setFormOpen] = useState(false);
@@ -176,11 +180,14 @@ export function LeaveTypesTab({
 
   useEffect(() => {
     setPage(1);
-  }, [search, employeeTypeFilter]);
+  }, [search, employeeTypeFilter, showArchivedOnly]);
+
+  const activeCount = leaveTypes.filter((type) => type.isActive).length;
 
   const visibleLeaveTypes = useMemo(
     () =>
       leaveTypes.filter((type) => {
+        if (showArchivedOnly ? type.isActive : !type.isActive) return false;
         const filterStatus = employeeTypesById.get(employeeTypeFilter)?.employmentStatus;
         const matchesEmployeeType =
           employeeTypeFilter === "ALL" || (!!filterStatus && type.applicableStatuses.includes(filterStatus));
@@ -188,7 +195,7 @@ export function LeaveTypesTab({
           !search.trim() || type.name.toLowerCase().includes(search.trim().toLowerCase());
         return matchesEmployeeType && matchesSearch;
       }),
-    [leaveTypes, employeeTypeFilter, employeeTypesById, search],
+    [leaveTypes, employeeTypeFilter, employeeTypesById, search, showArchivedOnly],
   );
 
   const pageCount = Math.max(1, Math.ceil(visibleLeaveTypes.length / PAGE_SIZE));
@@ -350,21 +357,20 @@ export function LeaveTypesTab({
 
   return (
     <>
-      <div className="utilities-section-header">
-        <h3>Leave Types</h3>
-        <div className="utilities-section-header-controls">
-          <div className="utilities-search">
-            <Search size={14} />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search leave type by name..."
-              aria-label="Search leave types by name"
-            />
+      <div className="employees-filter-bar">
+        <div className="employees-filter-group">
+          <span className="employees-filter-label">View</span>
+          <div className="filter-tabs">
+            <button className={!showArchivedOnly ? "active" : ""} onClick={() => setShowArchivedOnly(false)}>
+              All Leave Types ({activeCount})
+            </button>
           </div>
+        </div>
+
+        <div className="employees-filter-group">
+          <label className="employees-filter-label">Employee Type</label>
           <DropdownFilter
-            className="utilities-select"
+            className="department-select"
             value={employeeTypeFilter}
             onChange={setEmployeeTypeFilter}
             options={employeeTypeOptions}
@@ -372,8 +378,37 @@ export function LeaveTypesTab({
             menuLabel="Filter by Employee Type"
             ariaLabel="Filter leave types by employee type"
           />
+        </div>
+
+        <div className="employees-filter-group">
+          <span className="employees-filter-label">Archive</span>
+          <div className="filter-tabs">
+            <button className={showArchivedOnly ? "active" : ""} onClick={() => setShowArchivedOnly(true)}>
+              Archived Leave Types
+            </button>
+          </div>
+        </div>
+
+        <div className="employees-filter-group employees-filter-search-group">
+          <label className="employees-filter-label">Search</label>
+          <div className="employee-search">
+            <Search size={14} className="employee-search-icon" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search leave types..."
+              aria-label="Search leave types by name"
+            />
+            <button type="button" className="employee-search-clear" onClick={() => setSearch("")} aria-label="Clear search">
+              <X size={13} />
+            </button>
+          </div>
+        </div>
+
+        <div className="employees-filter-actions">
           {canManage && (
-            <button className="primary-button" onClick={openCreateForm}>
+            <button className="add-employee-button" onClick={openCreateForm}>
               <Plus size={15} /> Add Leave Type
             </button>
           )}

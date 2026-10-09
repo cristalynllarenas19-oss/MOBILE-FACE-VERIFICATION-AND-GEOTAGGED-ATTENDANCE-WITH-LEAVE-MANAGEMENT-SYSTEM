@@ -506,10 +506,19 @@ export async function checkApiHealth() {
 }
 
 export async function login(email: string, password?: string) {
-  const data = await apiRequest<{ accessToken: string; refreshToken: string; user: MobileUser }>("/auth/login", {
+  // Sent with fetchFromApi directly, not apiRequest: there is no session yet,
+  // so a 401 here means wrong credentials — apiRequest would treat it as an
+  // expired session (refresh attempt, then the "Session Expired" logout).
+  const response = await fetchFromApi("/auth/login", {
     method: "POST",
     body: JSON.stringify(password ? { email, password } : { email }),
   });
+  if (!response.ok) {
+    const body = await response.text();
+    if (response.status === 401) throw new Error("Incorrect email or password.");
+    throw new Error(extractErrorMessage(body) || `Request failed with status ${response.status}`);
+  }
+  const data = (await response.json()) as { accessToken: string; refreshToken: string; user: MobileUser };
   // A different account may have logged in on this device — never let it
   // see the previous account's cached data.
   clearDataCache();
@@ -554,6 +563,27 @@ export async function restoreSession(): Promise<MobileUser | null> {
   } catch {
     return null;
   }
+}
+
+// Idle auto-logout: an account left signed in on an unattended phone is
+// logged out once the app has been closed or in the background this long
+// (see App.tsx). Only the "lastActiveAt" key below is involved — the saved
+// login itself is cleared by the normal logout().
+const IDLE_LOGOUT_MS = 20 * 60 * 1000;
+
+// Records "the app was in use just now".
+export async function markAppActive() {
+  await SecureStore.setItemAsync("lastActiveAt", String(Date.now()));
+}
+
+// False when nothing was recorded yet (e.g. a session saved before this
+// feature existed), so nobody is logged out without a known idle time.
+export async function hasIdleTimedOut() {
+  const raw = await SecureStore.getItemAsync("lastActiveAt");
+  if (!raw) return false;
+  const lastActiveAt = Number(raw);
+  if (!Number.isFinite(lastActiveAt)) return false;
+  return Date.now() - lastActiveAt > IDLE_LOGOUT_MS;
 }
 
 export async function logout() {
