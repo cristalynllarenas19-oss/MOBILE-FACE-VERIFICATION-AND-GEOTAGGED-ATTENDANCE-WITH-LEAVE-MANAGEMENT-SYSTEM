@@ -140,7 +140,6 @@ async function seedAttendanceModeOptions() {
   for (const mode of modes) {
     await prisma.$executeRaw`
       INSERT INTO attendance_mode_options (
-        id,
         code,
         label,
         description,
@@ -150,7 +149,6 @@ async function seedAttendanceModeOptions() {
         available_for_departments
       )
       VALUES (
-        gen_random_uuid()::text,
         ${mode.code},
         ${mode.label},
         ${mode.description},
@@ -209,9 +207,13 @@ async function main() {
   const hr = await prisma.department.upsert({ where: { name: "Human Resources" }, update: {}, create: { name: "Human Resources" } });
   const production = await prisma.department.upsert({ where: { name: "Production" }, update: {}, create: { name: "Production" } });
   const quality = await prisma.department.upsert({ where: { name: "Quality Control" }, update: {}, create: { name: "Quality Control" } });
-  const hrPosition = await prisma.position.upsert({ where: { id: "11111111-1111-4111-8111-111111111111" }, update: { title: "HR Personnel" }, create: { id: "11111111-1111-4111-8111-111111111111", title: "HR Personnel" } });
-  const supervisorPosition = await prisma.position.upsert({ where: { id: "22222222-2222-4222-8222-222222222222" }, update: { title: "Department Supervisor" }, create: { id: "22222222-2222-4222-8222-222222222222", title: "Department Supervisor" } });
-  const employeePosition = await prisma.position.upsert({ where: { id: "33333333-3333-4333-8333-333333333333" }, update: { title: "Leaf Processor" }, create: { id: "33333333-3333-4333-8333-333333333333", title: "Leaf Processor" } });
+  // Ids are database-generated (POS-1001, ...), so bootstrap rows are matched
+  // by their natural key instead of a hardcoded id.
+  const ensurePosition = async (title: string) =>
+    (await prisma.position.findFirst({ where: { title } })) ?? (await prisma.position.create({ data: { title } }));
+  const hrPosition = await ensurePosition("HR Personnel");
+  const supervisorPosition = await ensurePosition("Department Supervisor");
+  const employeePosition = await ensurePosition("Leaf Processor");
 
   // Initial Utilities → Positions rows (one shared row each). Only created
   // when missing — after first boot these are HR-managed data.
@@ -235,21 +237,20 @@ async function main() {
     });
   }
 
-  // id/coordinates match the canonical Office record already live in
-  // production — a since-deleted duplicate was previously seeded at a
-  // different id ("44444444-...") with stale placeholder coordinates.
-  await prisma.workLocation.upsert({
-    where: { id: "1b8ef888-fd79-4778-b5da-272a7b2160f8" },
-    update: {},
-    create: {
-      id: "1b8ef888-fd79-4778-b5da-272a7b2160f8",
-      name: "Universal Leaf Philippines Inc. - Agoo",
-      latitude: 16.358048,
-      longitude: 120.353511,
-      radiusMeters: 1000,
-      allowedAccuracyMeters: 50,
-    },
-  });
+  // Coordinates match the canonical Office record already live in
+  // production — only created when no area of this name exists yet.
+  const officeName = "Universal Leaf Philippines Inc. - Agoo";
+  if (!(await prisma.workLocation.findFirst({ where: { name: officeName } }))) {
+    await prisma.workLocation.create({
+      data: {
+        name: officeName,
+        latitude: 16.358048,
+        longitude: 120.353511,
+        radiusMeters: 1000,
+        allowedAccuracyMeters: 50,
+      },
+    });
+  }
 
   await upsertUser("hradmin@universal-leaf.com", "password123", "ADMIN", {
     employeeNo: "UL-001",
@@ -296,63 +297,47 @@ async function main() {
   // from being completely empty on first boot. HR adds everything else
   // (Sick, Maternity, Paternity, etc.) themselves, picking each type's Kind
   // (General/Maternity/Paternity) from the form.
-  const vacationLeave = await prisma.leaveType.upsert({
-    where: { name: "Vacation Leave" },
-    update: {},
-    create: {
-      name: "Vacation Leave",
-      defaultDays: 15,
-      requiresDocument: false,
-      isAutoCredited: true,
-      isSeasonalAccrualEligible: true,
-      applicableStatuses: [...allClassifications],
-    },
-  });
-  const regularShift = await prisma.shift.upsert({
-    where: { id: "66666666-6666-4666-8666-666666666666" },
-    update: { name: "Standard Shift", startTime: "08:00", endTime: "17:00", lateThresholdMinutes: 10 },
-    create: {
-      id: "66666666-6666-4666-8666-666666666666",
-      name: "Standard Shift",
-      startTime: "08:00",
-      endTime: "17:00",
-      lateThresholdMinutes: 10,
-    },
-  });
+  let vacationLeave = await prisma.leaveType.findUnique({ where: { name: "Vacation Leave" } });
+  if (!vacationLeave) {
+    // Leave type ids carry a category code (LT-VL-001) — same database
+    // function LeaveTypesService.create uses.
+    const [{ id: vacationLeaveId }] = await prisma.$queryRaw<{ id: string }[]>`SELECT next_leave_type_id(${"Vacation Leave"}) AS id`;
+    vacationLeave = await prisma.leaveType.create({
+      data: {
+        id: vacationLeaveId,
+        name: "Vacation Leave",
+        defaultDays: 15,
+        requiresDocument: false,
+        isAutoCredited: true,
+        isSeasonalAccrualEligible: true,
+        applicableStatuses: [...allClassifications],
+      },
+    });
+  }
 
-  await prisma.shift.upsert({
-    where: { id: "77777777-7777-4777-8777-777777777777" },
-    update: { name: "Alternative Shift", startTime: "09:00", endTime: "18:00", lateThresholdMinutes: 10 },
-    create: {
-      id: "77777777-7777-4777-8777-777777777777",
-      name: "Alternative Shift",
-      startTime: "09:00",
-      endTime: "18:00",
-      lateThresholdMinutes: 10,
-    },
-  });
+  const ensureShift = async (name: string, startTime: string, endTime: string) => {
+    const data = { name, startTime, endTime, lateThresholdMinutes: 10 };
+    const existing = await prisma.shift.findFirst({ where: { name } });
+    return existing ? prisma.shift.update({ where: { id: existing.id }, data }) : prisma.shift.create({ data });
+  };
+  const regularShift = await ensureShift("Standard Shift", "08:00", "17:00");
+  await ensureShift("Alternative Shift", "09:00", "18:00");
 
   // Demo schedule/leave-request/attendance-record only ever get fabricated
   // for a brand-new bootstrap employee — attaching them to an already-real
   // employee (isNewEmployee false) would plant a fake pending leave request
   // and a fake attendance clock-in under a real person's name.
   if (isNewEmployee) {
-    await prisma.employeeSchedule.upsert({
-      where: { id: "88888888-8888-4888-8888-888888888888" },
-      update: {},
-      create: {
-        id: "88888888-8888-4888-8888-888888888888",
+    await prisma.employeeSchedule.create({
+      data: {
         employeeId: employee.id,
         shiftId: regularShift.id,
         startsOn: new Date("2026-06-01"),
       },
     });
 
-    await prisma.leaveRequest.upsert({
-      where: { id: "55555555-5555-4555-8555-555555555555" },
-      update: {},
-      create: {
-        id: "55555555-5555-4555-8555-555555555555",
+    await prisma.leaveRequest.create({
+      data: {
         employeeId: employee.id,
         leaveTypeId: vacationLeave.id,
         startDate: new Date("2026-06-12"),

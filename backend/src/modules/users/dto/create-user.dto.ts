@@ -1,4 +1,4 @@
-import { IsEnum, IsUUID } from "class-validator";
+import { IsEnum, IsNotEmpty, IsString } from "class-validator";
 
 export enum CreateUserRole {
   ADMIN = "ADMIN",
@@ -10,7 +10,8 @@ export enum CreateUserRole {
 // account (created in Employee Management) — it never creates a new account
 // or new credentials, so this is intentionally just an employeeId + role.
 export class CreateUserDto {
-  @IsUUID()
+  @IsString()
+  @IsNotEmpty()
   employeeId!: string;
 
   @IsEnum(CreateUserRole)

@@ -395,6 +395,10 @@ export class BackupService {
       await this.prisma.$transaction(async (tx) => {
         await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica");
         await apply(tx);
+        // A backup carries rows (with their ids) but not the positions of
+        // the id sequences behind EMP-1001, LR-1001, ... — move each one past
+        // the highest restored id so the next new record can't collide.
+        await tx.$executeRawUnsafe("SELECT public.etala_sync_id_sequences()");
       }, RESTORE_TRANSACTION_OPTIONS);
     } catch (error) {
       await this.prisma.auditLog
