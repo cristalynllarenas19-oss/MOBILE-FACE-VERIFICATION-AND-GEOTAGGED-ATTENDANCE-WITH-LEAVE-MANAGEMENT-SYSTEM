@@ -81,12 +81,20 @@ export class LeaveController {
   cancel(@Param("id") id: string, @Body() body: { note?: string }, @Req() request: Request) {
     const user = (request as any).user;
     const roles: string[] = user.roles ?? [user.role];
-    // Cancelling is reserved for the employee who filed the request or an
-    // ADMIN override — a SUPERVISOR is never treated as elevated here, so
-    // they can only cancel a request that's their own (via user.employeeId),
-    // never a subordinate's.
+    // Cancelling is for the employee who filed the request, an ADMIN
+    // override, or a SUPERVISOR override on someone else's request in their
+    // own department (the department scope below — see LeaveService.cancel).
+    // A Supervisor's own request still goes through the normal self-cancel
+    // rules.
     const isAdmin = roles.includes("ADMIN");
-    return this.leaveService.cancel(id, getAuditContext(request), isAdmin ? undefined : user?.employeeId, body?.note);
+    const supervisorDepartmentId = isAdmin ? undefined : getSupervisorDepartmentScope(user);
+    return this.leaveService.cancel(
+      id,
+      getAuditContext(request),
+      isAdmin ? undefined : user?.employeeId,
+      body?.note,
+      supervisorDepartmentId,
+    );
   }
 
   @Patch(":id/approve-cancellation")

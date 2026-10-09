@@ -97,12 +97,36 @@ export class EmployeesService {
     await this.checkProbationaryMilestones();
 
     await this.evaluations.checkEvaluationsDue();
-    return this.prisma.employee.findMany({
+    const employees = await this.prisma.employee.findMany({
       where: departmentId ? { departmentId } : undefined,
-      include: { user: true, department: true, position: true, supervisor: true, employeeType: true },
+      include: {
+        user: true,
+        department: true,
+        position: true,
+        supervisor: true,
+        employeeType: true,
+        // The current (not yet restored) archive, if any — see EmployeeArchive.
+        archives: { where: { restoredAt: null }, orderBy: { archivedAt: "desc" }, take: 1 },
+      },
       // Newest-added employee first (LIFO), matching leave requests.
       orderBy: { createdAt: "desc" },
     });
+
+    return employees.map(({ archives, ...employee }) => ({
+      ...employee,
+      ...this.archiveDetails(employee.employmentStatus === "SEPARATED" ? archives[0] : undefined),
+    }));
+  }
+
+  // Flattens an employee_archives row into the archiveType/archiveDate/
+  // archiveReason fields the admin-web Archive Details panel reads.
+  private archiveDetails(archive?: { archiveType: string; reason: string | null; effectiveDate: Date | null; archivedAt: Date }) {
+    if (!archive) return {};
+    return {
+      archiveType: archive.archiveType,
+      archiveDate: archive.effectiveDate ?? archive.archivedAt,
+      archiveReason: archive.reason ?? undefined,
+    };
   }
 
   
@@ -695,7 +719,7 @@ export class EmployeesService {
 
   async archive(
     id: string,
-    dto: { reason?: string; archiveType?: string },
+    dto: { reason?: string; archiveType?: string; effectiveDate?: string },
     context: AuditLogContext = {},
     scopeDepartmentId?: string,
   ) {
@@ -708,18 +732,45 @@ export class EmployeesService {
       throw new ForbiddenException("You can only manage employees in your own department.");
     }
 
-    if (employee.userId) {
-      await this.prisma.user.update({
-        where: { id: employee.userId },
-        data: { status: "INACTIVE" },
-      });
+    if (employee.employmentStatus === "SEPARATED") {
+      throw new BadRequestException("This employee is already archived.");
     }
 
-    const archived = await this.prisma.employee.update({
-      where: { id },
-      data: { employmentStatus: "SEPARATED" },
-      include: { user: true, department: true, position: true, employeeType: true },
+    const effectiveDate = dto.effectiveDate ? new Date(dto.effectiveDate) : null;
+    if (effectiveDate && Number.isNaN(effectiveDate.getTime())) {
+      throw new BadRequestException("Effective date is not a valid date.");
+    }
+
+    // All three writes succeed or none do — never a deactivated login on an
+    // active employee, or an archived employee with no archive row.
+    const [archiveRow, archivedEmployee] = await this.prisma.$transaction(async (tx) => {
+      if (employee.userId) {
+        await tx.user.update({
+          where: { id: employee.userId },
+          data: { status: "INACTIVE" },
+        });
+      }
+
+      const row = await tx.employeeArchive.create({
+        data: {
+          employeeId: id,
+          archiveType: dto.archiveType?.trim() || "Separated",
+          reason: dto.reason?.trim() || null,
+          effectiveDate,
+          archivedByUserId: context.actorUserId ?? null,
+        },
+      });
+
+      const updated = await tx.employee.update({
+        where: { id },
+        data: { employmentStatus: "SEPARATED" },
+        include: { user: true, department: true, position: true, employeeType: true },
+      });
+
+      return [row, updated] as const;
     });
+
+    const archived = { ...archivedEmployee, ...this.archiveDetails(archiveRow) };
 
     await this.auditLogs.record({
       ...context,
@@ -758,20 +809,28 @@ export class EmployeesService {
       throw new BadRequestException("This employee is not archived.");
     }
 
-    if (employee.userId) {
-      await this.prisma.user.update({
-        where: { id: employee.userId },
-        data: { status: "ACTIVE" },
-      });
-    }
+    const restored = await this.prisma.$transaction(async (tx) => {
+      if (employee.userId) {
+        await tx.user.update({
+          where: { id: employee.userId },
+          data: { status: "ACTIVE" },
+        });
+      }
 
-    const restored = await this.prisma.employee.update({
-      where: { id },
-      // Back to the Employment Status of the type they kept while archived —
-      // previously always REGULAR, which silently promoted a separated
-      // probationary employee on restore.
-      data: { employmentStatus: employee.employeeType.employmentStatus },
-      include: { user: true, department: true, position: true, employeeType: true },
+      // Closes the open archive row(s) — kept as history, never deleted.
+      await tx.employeeArchive.updateMany({
+        where: { employeeId: id, restoredAt: null },
+        data: { restoredAt: new Date(), restoredByUserId: context.actorUserId ?? null },
+      });
+
+      return tx.employee.update({
+        where: { id },
+        // Back to the Employment Status of the type they kept while archived —
+        // previously always REGULAR, which silently promoted a separated
+        // probationary employee on restore.
+        data: { employmentStatus: employee.employeeType.employmentStatus },
+        include: { user: true, department: true, position: true, employeeType: true },
+      });
     });
 
     await this.auditLogs.record({

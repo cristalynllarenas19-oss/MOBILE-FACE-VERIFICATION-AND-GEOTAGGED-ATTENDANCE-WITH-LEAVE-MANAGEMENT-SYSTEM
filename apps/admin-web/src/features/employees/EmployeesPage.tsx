@@ -276,17 +276,19 @@ function EmployeeModal({
   children,
   onClose,
   small,
+  wide,
 }: {
   title: string;
   description?: string;
   children: ReactNode;
   onClose: () => void;
   small?: boolean;
+  wide?: boolean;
 }) {
   return (
     <div className="employee-modal-backdrop" role="presentation">
       <section
-        className={`employee-modal${small ? " employee-modal--archive" : ""}`}
+        className={`employee-modal${small ? " employee-modal--archive" : ""}${wide ? " employee-modal--wide" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="employee-modal-title"
@@ -430,6 +432,7 @@ function AddEmployeeModal({
       title="Add Employee"
       description="Create an employee profile. They'll set their own password on first login."
       onClose={onClose}
+      wide
     >
       <form className="employee-form" onSubmit={handleSubmit}>
         <div className="employee-form-grid">
@@ -465,18 +468,20 @@ function AddEmployeeModal({
         </div>
 
         <div className="employee-form-grid">
-          {form.department.trim() && (
-            <label>
-              Supervisor
-              <input
-                type="text"
-                value={autoSupervisor ? `${autoSupervisor.firstName} ${autoSupervisor.lastName}` : ""}
-                placeholder="No supervisor registered for this department yet."
-                disabled
-                readOnly
-              />
-            </label>
-          )}
+          <label>
+            Supervisor
+            <input
+              type="text"
+              value={autoSupervisor ? `${autoSupervisor.firstName} ${autoSupervisor.lastName}` : ""}
+              placeholder={
+                form.department.trim()
+                  ? "No supervisor registered for this department"
+                  : "Select a department first…"
+              }
+              disabled
+              readOnly
+            />
+          </label>
           <label>
             Position
             <FormSelectDropdown
@@ -1351,7 +1356,7 @@ function ViewEmployeeModal({
               <button
                 type="button"
                 className="outline-button"
-                style={{ marginTop: 10 }}
+                style={{ marginTop: 8 }}
                 onClick={canViewPerformance ? onViewPerformance : onOpenSupervisorPerformance}
               >
                 View Performance
@@ -1417,7 +1422,7 @@ function ViewEmployeeModal({
         {canRegisterFace && onRegisterFace && (
           <button
             type="button"
-            className="primary-button"
+            className="outline-button"
             onClick={onRegisterFace}
             disabled={consentPending}
             title={consentPending ? "Waiting for the employee to accept the face-data consent on the mobile app" : undefined}
@@ -1820,6 +1825,20 @@ export function EmployeesPage({
           </div>
         )}
 
+        {/* ARCHIVE — Archived employees tab */}
+        <div className="employees-filter-group">
+          <span className="employees-filter-label">Archive</span>
+          <div className="filter-tabs">
+            <button
+              className={showArchivedOnly ? "active" : ""}
+              onClick={() => setShowArchivedOnly(true)}
+            >
+              Archived Employees
+            </button>
+          </div>
+        </div>
+
+        {/* SEARCH — pushed to the right, sitting just left of Add Employee */}
         <div className="employees-filter-group employees-filter-search-group">
           <label className="employees-filter-label">Search</label>
           <div className="employee-search">
@@ -1838,19 +1857,6 @@ export function EmployeesPage({
               aria-label="Clear search"
             >
               <X size={13} />
-            </button>
-          </div>
-        </div>
-
-        {/* ARCHIVE — Archived employees tab */}
-        <div className="employees-filter-group">
-          <span className="employees-filter-label">Archive</span>
-          <div className="filter-tabs">
-            <button
-              className={showArchivedOnly ? "active" : ""}
-              onClick={() => setShowArchivedOnly(true)}
-            >
-              Archived Employees
             </button>
           </div>
         </div>

@@ -926,10 +926,10 @@
 
 .archive-button {
   align-items: center;
-  background: #fee2e2;
-  border: 1.5px solid #fecaca;
+  background: #ffffff;
+  border: 1.5px solid #f3c9c9;
   border-radius: 8px;
-  color: #991b1b;
+  color: #b42318;
   cursor: pointer;
   display: flex;
   font-size: 14px;
@@ -942,14 +942,33 @@
 }
 
 .archive-button:hover {
+  background: #fef2f2;
+  border-color: #f1a9a9;
+}
+
+/* The final "are you sure" step stays filled so it stands out from the
+   outlined Archive button that only opens this dialog. */
+.delete-modal-actions .archive-button {
+  background: #fee2e2;
+  border-color: #fecaca;
+  color: #991b1b;
+}
+
+.delete-modal-actions .archive-button:hover:not(:disabled) {
   background: #fecaca;
   border-color: #fca5a5;
 }
 
-.archive-button:disabled {
+.delete-modal-actions .archive-button:disabled {
   background: #fef2f2;
   border-color: #fee2e2;
   color: #fca5a5;
+}
+
+.archive-button:disabled {
+  background: #ffffff;
+  border-color: #f6dcdc;
+  color: #e5a3a3;
   cursor: not-allowed;
 }
 

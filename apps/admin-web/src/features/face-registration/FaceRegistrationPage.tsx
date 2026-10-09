@@ -236,7 +236,9 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
       faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
     ])
       .then(([faceProfiles]) => {
-        setEnrollments(faceProfiles);
+        // Archived (SEPARATED) employees are managed from Employee Management →
+        // Archived Employees only; their face records stay in the database.
+        setEnrollments(faceProfiles.filter((item) => item.employee.employmentStatus !== "SEPARATED"));
         setModelsReady(true);
         setMessage(
           initialEmployee

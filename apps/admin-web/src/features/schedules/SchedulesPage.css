@@ -656,10 +656,10 @@
 
 .schedule-archive-button {
   height: 38px;
-  border: 1.5px solid #fecaca;
+  border: 1.5px solid #f3c9c9;
   border-radius: 8px;
-  background: #fee2e2;
-  color: #991b1b;
+  background: #ffffff;
+  color: #b42318;
   padding: 0 16px;
   display: inline-flex;
   align-items: center;
@@ -672,7 +672,8 @@
 }
 
 .schedule-archive-button:hover {
-  background: #fecaca;
+  background: #fef2f2;
+  border-color: #f1a9a9;
 }
 
 .schedule-edit-form {

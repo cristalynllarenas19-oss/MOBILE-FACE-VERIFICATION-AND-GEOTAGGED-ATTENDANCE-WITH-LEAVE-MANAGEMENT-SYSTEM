@@ -57,13 +57,13 @@
 }
 
 .outline-button--danger {
-  border-color: #f3b4b4;
-  color: #b91c1c;
+  border-color: #f3c9c9;
+  color: #b42318;
 }
 
 .outline-button--danger:hover:not(:disabled) {
   background: #fef2f2;
-  border-color: #dc2626;
+  border-color: #f1a9a9;
 }
 
 .header-button {

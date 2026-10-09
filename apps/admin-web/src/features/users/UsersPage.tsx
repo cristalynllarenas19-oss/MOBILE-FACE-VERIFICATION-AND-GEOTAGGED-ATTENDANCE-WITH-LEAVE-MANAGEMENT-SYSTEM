@@ -19,6 +19,7 @@ type EmployeeOption = {
   firstName: string;
   lastName: string;
   hireDate?: string;
+  employmentStatus?: string;
   user?: { email?: string } | null;
   department: { name: string };
   position: { title: string };
@@ -83,7 +84,8 @@ export function UsersPage() {
     setEmployeeError("");
 
     apiRequest<EmployeeOption[]>("/employees")
-      .then(setEmployees)
+      // Archived (SEPARATED) employees can't be granted a role.
+      .then((rows) => setEmployees(rows.filter((employee) => employee.employmentStatus !== "SEPARATED")))
       .catch((err) => setEmployeeError(err instanceof Error ? err.message : "Unable to load employees."))
       .finally(() => setIsLoadingEmployees(false));
   }, [isAddOpen]);

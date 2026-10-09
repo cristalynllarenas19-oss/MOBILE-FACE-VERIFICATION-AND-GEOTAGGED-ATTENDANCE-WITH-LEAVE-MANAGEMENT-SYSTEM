@@ -52,9 +52,15 @@ export class UsersService {
   // Only accounts that have actually been granted a system role ever show up
   // in User Management — a plain employee (EMPLOYEE role only, auto-created
   // in Employee Management) is not "in" User Management at all.
+  // Archived (SEPARATED) employees are left out too — they're listed under
+  // Employee Management → Archived Employees, and reappear here with their
+  // role once restored.
   findAll() {
     return this.prisma.user.findMany({
-      where: { userRoles: { some: { role: { code: { in: ["ADMIN", "SUPERVISOR"] } } } } },
+      where: {
+        userRoles: { some: { role: { code: { in: ["ADMIN", "SUPERVISOR"] } } } },
+        NOT: { employee: { is: { employmentStatus: "SEPARATED" } } },
+      },
       select: {
         id: true,
         email: true,
@@ -75,11 +81,15 @@ export class UsersService {
 
     const employee = await this.prisma.employee.findUnique({
       where: { id: dto.employeeId },
-      select: { userId: true, departmentId: true },
+      select: { userId: true, departmentId: true, employmentStatus: true },
     });
 
     if (!employee) {
       throw new BadRequestException("Selected employee does not exist.");
+    }
+
+    if (employee.employmentStatus === "SEPARATED") {
+      throw new BadRequestException("This employee is archived. Restore them before assigning a role.");
     }
 
     if (!employee.userId) {

@@ -456,6 +456,7 @@ model Employee {
   evaluationsReceived  ProbationaryEvaluation[] @relation("EvaluatedEmployee")
   evaluationsAuthored  ProbationaryEvaluation[] @relation("EvaluatingSupervisor")
   leaveAccrualRecords  LeaveAccrualRecord[]
+  archives             EmployeeArchive[]
 
   @@index([departmentId])
   @@index([supervisorId])
@@ -463,6 +464,28 @@ model Employee {
   @@index([attendanceMode])
   @@index([employeeTypeId])
   @@map("employees")
+}
+
+// One row per time an employee is archived (Employee Management → Archive).
+// The employee's own row never leaves `employees` — it's only marked
+// SEPARATED — so attendance, leave, face and schedule history stay linked;
+// this table holds what the Archive form captured. restoredAt is set by
+// EmployeesService.restore(), so the row with restoredAt = null is the
+// employee's current archive and earlier rows are history.
+model EmployeeArchive {
+  id               String    @id @default(uuid())
+  employeeId       String    @map("employee_id")
+  archiveType      String    @map("archive_type")
+  reason           String?
+  effectiveDate    DateTime? @map("effective_date")
+  archivedAt       DateTime  @default(now()) @map("archived_at")
+  archivedByUserId String?   @map("archived_by_user_id")
+  restoredAt       DateTime? @map("restored_at")
+  restoredByUserId String?   @map("restored_by_user_id")
+  employee         Employee  @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId])
+  @@map("employee_archives")
 }
 
 // Admin-managed list behind every Employee Type dropdown/filter (Utilities →

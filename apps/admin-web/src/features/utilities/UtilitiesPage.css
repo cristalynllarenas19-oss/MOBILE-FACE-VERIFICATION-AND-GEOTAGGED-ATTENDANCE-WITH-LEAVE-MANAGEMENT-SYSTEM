@@ -163,14 +163,17 @@
   border-color: #2979d0;
 }
 
+/* Same quiet destructive look as Employee Details' Archive Employee —
+   red text on white, not a filled pink button. */
 .utilities-archive-button {
-  border: 1.5px solid #fecaca;
-  background: #fee2e2;
-  color: #991b1b;
+  border: 1.5px solid #f3c9c9;
+  background: #ffffff;
+  color: #b42318;
 }
 
 .utilities-archive-button:hover {
-  background: #fecaca;
+  background: #fef2f2;
+  border-color: #f1a9a9;
 }
 
 .utilities-archive-button.restore {

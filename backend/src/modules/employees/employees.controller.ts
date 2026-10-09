@@ -67,7 +67,7 @@ export class EmployeesController {
 
   @Patch(":id/archive")
   @RequirePermissions("employees:write")
-  archive(@Param("id") id: string, @Body() dto: { reason?: string; archiveType?: string }, @Req() request: Request) {
+  archive(@Param("id") id: string, @Body() dto: { reason?: string; archiveType?: string; effectiveDate?: string }, @Req() request: Request) {
     const departmentId = getSupervisorDepartmentScope((request as any).user);
     return this.employeesService.archive(id, dto, getAuditContext(request), departmentId);
   }

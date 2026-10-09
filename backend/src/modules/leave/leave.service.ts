@@ -764,7 +764,13 @@ export class LeaveService {
     };
   }
 
-  async cancel(id: string, context: AuditLogContext = {}, requestingEmployeeId?: string, note?: string) {
+  async cancel(
+    id: string,
+    context: AuditLogContext = {},
+    callerEmployeeId?: string,
+    note?: string,
+    supervisorDepartmentId?: string,
+  ) {
     const trimmedNote = note?.trim();
     if (!trimmedNote) {
       throw new BadRequestException("Please provide a reason for cancelling this leave request.");
@@ -792,9 +798,20 @@ export class LeaveService {
       throw new BadRequestException("Only a pending, supervisor-approved, or approved request can be cancelled.");
     }
 
-    // requestingEmployeeId is undefined for an ADMIN override cancelling on an
-    // employee's behalf; anyone else (including a SUPERVISOR) must only
-    // cancel their own request — a Supervisor never cancels a subordinate's.
+    // A SUPERVISOR cancelling someone else's request is an override like an
+    // ADMIN's, but only inside their own department. Their own request is
+    // not an override — it follows the self-cancel rules below.
+    let requestingEmployeeId = callerEmployeeId;
+    if (supervisorDepartmentId && existing.employeeId !== callerEmployeeId) {
+      if (existing.employee.departmentId !== supervisorDepartmentId) {
+        throw new ForbiddenException("You can only manage leave requests from your own department.");
+      }
+      requestingEmployeeId = undefined;
+    }
+
+    // requestingEmployeeId is undefined for an ADMIN/SUPERVISOR override
+    // cancelling on an employee's behalf; anyone else must only cancel their
+    // own request.
     if (requestingEmployeeId && existing.employeeId !== requestingEmployeeId) {
       throw new BadRequestException("You can only cancel your own leave request.");
     }

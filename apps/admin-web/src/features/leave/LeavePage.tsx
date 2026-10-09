@@ -1312,13 +1312,15 @@ export function LeavePage({
       (reviewRequest.status === "PENDING" || reviewRequest.status === "SUPERVISOR_APPROVED"),
   );
 
-  // Cancelling a filed leave request is reserved for the employee who filed
-  // it (self-service, elsewhere) or HR/Admin as a manual-correction override
-  // — a Supervisor never cancels, even for their own department, only
-  // approves/rejects/requests resubmission (mirrors the backend guard in
-  // leave.controller.ts / leave.service.ts).
+  // Cancelling a filed leave request is for the employee who filed it
+  // (self-service, elsewhere), HR/Admin as a manual-correction override, or
+  // a Supervisor for someone else's request in their own department — never
+  // their own (mirrors the backend guard in leave.controller.ts /
+  // leave.service.ts).
   const canCancelRequest = Boolean(
-    reviewRequest && isAdmin && ["PENDING", "SUPERVISOR_APPROVED", "APPROVED"].includes(reviewRequest.status),
+    reviewRequest &&
+      (isAdmin || (isDepartmentLocked && !isOwnRequest)) &&
+      ["PENDING", "SUPERVISOR_APPROVED", "APPROVED"].includes(reviewRequest.status),
   );
 
   // An employee's request to cancel their own already-approved leave sits

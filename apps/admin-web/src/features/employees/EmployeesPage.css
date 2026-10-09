@@ -111,6 +111,7 @@
 
 .employees-filter-search-group {
   flex: 0 0 180px;
+  margin-left: auto;
 }
 
 .employees-filter-label {
@@ -132,7 +133,6 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-left: auto;
 }
 
 .employees-filter-bar .filter-tabs > button {
@@ -395,15 +395,15 @@
 
 .employee-archive-button,
 .employee-archive-action {
-  border: 1.5px solid #fecaca;
-  background: #fee2e2;
-  color: #991b1b;
+  border: 1.5px solid #f3c9c9;
+  background: #ffffff;
+  color: #b42318;
 }
 
 .employee-archive-button:hover,
 .employee-archive-action:hover:not(:disabled) {
-  border-color: #fca5a5;
-  background: #fecaca;
+  border-color: #f1a9a9;
+  background: #fef2f2;
 }
 
 .employees-empty-state {
@@ -438,6 +438,12 @@
 
 .employee-modal--archive {
   width: min(380px, 100%);
+}
+
+/* Add Employee — a little more room per column so the Supervisor field's
+   message fits on one line. */
+.employee-modal--wide {
+  width: min(710px, 100%);
 }
 
 .employee-modal-header {
@@ -525,7 +531,7 @@
 .employee-form input,
 .employee-form select {
   width: 100%;
-  height: 35px;
+  height: 38px;
   border: 1px solid #dbe5ef;
   border-radius: 8px;
   background: #ffffff;
@@ -533,6 +539,19 @@
   padding: 0 11px;
   outline: none;
   font-size: 13px;
+  text-overflow: ellipsis;
+}
+
+/* Same placeholder and disabled look as FormSelectDropdown, so text inputs
+   and dropdowns in one form read as the same control. */
+.employee-form input::placeholder {
+  color: #94a3b8;
+}
+
+.employee-form input:disabled:not([type="checkbox"]) {
+  background: #f4f7fb;
+  color: #94a3b8;
+  cursor: not-allowed;
 }
 
 .employee-form input:focus,
@@ -833,6 +852,48 @@
   margin: 8px 24px 16px;
 }
 
+/* In Employee Details the notices use the same 12–13px type scale as the
+   rows above them, and their button matches the footer buttons. */
+.employee-detail-grid ~ .employee-regularization-banner,
+.employee-detail-grid ~ .employee-consent-banner {
+  gap: 10px;
+  margin: 6px 24px 12px;
+  padding: 10px 14px;
+}
+
+.employee-detail-grid ~ .employee-regularization-banner svg,
+.employee-detail-grid ~ .employee-consent-banner svg {
+  width: 18px;
+  height: 18px;
+}
+
+.employee-detail-grid ~ .employee-regularization-banner strong,
+.employee-detail-grid ~ .employee-consent-banner strong {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 3px;
+}
+
+.employee-detail-grid ~ .employee-regularization-banner p,
+.employee-detail-grid ~ .employee-consent-banner p {
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.employee-detail-grid ~ .employee-regularization-banner .outline-button {
+  height: 34px;
+  padding: 0 14px;
+  border: 1.5px solid #dbe5ef;
+  border-radius: 8px;
+  color: #1a3a5c;
+  font-size: 12px;
+}
+
+.employee-detail-grid ~ .employee-regularization-banner .outline-button:hover {
+  background: #ffffff;
+  border-color: #b8c7d8;
+}
+
 /* Both banners showing: no double gap between them. */
 .employee-regularization-banner + .employee-consent-banner {
   margin-top: 0;
@@ -861,11 +922,11 @@
 .employee-detail-grid {
   display: grid;
   gap: 0;
-  padding: 20px 24px 8px;
+  padding: 8px 24px 4px;
 }
 
 .employee-detail-grid div {
-  min-height: 48px;
+  min-height: 38px;
   border-bottom: 1px solid #edf2f7;
   display: flex;
   align-items: center;
@@ -878,14 +939,15 @@
 }
 
 .employee-detail-grid span {
-  color: #7b8794;
+  color: #64748b;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .employee-detail-grid strong {
   color: #1a3a5c;
   font-size: 13px;
+  font-weight: 600;
   text-align: right;
   word-break: break-word;
 }
@@ -929,40 +991,57 @@
   border-top: 1px solid #edf2f7;
 }
 
+/* Archive sits apart on the left as a quiet destructive action — red text on
+   white, not a filled pink button competing with the main actions. */
 .employee-detail-actions .employee-archive-action {
   margin-right: auto;
+  background: #ffffff;
+  border-color: #f3c9c9;
+  color: #b42318;
 }
 
-/* Compact, uniform footer buttons so up to four fit on one line without
-   their labels wrapping (Archive / Register Face / Edit / Close). */
+.employee-detail-actions .employee-archive-action:hover:not(:disabled) {
+  background: #fef2f2;
+  border-color: #f1a9a9;
+}
+
+/* One button size for the whole footer, so up to four fit on one line
+   without their labels wrapping (Archive / Register Face / Edit / Close).
+   Only Edit/Restore are filled; everything else is outlined. */
 .employee-detail-actions {
   gap: 6px;
-  padding-left: 20px;
-  padding-right: 20px;
+  padding: 12px 24px 14px;
   flex-wrap: wrap;
 }
 
 .employee-detail-actions .primary-button,
 .employee-detail-actions .outline-button,
 .employee-detail-actions .employee-archive-action {
-  height: 34px;
-  min-height: 34px;
+  height: 36px;
+  min-height: 36px;
   padding: 0 10px;
-  border-radius: 7px;
+  border-radius: 8px;
   font-size: 12px;
   gap: 6px;
   white-space: nowrap;
   flex-shrink: 0;
+  box-shadow: none;
+}
+
+.employee-detail-actions .primary-button:hover:not(:disabled) {
+  box-shadow: none;
 }
 
 /* Disabled "Register Face" (consent pending) — clearly inactive but the
    label stays readable (global disabled styles fade it out too much). */
-.employee-detail-actions .primary-button:disabled {
+.employee-detail-actions .primary-button:disabled,
+.employee-detail-actions .outline-button:disabled {
   opacity: 1;
-  background: #e2e8f0;
-  border-color: #cbd5e1;
-  color: #475569;
+  background: #f1f5f9;
+  border-color: #dbe5ef;
+  color: #64748b;
   box-shadow: none;
+  cursor: not-allowed;
 }
 
 .employee-confirm-body {
@@ -1034,6 +1113,16 @@
   min-width: 0;
   height: 38px;
   justify-content: center;
+  /* The final "are you sure" step stays filled so it stands out from the
+     outlined Archive buttons that only open this dialog. */
+  border-color: #fecaca;
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.employee-confirm-actions .employee-archive-action:hover:not(:disabled) {
+  border-color: #fca5a5;
+  background: #fecaca;
 }
 
 @media (max-width: 640px) {
@@ -1065,6 +1154,7 @@
   .employees-filter-search-group {
     flex: 1 1 auto;
     width: 100%;
+    margin-left: 0;
   }
 
   .employee-form-grid {

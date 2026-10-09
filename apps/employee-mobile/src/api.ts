@@ -843,7 +843,9 @@ export async function getEmployeeTypes() {
 }
 
 export async function getTeamEmployees() {
-  return apiRequest<TeamEmployee[]>("/employees");
+  // Archived (SEPARATED) employees are not part of the active team roster.
+  const employees = await apiRequest<TeamEmployee[]>("/employees");
+  return employees.filter((employee) => employee.employmentStatus !== "SEPARATED");
 }
 
 export async function getSupervisorOptions() {
