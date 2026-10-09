@@ -22,13 +22,16 @@ type Enrollment = {
 };
 
 type FaceFrame = {
-  confidence: number;
   width: number;
   height: number;
   x: number;
   y: number;
   boxWidth: number;
   boxHeight: number;
+  // Whether the face is positioned/sized well enough and confident enough to
+  // actually pass detectFace()'s own capture checks right now — drives the
+  // guide box turning green.
+  ready: boolean;
 };
 
 export type FaceRegistrationEmployee = {
@@ -71,13 +74,11 @@ type FaceProfile = {
 
 const MODEL_URL = "/models";
 const CAMERA_SAMPLE_TARGET = 1;
-const COUNTDOWN_SECONDS = 2;
 
 const CAPTURE_STEPS = [
   {
     key: "front",
     title: "Look at the camera",
-    helper: "Keep the face centered inside the guide.",
   },
 ] as const;
 
@@ -87,19 +88,31 @@ function employeeLabel(employee: Employee) {
 
 // face-api.js ships no dedicated eyewear classifier, so this is a best-effort
 // pixel heuristic built on the 68-point landmarks we already compute for
-// detection/tracking — not a trained model. It looks for two independent
-// signals around the eyes and flags either one:
-//  1. Frame edges — clear/rimmed glasses leave a strong edge across the nose
-//     bridge and around the eye sockets that bare skin doesn't produce
-//     (measured via Sobel gradient magnitude).
+// detection/tracking — not a trained model. It looks for three independent
+// signals:
+//  1. Frame edges around each eye — clear/rimmed glasses leave a strong edge
+//     around the eye socket that bare skin doesn't produce (Sobel gradient
+//     magnitude). Computed per eye and required to agree on both sides, since
+//     a real pair of glasses spans the whole face while one-sided lighting
+//     artifacts (a shadow, hair near one temple) typically only trip one side.
 //  2. Lens darkness — sunglasses make the eye region noticeably darker than
-//     the forehead just above it (measured via average luminance delta).
-// EYEGLASS_EDGE_THRESHOLD / SUNGLASSES_DARKNESS_THRESHOLD are starting points,
-// not calibrated against real footage — expect to retune them (and accept
-// some false positives/negatives, especially for thin rimless frames, which
-// barely register on signal 1) once this runs against real captures.
-const EYEGLASS_EDGE_THRESHOLD = 12; // % of bridge-band pixels counted as a strong edge
+//     the forehead just above it (average luminance delta), also required on
+//     both sides.
+//  3. Nose-bridge line — thin wire/rimless frames barely move signals 1-2 (too
+//     little frame area over a wide crop), but they almost always still cross
+//     the nose between the inner eye corners. This looks at just that narrow
+//     gap and checks for a strong edge line there; because the crop is so
+//     small, even a thin bridge dominates it enough to register.
+// A positive also has to persist for a couple of consecutive polls (see
+// eyewearStreakRef in startFaceTracking) before it's shown, so a single noisy
+// frame can't flash the warning.
+// Thresholds below are starting points, not calibrated against real footage —
+// expect to retune them (and accept some false positives/negatives) once this
+// runs against real captures.
+const EYEGLASS_EDGE_THRESHOLD = 12; // % of eye-band pixels counted as a strong edge
 const SUNGLASSES_DARKNESS_THRESHOLD = 35; // forehead-vs-eye average brightness delta (0-255 scale)
+const BRIDGE_EDGE_THRESHOLD = 8; // % of nose-bridge crop pixels counted as a strong edge
+const EYEWEAR_CONFIRM_STREAK = 2; // consecutive positive polls required before flagging
 const ENROLLMENTS_PAGE_SIZE = 5;
 
 function pointsBounds(points: faceapi.Point[]) {
@@ -108,32 +121,24 @@ function pointsBounds(points: faceapi.Point[]) {
   return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
 }
 
-function detectEyewear(video: HTMLVideoElement, landmarks: faceapi.FaceLandmarks68): boolean {
-  const leftEye = landmarks.getLeftEye();
-  const rightEye = landmarks.getRightEye();
-  const leftBrow = landmarks.getLeftEyeBrow();
-  const rightBrow = landmarks.getRightEyeBrow();
-  if (!leftEye.length || !rightEye.length || !leftBrow.length || !rightBrow.length) return false;
+// Sobel gradient magnitude at a single interior pixel of a grayscale buffer.
+function sobelMagnitude(gray: Float32Array, w: number, px: number, py: number): number {
+  const gx =
+    -gray[(py - 1) * w + (px - 1)] + gray[(py - 1) * w + (px + 1)] +
+    -2 * gray[py * w + (px - 1)] + 2 * gray[py * w + (px + 1)] +
+    -gray[(py + 1) * w + (px - 1)] + gray[(py + 1) * w + (px + 1)];
+  const gy =
+    -gray[(py - 1) * w + (px - 1)] - 2 * gray[(py - 1) * w + px] - gray[(py - 1) * w + (px + 1)] +
+    gray[(py + 1) * w + (px - 1)] + 2 * gray[(py + 1) * w + px] + gray[(py + 1) * w + (px + 1)];
+  return Math.sqrt(gx * gx + gy * gy);
+}
 
-  const eyeBounds = pointsBounds([...leftEye, ...rightEye]);
-  const browBounds = pointsBounds([...leftBrow, ...rightBrow]);
-  const browHeight = eyeBounds.minY - browBounds.minY || 12;
-
-  // Crop from just above the eyebrows (approximating the forehead, since the
-  // 68-point set has no forehead landmarks of its own) down to just below
-  // the eyes, spanning the full eye+brow width with a little side padding.
-  const padX = (eyeBounds.maxX - eyeBounds.minX) * 0.1;
-  const cropX = Math.max(0, eyeBounds.minX - padX);
-  const cropY = Math.max(0, browBounds.minY - browHeight);
-  const cropWidth = Math.min(video.videoWidth - cropX, eyeBounds.maxX - eyeBounds.minX + padX * 2);
-  const cropHeight = Math.min(video.videoHeight - cropY, eyeBounds.maxY - cropY + browHeight * 0.4);
-  if (cropWidth < 20 || cropHeight < 12) return false;
-
+function grabGrayscale(video: HTMLVideoElement, cropX: number, cropY: number, cropWidth: number, cropHeight: number) {
   const canvas = document.createElement("canvas");
   canvas.width = Math.round(cropWidth);
   canvas.height = Math.round(cropHeight);
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
-  if (!ctx) return false;
+  if (!ctx) return null;
   ctx.drawImage(video, cropX, cropY, cropWidth, cropHeight, 0, 0, canvas.width, canvas.height);
 
   const { data, width: w, height: h } = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -141,24 +146,46 @@ function detectEyewear(video: HTMLVideoElement, landmarks: faceapi.FaceLandmarks
   for (let i = 0; i < w * h; i++) {
     gray[i] = 0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2];
   }
+  return { gray, w, h };
+}
+
+// Analyzes a single eye+brow region (one side of the face only) and returns
+// its edge density and forehead-vs-eye darkness delta, the same two signals
+// detectEyewear below compares across both sides for symmetry.
+function analyzeEyeRegion(
+  video: HTMLVideoElement,
+  eyePoints: faceapi.Point[],
+  browPoints: faceapi.Point[],
+): { edgeDensity: number; darknessDelta: number } | null {
+  if (!eyePoints.length || !browPoints.length) return null;
+
+  const eyeBounds = pointsBounds(eyePoints);
+  const browBounds = pointsBounds(browPoints);
+  const browHeight = eyeBounds.minY - browBounds.minY || 12;
+
+  // Crop from just above the eyebrow (approximating the forehead, since the
+  // 68-point set has no forehead landmarks of its own) down to just below
+  // the eye, spanning that eye's width with a little side padding.
+  const padX = (eyeBounds.maxX - eyeBounds.minX) * 0.15;
+  const cropX = Math.max(0, eyeBounds.minX - padX);
+  const cropY = Math.max(0, browBounds.minY - browHeight);
+  const cropWidth = Math.min(video.videoWidth - cropX, eyeBounds.maxX - eyeBounds.minX + padX * 2);
+  const cropHeight = Math.min(video.videoHeight - cropY, eyeBounds.maxY - cropY + browHeight * 0.4);
+  if (cropWidth < 12 || cropHeight < 10) return null;
+
+  const grabbed = grabGrayscale(video, cropX, cropY, cropWidth, cropHeight);
+  if (!grabbed) return null;
+  const { gray, w, h } = grabbed;
 
   // Signal 1: edge density across the eye-level band (roughly the middle
-  // third of the crop, where a glasses frame/bridge would sit).
+  // third of the crop, where a glasses frame/rim would sit).
   const bandTop = Math.max(1, Math.round(h * 0.35));
   const bandBottom = Math.min(h - 1, Math.round(h * 0.7));
   let strongEdges = 0;
   let bandPixels = 0;
   for (let py = Math.max(1, bandTop); py < bandBottom; py++) {
     for (let px = 1; px < w - 1; px++) {
-      const gx =
-        -gray[(py - 1) * w + (px - 1)] + gray[(py - 1) * w + (px + 1)] +
-        -2 * gray[py * w + (px - 1)] + 2 * gray[py * w + (px + 1)] +
-        -gray[(py + 1) * w + (px - 1)] + gray[(py + 1) * w + (px + 1)];
-      const gy =
-        -gray[(py - 1) * w + (px - 1)] - 2 * gray[(py - 1) * w + px] - gray[(py - 1) * w + (px + 1)] +
-        gray[(py + 1) * w + (px - 1)] + 2 * gray[(py + 1) * w + px] + gray[(py + 1) * w + (px + 1)];
-      const magnitude = Math.sqrt(gx * gx + gy * gy);
-      if (magnitude > 110) strongEdges++;
+      if (sobelMagnitude(gray, w, px, py) > 110) strongEdges++;
       bandPixels++;
     }
   }
@@ -184,15 +211,80 @@ function detectEyewear(video: HTMLVideoElement, landmarks: faceapi.FaceLandmarks
   const eyeBandAvg = eyeBandCount > 0 ? eyeBandSum / eyeBandCount : 0;
   const darknessDelta = foreheadAvg - eyeBandAvg;
 
-  return edgeDensity > EYEGLASS_EDGE_THRESHOLD || darknessDelta > SUNGLASSES_DARKNESS_THRESHOLD;
+  return { edgeDensity, darknessDelta };
+}
+
+// Looks specifically at the narrow gap between the inner corners of the two
+// eyes (the nose bridge) for a strong edge line — this is where even a thin
+// wire/rimless frame's bridge crosses, and the crop is tight enough that the
+// bridge dominates it even though it's only a few pixels wide.
+function analyzeBridgeRegion(
+  video: HTMLVideoElement,
+  leftEyeBounds: { minX: number; maxX: number; minY: number; maxY: number },
+  rightEyeBounds: { minX: number; maxX: number; minY: number; maxY: number },
+): number | null {
+  // Figure out which bounds is physically on-screen-left vs right without
+  // assuming anything about face-api's "left eye"/"right eye" naming.
+  const [innerSideA, innerSideB] =
+    leftEyeBounds.minX <= rightEyeBounds.minX ? [leftEyeBounds, rightEyeBounds] : [rightEyeBounds, leftEyeBounds];
+  const bridgeLeft = innerSideA.maxX;
+  const bridgeRight = innerSideB.minX;
+  const bridgeWidthRaw = bridgeRight - bridgeLeft;
+  if (bridgeWidthRaw < 4) return null; // eyes overlap/touch in the detected bounds — unreliable
+
+  const padX = bridgeWidthRaw * 0.3;
+  const cropX = Math.max(0, bridgeLeft - padX);
+  const cropWidth = Math.min(video.videoWidth - cropX, bridgeWidthRaw + padX * 2);
+
+  const centerY = (((innerSideA.minY + innerSideA.maxY) / 2) + ((innerSideB.minY + innerSideB.maxY) / 2)) / 2;
+  const bandHeight = Math.max(innerSideA.maxY - innerSideA.minY, innerSideB.maxY - innerSideB.minY) * 0.9;
+  const cropY = Math.max(0, centerY - bandHeight / 2);
+  const cropHeight = Math.min(video.videoHeight - cropY, bandHeight);
+  if (cropWidth < 6 || cropHeight < 6) return null;
+
+  const grabbed = grabGrayscale(video, cropX, cropY, cropWidth, cropHeight);
+  if (!grabbed) return null;
+  const { gray, w, h } = grabbed;
+
+  let strongEdges = 0;
+  let total = 0;
+  for (let py = 1; py < h - 1; py++) {
+    for (let px = 1; px < w - 1; px++) {
+      // Slightly lower than the eye-region threshold: thin metal wire is
+      // high-contrast but only a pixel or two wide, so its peak gradient can
+      // be a bit weaker than a thick plastic rim's.
+      if (sobelMagnitude(gray, w, px, py) > 90) strongEdges++;
+      total++;
+    }
+  }
+  return total > 0 ? (strongEdges / total) * 100 : 0;
+}
+
+function detectEyewear(video: HTMLVideoElement, landmarks: faceapi.FaceLandmarks68): boolean {
+  const leftEyePoints = landmarks.getLeftEye();
+  const rightEyePoints = landmarks.getRightEye();
+  const left = analyzeEyeRegion(video, leftEyePoints, landmarks.getLeftEyeBrow());
+  const right = analyzeEyeRegion(video, rightEyePoints, landmarks.getRightEyeBrow());
+  if (!left || !right) return false;
+
+  const edgesOnBothSides =
+    left.edgeDensity > EYEGLASS_EDGE_THRESHOLD && right.edgeDensity > EYEGLASS_EDGE_THRESHOLD;
+  const darkOnBothSides =
+    left.darknessDelta > SUNGLASSES_DARKNESS_THRESHOLD && right.darknessDelta > SUNGLASSES_DARKNESS_THRESHOLD;
+
+  const bridgeEdgeDensity = analyzeBridgeRegion(video, pointsBounds(leftEyePoints), pointsBounds(rightEyePoints));
+  const bridgeDetected = bridgeEdgeDensity !== null && bridgeEdgeDensity > BRIDGE_EDGE_THRESHOLD;
+
+  return edgesOnBothSides || darkOnBothSides || bridgeDetected;
 }
 
 export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: FaceRegistrationEmployee } = {}) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const sequenceRef = useRef(false);
-  const countdownTimerRef = useRef<number | null>(null);
   const faceTrackingTimerRef = useRef<number | null>(null);
+  // Consecutive polls in a row that detected eyewear — see EYEWEAR_CONFIRM_STREAK.
+  const eyewearStreakRef = useRef(0);
   const [modelsReady, setModelsReady] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
   // A just-created employee handed over from Employee Management arrives
@@ -205,8 +297,6 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
   const [enrollments, setEnrollments] = useState<FaceProfile[]>([]);
   const [message, setMessage] = useState("Loading face recognition models...");
   const [busy, setBusy] = useState(false);
-  const [captureStepIndex, setCaptureStepIndex] = useState(0);
-  const [countdown, setCountdown] = useState<number | null>(null);
   const [faceFrame, setFaceFrame] = useState<FaceFrame | null>(null);
   const [eyewearDetected, setEyewearDetected] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -251,7 +341,6 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
       .catch(() => setMessage("Employee or face models could not be loaded. Refresh the page and try again."));
 
     return () => {
-      clearCountdownTimer();
       stopFaceTracking();
       stopCamera();
     };
@@ -280,8 +369,6 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
       setCameraActive(true);
       setDescriptors([]);
       setPreview("");
-      setCaptureStepIndex(0);
-      setCountdown(null);
       setFaceFrame(null);
       setEyewearDetected(false);
     } catch {
@@ -291,22 +378,13 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
 
   function stopCamera() {
     sequenceRef.current = false;
-    clearCountdownTimer();
     stopFaceTracking();
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     setCameraActive(false);
     setBusy(false);
-    setCountdown(null);
     setFaceFrame(null);
     setEyewearDetected(false);
-  }
-
-  function clearCountdownTimer() {
-    if (countdownTimerRef.current) {
-      window.clearTimeout(countdownTimerRef.current);
-      countdownTimerRef.current = null;
-    }
   }
 
   async function detectFace(input: HTMLVideoElement | HTMLImageElement) {
@@ -334,6 +412,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
 
   function startFaceTracking() {
     if (!modelsReady || faceTrackingTimerRef.current) return;
+    eyewearStreakRef.current = 0;
 
     faceTrackingTimerRef.current = window.setInterval(async () => {
       const video = videoRef.current;
@@ -345,36 +424,71 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
           .withFaceLandmarks(true);
 
         if (!result) {
+          eyewearStreakRef.current = 0;
           setFaceFrame(null);
           setEyewearDetected(false);
           return;
         }
 
-        setEyewearDetected(detectEyewear(video, result.landmarks));
+        // Require a couple of consecutive positive polls (~500ms) before
+        // actually showing the warning, so one noisy frame (a shadow, a hand
+        // passing by) can't flash it on and off.
+        if (detectEyewear(video, result.landmarks)) {
+          eyewearStreakRef.current += 1;
+        } else {
+          eyewearStreakRef.current = 0;
+        }
+        setEyewearDetected(eyewearStreakRef.current >= EYEWEAR_CONFIRM_STREAK);
 
+        const box = result.detection.box;
         const scale = Math.max(video.clientWidth / video.videoWidth, video.clientHeight / video.videoHeight);
         const renderedWidth = video.videoWidth * scale;
         const renderedHeight = video.videoHeight * scale;
         const cropX = (renderedWidth - video.clientWidth) / 2;
         const cropY = (renderedHeight - video.clientHeight) / 2;
-        const box = result.detection.box;
-        const padX = box.width * 0.08;
-        const padY = box.height * 0.12;
-        const x = Math.max(0, (box.x * scale) - cropX - padX);
-        const y = Math.max(0, (box.y * scale) - cropY - padY);
-        const boxWidth = Math.min(video.clientWidth - x, box.width * scale + padX * 2);
-        const boxHeight = Math.min(video.clientHeight - y, box.height * scale + padY * 2);
+        // Pad relative to the box's SCALED (on-screen) size, not its raw
+        // video-pixel size — box.x/box.y below are already multiplied by
+        // `scale` to land in display coordinates, so padding has to be in
+        // that same unit or it over/undershoots whenever scale isn't 1
+        // (e.g. a camera capturing larger than it's displayed).
+        const scaledBoxWidth = box.width * scale;
+        const scaledBoxHeight = box.height * scale;
+        // The raw detector box hugs eyebrows-to-chin and misses the forehead
+        // and hair entirely, so padding is asymmetric: a lot more added above
+        // (to reach the hairline) than below (the chin is already close to
+        // the box's bottom edge, just needs a touch of room).
+        const padX = scaledBoxWidth * 0.08;
+        const padTop = scaledBoxHeight * 0.35;
+        const padBottom = scaledBoxHeight * 0.05;
+
+        // The preview video is mirrored for display (selfie view, see the
+        // scaleX(-1) on the <video> element) but detection runs against the
+        // raw, unmirrored frame — so the box has to be flipped horizontally
+        // to land on the same side the face actually appears on screen.
+        // Without this the guide box moved opposite to real face motion.
+        const rawX = Math.max(0, (box.x * scale) - cropX - padX);
+        const y = Math.max(0, (box.y * scale) - cropY - padTop);
+        const boxWidth = Math.min(video.clientWidth - rawX, scaledBoxWidth + padX * 2);
+        const boxHeight = Math.min(video.clientHeight - y, scaledBoxHeight + padTop + padBottom);
+        const x = Math.max(0, video.clientWidth - rawX - boxWidth);
+
+        // Mirrors the size/confidence gates detectFace() itself enforces at
+        // capture time, so the box only turns green when a capture right now
+        // would actually succeed.
+        const ready =
+          result.detection.score >= 0.75 && box.width >= 120 && box.height >= 120;
 
         setFaceFrame({
-          confidence: result.detection.score,
           width: video.clientWidth,
           height: video.clientHeight,
           x,
           y,
           boxWidth,
           boxHeight,
+          ready,
         });
       } catch {
+        eyewearStreakRef.current = 0;
         setFaceFrame(null);
         setEyewearDetected(false);
       }
@@ -418,30 +532,6 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
     setPreview(image);
   }
 
-  function waitForCountdown(stepIndex: number) {
-    return new Promise<void>((resolve) => {
-      let seconds = COUNTDOWN_SECONDS;
-      setCaptureStepIndex(stepIndex);
-      setCountdown(seconds);
-      setMessage(`${CAPTURE_STEPS[stepIndex].title}. Capturing in ${seconds} seconds.`);
-
-      const tick = () => {
-        seconds -= 1;
-        if (!sequenceRef.current) return;
-        if (seconds <= 0) {
-          setCountdown(null);
-          resolve();
-          return;
-        }
-        setCountdown(seconds);
-        setMessage(`${CAPTURE_STEPS[stepIndex].title}. Capturing in ${seconds} seconds.`);
-        countdownTimerRef.current = window.setTimeout(tick, 1000);
-      };
-
-      countdownTimerRef.current = window.setTimeout(tick, 1000);
-    });
-  }
-
   async function startGuidedCapture() {
     if (!cameraActive || busy) return;
     if (eyewearDetected) {
@@ -452,27 +542,21 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
     setBusy(true);
     setDescriptors([]);
     setPreview("");
-    setMessage("Guided capture started. Follow each prompt and hold steady.");
+    setMessage("Capturing...");
 
     try {
       for (let index = 0; index < CAPTURE_STEPS.length; index += 1) {
-        await waitForCountdown(index);
         if (!sequenceRef.current) return;
         await captureCurrentFrame();
         setMessage(`${CAPTURE_STEPS[index].title} sample captured.`);
-        await new Promise((resolve) => {
-          countdownTimerRef.current = window.setTimeout(resolve, 700);
-        });
       }
 
       sequenceRef.current = false;
-      setCaptureStepIndex(CAPTURE_STEPS.length - 1);
       stopCamera();
       setMessage("");
       setShowCapturePreview(true);
     } catch (error) {
       sequenceRef.current = false;
-      setCountdown(null);
       setMessage(error instanceof Error ? error.message : "Face capture failed.");
     } finally {
       setBusy(false);
@@ -486,12 +570,9 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
 
   function resetCapture() {
     sequenceRef.current = false;
-    clearCountdownTimer();
     setShowCapturePreview(false);
     setDescriptors([]);
     setPreview("");
-    setCaptureStepIndex(0);
-    setCountdown(null);
     setFaceFrame(null);
     setBusy(false);
     setMessage(cameraActive ? "Capture reset. Begin the guided capture again." : "Start the camera for a guided face capture.");
@@ -546,8 +627,6 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
       setEditingEnrollmentId(null);
       setDescriptors([]);
       setPreview("");
-      setCaptureStepIndex(0);
-      setCountdown(null);
       setFaceFrame(null);
       stopCamera();
     } catch {
@@ -741,7 +820,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
             {cameraActive && faceFrame && (
               <svg className="face-tracker" viewBox={`0 0 ${faceFrame.width} ${faceFrame.height}`} aria-hidden="true">
                 <rect
-                  className="face-guide-rect"
+                  className={`face-guide-rect${faceFrame.ready && !eyewearDetected ? " is-ready" : ""}`}
                   x={faceFrame.x}
                   y={faceFrame.y}
                   width={faceFrame.boxWidth}
@@ -749,14 +828,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
                   rx="18"
                   ry="18"
                 />
-                <text x="14" y="24">{Math.round(faceFrame.confidence * 100)}%</text>
               </svg>
-            )}
-            {cameraActive && countdown !== null && (
-              <div className="capture-overlay">
-                <strong>{countdown}</strong>
-                <small>{CAPTURE_STEPS[captureStepIndex].helper}</small>
-              </div>
             )}
             {cameraActive && eyewearDetected && (
               <div className="eyewear-warning" role="alert">

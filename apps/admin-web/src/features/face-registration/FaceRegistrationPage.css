@@ -162,20 +162,16 @@
   z-index: 2;
 }
 
-.face-tracker text {
-  fill: #eff6ff;
-  font-size: 13px;
-  font-weight: 800;
-  paint-order: stroke;
-  stroke: rgba(30, 64, 175, 0.86);
-  stroke-width: 5px;
-}
-
 .face-tracker .face-guide-rect {
   fill: transparent;
   stroke: #1d4ed8;
   stroke-width: 4;
   vector-effect: non-scaling-stroke;
+  transition: stroke 0.15s ease;
+}
+
+.face-tracker .face-guide-rect.is-ready {
+  stroke: #22c55e;
 }
 
 .capture-overlay {
