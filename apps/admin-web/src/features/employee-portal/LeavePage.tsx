@@ -133,6 +133,43 @@ function attachmentSrc(mimeType: string | null | undefined, data: string | null 
   return `data:${mimeType};base64,${data}`;
 }
 
+type LeaveDocument = { key: string; label: string; createdAt: string; mimeType: string | null | undefined; data: string | null | undefined; name: string | null | undefined };
+
+// A request can cycle through reject -> resubmit any number of times; the
+// backend only keeps the latest attachment on the request row itself, but
+// archives every prior round as a RESUBMITTED note (see resubmit() in
+// leave.service.ts), so the full document trail is reconstructed here from
+// that note history instead of only ever showing the single current file.
+// `createdAt` lets LeaveTimeline line each document up with the step it
+// actually belongs to by timestamp rather than by position — a request
+// resubmitted before the archiving behavior above shipped is missing the
+// original round's document, and matching by position alone would misattach
+// the one document it does have. Mirrors employee-mobile's LeaveScreen.tsx
+// getRequestDocuments.
+function getRequestDocuments(r: LeaveRequest): LeaveDocument[] {
+  const resubmissionNotes = (r.notes ?? [])
+    .filter((n) => n.type === "RESUBMITTED" && n.attachmentName)
+    .slice()
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+  if (resubmissionNotes.length > 0) {
+    return resubmissionNotes.map((n, index) => ({
+      key: n.id,
+      label: `Document ${index + 1}`,
+      createdAt: n.createdAt,
+      mimeType: n.attachmentMimeType,
+      data: n.attachmentData,
+      name: n.attachmentName,
+    }));
+  }
+
+  if (r.attachmentName) {
+    return [{ key: "current", label: "Document 1", createdAt: r.createdAt, mimeType: r.attachmentMimeType, data: r.attachmentData, name: r.attachmentName }];
+  }
+
+  return [];
+}
+
 export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }: Props) {
   const [tab,          setTab]          = useState<Tab>("balance");
 
@@ -903,7 +940,6 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
   }
 
   function renderRequestCard(r: LeaveRequest) {
-    const tone = statusTone(r.status);
     const needsRevision = r.status === "NEEDS_REVISION";
     const canShowCancelSection =
       !needsRevision && (r.status === "PENDING" || r.status === "SUPERVISOR_APPROVED" || r.status === "APPROVED");
@@ -926,43 +962,6 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
       r.status === "APPROVED" ? [...(r.notes ?? [])].reverse().find((n) => n.type === "CANCELLATION_DENIED") : undefined;
     return (
       <div key={r.id} style={{ background: "#F8FAFC", borderRadius: 12, padding: 14, marginBottom: 10 }}>
-        <p style={{ fontWeight: 700, marginBottom: 3 }}>{r.leaveType.name}</p>
-        <p style={{ color: "#475569", fontSize: 13, marginBottom: 3 }}>
-          {new Date(r.startDate).toLocaleDateString()} – {new Date(r.endDate).toLocaleDateString()}
-        </p>
-        {r.attachmentName && (
-          attachmentSrc(r.attachmentMimeType, r.attachmentData) ? (
-            <button
-              type="button"
-              onClick={() =>
-                setPreviewAttachment({
-                  src: attachmentSrc(r.attachmentMimeType, r.attachmentData)!,
-                  name: r.attachmentName!,
-                  mimeType: r.attachmentMimeType!,
-                })
-              }
-              title={r.attachmentName}
-              style={{
-                display: "block", width: "100%", textAlign: "left",
-                border: "none", background: "none", padding: 0, cursor: "pointer",
-                color: "#1680D8", fontSize: 12, fontWeight: 600, margin: "3px 0",
-                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-              }}
-            >
-              📎 {r.attachmentName}
-            </button>
-          ) : (
-            <p
-              title={r.attachmentName}
-              style={{
-                color: "#64748B", fontSize: 12, margin: "3px 0",
-                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-              }}
-            >
-              📎 {r.attachmentName}
-            </p>
-          )
-        )}
         {lastRejection && (
           <div style={{ background: "#FEF3C7", border: "1px solid #FCD34D", borderRadius: 8, padding: "8px 10px", margin: "6px 0" }}>
             {lastRejection.message && (
@@ -985,18 +984,18 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
             )}
           </div>
         )}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
-          <span style={{
-            display: "inline-block",
-            background: tone.bg, color: tone.color,
-            fontWeight: 700, fontSize: 11,
-            borderRadius: 999, padding: "3px 8px",
-          }}>
-            {statusLabel(r.status)}
-          </span>
-        </div>
-
-        <LeaveTimeline history={r.history} status={r.status} />
+        <LeaveTimeline
+          history={r.history}
+          status={r.status}
+          documents={getRequestDocuments(r).map((doc) => {
+            const src = attachmentSrc(doc.mimeType, doc.data);
+            return {
+              label: doc.label,
+              createdAt: doc.createdAt,
+              onPress: () => src && setPreviewAttachment({ src, name: doc.label, mimeType: doc.mimeType! }),
+            };
+          })}
+        />
 
         {canShowCancelSection && (
           <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #E2E8F0" }}>
@@ -1919,37 +1918,66 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
 
       {focusedRequest && (
         <div style={overlayNoBg}>
-          <div className="emp-scroll-thin" style={modalCardFloating}>
-            {/* "X" closes the whole flow; the back row below returns to the list. */}
-            <button
-              type="button"
-              onClick={() => {
-                setFocusedRequestId(null);
-                setShowPending(false);
-              }}
-              style={modalCloseBtn}
-              aria-label="Close"
-            >
-              <X size={15} color="#64748B" />
-            </button>
-            {/* Mirrors employee-mobile's LeaveScreen.tsx back row — this
-                detail view is reached from the requests list, so "back" reads
-                clearer here than a dead-end "Close". */}
-            <button
-              type="button"
-              onClick={() => setFocusedRequestId(null)}
-              style={{
-                display: "flex", alignItems: "center", gap: 4,
-                border: "none", background: "none", cursor: "pointer",
-                padding: 0, marginBottom: 10,
-                color: "#1680D8", fontWeight: 700, fontSize: 13,
-              }}
-            >
-              <ChevronLeft size={16} color="#1680D8" />
-              All requests
-            </button>
-            <h3 style={{ color: "#062B59", fontWeight: 700, marginBottom: 14 }}>Leave Request Details</h3>
-            {renderRequestCard(focusedRequest)}
+          {/* The scrollbar used to belong to this outer shell directly (same
+              element as the rounded border + padding), so it rendered flush
+              against the card's outer edge instead of inset within it —
+              visibly crossing the rounded corner and overlapping the close
+              button. Splitting scrolling into an inner panel (padding lives
+              here, scrollbar renders at *its* edge, inset by that padding)
+              and keeping this outer shell un-scrolled mirrors how
+              employee-mobile's AestheticScrollView sits inside its card. */}
+          <div style={{ ...modalCardFloating, padding: 0, overflowY: "hidden", display: "flex", flexDirection: "column" }}>
+            {/* Back row, title, and close button stay put while the request
+                details below scroll — a fixed header, not part of the
+                scrollable panel. */}
+            <div style={{ position: "relative", padding: "20px 20px 14px" }}>
+              <button
+                type="button"
+                onClick={() => setFocusedRequestId(null)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 4,
+                  border: "none", background: "none", cursor: "pointer",
+                  padding: 0, marginBottom: 10,
+                  color: "#1680D8", fontWeight: 700, fontSize: 13,
+                }}
+              >
+                <ChevronLeft size={16} color="#1680D8" />
+                All requests
+              </button>
+              <h3 style={{ color: "#062B59", fontWeight: 700, margin: "0 0 12px" }}>Leave Request Details</h3>
+              {/* "X" closes the whole flow; the back row above returns to the list. */}
+              <button
+                type="button"
+                onClick={() => {
+                  setFocusedRequestId(null);
+                  setShowPending(false);
+                }}
+                style={{ ...modalCloseBtn, top: 20, right: 20 }}
+                aria-label="Close"
+              >
+                <X size={15} color="#64748B" />
+              </button>
+              {/* Which request this is stays visible too, not just the
+                  generic page title above — same reasoning as the back
+                  row/title: it's orientation, not scrollable detail. */}
+              <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 12, padding: 14 }}>
+                <p style={{ fontWeight: 700, margin: "0 0 3px", color: "#062B59" }}>{focusedRequest.leaveType.name}</p>
+                <p style={{ color: "#475569", fontSize: 13, margin: "0 0 8px" }}>
+                  {new Date(focusedRequest.startDate).toLocaleDateString()} – {new Date(focusedRequest.endDate).toLocaleDateString()}
+                </p>
+                <span style={{
+                  display: "inline-block",
+                  background: statusTone(focusedRequest.status).bg, color: statusTone(focusedRequest.status).color,
+                  fontWeight: 700, fontSize: 11,
+                  borderRadius: 999, padding: "3px 8px",
+                }}>
+                  {statusLabel(focusedRequest.status)}
+                </span>
+              </div>
+            </div>
+            <div className="emp-scroll-thin" style={{ padding: "0 20px 20px", overflowY: "auto", flex: 1, minHeight: 0 }}>
+              {renderRequestCard(focusedRequest)}
+            </div>
           </div>
         </div>
       )}

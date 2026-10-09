@@ -1042,6 +1042,34 @@ export class LeaveService {
 
     const note = dto.note?.trim();
 
+    // The update below overwrites attachment* with the new file, so the one
+    // being replaced is about to be unrecoverable. Every later round after
+    // this one is already safe — each resubmit leaves its own attachment
+    // behind in a RESUBMITTED note below — but the very first round (the
+    // original filed attachment) never got a note of its own. Archive it
+    // here, once, the first time this request is ever resubmitted, so the
+    // full document history (original + every resubmission) stays
+    // reconstructable instead of silently losing round one.
+    const priorResubmissionCount = await this.prisma.leaveRequestNote.count({
+      where: { leaveRequestId: id, type: "RESUBMITTED" },
+    });
+    if (priorResubmissionCount === 0 && existing.attachmentName) {
+      await this.prisma.leaveRequestNote.create({
+        data: {
+          leaveRequestId: id,
+          type: "RESUBMITTED",
+          // Backdated to when it was actually filed (not "now") so it sorts
+          // before this round's own RESUBMITTED note below and reads as the
+          // original submission rather than a second resubmission that just
+          // happened to occur in the same instant.
+          createdAt: existing.createdAt,
+          attachmentName: existing.attachmentName,
+          attachmentMimeType: existing.attachmentMimeType,
+          attachmentData: existing.attachmentData,
+        },
+      });
+    }
+
     const request = await this.prisma.leaveRequest.update({
       where: { id },
       data: {

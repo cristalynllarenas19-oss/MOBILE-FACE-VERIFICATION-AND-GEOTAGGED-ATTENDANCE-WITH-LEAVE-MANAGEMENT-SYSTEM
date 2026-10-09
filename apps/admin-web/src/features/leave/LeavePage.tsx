@@ -284,6 +284,21 @@ function getLatestResubmissionAttachment(request: LeaveRequest) {
   };
 }
 
+// A request can cycle through reject -> resubmit any number of times, each
+// leaving its own attachment behind on a RESUBMITTED note (see resubmit() in
+// leave.service.ts, which now also archives the original attachment as the
+// first such note the moment a request is first resubmitted) — in filed
+// order, chronologically oldest first. Used to label each note's attachment
+// "Document 1", "Document 2", … in the Resubmission History tab below
+// instead of its raw (often meaningless, auto-generated) filename.
+function resubmissionDocumentLabels(request: LeaveRequest): Map<string, string> {
+  const resubmissionNotes = (request.notes ?? [])
+    .filter((n) => n.type === "RESUBMITTED" && n.attachmentName)
+    .slice()
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  return new Map(resubmissionNotes.map((n, index) => [n.id, `Document ${index + 1}`]));
+}
+
 // ─── Single-employee summary donut (for the detailed lookup view) ───────────
 // Same ring as the employee portal's own "My Leave Balance" card
 // (features/employee-portal/components/LeaveBalanceChart) — one arc segment
@@ -2209,10 +2224,14 @@ export function LeavePage({
               </div>
             )}
 
-            {reviewRequest.notes && reviewRequest.notes.length > 0 && historyTab === "notes" && (
+            {reviewRequest.notes && reviewRequest.notes.length > 0 && historyTab === "notes" && (() => {
+              const documentLabels = resubmissionDocumentLabels(reviewRequest);
+              return (
               <div className="leave-notes-thread">
                 <span className="leave-notes-thread-label">Requirements / Resubmission History</span>
-                {reviewRequest.notes.map((note) => (
+                {[...reviewRequest.notes].reverse().map((note) => {
+                  const documentLabel = documentLabels.get(note.id);
+                  return (
                   <div key={note.id} className={`leave-note leave-note-${note.type.toLowerCase()}`}>
                     <div className="leave-note-header">
                       <strong>
@@ -2222,7 +2241,9 @@ export function LeavePage({
                             : "Rejected"
                           : note.type === "CANCELLED"
                             ? "Cancellation requested"
-                            : "Employee resubmitted"}
+                            : note.message
+                              ? "Employee resubmitted"
+                              : "Document submitted"}
                       </strong>
                       <time>{new Date(note.createdAt).toLocaleString()}</time>
                     </div>
@@ -2238,16 +2259,16 @@ export function LeavePage({
                           onClick={() =>
                             setImagePreview({
                               src: attachmentSrc(note.attachmentMimeType, note.attachmentData)!,
-                              name: note.attachmentName ?? "Attached requirement",
+                              name: documentLabel ?? note.attachmentName ?? "Attached requirement",
                               mimeType: note.attachmentMimeType ?? "image/*",
                             })
                           }
                         >
                           <img
                             src={attachmentSrc(note.attachmentMimeType, note.attachmentData)!}
-                            alt={note.attachmentName ?? "Attached requirement"}
+                            alt={documentLabel ?? note.attachmentName ?? "Attached requirement"}
                           />
-                          <span><Paperclip size={13} /> {note.attachmentName ?? "View attachment"}</span>
+                          <span><Paperclip size={13} /> {documentLabel ?? note.attachmentName ?? "View attachment"}</span>
                         </button>
                       ) : (
                         <a
@@ -2256,14 +2277,16 @@ export function LeavePage({
                           target="_blank"
                           rel="noreferrer"
                         >
-                          <FileText size={14} /> {note.attachmentName ?? "View document"}
+                          <FileText size={14} /> {documentLabel ?? note.attachmentName ?? "View document"}
                         </a>
                       )
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
-            )}
+              );
+            })()}
 
             </div>
 

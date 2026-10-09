@@ -35,7 +35,6 @@ import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
 import { FormattedAnnouncementText, stripFormattingTokens } from "../utils/richText";
 import { saveDataUriToDevice } from "../utils/downloadImage";
 import ResultModal, { ResultModalStatus } from "../components/ResultModal";
-import AestheticScrollView from "../components/AestheticScrollView";
 import AestheticFlatList from "../components/AestheticFlatList";
 import { ZoomableImage } from "../components/ZoomableImage";
 
@@ -142,6 +141,17 @@ function formatBytes(bytes: number) {
 function getAttachmentPreviewUri(attachment: PickedAttachment) {
   if (!attachment.mimeType.startsWith("image/")) return null;
   return `data:${attachment.mimeType};base64,${attachment.base64}`;
+}
+
+const REQUIREMENT_NOTE_MARKER = "Requirement needed:";
+
+// LEAVE_NEEDS_REQUIREMENTS messages always end with this exact phrase (see
+// the message template in leave.service.ts's reject()) — split it out so it
+// can be rendered bold instead of blending into the rest of the paragraph.
+function splitRequirementNote(message: string): { before: string; note: string } | null {
+  const index = message.indexOf(REQUIREMENT_NOTE_MARKER);
+  if (index === -1) return null;
+  return { before: message.slice(0, index).trimEnd(), note: message.slice(index) };
 }
 
 function FadeInView({
@@ -468,10 +478,14 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
   const detailLeaveRequest = detailNotification?.entityId
     ? leaveRequests.find((r) => r.id === detailNotification.entityId)
     : undefined;
-  const detailLastRejection = detailLeaveRequest
-    ? [...(detailLeaveRequest.notes ?? [])].reverse().find((n) => n.type === "REJECTED")
-    : undefined;
   const detailStillNeedsRevision = detailLeaveRequest?.status === "NEEDS_REVISION";
+  // Who actually asked for the extra requirement — the notification message
+  // itself never says, only what's needed. Sourced from the audit-log-backed
+  // history (not the notes thread, which this screen deliberately keeps out
+  // of the notification view — see onViewLeaveRequest for the full history).
+  const detailRequirementRequestedBy = detailLeaveRequest?.history
+    ? [...detailLeaveRequest.history].reverse().find((event) => event.action === "REJECT_LEAVE")?.actorName
+    : undefined;
 
   const detailTeamRequest = canReviewTeamRequests && detailNotification?.entityId
     ? teamLeaveRequests.find((r) => r.id === detailNotification.entityId)
@@ -582,33 +596,43 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
           {detailNotification && detailIcon && (
             <>
               <View style={styles.detailHeader}>
-                <View style={[styles.iconCircle, { backgroundColor: `${detailIcon.color}1A` }]}>
-                  <Ionicons name={detailIcon.name} size={22} color={detailIcon.color} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.detailTitle}>{detailNotification.title}</Text>
-                  <Text style={styles.detailTime}>
-                    {new Date(detailNotification.createdAt).toLocaleString("en-US", {
-                      dateStyle: "medium",
-                      timeStyle: "short",
-                    })}
-                  </Text>
-                </View>
                 <Pressable onPress={handleCloseDetail} style={styles.detailCloseButton} hitSlop={8}>
                   <Ionicons name="close" size={22} color="#64748B" />
                 </Pressable>
+                <View style={[styles.detailIconCircle, { backgroundColor: `${detailIcon.color}1A` }]}>
+                  <Ionicons name={detailIcon.name} size={26} color={detailIcon.color} />
+                </View>
+                <Text style={styles.detailTitle}>{detailNotification.title}</Text>
+                <Text style={styles.detailTime}>
+                  {new Date(detailNotification.createdAt).toLocaleString("en-US", {
+                    dateStyle: "medium",
+                    timeStyle: "short",
+                  })}
+                </Text>
               </View>
 
-              <AestheticScrollView contentContainerStyle={styles.detailScrollContent}>
+              <View style={styles.detailScrollContent}>
                 {detailNotification.type === "ANNOUNCEMENT" ? (
                   <FormattedAnnouncementText
                     message={detailNotification.message}
                     textStyle={styles.detailMessage}
                     onImagePress={setViewingImage}
                   />
-                ) : (
-                  <Text style={styles.detailMessage}>{detailNotification.message}</Text>
-                )}
+                ) : (() => {
+                  const split = splitRequirementNote(detailNotification.message);
+                  return (
+                    <Text style={[styles.detailMessage, styles.detailMessageCentered]}>
+                      {split ? (
+                        <>
+                          {split.before}{"\n"}
+                          <Text style={styles.detailMessageBold}>{split.note}</Text>
+                        </>
+                      ) : (
+                        detailNotification.message
+                      )}
+                    </Text>
+                  );
+                })()}
 
                 {detailNotification.type?.startsWith("LEAVE_") && detailNotification.entityId && onViewLeaveRequest && (
                   <Pressable
@@ -716,10 +740,14 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                       </Text>
                     ) : (
                       <>
-                        {detailLastRejection?.requirementDetails && (
-                          <Text style={styles.resubmitRequirementText}>
-                            Requirement needed: {detailLastRejection.requirementDetails}
-                          </Text>
+                        <Text style={styles.resubmitSectionLabel}>RESUBMIT YOUR REQUEST</Text>
+                        {detailRequirementRequestedBy && (
+                          <View style={styles.resubmitRequestedByBlock}>
+                            <Text style={styles.resubmitRequestedByText}>Requested by</Text>
+                            <Text style={styles.resubmitRequestedByRole}>
+                              Supervisor <Text style={styles.resubmitRequestedByName}>{detailRequirementRequestedBy}</Text>
+                            </Text>
+                          </View>
                         )}
 
                         {attachment ? (
@@ -763,7 +791,11 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                             </Text>
                           </Pressable>
                         )}
-                        {attachmentError && <Text style={styles.attachmentErrorText}>{attachmentError}</Text>}
+                        {attachmentError ? (
+                          <Text style={styles.attachmentErrorText}>{attachmentError}</Text>
+                        ) : (
+                          <Text style={styles.attachmentHintText}>Accepted: image or PDF · up to 5MB</Text>
+                        )}
 
                         <TextInput
                           placeholder="Optional note to the reviewer"
@@ -776,9 +808,11 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                         <Pressable
                           style={({ pressed }) => [
                             styles.resubmitButton,
-                            pressed && styles.resubmitButtonPressed,
+                            !attachment && styles.resubmitButtonDisabled,
+                            pressed && !!attachment && styles.resubmitButtonPressed,
                           ]}
                           onPress={() => handleResubmit(detailLeaveRequest.id)}
+                          disabled={!attachment}
                         >
                           <Text style={styles.resubmitButtonText}>Resubmit Request</Text>
                         </Pressable>
@@ -786,7 +820,7 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                     )}
                   </View>
                 )}
-              </AestheticScrollView>
+              </View>
             </>
           )}
         </Pressable>
@@ -1033,20 +1067,38 @@ const styles = StyleSheet.create({
     padding: 14,
     backgroundColor: "#F8FAFC",
     borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
     gap: 8,
+  },
+  resubmitSectionLabel: {
+    fontSize: 10.5,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    color: "#94A3B8",
+    textAlign: "center",
+    marginBottom: 2,
+  },
+  resubmitRequestedByBlock: {
+    alignItems: "center",
+    marginBottom: 2,
+  },
+  resubmitRequestedByText: {
+    fontSize: 11.5,
+    color: "#94A3B8",
+  },
+  resubmitRequestedByRole: {
+    fontSize: 13,
+    color: "#475569",
+  },
+  resubmitRequestedByName: {
+    fontWeight: "700",
+    color: "#334155",
   },
   resubmitInfoText: {
     fontSize: 12.5,
     color: "#64748B",
-  },
-  resubmitRequirementText: {
-    fontSize: 12.5,
-    fontWeight: "700",
-    color: "#92400E",
-    backgroundColor: "#FEF3C7",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    textAlign: "center",
   },
   attachmentPicker: {
     height: 46,
@@ -1128,6 +1180,12 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     color: "#DC2626",
     fontWeight: "600",
+    textAlign: "center",
+  },
+  attachmentHintText: {
+    fontSize: 11,
+    color: "#94A3B8",
+    textAlign: "center",
   },
   noteInput: {
     minHeight: 54,
@@ -1146,6 +1204,9 @@ const styles = StyleSheet.create({
     backgroundColor: "#062B59",
     justifyContent: "center",
     alignItems: "center",
+  },
+  resubmitButtonDisabled: {
+    backgroundColor: "#CBD5E1",
   },
   resubmitButtonPressed: {
     opacity: 0.85,
@@ -1230,13 +1291,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 24,
+    // The BlurView alone doesn't reliably hide the list behind it — the
+    // notification rows are their own white, bordered, shadowed cards (see
+    // notificationCard below), and their edges keep showing through a plain
+    // blur. A dark scrim under the blur, same pattern as LeaveScreen.tsx's
+    // confirmOverlay, actually occludes it instead of just softening it.
+    backgroundColor: "rgba(6, 20, 40, 0.55)",
   },
+  // No maxHeight/scrolling — the card just grows to fit whatever it's
+  // showing. Content here (header, message, one or two action rows) is
+  // short enough that this fits comfortably on a normal screen without
+  // needing an internal scroll area.
   detailSheet: {
     width: "100%",
     maxWidth: 420,
     backgroundColor: "#FFFFFF",
     borderRadius: 22,
-    maxHeight: "78%",
     paddingHorizontal: 20,
     paddingTop: 20,
     paddingBottom: 22,
@@ -1251,29 +1321,45 @@ const styles = StyleSheet.create({
     borderLeftColor: "#DC2626",
   },
   detailHeader: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
-    marginBottom: 14,
+    alignItems: "center",
+    position: "relative",
+    paddingTop: 8,
+    marginBottom: 16,
+  },
+  detailIconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
   },
   detailTitle: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: "700",
     color: "#062B59",
+    textAlign: "center",
+    lineHeight: 22,
+    paddingHorizontal: 32,
   },
   detailTime: {
     fontSize: 12,
     color: "#94A3B8",
     fontWeight: "600",
-    marginTop: 3,
+    textAlign: "center",
+    marginTop: 4,
   },
   detailCloseButton: {
+    position: "absolute",
+    top: 0,
+    right: 0,
     width: 30,
     height: 30,
     borderRadius: 15,
     backgroundColor: "#F1F5F9",
     alignItems: "center",
     justifyContent: "center",
+    zIndex: 1,
   },
   detailScrollContent: {
     paddingBottom: 4,
@@ -1282,6 +1368,18 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#334155",
     lineHeight: 22,
+  },
+  // Only applied to a plain (non-announcement) notification's body — a
+  // short, self-contained message reads fine centered, matching the
+  // centered header above it. Left out of FormattedAnnouncementText's
+  // longer, richly-formatted body (links/images), where centering would
+  // make multi-line and multi-paragraph content harder to scan.
+  detailMessageCentered: {
+    textAlign: "center",
+  },
+  detailMessageBold: {
+    fontWeight: "700",
+    color: "#062B59",
   },
   logAttendanceButton: {
     flexDirection: "row",
@@ -1339,7 +1437,16 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
   },
-  imageViewerOverlay: { flex: 1, alignItems: "center", padding: 16, paddingTop: 70 },
+  imageViewerOverlay: {
+    flex: 1,
+    alignItems: "center",
+    padding: 16,
+    paddingTop: 70,
+    // Same reasoning as detailBackdrop above — a scrim under the blur so
+    // whatever's behind (the detail sheet, the notification list) is
+    // actually hidden rather than just softened.
+    backgroundColor: "rgba(6, 20, 40, 0.55)",
+  },
   // Image + Download button are siblings in normal flex flow (not
   // absolutely positioned at a fixed pixel offset) so the button always
   // lands below the image with a real gap, regardless of screen height.

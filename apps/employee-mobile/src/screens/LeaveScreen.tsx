@@ -44,6 +44,7 @@ import {
   getMySchedules,
 } from "../api";
 import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
+import { getRequestDocuments } from "../utils/leaveDocuments";
 import AestheticScrollView from "../components/AestheticScrollView";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -862,18 +863,23 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
     }
   }
 
-  async function openAttachment(requestId: string, fallbackName: string) {
-    setLoadingAttachmentId(requestId);
+  async function openAttachment(requestId: string, fallbackName: string, noteId?: string) {
+    const loadingKey = `${requestId}:${noteId ?? "current"}`;
+    setLoadingAttachmentId(loadingKey);
     try {
       const detail = await getLeaveRequestDetail(requestId);
-      if (!detail.attachmentMimeType || !detail.attachmentData) {
+      // A specific document (noteId set) comes from that resubmission round's
+      // own note — the request's own top-level fields only ever hold the
+      // latest round. No noteId means "show me the current one".
+      const source = noteId ? detail.notes?.find((n) => n.id === noteId) : detail;
+      if (!source?.attachmentMimeType || !source?.attachmentData) {
         setResultModal({ status: "error", title: "Attachment Unavailable", message: "This attachment is no longer available." });
         return;
       }
       setViewingAttachment({
-        name: detail.attachmentName ?? fallbackName,
-        mimeType: detail.attachmentMimeType,
-        dataUri: `data:${detail.attachmentMimeType};base64,${detail.attachmentData}`,
+        name: source.attachmentName ?? fallbackName,
+        mimeType: source.attachmentMimeType,
+        dataUri: `data:${source.attachmentMimeType};base64,${source.attachmentData}`,
       });
     } catch (error) {
       setResultModal({
@@ -1666,38 +1672,28 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                     return (
                       <View style={styles.requestCard}>
                         <Text style={styles.requestTitle}>{request.leaveType.name}</Text>
-                        <Text>
-                          {new Date(request.startDate).toLocaleDateString()} - {new Date(request.endDate).toLocaleDateString()}
-                        </Text>
-                        {request.attachmentName && (
-                          <Pressable
-                            style={styles.requestAttachmentRow}
-                            onPress={() => openAttachment(request.id, request.attachmentName!)}
-                            disabled={loadingAttachmentId === request.id}
-                          >
-                            {loadingAttachmentId === request.id ? (
-                              <ActivityIndicator size="small" color="#64748B" />
-                            ) : (
-                              <Ionicons name="attach-outline" size={13} color="#1680D8" />
-                            )}
-                            <Text style={[styles.requestAttachmentText, styles.requestAttachmentLink]}>
-                              {request.attachmentName}
-                            </Text>
-                          </Pressable>
-                        )}
+                        <View style={styles.requestDateRow}>
+                          <Ionicons name="calendar-outline" size={13} color="#64748B" />
+                          <Text style={styles.requestDateText}>
+                            {new Date(request.startDate).toLocaleDateString()} – {new Date(request.endDate).toLocaleDateString()}
+                          </Text>
+                        </View>
                         <Text style={[styles.pendingText, { color: tone.color, backgroundColor: tone.bg }]} numberOfLines={1}>
                           {statusLabel(request.status)}
                         </Text>
-                        <LeaveTimeline history={request.history} status={request.status} />
-                        {request.status === "NEEDS_REVISION" && (() => {
-                          const requirementNote = [...(request.notes ?? [])].reverse().find((n) => n.type === "REJECTED");
-                          return (
+                        <LeaveTimeline
+                          history={request.history}
+                          status={request.status}
+                          documents={getRequestDocuments(request).map((doc) => ({
+                            label: doc.label,
+                            createdAt: doc.createdAt,
+                            onPress: () => openAttachment(request.id, doc.label, doc.noteId),
+                            isLoading: loadingAttachmentId === `${request.id}:${doc.noteId ?? "current"}`,
+                          }))}
+                        />
+                        {request.status === "NEEDS_REVISION" && (
                             <View style={styles.resubmitSection}>
-                              {requirementNote?.requirementDetails && (
-                                <Text style={styles.requirementNoteText}>
-                                  Requirement needed: {requirementNote.requirementDetails}
-                                </Text>
-                              )}
+                              <Text style={styles.resubmitSectionLabel}>RESUBMIT YOUR REQUEST</Text>
 
                               {resubmitAttachment ? (
                                 <View style={styles.attachmentChip}>
@@ -1726,7 +1722,11 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                                   </Text>
                                 </Pressable>
                               )}
-                              {resubmitAttachmentError && <Text style={styles.attachmentErrorText}>{resubmitAttachmentError}</Text>}
+                              {resubmitAttachmentError ? (
+                                <Text style={styles.attachmentErrorText}>{resubmitAttachmentError}</Text>
+                              ) : (
+                                <Text style={styles.attachmentHintText}>Accepted: image or PDF · up to 5MB</Text>
+                              )}
 
                               <View style={styles.textAreaContainer}>
                                 <TextInput
@@ -1739,14 +1739,14 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                               </View>
 
                               <Pressable
-                                style={styles.button}
+                                style={[styles.button, !resubmitAttachment && styles.resubmitButtonDisabled]}
                                 onPress={() => handleResubmitRequest(request.id)}
+                                disabled={!resubmitAttachment}
                               >
                                 <Text style={styles.buttonText}>Resubmit Request</Text>
                               </Pressable>
                             </View>
-                          );
-                        })()}
+                        )}
                         {cancellationDenied && (
                           <View style={styles.cancellationDeniedNote}>
                             <Text style={styles.cancellationDeniedTitle}>
@@ -2560,12 +2560,18 @@ const styles = StyleSheet.create({
     borderRadius: 15,
     backgroundColor: "#F1F5F9",
   },
-  requestCard: { backgroundColor: "#F8FAFC", borderRadius: 12, padding: 14, marginBottom: 12 },
-  requestTitle: { fontWeight: "700", marginBottom: 4, flexShrink: 1 },
-  requestAttachmentRow: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 4 },
-  requestAttachmentText: { fontSize: 12, color: "#64748B" },
-  requestAttachmentLink: { color: "#1680D8", fontWeight: "600", textDecorationLine: "underline" },
-  pendingText: { fontWeight: "700", marginTop: 8, alignSelf: "flex-start", fontSize: 11, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, overflow: "hidden" },
+  requestCard: {
+    backgroundColor: "#F8FAFC",
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  requestTitle: { fontSize: 17, fontWeight: "700", color: "#062B59", marginBottom: 6, flexShrink: 1 },
+  requestDateRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  requestDateText: { fontSize: 13.5, color: "#64748B", fontWeight: "500" },
+  pendingText: { fontWeight: "700", letterSpacing: 0.3, marginTop: 10, alignSelf: "flex-start", fontSize: 11, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999, overflow: "hidden" },
   cancelLeaveButton: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7,
     borderWidth: 1, borderColor: "#FCA5A5", backgroundColor: "#FEF2F2",
@@ -2585,6 +2591,19 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "#E2E8F0",
     gap: 8,
+  },
+  resubmitSectionLabel: {
+    fontSize: 10.5,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    color: "#94A3B8",
+  },
+  attachmentHintText: {
+    fontSize: 11,
+    color: "#94A3B8",
+  },
+  resubmitButtonDisabled: {
+    backgroundColor: "#CBD5E1",
   },
   requirementNoteText: {
     fontSize: 12.5,

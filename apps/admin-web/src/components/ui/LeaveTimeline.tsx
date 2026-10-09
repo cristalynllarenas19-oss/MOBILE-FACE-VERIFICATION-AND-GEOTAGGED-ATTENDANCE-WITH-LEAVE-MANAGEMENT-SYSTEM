@@ -1,5 +1,16 @@
 import { useMemo } from "react";
 
+export type TimelineDocument = { label: string; createdAt: string; onPress: () => void; isLoading?: boolean };
+
+// How close a document's own createdAt has to land to a FILED/RESUBMIT_LEAVE
+// event's occurredAt to count as "that event's document" — the note and the
+// audit-log row are written moments apart in the same request handler, so
+// real matches land well under a second apart. Generous enough to survive
+// ordinary request latency, tight enough not to misattach a different
+// round's document to a step whose own document is missing (e.g. a request
+// resubmitted before this archiving behavior existed).
+const DOCUMENT_MATCH_TOLERANCE_MS = 5 * 60 * 1000;
+
 // Kept structurally identical to employee-mobile's LeaveRequestHistoryEvent
 // (see api.ts there and buildHistory in backend/leave.service.ts) — every
 // screen that shows a leave request's history reads the same shape.
@@ -31,7 +42,18 @@ function formatTimelineDate(iso: string) {
 }
 
 type TimelineTone = "done" | "current" | "warn" | "danger" | "upcoming";
-type TimelineStep = { key: string; tone: TimelineTone; title: string; when: string; detail: string };
+type TimelineStep = {
+  key: string;
+  tone: TimelineTone;
+  title: string;
+  when: string;
+  detail: string;
+  // Split out from `detail` instead of folded into one run-on sentence —
+  // rendered as its own line so "who did what" and "what's actually
+  // needed" are each easy to scan on their own.
+  requirement?: string;
+  document?: TimelineDocument;
+};
 
 const TIMELINE_TONE_STYLE: Record<TimelineTone, { bg: string; fg: string; border: string; line: string }> = {
   done: { bg: "#1680D8", fg: "#FFFFFF", border: "#1680D8", line: "#1680D8" },
@@ -77,7 +99,8 @@ function eventToStep(event: LeaveRequestHistoryEvent, index: number): TimelineSt
         tone: isRevision ? "warn" : "danger",
         title: isRevision ? "Additional requirements requested" : "Rejected",
         when,
-        detail: `${isRevision ? "Revision requested" : "Rejected"}${by}.${event.requirementDetails ? ` Requirement: ${event.requirementDetails}` : ""}${event.remarks ? ` "${event.remarks}"` : ""}`,
+        detail: `${isRevision ? "Revision requested" : "Rejected"}${by}.${event.remarks ? ` "${event.remarks}"` : ""}`,
+        requirement: event.requirementDetails ?? undefined,
       };
     }
     case "RESUBMIT_LEAVE":
@@ -112,9 +135,43 @@ function eventToStep(event: LeaveRequestHistoryEvent, index: number): TimelineSt
   }
 }
 
-function buildTimelineSteps(history: LeaveRequestHistoryEvent[], status: string): TimelineStep[] {
+// Each round's document is filed exactly once — at the original FILED event
+// or at the RESUBMIT_LEAVE that followed a rejection — so walking events in
+// order and handing out `documents` (already in that same chronological
+// order) one-per-submission-event attaches each file to the step where it
+// actually entered the record, instead of listing them separately.
+function buildTimelineSteps(
+  history: LeaveRequestHistoryEvent[],
+  status: string,
+  documents: TimelineDocument[],
+): TimelineStep[] {
   const events = [...history].sort((a, b) => new Date(a.occurredAt).getTime() - new Date(b.occurredAt).getTime());
-  const steps = events.map(eventToStep);
+  // Matched by nearest timestamp rather than position: a request resubmitted
+  // before the backend started archiving the pre-resubmit attachment is
+  // missing one round's document entirely, and matching by position alone
+  // would shift every later round's document onto the wrong step. Each
+  // document is consumed at most once.
+  const unmatchedDocs = [...documents];
+  const steps = events.map((event, index) => {
+    const step = eventToStep(event, index);
+    if (event.action === "FILED" || event.action === "RESUBMIT_LEAVE") {
+      const eventTime = new Date(event.occurredAt).getTime();
+      let bestIndex = -1;
+      let bestDiff = Infinity;
+      unmatchedDocs.forEach((doc, docIndex) => {
+        const diff = Math.abs(new Date(doc.createdAt).getTime() - eventTime);
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          bestIndex = docIndex;
+        }
+      });
+      if (bestIndex !== -1 && bestDiff <= DOCUMENT_MATCH_TOLERANCE_MS) {
+        step.document = unmatchedDocs[bestIndex];
+        unmatchedDocs.splice(bestIndex, 1);
+      }
+    }
+    return step;
+  });
 
   if (status === "PENDING") {
     steps.push({ key: "review-current", tone: "current", title: "Review", when: "In progress", detail: "Awaiting review from the supervisor or HR." });
@@ -125,8 +182,16 @@ function buildTimelineSteps(history: LeaveRequestHistoryEvent[], status: string)
   return steps;
 }
 
-export function LeaveTimeline({ history, status }: { history?: LeaveRequestHistoryEvent[]; status: string }) {
-  const steps = useMemo(() => buildTimelineSteps(history ?? [], status), [history, status]);
+export function LeaveTimeline({
+  history,
+  status,
+  documents,
+}: {
+  history?: LeaveRequestHistoryEvent[];
+  status: string;
+  documents?: TimelineDocument[];
+}) {
+  const steps = useMemo(() => buildTimelineSteps(history ?? [], status, documents ?? []), [history, status, documents]);
   return (
     <div style={{ marginTop: 14, padding: "12px 24px 0", borderTop: "1px solid #E2E8F0" }}>
       <p style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 0.4, color: "#94A3B8", margin: "0 0 10px" }}>
@@ -170,6 +235,32 @@ export function LeaveTimeline({ history, status }: { history?: LeaveRequestHisto
                 >
                   {step.detail}
                 </p>
+              )}
+              {step.requirement && (
+                <p
+                  style={{
+                    display: "inline-block",
+                    fontSize: 11.5, fontWeight: 700, margin: "5px 0 0",
+                    color: "#92400E", background: "#FEF3C7",
+                    borderRadius: 6, padding: "4px 8px",
+                  }}
+                >
+                  Requirement: {step.requirement}
+                </p>
+              )}
+              {step.document && (
+                <button
+                  type="button"
+                  onClick={step.document.onPress}
+                  disabled={step.document.isLoading}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 4, marginTop: 6,
+                    border: "none", background: "none", padding: 0, cursor: step.document.isLoading ? "default" : "pointer",
+                    color: "#1680D8", fontSize: 11.5, fontWeight: 600, textDecoration: "underline",
+                  }}
+                >
+                  📎 {step.document.isLoading ? "Loading…" : step.document.label}
+                </button>
               )}
             </div>
           </div>
