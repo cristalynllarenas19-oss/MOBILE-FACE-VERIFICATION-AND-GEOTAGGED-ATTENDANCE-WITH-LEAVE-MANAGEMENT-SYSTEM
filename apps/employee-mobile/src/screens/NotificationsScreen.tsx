@@ -462,6 +462,7 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
   }
 
   const hasUnread = notifications.some((item) => !item.readAt);
+  const unreadCount = notifications.filter((item) => !item.readAt).length;
 
   const detailIcon = detailNotification ? notificationIcon(detailNotification.type) : null;
   const detailLeaveRequest = detailNotification?.entityId
@@ -487,7 +488,14 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
           <Pressable onPress={onClose} style={styles.backButton}>
             <Ionicons name="chevron-back" size={24} color="#062B59" />
           </Pressable>
-          <Text style={styles.headerTitle}>Notifications</Text>
+          <View style={styles.headerTitleRow}>
+            <Text style={styles.headerTitle}>Notifications</Text>
+            {unreadCount > 0 && (
+              <View style={styles.headerBadge}>
+                <Text style={styles.headerBadgeText}>{unreadCount > 99 ? "99+" : unreadCount}</Text>
+              </View>
+            )}
+          </View>
           <Pressable
             onPress={handleMarkAllRead}
             disabled={!hasUnread}
@@ -505,8 +513,11 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
           ListEmptyComponent={
             !isLoading ? (
               <View style={styles.emptyState}>
-                <Ionicons name="mail-open-outline" size={36} color="#CBD5E1" />
-                <Text style={styles.emptyText}>You're all caught up.</Text>
+                <View style={styles.emptyIconCircle}>
+                  <Ionicons name="mail-open-outline" size={30} color="#94A3B8" />
+                </View>
+                <Text style={styles.emptyText}>You're all caught up</Text>
+                <Text style={styles.emptySubtext}>New notifications will show up here.</Text>
               </View>
             ) : null
           }
@@ -518,9 +529,10 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
               <FadeInView delay={Math.min(index * 40, 240)}>
                 <Pressable
                   style={({ pressed }) => [
-                    styles.notificationRow,
-                    isUnread && styles.notificationRowUnread,
-                    icon.category === "critical" && styles.notificationRowCritical,
+                    styles.notificationCard,
+                    isUnread && styles.notificationCardUnread,
+                    { borderLeftColor: icon.color },
+                    icon.category === "critical" && styles.notificationCardCritical,
                     pressed && styles.notificationRowPressed,
                   ]}
                   onPress={() => handlePressItem(item)}
@@ -529,13 +541,17 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                     <Ionicons name={icon.name} size={20} color={icon.color} />
                   </View>
                   <View style={styles.notificationBody}>
-                    <Text style={styles.notificationTitle}>{item.title}</Text>
+                    <View style={styles.notificationTitleRow}>
+                      <Text style={[styles.notificationTitle, isUnread && styles.notificationTitleUnread]} numberOfLines={1}>
+                        {item.title}
+                      </Text>
+                      {isUnread && <PulsingDot />}
+                    </View>
                     <Text style={styles.notificationMessage} numberOfLines={2}>
                       {item.type === "ANNOUNCEMENT" ? stripFormattingTokens(item.message) : item.message}
                     </Text>
                     <Text style={styles.notificationTime}>{timeAgo(item.createdAt)}</Text>
                   </View>
-                  {isUnread && <PulsingDot />}
                 </Pressable>
 
                 {item.type === "LEAVE_NEEDS_REQUIREMENTS" && justResubmittedId === item.id && (
@@ -836,8 +852,13 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 12,
     paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#E2E8F0",
+    backgroundColor: "#FFFFFF",
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 3,
+    zIndex: 1,
   },
   backButton: {
     width: 36,
@@ -855,10 +876,29 @@ const styles = StyleSheet.create({
   headerButtonPressed: {
     opacity: 0.6,
   },
+  headerTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
   headerTitle: {
     fontSize: 17,
     fontWeight: "700",
     color: "#062B59",
+  },
+  headerBadge: {
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 5,
+    borderRadius: 10,
+    backgroundColor: "#1680D8",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerBadgeText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
   markAllText: {
     fontSize: 12.5,
@@ -870,7 +910,8 @@ const styles = StyleSheet.create({
     color: "#CBD5E1",
   },
   listContainer: {
-    paddingVertical: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
   },
   emptyContainer: {
     flexGrow: 1,
@@ -879,30 +920,54 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 10,
+    gap: 6,
     paddingTop: 80,
   },
-  emptyText: {
-    color: "#94A3B8",
-    fontSize: 14,
-    fontWeight: "600",
+  emptyIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#F1F5F9",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 6,
   },
-  notificationRow: {
+  emptyText: {
+    color: "#334155",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  emptySubtext: {
+    color: "#94A3B8",
+    fontSize: 13,
+  },
+  notificationCard: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F1F5F9",
-  },
-  notificationRowUnread: {
-    backgroundColor: "#F0F7FF",
-  },
-  notificationRowCritical: {
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    marginBottom: 8,
+    borderRadius: 16,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#F1F5F9",
     borderLeftWidth: 3,
-    borderLeftColor: "#DC2626",
-    paddingLeft: 13,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  notificationCardUnread: {
+    backgroundColor: "#F8FBFF",
+    borderColor: "#E0EEFC",
+    shadowOpacity: 0.08,
+    elevation: 2,
+  },
+  notificationCardCritical: {
+    borderLeftWidth: 4,
+    backgroundColor: "#FFFBFB",
   },
   notificationRowPressed: {
     opacity: 0.7,
@@ -917,14 +982,24 @@ const styles = StyleSheet.create({
   notificationBody: {
     flex: 1,
   },
+  notificationTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+  },
   notificationTitle: {
+    flexShrink: 1,
     fontSize: 14,
+    fontWeight: "600",
+    color: "#1E293B",
+  },
+  notificationTitleUnread: {
     fontWeight: "700",
     color: "#062B59",
   },
   notificationMessage: {
     fontSize: 13,
-    color: "#475569",
+    color: "#64748B",
     marginTop: 2,
     lineHeight: 18,
   },
@@ -937,7 +1012,6 @@ const styles = StyleSheet.create({
   unreadDotWrap: {
     width: 8,
     height: 8,
-    marginTop: 4,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1085,8 +1159,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    paddingHorizontal: 16,
-    paddingBottom: 10,
+    paddingHorizontal: 4,
+    marginTop: -4,
+    marginBottom: 8,
   },
   resubmitConfirmationText: {
     fontSize: 12,

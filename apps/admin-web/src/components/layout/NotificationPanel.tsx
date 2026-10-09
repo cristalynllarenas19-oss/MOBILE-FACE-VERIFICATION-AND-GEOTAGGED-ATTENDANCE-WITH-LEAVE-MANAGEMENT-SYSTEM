@@ -80,11 +80,17 @@ export function NotificationPanel({
   onSelect: (notification: AppNotification) => void;
 }) {
   const hasUnread = notifications.some((n) => !n.readAt);
+  const unreadCount = notifications.filter((n) => !n.readAt).length;
 
   return (
     <div className="notification-panel" role="dialog" aria-label="Notifications">
       <div className="notification-panel-header">
-        <h3>Notifications</h3>
+        <div className="notification-panel-title">
+          <h3>Notifications</h3>
+          {unreadCount > 0 && (
+            <span className="notification-panel-count">{unreadCount > 99 ? "99+" : unreadCount}</span>
+          )}
+        </div>
         <button
           className="notification-mark-all"
           onClick={onMarkAllRead}
@@ -99,8 +105,11 @@ export function NotificationPanel({
           <div className="notification-empty">Loading…</div>
         ) : notifications.length === 0 ? (
           <div className="notification-empty">
-            <Inbox size={22} />
-            <span>You're all caught up.</span>
+            <span className="notification-empty-icon">
+              <Inbox size={24} />
+            </span>
+            <strong>You're all caught up</strong>
+            <span className="notification-empty-subtext">New notifications will show up here.</span>
           </div>
         ) : (
           notifications.map((notification) => {
@@ -108,7 +117,7 @@ export function NotificationPanel({
             return (
             <button
               key={notification.id}
-              className={`notification-item ${notification.readAt ? "" : "unread"} ${category === "critical" ? "critical" : ""}`}
+              className={`notification-item ${category} ${notification.readAt ? "" : "unread"} ${category === "critical" ? "critical" : ""}`}
               onClick={() => {
                 if (!notification.readAt) onMarkRead(notification.id);
                 onSelect(notification);
@@ -118,11 +127,13 @@ export function NotificationPanel({
                 <NotificationIcon type={notification.type} />
               </span>
               <span className="notification-item-body">
-                <strong>{notification.title}</strong>
+                <span className="notification-item-title-row">
+                  <strong>{notification.title}</strong>
+                  {!notification.readAt && <span className="notification-item-dot" aria-hidden="true" />}
+                </span>
                 <p>{notification.type === "ANNOUNCEMENT" ? stripFormattingTokens(notification.message) : notification.message}</p>
                 <time>{timeAgo(notification.createdAt)}</time>
               </span>
-              {!notification.readAt && <span className="notification-item-dot" aria-hidden="true" />}
             </button>
             );
           })
