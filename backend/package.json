@@ -10,7 +10,6 @@
     "start:prod": "node dist/src/main.js",
     "build": "nest build",
     "prisma:generate": "prisma generate",
-    "prisma:setup-ids": "prisma db execute --file prisma/sql/readable_ids_setup.sql --schema prisma/schema.prisma",
     "prisma:migrate": "prisma db push",
     "prisma:seed": "tsx prisma/seed.ts",
     "lint": "eslint \"src/**/*.ts\"",

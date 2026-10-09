@@ -59,14 +59,8 @@ export class LeaveTypesService {
       throw new BadRequestException("Cancellation cutoff period is required when employee cancellation is allowed.");
     }
 
-    // Leave type ids carry a category code taken from the name (LT-VL-001),
-    // so the database hands out the next number for that code rather than a
-    // plain column default — see next_leave_type_id in prisma/sql.
-    const [{ id }] = await this.prisma.$queryRaw<{ id: string }[]>`SELECT next_leave_type_id(${dto.name}) AS id`;
-
     const created = await this.prisma.leaveType.create({
       data: {
-        id,
         name: dto.name,
         defaultDays: dto.defaultDays,
         requiresDocument: dto.requiresDocument ?? false,

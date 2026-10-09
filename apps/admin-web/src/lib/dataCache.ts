@@ -24,19 +24,7 @@ import { SessionExpiredError } from "./api";
 
 const memory = new Map<string, unknown>();
 const inFlight = new Map<string, Promise<unknown>>();
-// "v2": record ids changed from UUIDs to readable ids (EMP-1001, ...), so
-// lists cached under the old prefix would point at ids that no longer exist.
-const STORAGE_PREFIX = "dataCache:v2:";
-try {
-  // Free the space the pre-v2 entries still occupy.
-  for (let i = localStorage.length - 1; i >= 0; i--) {
-    const key = localStorage.key(i);
-    if (key?.startsWith("dataCache:") && !key.startsWith(STORAGE_PREFIX)) localStorage.removeItem(key);
-  }
-  indexedDB.deleteDatabase("adminWebDataCache");
-} catch {
-  // Ignore.
-}
+const STORAGE_PREFIX = "dataCache:";
 // Every mounted useCachedData(key) instance subscribes here. A cacheSet for
 // that key — whether triggered by that same hook's own refresh(), another
 // component's hook for the same key, or a direct revalidateCached() call
@@ -50,7 +38,7 @@ function notifySubscribers(key: string, value: unknown) {
   subscribers.get(key)?.forEach((listener) => listener(value));
 }
 
-const DB_NAME = "adminWebDataCacheV2";
+const DB_NAME = "adminWebDataCache";
 const STORE_NAME = "kv";
 
 // Cache keys shared by the employee self-service pages (mirrors
