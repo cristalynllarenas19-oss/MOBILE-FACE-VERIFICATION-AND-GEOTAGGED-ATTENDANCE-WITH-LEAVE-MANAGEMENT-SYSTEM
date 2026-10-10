@@ -7,7 +7,6 @@ import {
   Pressable,
   StyleSheet,
   Modal,
-  SafeAreaView,
   Dimensions,
   ActivityIndicator,
 } from "react-native";
@@ -159,6 +158,24 @@ function statusLabel(status: string) {
   return status.replace(/_/g, " ");
 }
 
+function minutesLabel(minutes: number) {
+  return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+}
+
+function lateMinutesLabel(minutes: number) {
+  return `${minutesLabel(minutes)} undertime`;
+}
+
+function ordinal(day: number) {
+  const suffixes = ["th", "st", "nd", "rd"];
+  const v = day % 100;
+  return `${day}${suffixes[(v - 20) % 10] ?? suffixes[v] ?? suffixes[0]}`;
+}
+
+function ordinalDaysOfMonth(days: number[]) {
+  return days.map(ordinal).join(" or ");
+}
+
 // Same visual language as components/LeaveTimeline.tsx (label, node/line
 // rail, tone colors) but with its own tiny step-builder — undertime's
 // Filed/Review/Approved/Rejected vocabulary doesn't fit LeaveTimeline's
@@ -192,14 +209,19 @@ function buildUndertimeTimelineSteps(filing: UndertimeFiling): UndertimeTimeline
     { key: "filed", tone: "done", title: "Filed", when: formatUndertimeTimelineDate(filing.createdAt), detail: "Submitted." },
   ];
   if (filing.reviewedAt) {
+    // Same "Approved/Rejected by {name}." format as the leave request
+    // timeline (LeaveTimeline.tsx's eventToStep) — reviewer.employee only
+    // comes back once the filing has actually been reviewed.
+    const reviewerEmployee = filing.reviewer?.employee;
+    const by = reviewerEmployee ? ` by ${reviewerEmployee.firstName} ${reviewerEmployee.lastName}` : "";
     steps.push({
       key: "reviewed",
       tone: filing.status === "REJECTED" ? "danger" : "done",
       title: filing.status === "APPROVED" ? "Approved" : filing.status === "REJECTED" ? "Rejected" : "Reviewed",
       when: formatUndertimeTimelineDate(filing.reviewedAt),
       detail: filing.status === "REJECTED"
-        ? `Rejected.${filing.remarks ? ` "${filing.remarks}"` : ""}`
-        : "Approved.",
+        ? `Rejected${by}.${filing.remarks ? ` "${filing.remarks}"` : ""}`
+        : `Approved${by}.`,
     });
   } else {
     steps.push({ key: "review-current", tone: "current", title: "Review", when: "In progress", detail: "Awaiting review from your supervisor or HR." });
@@ -287,12 +309,6 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
   const [isPickingResubmitFile, setIsPickingResubmitFile] = useState(false);
   const [resubmitNote, setResubmitNote] = useState("");
   const [activeTab, setActiveTab] = useState<"balance" | "request" | "undertime">("balance");
-  // Measured (not guessed) from the actual Undertime card's rendered height,
-  // via onLayout on its <View style={styles.card}> below — Balance and
-  // Request pin to this exact value so all three tab cards are the same
-  // size. Falls back to flex:1 (each tab's original sizing) until the
-  // employee has visited the Undertime tab at least once this session.
-  const [matchedCardHeight, setMatchedCardHeight] = useState<number | null>(null);
   const [resultModal, setResultModal] = useState<{ status: ResultModalStatus; title: string; message: string } | null>(null);
   // Sticks around (independent of resultModal, which the user may have
   // already dismissed by the time a background submission actually fails)
@@ -1084,7 +1100,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={styles.safeArea}>
       {submissionAlert && (
         <View style={styles.submissionAlertBanner}>
           <Ionicons name="warning-outline" size={18} color="#B91C1C" />
@@ -1109,33 +1125,24 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
       />
 
       {activeTab === "balance" ? (
-        <View style={[styles.tabContentPad, { flex: 1 }]}>
-          <View style={matchedCardHeight ? { height: matchedCardHeight } : { flex: 1 }}>
-            <LeaveBalanceChart
-              balances={visibleBalances}
-              loading={isBalanceLoading}
-              pendingCount={pendingRequests.length}
-              needsRevisionCount={needsRevisionCount}
-              onPressPending={openPendingModal}
-              onPressViewAll={openPendingModal}
-              onRequestLeave={handleRequestFromBalance}
-            />
-          </View>
+        <View style={{ flex: 1 }}>
+          <LeaveBalanceChart
+            balances={visibleBalances}
+            loading={isBalanceLoading}
+            pendingCount={pendingRequests.length}
+            needsRevisionCount={needsRevisionCount}
+            onPressPending={openPendingModal}
+            onPressViewAll={openPendingModal}
+            onRequestLeave={handleRequestFromBalance}
+          />
         </View>
       ) : activeTab === "undertime" ? (
-        <AestheticScrollView
-          contentContainerStyle={[styles.tabContentPad, { flexGrow: 1 }]}
-          keyboardShouldPersistTaps="handled"
-        >
-          <View
-            style={styles.card}
-            onLayout={(e) => {
-              const h = e.nativeEvent.layout.height;
-              setMatchedCardHeight((prev) => (prev === h ? prev : h));
-            }}
-          >
+        <View style={{ flex: 1 }}>
+          <View style={styles.card}>
             <View style={styles.formHeader}>
-              <Ionicons color="#DC2777" name="document-text-outline" size={32} />
+              <View style={styles.undertimeIconBadge}>
+                <Ionicons color="#DC2777" name="document-text-outline" size={18} />
+              </View>
               <Text style={styles.cardTitle}>File Undertime</Text>
             </View>
 
@@ -1144,14 +1151,28 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                 here, only reflected from the API. */}
             {undertimeEligibility && (
               <Text style={styles.pendingNoticeText}>
-                Cutoff: {new Date(undertimeEligibility.targetCutoff.start).toLocaleDateString()} - {new Date(undertimeEligibility.targetCutoff.end).toLocaleDateString()}.{" "}
-                {!undertimeEligibility.isFilingDay
-                  ? `Undertime can only be filed on the ${undertimeEligibility.filingDaysOfMonth.join(" or ")} of the month.`
-                  : undertimeEligibility.existingFiling
-                    ? "You've already filed undertime for this cutoff."
-                    : undertimeEligibility.lateRecords.length === 0
-                      ? "You have no late attendance within this cutoff to file."
-                      : "Select one late day below to file undertime for this cutoff."}
+                <Ionicons name="calendar-clear-outline" size={11} color="#94A3B8" />{" "}
+                <Text style={styles.pendingNoticeLabel}>Cutoff</Text>
+                {": "}
+                <Text style={styles.pendingNoticeDate}>
+                  {new Date(undertimeEligibility.targetCutoff.start).toLocaleDateString()} – {new Date(undertimeEligibility.targetCutoff.end).toLocaleDateString()}
+                </Text>
+                {". "}
+                {!undertimeEligibility.isFilingDay ? (
+                  <>
+                    Undertime can only be filed on the{" "}
+                    <Text style={styles.pendingNoticeAccent}>
+                      {ordinalDaysOfMonth(undertimeEligibility.filingDaysOfMonth)}
+                    </Text>{" "}
+                    of the month.
+                  </>
+                ) : undertimeEligibility.existingFiling ? (
+                  "You've already filed undertime for this cutoff."
+                ) : undertimeEligibility.lateRecords.length === 0 ? (
+                  "You have no late attendance within this cutoff to file."
+                ) : (
+                  "Select one late day below to file undertime for this cutoff."
+                )}
               </Text>
             )}
 
@@ -1175,7 +1196,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                   const lockedBody =
                     filing.status === "PENDING"
                       ? "This card will unlock again once the next filing window opens."
-                      : `One filing is allowed per cutoff. You can file again once the next filing window opens — the ${undertimeEligibility.filingDaysOfMonth.join(" or ")} of the month.`;
+                      : `One filing is allowed per cutoff. You can file again once the next filing window opens — the ${ordinalDaysOfMonth(undertimeEligibility.filingDaysOfMonth)} of the month.`;
                   return (
                     <View style={{ flex: 1 }}>
                       <View style={[styles.undertimeLockedBanner, { backgroundColor: lockedTone.bg }]}>
@@ -1213,7 +1234,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                             <Text style={styles.wizardReviewLabel}>Late Day</Text>
                             <Text style={styles.wizardReviewValue}>
                               {filing.attendanceRecord
-                                ? `${new Date(filing.attendanceRecord.attendanceDate).toLocaleDateString()} (${filing.attendanceRecord.lateMinutes} min)`
+                                ? `${new Date(filing.attendanceRecord.attendanceDate).toLocaleDateString()} (${minutesLabel(filing.attendanceRecord.lateMinutes)})`
                                 : "—"}
                             </Text>
                           </View>
@@ -1295,7 +1316,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                                   onPress={() => setSelectedLateRecordId(record.id)}
                                 >
                                   <Text style={[styles.inlineItemText, selected && styles.selectedItemText]}>
-                                    {new Date(record.attendanceDate).toLocaleDateString()} — {record.lateMinutes} minute(s) late
+                                    {new Date(record.attendanceDate).toLocaleDateString()} — {lateMinutesLabel(record.lateMinutes)}
                                   </Text>
                                   {selected && <Ionicons name="checkmark-circle" size={20} color="#DC2777" />}
                                 </Pressable>
@@ -1319,7 +1340,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                           <Text style={[styles.cardTitle, { fontSize: 15, marginTop: 8, marginBottom: 6 }]}>Add a Reason</Text>
                           {selectedLateRecord && (
                             <Text style={styles.wizardSummaryText}>
-                              {new Date(selectedLateRecord.attendanceDate).toLocaleDateString()} — {selectedLateRecord.lateMinutes} minute(s) late
+                              {new Date(selectedLateRecord.attendanceDate).toLocaleDateString()} — {lateMinutesLabel(selectedLateRecord.lateMinutes)}
                             </Text>
                           )}
                           <View style={styles.wizardLabelRow}>
@@ -1359,7 +1380,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                             <View style={styles.wizardReviewRow}>
                               <Text style={styles.wizardReviewLabel}>Late Day</Text>
                               <Text style={styles.wizardReviewValue}>
-                                {new Date(selectedLateRecord.attendanceDate).toLocaleDateString()} ({selectedLateRecord.lateMinutes} min)
+                                {new Date(selectedLateRecord.attendanceDate).toLocaleDateString()} ({minutesLabel(selectedLateRecord.lateMinutes)})
                               </Text>
                             </View>
                             <View style={[styles.wizardReviewRow, { borderBottomWidth: 0, marginBottom: 0, paddingBottom: 0 }]}>
@@ -1398,19 +1419,23 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
 
             <Pressable style={styles.viewHistoryButton} onPress={() => setIsHistoryModalVisible(true)}>
               <Ionicons name="calendar-outline" size={14} color="#1680D8" />
-              <Text style={styles.viewHistoryButtonText}>View Filing History</Text>
+              <Text style={styles.viewHistoryButtonText}>View My Undertime Request</Text>
             </Pressable>
           </View>
-        </AestheticScrollView>
+        </View>
       ) : (
-        <View style={[styles.tabContentPad, { flex: 1 }]}>
-          <View style={[styles.card, matchedCardHeight ? { height: matchedCardHeight } : { flex: 1 }]}>
+          <View style={styles.card}>
             <View style={styles.formHeader}>
               <Ionicons color="#DC2777" name="document-text-outline" size={28} />
               <Text style={styles.cardTitle}>Leave Request</Text>
             </View>
 
-            <AestheticScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 8 }} keyboardShouldPersistTaps="handled">
+            <AestheticScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={{ paddingBottom: 8, paddingRight: 0, flexGrow: 1, justifyContent: "center" }}
+              trackStyle={{ right: -10 }}
+              keyboardShouldPersistTaps="handled"
+            >
 
             <Text style={styles.label}>Leave Type</Text>
             <View style={styles.dropdownWrapper}>
@@ -1625,7 +1650,6 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
             </Pressable>
             </AestheticScrollView>
           </View>
-        </View>
       )}
 
       <Modal visible={showPending} transparent animationType="fade">
@@ -1644,7 +1668,11 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                   <Text style={styles.backText}>All requests</Text>
                 </Pressable>
                 <Text style={styles.modalTitle}>Leave Request Details</Text>
-                <AestheticScrollView style={{ maxHeight: 480 }}>
+                <AestheticScrollView
+                  style={{ maxHeight: 480 }}
+                  contentContainerStyle={{ paddingRight: 0 }}
+                  trackStyle={{ right: -10 }}
+                >
                   {(() => {
                     const request = expandedRequest;
                     const tone = statusTone(request.status);
@@ -1801,13 +1829,26 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                 />
 
                 <View style={styles.statusFilterRow}>
+                  <Pressable
+                    style={[styles.statusFilterChip, requestsStatusFilter === "ALL" && styles.statusFilterChipActive]}
+                    onPress={() => setRequestsStatusFilter("ALL")}
+                  >
+                    <Text
+                      style={[styles.statusFilterChipText, requestsStatusFilter === "ALL" && styles.statusFilterChipTextActive]}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.8}
+                    >
+                      All
+                    </Text>
+                  </Pressable>
                   {STATUS_FILTERS.map((filter) => {
                     const active = requestsStatusFilter === filter.key;
                     return (
                       <Pressable
                         key={filter.key}
                         style={[styles.statusFilterChip, active && styles.statusFilterChipActive]}
-                        onPress={() => setRequestsStatusFilter(active ? "ALL" : filter.key)}
+                        onPress={() => setRequestsStatusFilter(filter.key)}
                       >
                         <Text
                           style={[styles.statusFilterChipText, active && styles.statusFilterChipTextActive]}
@@ -1854,7 +1895,11 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                   )}
                 </View>
 
-                <AestheticScrollView style={{ maxHeight: 280 }}>
+                <AestheticScrollView
+                  style={{ height: 280 }}
+                  contentContainerStyle={{ paddingRight: 0 }}
+                  trackStyle={{ right: -10 }}
+                >
                   {(requestsListTab === "current" ? currentRequests : pastRequests).length === 0 ? (
                     <Text style={styles.modalEmptyText}>
                       {requestsDateFrom || requestsDateTo || requestsStatusFilter !== "ALL"
@@ -1869,26 +1914,33 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                       return (
                         <Pressable
                           key={request.id}
-                          style={styles.summaryCard}
+                          style={({ pressed }) => [
+                            styles.summaryCard,
+                            { borderLeftColor: tone.color },
+                            pressed && styles.summaryCardPressed,
+                          ]}
                           onPress={() => {
                             setExpandedRequestId(request.id);
                             requestsCache.refresh().catch(() => undefined);
                           }}
                         >
                           <View style={styles.summaryTopRow}>
-                            <Text style={[styles.requestTitle, { flex: 1 }]} numberOfLines={1}>
+                            <Text style={[styles.requestTitle, { flex: 1 }]}>
                               {request.leaveType.name}
                             </Text>
-                            <Text
-                              style={[styles.pendingText, { marginTop: 0, fontSize: 10, color: tone.color, backgroundColor: tone.bg }]}
-                              numberOfLines={1}
-                            >
-                              {statusLabel(request.status)}
+                            <View style={[styles.statusPill, { backgroundColor: tone.bg }]}>
+                              <View style={[styles.statusDot, { backgroundColor: tone.color }]} />
+                              <Text style={[styles.statusPillText, { color: tone.color }]} numberOfLines={1}>
+                                {statusLabel(request.status)}
+                              </Text>
+                            </View>
+                          </View>
+                          <View style={styles.summaryDateRow}>
+                            <Ionicons name="calendar-outline" size={13} color="#94A3B8" />
+                            <Text style={styles.summaryDateText}>
+                              {new Date(request.startDate).toLocaleDateString()} - {new Date(request.endDate).toLocaleDateString()}
                             </Text>
                           </View>
-                          <Text>
-                            {new Date(request.startDate).toLocaleDateString()} - {new Date(request.endDate).toLocaleDateString()}
-                          </Text>
                         </Pressable>
                       );
                     })
@@ -1944,7 +1996,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
             experimentalBlurMethod="dimezisBlurView"
             style={StyleSheet.absoluteFillObject}
           />
-          <View style={[styles.modalCard, { height: 540, maxHeight: "80%" }]}>
+          <View style={styles.modalCard}>
             {expandedHistoryFiling ? (
               <>
                 <Pressable style={styles.backRow} onPress={() => setExpandedHistoryFilingId(null)}>
@@ -1952,19 +2004,34 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                   <Text style={styles.backText}>All filings</Text>
                 </Pressable>
                 <Text style={styles.modalTitle}>Undertime Filing Details</Text>
-                <AestheticScrollView style={{ flex: 1 }}>
+                <AestheticScrollView
+                  style={{ flex: 1 }}
+                  contentContainerStyle={{ paddingRight: 0 }}
+                  trackStyle={{ right: -10 }}
+                >
                   {(() => {
                     const filing = expandedHistoryFiling;
                     const tone = statusTone(filing.status);
                     const timelineSteps = buildUndertimeTimelineSteps(filing);
                     return (
                       <View style={styles.requestCard}>
-                        <Text style={styles.requestTitle}>
-                          {filing.attendanceRecord
-                            ? `${new Date(filing.attendanceRecord.attendanceDate).toLocaleDateString()} · ${filing.attendanceRecord.lateMinutes} min late`
-                            : new Date(filing.filingDate).toLocaleDateString()}
-                        </Text>
-                        {filing.reason && <Text>{filing.reason}</Text>}
+                        <View style={styles.requestDateRow}>
+                          <Ionicons name="calendar-outline" size={13} color="#64748B" />
+                          <Text style={styles.requestDateText}>
+                            {new Date(
+                              filing.attendanceRecord ? filing.attendanceRecord.attendanceDate : filing.filingDate
+                            ).toLocaleDateString()}
+                          </Text>
+                        </View>
+                        {filing.attendanceRecord && (
+                          <View style={[styles.filingMinutesRow, { marginTop: 6 }]}>
+                            <Ionicons name="time-outline" size={15} color={tone.color} />
+                            <Text style={[styles.filingMinutesText, { fontSize: 17, color: tone.color }]}>
+                              {lateMinutesLabel(filing.attendanceRecord.lateMinutes)}
+                            </Text>
+                          </View>
+                        )}
+                        {filing.reason && <Text style={styles.filingReasonText}>{filing.reason}</Text>}
                         <Text style={[styles.pendingText, { color: tone.color, backgroundColor: tone.bg }]} numberOfLines={1}>
                           {statusLabel(filing.status)}
                         </Text>
@@ -2009,16 +2076,24 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
               </>
             ) : (
               <>
-                <Text style={styles.modalTitle}>Filing History</Text>
+                <Text style={styles.modalTitle}>My Undertime Request</Text>
 
                 <View style={styles.statusFilterRow}>
+                  <Pressable
+                    style={[styles.statusFilterChip, historyStatusFilter === "ALL" && styles.statusFilterChipActive]}
+                    onPress={() => setHistoryStatusFilter("ALL")}
+                  >
+                    <Text style={[styles.statusFilterChipText, historyStatusFilter === "ALL" && styles.statusFilterChipTextActive]} numberOfLines={1}>
+                      All
+                    </Text>
+                  </Pressable>
                   {(["PENDING", "APPROVED", "REJECTED"] as const).map((key) => {
                     const active = historyStatusFilter === key;
                     return (
                       <Pressable
                         key={key}
                         style={[styles.statusFilterChip, active && styles.statusFilterChipActive]}
-                        onPress={() => setHistoryStatusFilter(active ? "ALL" : key)}
+                        onPress={() => setHistoryStatusFilter(key)}
                       >
                         <Text style={[styles.statusFilterChipText, active && styles.statusFilterChipTextActive]} numberOfLines={1}>
                           {key.charAt(0) + key.slice(1).toLowerCase()}
@@ -2054,7 +2129,11 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                   )}
                 </View>
 
-                <AestheticScrollView style={{ maxHeight: 280 }}>
+                <AestheticScrollView
+                  style={{ height: 280 }}
+                  contentContainerStyle={{ paddingRight: 0 }}
+                  trackStyle={{ right: -10 }}
+                >
                   {visibleHistoryFilings.length === 0 ? (
                     <Text style={styles.modalEmptyText}>
                       {historyDateFrom || historyDateTo || historyStatusFilter !== "ALL"
@@ -2067,23 +2146,40 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                       return (
                         <Pressable
                           key={filing.id}
-                          style={styles.summaryCard}
+                          style={({ pressed }) => [
+                            styles.summaryCard,
+                            { borderLeftColor: tone.color },
+                            pressed && styles.summaryCardPressed,
+                          ]}
                           onPress={() => setExpandedHistoryFilingId(filing.id)}
                         >
                           <View style={styles.summaryTopRow}>
-                            <Text style={[styles.requestTitle, { flex: 1 }]} numberOfLines={1}>
-                              {filing.attendanceRecord
-                                ? `${new Date(filing.attendanceRecord.attendanceDate).toLocaleDateString()} · ${filing.attendanceRecord.lateMinutes} min late`
-                                : new Date(filing.filingDate).toLocaleDateString()}
-                            </Text>
-                            <Text
-                              style={[styles.pendingText, { marginTop: 0, fontSize: 10, color: tone.color, backgroundColor: tone.bg }]}
-                              numberOfLines={1}
-                            >
-                              {statusLabel(filing.status)}
-                            </Text>
+                            <View style={styles.filingDateRow}>
+                              <Ionicons name="calendar-outline" size={13} color="#94A3B8" />
+                              <Text style={styles.filingDateText}>
+                                {new Date(
+                                  filing.attendanceRecord ? filing.attendanceRecord.attendanceDate : filing.filingDate
+                                ).toLocaleDateString()}
+                              </Text>
+                            </View>
+                            <View style={[styles.statusPill, { backgroundColor: tone.bg }]}>
+                              <View style={[styles.statusDot, { backgroundColor: tone.color }]} />
+                              <Text style={[styles.statusPillText, { color: tone.color }]} numberOfLines={1}>
+                                {statusLabel(filing.status)}
+                              </Text>
+                            </View>
                           </View>
-                          {filing.reason && <Text numberOfLines={1}>{filing.reason}</Text>}
+                          {filing.attendanceRecord && (
+                            <View style={styles.filingMinutesRow}>
+                              <Ionicons name="time-outline" size={14} color={tone.color} />
+                              <Text style={[styles.filingMinutesText, { color: tone.color }]}>
+                                {lateMinutesLabel(filing.attendanceRecord.lateMinutes)}
+                              </Text>
+                            </View>
+                          )}
+                          <Text style={styles.summaryReasonText} numberOfLines={1}>
+                            {filing.reason ?? ""}
+                          </Text>
                         </Pressable>
                       );
                     })
@@ -2184,7 +2280,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
         message={resultModal?.message ?? ""}
         onClose={() => setResultModal(null)}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -2215,17 +2311,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 2,
   },
+  // No horizontal/extra padding here, and no inner SafeAreaView on this
+  // screen either — matches DTRScreen.tsx's own tabSwitcher/card exactly
+  // (SegmentedControl, then card, directly), so the two screens' cards
+  // occupy the identical bounding box inside MainScreen's shared
+  // { flex: 1, padding: 16 } wrapper.
   tabSwitcher: {
-    marginHorizontal: 16,
-    marginTop: 4,
-    marginBottom: 4,
-  },
-  tabContentPad: {
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: SCREEN_HEIGHT < 700 ? 10 : 16,
+    marginBottom: 12,
   },
   card: {
+    flex: 1,
+    // Undertime's content (header, notice, fixed step area, button) has no
+    // flex child to soak up the rest of this now-full-height card, so
+    // without this it sits stuck at the top with dead space below —
+    // centering it as a block looks intentional instead. Request's own
+    // AestheticScrollView is flex:1 and fills regardless, so this is a
+    // no-op there.
+    justifyContent: "center",
     backgroundColor: "#FFFFFF",
     borderRadius: 18,
     paddingHorizontal: 18,
@@ -2234,11 +2336,31 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E2E8F0",
     zIndex: 1,
+    // Same floating shadow language as modalCard below — a soft, deep
+    // navy-tinted shadow instead of a flat border look, so the card reads
+    // as hovering above the page rather than sitting flush on it.
+    shadowColor: "#062B59",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 6,
   },
   formHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
+  },
+  // Same 32px footprint as the bare icon it replaces — the row's height
+  // (and therefore the card's measured height other tabs match) must not
+  // shift, so this wraps a smaller icon in a same-size tinted badge rather
+  // than growing the row.
+  undertimeIconBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: "#FCE7F3",
+    alignItems: "center",
+    justifyContent: "center",
   },
   cardTitle: {
     fontSize: 18,
@@ -2259,7 +2381,18 @@ const styles = StyleSheet.create({
     marginBottom: 2,
     lineHeight: 16,
   },
-
+  pendingNoticeLabel: {
+    fontWeight: "700",
+    color: "#334155",
+  },
+  pendingNoticeDate: {
+    fontWeight: "600",
+    color: "#0F172A",
+  },
+  pendingNoticeAccent: {
+    fontWeight: "700",
+    color: "#1680D8",
+  },
   dropdownWrapper: {
     position: "relative",
     zIndex: 10,
@@ -2500,8 +2633,40 @@ const styles = StyleSheet.create({
   },
   backRow: { flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 10 },
   backText: { color: "#1680D8", fontWeight: "700", fontSize: 13 },
-  summaryCard: { backgroundColor: "#F8FAFC", borderRadius: 12, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: "#E2E8F0" },
-  summaryTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  summaryCard: {
+    backgroundColor: "#F8FAFC",
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderLeftWidth: 4,
+    shadowColor: "#0B1C33",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 1,
+  },
+  summaryCardPressed: { backgroundColor: "#EEF2F7" },
+  summaryTopRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 8 },
+  // Undertime filing history only — the badge sits in its own row paired
+  // with the reason, instead of sharing a row with the title (which is now
+  // two separate lines: date, then minutes).
+  summaryBottomRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, marginTop: 8 },
+  summaryDateRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8 },
+  summaryDateText: { fontSize: 13, color: "#64748B", fontWeight: "600" },
+  summaryReasonText: { fontSize: 12.5, color: "#94A3B8", fontWeight: "500", marginTop: 6 },
+  statusPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 999,
+    flexShrink: 0,
+  },
+  statusDot: { width: 6, height: 6, borderRadius: 3 },
+  statusPillText: { fontWeight: "700", letterSpacing: 0.3, fontSize: 10 },
   confirmOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "center", alignItems: "center" },
   confirmCard: { width: "80%", backgroundColor: "#FFFFFF", borderRadius: 18, padding: 20 },
   confirmActions: { flexDirection: "row", gap: 10, marginTop: 18 },
@@ -2569,6 +2734,19 @@ const styles = StyleSheet.create({
     borderColor: "#E2E8F0",
   },
   requestTitle: { fontSize: 17, fontWeight: "700", color: "#062B59", marginBottom: 6, flexShrink: 1 },
+  // The undertime filing-history card has no separate "type name" to use as
+  // a title — the date + lateness is the title. A plain date/number string
+  // doesn't need requestTitle's bold, large weight; this reads lighter, more
+  // like metadata than a heading.
+  // Undertime filing history card — date is secondary metadata (muted,
+  // calendar icon); minutes-undertime is the actual headline metric, so it
+  // reads bolder and tinted to the filing's status color, tying it visually
+  // to the card's accent bar and status pill.
+  filingDateRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  filingDateText: { fontSize: 13, color: "#94A3B8", fontWeight: "600" },
+  filingMinutesRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
+  filingMinutesText: { fontSize: 15, fontWeight: "700" },
+  filingReasonText: { fontSize: 13, color: "#64748B", fontWeight: "500", marginTop: 8 },
   requestDateRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   requestDateText: { fontSize: 13.5, color: "#64748B", fontWeight: "500" },
   pendingText: { fontWeight: "700", letterSpacing: 0.3, marginTop: 10, alignSelf: "flex-start", fontSize: 11, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999, overflow: "hidden" },

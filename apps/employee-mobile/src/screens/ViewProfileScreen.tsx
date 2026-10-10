@@ -157,9 +157,17 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 14,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: "#E2E8F0",
+    // Floating shadow — same treatment as LeaveScreen.tsx's/
+    // DTRScreen.tsx's cards, so cards read consistently across the app's
+    // employee-facing screens.
+    shadowColor: "#062B59",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 6,
   },
   row: {
     flexDirection: "row",

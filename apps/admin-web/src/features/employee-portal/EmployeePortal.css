@@ -12,7 +12,8 @@
   --emp-radius-md: 14px;
   --emp-radius-lg: 18px;
 
-  --emp-shadow-card: 0 1px 3px rgba(6, 43, 89, 0.06), 0 1px 2px rgba(6, 43, 89, 0.04);
+  /* Floating card shadow — same values as employee-mobile's cards. */
+  --emp-shadow-card: 0 8px 16px rgba(6, 43, 89, 0.12);
 
   --emp-navy: #062b59;
   --emp-blue: #1680d8;

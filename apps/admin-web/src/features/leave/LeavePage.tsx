@@ -215,6 +215,10 @@ function getLeaveStatusLabel(status: string, _isAdmin: boolean) {
   return titleCaseStatus(status);
 }
 
+function minutesLabel(minutes: number) {
+  return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+}
+
 function formatDate(value: string) {
   return new Date(value).toLocaleDateString();
 }
@@ -2433,7 +2437,7 @@ export function LeavePage({
                 {reviewUndertime.attendanceRecord && (
                   <>
                     <div><span>Attendance Date</span><strong>{formatDate(reviewUndertime.attendanceRecord.attendanceDate)}</strong></div>
-                    <div><span>Late Minutes</span><strong>{reviewUndertime.attendanceRecord.lateMinutes} min</strong></div>
+                    <div><span>Late Minutes</span><strong>{minutesLabel(reviewUndertime.attendanceRecord.lateMinutes)}</strong></div>
                   </>
                 )}
                 <div><span>Date Filed</span><strong>{formatDate(reviewUndertime.createdAt)}</strong></div>

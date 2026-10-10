@@ -239,7 +239,7 @@ export function DtrPage({ user }: Props) {
           </p>
         </div>
       ) : (
-        <div style={{ border: "1px solid #DBE5EF", borderRadius: 10, background: "#FFFFFF", overflow: "hidden" }}>
+        <div style={{ border: "1px solid #DBE5EF", borderRadius: 18, background: "#FFFFFF", overflow: "hidden", boxShadow: "var(--emp-shadow-card)" }}>
           {/* Dense table — a status dot instead of a badge, and an inline bar
               under Hours Rendered (against an 8-hour target once a record is
               closed; an open session just shows the label, since live
@@ -280,7 +280,7 @@ export function DtrPage({ user }: Props) {
                     <span className="dtr-dense-dot" style={{ background: tone.color }} />
                     <span className="dtr-dense-date-text">
                       <span>{fmtDate(item.attendanceDate)}</span>
-                      {!isOffice && item.workLocation?.name && (
+                      {item.workLocation?.name && (
                         <span className="dtr-dense-site">{item.workLocation.name}</span>
                       )}
                     </span>
@@ -342,7 +342,7 @@ export function DtrPage({ user }: Props) {
             {/* Title */}
             <p style={{ color: "#062B59", fontSize: 15, fontWeight: 800, textAlign: "center", marginBottom: 14, paddingRight: 28 }}>
               {fmtDate(selected.attendanceDate)}
-              {!isOffice && selected.workLocation?.name ? ` · ${selected.workLocation.name}` : ""}
+              {selected.workLocation?.name ? ` · ${selected.workLocation.name}` : ""}
             </p>
 
             {/* Time-In / Time-Out sub-tabs */}
@@ -479,9 +479,9 @@ const refreshBtn: CSSProperties = {
 };
 const dateFilterCard: CSSProperties = {
   display: "flex", alignItems: "center", gap: 10,
-  background: "#FFFFFF", border: "1px solid #DBE5EF", borderRadius: 14,
+  background: "#FFFFFF", border: "1px solid #DBE5EF", borderRadius: 18,
   padding: 12, marginBottom: 14,
-  boxShadow: "0 1px 2px rgba(15,23,42,0.04)",
+  boxShadow: "var(--emp-shadow-card)",
 };
 const dateFilterFields: CSSProperties = { display: "flex", gap: 10, flex: 1 };
 const clearDateBtn: CSSProperties = {

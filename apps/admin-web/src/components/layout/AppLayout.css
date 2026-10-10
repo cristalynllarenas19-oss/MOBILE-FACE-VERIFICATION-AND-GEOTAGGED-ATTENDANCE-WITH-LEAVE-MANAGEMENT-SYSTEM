@@ -46,8 +46,8 @@
 }
 
 .profile-avatar {
-  width: 52px;
-  height: 52px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
   background: #1a3a5c;
   color: #ffffff;
@@ -56,7 +56,20 @@
   letter-spacing: 0.3px;
   display: grid;
   place-items: center;
-  flex: 0 0 52px;
+  flex: 0 0 56px;
+  overflow: hidden;
+}
+
+/* Explicit pixels, not 100% — a percentage height inside the grid parent
+   resolved to the photo's natural height, so it showed the top of the
+   photo instead of the centred crop the Settings card shows. */
+.profile-avatar-img {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: center;
+  display: block;
 }
 
 .profile-info {
@@ -142,13 +155,18 @@
   font-weight: 650;
 }
 
+/* Blue pill — same as the role badge in employee-mobile's Header.tsx. */
 .profile-role {
-  margin: 2px 0 0;
-  font-size: 11px;
-  color: #41536b;
+  display: inline-block;
+  margin: 4px 0 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #eaf3fc;
+  font-size: 10.5px;
+  color: #1680d8;
   text-transform: uppercase;
   letter-spacing: 0.4px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .nav-list {

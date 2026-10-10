@@ -305,10 +305,10 @@ export function WorkAreaPage({ user }: Props) {
 // a big hero distance reading.
 const siteCard: CSSProperties = {
   display: "block", textAlign: "left",
-  background: "#FFFFFF", borderRadius: 16, padding: 0,
+  background: "#FFFFFF", borderRadius: 18, padding: 0,
   flex: "1 1 280px", overflow: "hidden",
   border: "1px solid #E2E8F0",
-  boxShadow: "0 1px 3px rgba(6, 43, 89, 0.06), 0 1px 2px rgba(6, 43, 89, 0.04)",
+  boxShadow: "var(--emp-shadow-card)",
   font: "inherit", margin: 0,
 };
 // Thin status strip across the top of the card — neutral blue until a GPS

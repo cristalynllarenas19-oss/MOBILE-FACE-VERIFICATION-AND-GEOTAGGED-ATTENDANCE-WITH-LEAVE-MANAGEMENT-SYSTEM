@@ -30,7 +30,7 @@ import {
   markNotificationRead,
 } from "../../lib/notifications";
 import { CACHE_KEYS, revalidateCached, useCachedData } from "../../lib/dataCache";
-import { getLeaveRequests, getLeaveBalances } from "../../features/employee-portal/api";
+import { EmployeeProfile, getLeaveRequests, getLeaveBalances, getMyProfile } from "../../features/employee-portal/api";
 import { NotificationPanel } from "./NotificationPanel";
 import { NotificationDetailModal } from "./NotificationDetailModal";
 import { UTILITY_TABS } from "../../features/utilities/UtilitiesPage";
@@ -138,6 +138,16 @@ export function AppLayout({
       ? "Supervisor Dashboard"
       : "Admin Dashboard";
   
+  // Same cache key as the Settings page, so changing the photo there updates
+  // this avatar immediately. Skipped for accounts with no employee record.
+  const { data: myProfile } = useCachedData<EmployeeProfile>(
+    user.employeeId ? CACHE_KEYS.myProfile : null,
+    getMyProfile,
+  );
+  const profilePhotoUri = myProfile?.profilePhotoData
+    ? `data:${myProfile.profilePhotoMimeType ?? "image/jpeg"};base64,${myProfile.profilePhotoData}`
+    : null;
+
   const profileRoleLabel =
     activeView === "employee"
       ? "EMPLOYEE"
@@ -280,7 +290,11 @@ export function AppLayout({
 
         {/* Profile */}
         <div className="profile">
-          <div className="profile-avatar">{getInitials(user.displayName)}</div>
+          <div className="profile-avatar">
+            {profilePhotoUri
+              ? <img src={profilePhotoUri} alt="" className="profile-avatar-img" />
+              : getInitials(user.displayName)}
+          </div>
           <div>
             <p className="profile-name">{user.displayName}</p>
             <p className="profile-role">{profileRoleLabel}</p>

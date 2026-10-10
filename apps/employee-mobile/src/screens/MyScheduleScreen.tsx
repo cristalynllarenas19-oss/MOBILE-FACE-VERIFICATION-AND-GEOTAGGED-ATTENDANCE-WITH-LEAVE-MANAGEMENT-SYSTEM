@@ -232,12 +232,15 @@ export default function MyScheduleScreen({ onClose }: Props) {
   );
 }
 
+// Floating shadow — same treatment as LeaveScreen.tsx's/DTRScreen.tsx's
+// cards, so cards read consistently across the app's employee-facing
+// screens.
 const cardShadow = {
-  shadowColor: "#0F172A",
-  shadowOffset: { width: 0, height: 2 },
-  shadowOpacity: 0.06,
-  shadowRadius: 8,
-  elevation: 2,
+  shadowColor: "#062B59",
+  shadowOffset: { width: 0, height: 8 },
+  shadowOpacity: 0.12,
+  shadowRadius: 16,
+  elevation: 6,
 };
 
 const styles = StyleSheet.create({
@@ -251,7 +254,7 @@ const styles = StyleSheet.create({
 
   shiftCard: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 16,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: "#E2E8F0",
     padding: 12,
@@ -295,7 +298,7 @@ const styles = StyleSheet.create({
 
   calendarCard: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 16,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: "#E2E8F0",
     padding: 12,

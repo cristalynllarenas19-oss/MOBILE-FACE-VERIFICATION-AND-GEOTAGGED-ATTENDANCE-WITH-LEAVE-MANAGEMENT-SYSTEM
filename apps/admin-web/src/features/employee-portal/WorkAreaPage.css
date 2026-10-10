@@ -44,7 +44,7 @@
    old 430px, which pushed the page past typical viewport heights. */
 .work-area-map-col .work-area-map-div {
   height: 340px;
-  border-radius: 16px;
+  border-radius: 18px;
   overflow: hidden;
   border: 1px solid #dbe5ef;
   box-shadow: var(--emp-shadow-card);
@@ -52,7 +52,7 @@
 
 .work-area-map-col .work-area-map-placeholder {
   height: 340px;
-  border-radius: 16px;
+  border-radius: 18px;
   border: 1px solid #dbe5ef;
   background: #f8fafc;
   display: flex;
@@ -81,7 +81,8 @@
   border: none !important;
   border-radius: 12px !important;
   overflow: hidden;
-  box-shadow: var(--emp-shadow-card);
+  /* A small map control, not a card — keeps the subtle shadow. */
+  box-shadow: 0 1px 3px rgba(6, 43, 89, 0.06), 0 1px 2px rgba(6, 43, 89, 0.04);
 }
 
 .work-area-page .leaflet-control-zoom a {

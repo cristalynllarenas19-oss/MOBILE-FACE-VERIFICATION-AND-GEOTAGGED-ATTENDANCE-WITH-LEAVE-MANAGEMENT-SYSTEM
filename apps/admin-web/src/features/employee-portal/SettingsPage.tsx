@@ -255,13 +255,26 @@ export function SettingsPage({ user, onDefaultViewChange }: Props) {
       {/* ── Profile summary card (menu view) ────────────────────────────── */}
       {section === "menu" && (
         <div style={profileCard}>
-          {uri ? (
-            <img src={uri} alt="avatar" style={avatarImg(56)} />
-          ) : (
-            <div style={avatarPlaceholder(56)}>
-              <User size={22} color={COLORS.white} strokeWidth={1.75} />
-            </div>
-          )}
+          <div style={{ position: "relative", flexShrink: 0 }}>
+            {uri ? (
+              <img src={uri} alt="avatar" style={avatarImg(56)} />
+            ) : (
+              <div style={avatarPlaceholder(56)}>
+                <User size={22} color={COLORS.white} strokeWidth={1.75} />
+              </div>
+            )}
+            {profile && (
+              <button
+                type="button"
+                onClick={() => photoInputRef.current?.click()}
+                disabled={isUploadingPhoto}
+                title="Change profile photo"
+                style={{ ...cameraBtn(isUploadingPhoto), width: 24, height: 24, bottom: -2, right: -2 }}
+              >
+                <Camera size={11} color={COLORS.white} />
+              </button>
+            )}
+          </div>
           <div>
             <p style={profileName}>
               {isLoading ? "Loading…" : (profile ? `${profile.firstName} ${profile.lastName}` : user.displayName)}
@@ -269,9 +282,26 @@ export function SettingsPage({ user, onDefaultViewChange }: Props) {
             <p style={profileEmail}>
               {isLoading ? "" : (profile?.user.email ?? "")}
             </p>
+            {isUploadingPhoto && (
+              <p style={{ fontSize: 12, color: COLORS.subtitleGray, margin: "4px 0 0" }}>Uploading…</p>
+            )}
+            {!isUploadingPhoto && photoStatus && (
+              <p style={{ ...statusText, marginTop: 4, color: photoStatus.ok ? COLORS.success : COLORS.error }}>
+                {photoStatus.msg}
+              </p>
+            )}
           </div>
         </div>
       )}
+
+      {/* One hidden file picker shared by the Settings card and My Profile. */}
+      <input
+        ref={photoInputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: "none" }}
+        onChange={handlePhotoChange}
+      />
 
       {/* ── MENU ─────────────────────────────────────────────────────────── */}
       {section === "menu" && (
@@ -372,13 +402,6 @@ export function SettingsPage({ user, onDefaultViewChange }: Props) {
                   >
                     <Camera size={13} color={COLORS.white} />
                   </button>
-                  <input
-                    ref={photoInputRef}
-                    type="file"
-                    accept="image/*"
-                    style={{ display: "none" }}
-                    onChange={handlePhotoChange}
-                  />
                 </div>
                 {photoStatus && (
                   <p style={{ ...statusText, color: photoStatus.ok ? COLORS.success : COLORS.error }}>
@@ -668,7 +691,7 @@ function PwdField({
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 const pageTitle: CSSProperties = {
-  color: COLORS.navy, fontSize: 26, fontWeight: 800, margin: "0 0 4px", letterSpacing: -0.3,
+  color: COLORS.navy, fontSize: 20, fontWeight: 800, margin: "0 0 4px", letterSpacing: -0.3,
 };
 
 const pageSubtitle: CSSProperties = {
@@ -698,6 +721,7 @@ const profileCard: CSSProperties = {
   display: "flex", alignItems: "center", gap: 14,
   background: COLORS.white, border: `1px solid ${COLORS.border}`,
   borderRadius: 18, padding: "14px 16px", marginBottom: 20,
+  boxShadow: "var(--emp-shadow-card)",
 };
 
 const profileName: CSSProperties = { color: COLORS.navy, fontSize: 16, fontWeight: 800, margin: 0 };
@@ -739,6 +763,7 @@ const centerNote: CSSProperties = { color: COLORS.subtitleGray, textAlign: "cent
 const menuCard: CSSProperties = {
   background: COLORS.white, border: `1px solid ${COLORS.border}`,
   borderRadius: 18, overflow: "hidden",
+  boxShadow: "var(--emp-shadow-card)",
 };
 
 const menuRow: CSSProperties = {
@@ -777,7 +802,8 @@ const dividerLine: CSSProperties = { height: 1, background: COLORS.divider };
 
 const detailCard: CSSProperties = {
   background: COLORS.white, border: `1px solid ${COLORS.border}`,
-  borderRadius: 20, overflow: "hidden", marginBottom: 16,
+  borderRadius: 18, overflow: "hidden", marginBottom: 16,
+  boxShadow: "var(--emp-shadow-card)",
 };
 
 const detailRow: CSSProperties = {
@@ -795,6 +821,7 @@ const detailValue: CSSProperties = { color: COLORS.navy, fontSize: 17, fontWeigh
 const scheduleCard: CSSProperties = {
   background: COLORS.white, border: `1px solid ${COLORS.border}`,
   borderRadius: 18, padding: 14, marginBottom: 10,
+  boxShadow: "var(--emp-shadow-card)",
 };
 
 const scheduleCardHeaderRow: CSSProperties = {
@@ -839,6 +866,7 @@ const scheduleDateText: CSSProperties = { color: COLORS.subtitleGray, fontSize: 
 const calendarCard: CSSProperties = {
   background: COLORS.white, border: `1px solid ${COLORS.border}`,
   borderRadius: 18, padding: 14,
+  boxShadow: "var(--emp-shadow-card)",
 };
 
 const calendarMonthRow: CSSProperties = {

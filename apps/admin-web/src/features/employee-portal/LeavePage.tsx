@@ -1,7 +1,7 @@
 
 
 import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Calendar, CalendarClock, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronUp, FileText, Lock as LockIcon, Paperclip, Search, X, XCircle } from "lucide-react";
+import { AlertCircle, Calendar, CalendarClock, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronUp, Clock, FileText, Lock as LockIcon, Paperclip, Search, X, XCircle } from "lucide-react";
 import "./EmployeePortal.css";
 import {
   LeaveType, LeaveBalance, LeaveRequest, UndertimeEligibility, UndertimeFiling, MySchedule,
@@ -74,6 +74,24 @@ function statusLabel(s: string) {
   return s.replace(/_/g, " ");
 }
 
+function minutesLabel(minutes: number) {
+  return `${minutes} minute${minutes === 1 ? "" : "s"}`;
+}
+
+function lateMinutesLabel(minutes: number) {
+  return `${minutesLabel(minutes)} undertime`;
+}
+
+function ordinal(day: number) {
+  const suffixes = ["th", "st", "nd", "rd"];
+  const v = day % 100;
+  return `${day}${suffixes[(v - 20) % 10] ?? suffixes[v] ?? suffixes[0]}`;
+}
+
+function ordinalDaysOfMonth(days: number[]) {
+  return days.map(ordinal).join(" or ");
+}
+
 // Same visual language as components/ui/LeaveTimeline.tsx (label, node/line
 // rail, tone colors/symbols) but with its own tiny step-builder — undertime's
 // Filed/Review/Approved/Rejected vocabulary doesn't fit LeaveTimeline's
@@ -107,14 +125,18 @@ function buildUndertimeTimelineSteps(filing: UndertimeFiling): UndertimeTimeline
     { key: "filed", tone: "done", title: "Filed", when: formatUndertimeTimelineDate(filing.createdAt), detail: "Submitted." },
   ];
   if (filing.reviewedAt) {
+    // Same "Approved/Rejected by {name}." format as the leave request
+    // timeline (LeaveTimeline.tsx's eventToStep).
+    const reviewerEmployee = filing.reviewer?.employee;
+    const by = reviewerEmployee ? ` by ${reviewerEmployee.firstName} ${reviewerEmployee.lastName}` : "";
     steps.push({
       key: "reviewed",
       tone: filing.status === "REJECTED" ? "danger" : "done",
       title: filing.status === "APPROVED" ? "Approved" : filing.status === "REJECTED" ? "Rejected" : "Reviewed",
       when: formatUndertimeTimelineDate(filing.reviewedAt),
       detail: filing.status === "REJECTED"
-        ? `Rejected.${filing.remarks ? ` "${filing.remarks}"` : ""}`
-        : "Approved.",
+        ? `Rejected${by}.${filing.remarks ? ` "${filing.remarks}"` : ""}`
+        : `Approved${by}.`,
     });
   } else {
     steps.push({ key: "review-current", tone: "current", title: "Review", when: "In progress", detail: "Awaiting review from the supervisor or HR." });
@@ -912,27 +934,30 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
         }}
         style={{
           display: "block", width: "100%", textAlign: "left",
-          background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 12,
+          background: "#F8FAFC", border: "1px solid #E2E8F0", borderLeft: `4px solid ${tone.color}`, borderRadius: 14,
           padding: 14, marginBottom: 10, cursor: "pointer",
+          boxShadow: "0 2px 6px rgba(11, 28, 51, 0.05)",
+          transition: "background 0.15s ease",
         }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = "#EEF2F7"; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = "#F8FAFC"; }}
       >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-          <p style={{
-            fontWeight: 700, margin: 0, flex: 1, minWidth: 0,
-            whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-          }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+          <p style={{ fontWeight: 700, margin: 0, flex: 1, minWidth: 0 }}>
             {r.leaveType.name}
           </p>
           <span style={{
-            display: "inline-block", flexShrink: 0, whiteSpace: "nowrap",
+            display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0, whiteSpace: "nowrap",
             background: tone.bg, color: tone.color,
             fontWeight: 700, fontSize: 10,
-            borderRadius: 999, padding: "3px 7px",
+            borderRadius: 999, padding: "4px 9px",
           }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: tone.color, flexShrink: 0 }} />
             {statusLabel(r.status)}
           </span>
         </div>
-        <p style={{ color: "#475569", fontSize: 13, margin: "4px 0 0" }}>
+        <p style={{ display: "flex", alignItems: "center", gap: 6, color: "#64748B", fontWeight: 600, fontSize: 13, margin: "8px 0 0" }}>
+          <Calendar size={13} color="#94A3B8" />
           {new Date(r.startDate).toLocaleDateString()} – {new Date(r.endDate).toLocaleDateString()}
         </p>
       </button>
@@ -1143,7 +1168,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
 
       {/* ── Request tab ──────────────────────────────────────────────────────── */}
       {tab === "request" && (
-        <div style={{ background: "#FFFFFF", borderRadius: 18, border: "1px solid #E2E8F0", padding: 20 }}>
+        <div style={{ background: "#FFFFFF", borderRadius: 18, border: "1px solid #E2E8F0", padding: 20, boxShadow: "var(--emp-shadow-card)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
               <FileText size={28} color="#DC2777" />
               <h3 style={{ color: "#062B59", fontSize: 18, fontWeight: 700, margin: 0 }}>Leave Request</h3>
@@ -1355,9 +1380,11 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
 
       {/* ── Undertime tab ────────────────────────────────────────────────────── */}
       {tab === "undertime" && (
-        <div style={{ background: "#FFFFFF", borderRadius: 18, border: "1px solid #E2E8F0", padding: 20 }}>
+        <div style={{ background: "#FFFFFF", borderRadius: 18, border: "1px solid #E2E8F0", padding: 20, boxShadow: "var(--emp-shadow-card)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-            <FileText size={28} color="#DC2777" />
+            <div style={{ width: 28, height: 28, borderRadius: 8, background: "#FCE7F3", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <FileText size={16} color="#DC2777" />
+            </div>
             <h3 style={{ color: "#062B59", fontSize: 18, fontWeight: 700, margin: 0 }}>File Undertime</h3>
           </div>
 
@@ -1366,14 +1393,27 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
               hardcoded on this page, only reflected from the API. */}
           {undertimeEligibility && (
             <p style={{ color: "#475569", fontSize: 13, marginTop: 0, marginBottom: 14, lineHeight: "18px" }}>
-              Cutoff: {new Date(undertimeEligibility.targetCutoff.start).toLocaleDateString()} - {new Date(undertimeEligibility.targetCutoff.end).toLocaleDateString()}.{" "}
-              {!undertimeEligibility.isFilingDay
-                ? `Undertime can only be filed on the ${undertimeEligibility.filingDaysOfMonth.join(" or ")} of the month.`
-                : undertimeEligibility.existingFiling
-                  ? "You've already filed undertime for this cutoff."
-                  : undertimeEligibility.lateRecords.length === 0
-                    ? "You have no late attendance within this cutoff to file."
-                    : "Select one late day below to file undertime for this cutoff."}
+              <Calendar size={11} color="#94A3B8" style={{ verticalAlign: -1 }} />{" "}
+              <strong style={{ color: "#334155", fontWeight: 700 }}>Cutoff</strong>:{" "}
+              <strong style={{ color: "#0F172A", fontWeight: 600 }}>
+                {new Date(undertimeEligibility.targetCutoff.start).toLocaleDateString()} – {new Date(undertimeEligibility.targetCutoff.end).toLocaleDateString()}
+              </strong>
+              .{" "}
+              {!undertimeEligibility.isFilingDay ? (
+                <>
+                  Undertime can only be filed on the{" "}
+                  <strong style={{ color: "#1680D8", fontWeight: 700 }}>
+                    {ordinalDaysOfMonth(undertimeEligibility.filingDaysOfMonth)}
+                  </strong>{" "}
+                  of the month.
+                </>
+              ) : undertimeEligibility.existingFiling ? (
+                "You've already filed undertime for this cutoff."
+              ) : undertimeEligibility.lateRecords.length === 0 ? (
+                "You have no late attendance within this cutoff to file."
+              ) : (
+                "Select one late day below to file undertime for this cutoff."
+              )}
             </p>
           )}
 
@@ -1393,7 +1433,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                 const lockedBody =
                   filing.status === "PENDING"
                     ? "This card will unlock again once the next filing window opens."
-                    : `One filing is allowed per cutoff. You can file again once the next filing window opens — the ${undertimeEligibility.filingDaysOfMonth.join(" or ")} of the month.`;
+                    : `One filing is allowed per cutoff. You can file again once the next filing window opens — the ${ordinalDaysOfMonth(undertimeEligibility.filingDaysOfMonth)} of the month.`;
                 return (
                   <div style={{ height: "100%" }}>
                     <div style={{ borderRadius: 12, padding: 10, background: lockedTone.bg }}>
@@ -1430,7 +1470,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                           <span style={{ fontSize: 12, color: "#64748B", fontWeight: 600 }}>Late Day</span>
                           <span style={{ fontSize: 12, color: "#334155", fontWeight: 700 }}>
                             {filing.attendanceRecord
-                              ? `${new Date(filing.attendanceRecord.attendanceDate).toLocaleDateString()} (${filing.attendanceRecord.lateMinutes} min)`
+                              ? `${new Date(filing.attendanceRecord.attendanceDate).toLocaleDateString()} (${minutesLabel(filing.attendanceRecord.lateMinutes)})`
                               : "—"}
                           </span>
                         </div>
@@ -1501,7 +1541,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                               }}
                             >
                               <span style={{ fontSize: 13, color: "#334155", fontWeight: selected ? 700 : 400 }}>
-                                {new Date(record.attendanceDate).toLocaleDateString()} — {record.lateMinutes} minute(s) late
+                                {new Date(record.attendanceDate).toLocaleDateString()} — {lateMinutesLabel(record.lateMinutes)}
                               </span>
                               {selected && <CheckCircle size={16} color="#DC2777" />}
                             </div>
@@ -1524,7 +1564,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                         <p style={{ color: "#062B59", fontSize: 15, fontWeight: 700, margin: "8px 0 6px" }}>Add a Reason</p>
                         {selectedLateRecordForReview && (
                           <p style={{ color: "#64748B", fontSize: 13, margin: "0 0 10px" }}>
-                            {new Date(selectedLateRecordForReview.attendanceDate).toLocaleDateString()} — {selectedLateRecordForReview.lateMinutes} minute(s) late
+                            {new Date(selectedLateRecordForReview.attendanceDate).toLocaleDateString()} — {lateMinutesLabel(selectedLateRecordForReview.lateMinutes)}
                           </p>
                         )}
                         <label style={{ ...fldLbl, display: "inline-flex", alignItems: "baseline", gap: 4 }}>
@@ -1563,7 +1603,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                           <div style={{ display: "flex", justifyContent: "space-between", gap: 10, borderBottom: "1px solid #FBCFE8", marginBottom: 8, paddingBottom: 8 }}>
                             <span style={{ fontSize: 12, color: "#9D174D", fontWeight: 600 }}>Late Day</span>
                             <span style={{ fontSize: 12, color: "#831843", fontWeight: 700 }}>
-                              {new Date(selectedLateRecordForReview.attendanceDate).toLocaleDateString()} ({selectedLateRecordForReview.lateMinutes} min)
+                              {new Date(selectedLateRecordForReview.attendanceDate).toLocaleDateString()} ({minutesLabel(selectedLateRecordForReview.lateMinutes)})
                             </span>
                           </div>
                           <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
@@ -1607,7 +1647,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
               marginTop: 20, cursor: "pointer", color: "#1680D8", fontSize: 12, fontWeight: 700,
             }}
           >
-            <Calendar size={14} color="#1680D8" /> View Filing History
+            <Calendar size={14} color="#1680D8" /> View My Undertime Request
           </button>
         </div>
       )}
@@ -1615,7 +1655,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
       {/* ── Undertime filing history modal ──────────────────────────────────── */}
       {historyOpen && (
         <div style={overlayNoBg}>
-          <div className="emp-scroll-thin" style={{ ...modalCardFloating, height: 560, maxHeight: "85vh", overflowY: "auto" }}>
+          <div className="emp-scroll-thin" style={modalCardFloating}>
             <button
               type="button"
               onClick={() => {
@@ -1649,12 +1689,19 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                   const steps = buildUndertimeTimelineSteps(filing);
                   return (
                     <div style={{ background: "#F8FAFC", borderRadius: 12, padding: 14 }}>
-                      <p style={{ fontWeight: 700, margin: 0, fontSize: 14 }}>
-                        {filing.attendanceRecord
-                          ? `${new Date(filing.attendanceRecord.attendanceDate).toLocaleDateString()} · ${filing.attendanceRecord.lateMinutes} min late`
-                          : new Date(filing.filingDate).toLocaleDateString()}
+                      <p style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, fontSize: 13, color: "#64748B", margin: 0 }}>
+                        <Calendar size={13} color="#64748B" />
+                        {new Date(
+                          filing.attendanceRecord ? filing.attendanceRecord.attendanceDate : filing.filingDate
+                        ).toLocaleDateString()}
                       </p>
-                      {filing.reason && <p style={{ color: "#64748B", fontSize: 13, margin: "4px 0 0" }}>{filing.reason}</p>}
+                      {filing.attendanceRecord && (
+                        <p style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 17, color: tone.color, margin: "6px 0 0" }}>
+                          <Clock size={15} color={tone.color} />
+                          {lateMinutesLabel(filing.attendanceRecord.lateMinutes)}
+                        </p>
+                      )}
+                      {filing.reason && <p style={{ color: "#64748B", fontSize: 13, margin: "8px 0 0" }}>{filing.reason}</p>}
                       <span style={{ display: "inline-block", marginTop: 8, fontSize: 11, fontWeight: 700, padding: "4px 9px", borderRadius: 999, color: tone.color, background: tone.bg }}>
                         {statusLabel(filing.status)}
                       </span>
@@ -1706,16 +1753,28 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
               </>
             ) : (
               <>
-                <h3 style={{ color: "#062B59", fontWeight: 700, marginBottom: 14 }}>Filing History</h3>
+                <h3 style={{ color: "#062B59", fontWeight: 700, marginBottom: 14 }}>My Undertime Request</h3>
 
                 <div style={{ display: "flex", gap: 5, marginBottom: 10 }}>
+                  <button
+                    type="button"
+                    onClick={() => setHistoryStatusFilter("ALL")}
+                    style={{
+                      flex: 1, border: "none", borderRadius: 999, padding: "7px 4px", cursor: "pointer",
+                      fontSize: 11, fontWeight: 700,
+                      background: historyStatusFilter === "ALL" ? "#062B59" : "#F1F5F9",
+                      color: historyStatusFilter === "ALL" ? "#FFFFFF" : "#64748B",
+                    }}
+                  >
+                    All
+                  </button>
                   {(["PENDING", "APPROVED", "REJECTED"] as const).map((key) => {
                     const active = historyStatusFilter === key;
                     return (
                       <button
                         key={key}
                         type="button"
-                        onClick={() => setHistoryStatusFilter(active ? "ALL" : key)}
+                        onClick={() => setHistoryStatusFilter(key)}
                         style={{
                           flex: 1, border: "none", borderRadius: 999, padding: "7px 4px", cursor: "pointer",
                           fontSize: 11, fontWeight: 700,
@@ -1761,7 +1820,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                   )}
                 </div>
 
-                <div className="emp-scroll-thin" style={{ maxHeight: 280, overflowY: "auto" }}>
+                <div className="emp-scroll-thin" style={{ height: 280, overflowY: "auto" }}>
                   {visibleHistoryFilings.length === 0 ? (
                     <p style={{ color: "#94A3B8", fontSize: 13, textAlign: "center" }}>
                       {historyDateFrom || historyDateTo || historyStatusFilter !== "ALL"
@@ -1778,31 +1837,40 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                           onClick={() => setExpandedHistoryFilingId(filing.id)}
                           style={{
                             display: "block", width: "100%", textAlign: "left",
-                            background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 12,
+                            background: "#F8FAFC", border: "1px solid #E2E8F0", borderLeft: `4px solid ${tone.color}`, borderRadius: 14,
                             padding: 14, marginBottom: 10, cursor: "pointer",
+                            boxShadow: "0 2px 6px rgba(11, 28, 51, 0.05)",
+                            transition: "background 0.15s ease",
                           }}
+                          onMouseEnter={(e) => { e.currentTarget.style.background = "#EEF2F7"; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = "#F8FAFC"; }}
                         >
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                            <p style={{
-                              fontWeight: 700, margin: 0, flex: 1, minWidth: 0,
-                              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-                            }}>
-                              {filing.attendanceRecord
-                                ? `${new Date(filing.attendanceRecord.attendanceDate).toLocaleDateString()} · ${filing.attendanceRecord.lateMinutes} min late`
-                                : new Date(filing.filingDate).toLocaleDateString()}
+                          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+                            <p style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, fontSize: 13, color: "#94A3B8", margin: 0 }}>
+                              <Calendar size={13} color="#94A3B8" />
+                              {new Date(
+                                filing.attendanceRecord ? filing.attendanceRecord.attendanceDate : filing.filingDate
+                              ).toLocaleDateString()}
                             </p>
                             <span style={{
-                              display: "inline-block", flexShrink: 0, whiteSpace: "nowrap",
+                              display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0, whiteSpace: "nowrap",
                               background: tone.bg, color: tone.color,
                               fontWeight: 700, fontSize: 10,
-                              borderRadius: 999, padding: "3px 7px",
+                              borderRadius: 999, padding: "4px 9px",
                             }}>
+                              <span style={{ width: 6, height: 6, borderRadius: "50%", background: tone.color, flexShrink: 0 }} />
                               {statusLabel(filing.status)}
                             </span>
                           </div>
-                          {filing.reason && (
-                            <p style={{ color: "#475569", fontSize: 13, margin: "4px 0 0" }}>{filing.reason}</p>
+                          {filing.attendanceRecord && (
+                            <p style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 15, color: tone.color, margin: "4px 0 0" }}>
+                              <Clock size={14} color={tone.color} />
+                              {lateMinutesLabel(filing.attendanceRecord.lateMinutes)}
+                            </p>
                           )}
+                          <p style={{ color: "#94A3B8", fontSize: 12.5, margin: "8px 0 0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {filing.reason ?? ""}
+                          </p>
                         </button>
                       );
                     })
@@ -1846,13 +1914,25 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                 this page (Balance/Request/Undertime, Current/Past) instead of
                 a third color; flex:1 keeps all four on one line. */}
             <div style={{ display: "flex", gap: 5, marginBottom: 10 }}>
+              <button
+                type="button"
+                onClick={() => setRequestsStatusFilter("ALL")}
+                style={{
+                  flex: 1, border: "none", borderRadius: 999, padding: "7px 4px", cursor: "pointer",
+                  fontSize: 11, fontWeight: 700,
+                  background: requestsStatusFilter === "ALL" ? "#062B59" : "#F1F5F9",
+                  color: requestsStatusFilter === "ALL" ? "#FFFFFF" : "#64748B",
+                }}
+              >
+                All
+              </button>
               {STATUS_FILTERS.map((filter) => {
                 const active = requestsStatusFilter === filter.key;
                 return (
                   <button
                     key={filter.key}
                     type="button"
-                    onClick={() => setRequestsStatusFilter(active ? "ALL" : filter.key)}
+                    onClick={() => setRequestsStatusFilter(filter.key)}
                     style={{
                       flex: 1, border: "none", borderRadius: 999, padding: "7px 4px", cursor: "pointer",
                       fontSize: 11, fontWeight: 700,
@@ -1898,7 +1978,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
               )}
             </div>
 
-            <div className="emp-scroll-thin" style={{ maxHeight: 280, overflowY: "auto" }}>
+            <div className="emp-scroll-thin" style={{ height: 280, overflowY: "auto" }}>
               {(requestsListTab === "current" ? currentRequests : pastRequests).length === 0 ? (
                 <p style={{ color: "#94A3B8", fontSize: 13, textAlign: "center" }}>
                   {requestsDateFrom || requestsDateTo || requestsStatusFilter !== "ALL"

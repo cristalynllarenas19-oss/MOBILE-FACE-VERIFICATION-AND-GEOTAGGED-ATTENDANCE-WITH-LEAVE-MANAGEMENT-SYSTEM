@@ -559,11 +559,20 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
+  // ScrollView clips its content to its own viewport by default (unlike a
+  // plain View) — with no top/side padding here, the card sat flush
+  // against that clip edge on 3 sides, cutting its shadow off before it
+  // could render. This padding gives the shadow room on every side.
   contentContainer: {
     flexGrow: 1,
+    paddingTop: 10,
+    paddingHorizontal: 10,
     paddingBottom: 24,
   },
 
+  // Copied verbatim from LeaveScreen.tsx's styles.card (the one that
+  // already looks right) — same single-layer view, same shadow values,
+  // same zIndex.
   card: {
     backgroundColor: "#FFFFFF",
     borderRadius: 18,
@@ -571,15 +580,16 @@ const styles = StyleSheet.create({
 
     borderWidth: 1,
     borderColor: "#E2E8F0",
+    zIndex: 1,
 
-    shadowColor: "#000",
+    shadowColor: "#062B59",
     shadowOffset: {
       width: 0,
-      height: 2,
+      height: 8,
     },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 3,
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 6,
   },
 
   cardHeader: {

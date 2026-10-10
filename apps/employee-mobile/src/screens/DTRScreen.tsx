@@ -397,7 +397,7 @@ export default function DTRScreen({ employeeId }: Props) {
               <View style={[styles.accDot, { backgroundColor: tone.color }]} />
               <View style={styles.accDateGroup}>
                 <Text style={styles.dateText} numberOfLines={1}>{formatDate(item.attendanceDate)}</Text>
-                {!isOfficeTab && item.workLocation?.name && (
+                {item.workLocation?.name && (
                   <Text style={styles.siteNameText} numberOfLines={1}>{item.workLocation.name}</Text>
                 )}
               </View>
@@ -466,7 +466,7 @@ export default function DTRScreen({ employeeId }: Props) {
         <View style={styles.modalCard}>
           <Text style={styles.modalTitle}>
             {selectedRecord ? formatDate(selectedRecord.attendanceDate) : ""}
-            {!isOfficeTab && selectedRecord?.workLocation?.name ? ` · ${selectedRecord.workLocation.name}` : ""}
+            {selectedRecord?.workLocation?.name ? ` · ${selectedRecord.workLocation.name}` : ""}
           </Text>
 
           <SegmentedControl
@@ -543,9 +543,17 @@ const styles = StyleSheet.create({
   card: {
     flex: 1,
     backgroundColor: "#fff",
-    borderRadius: 10,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: "#dbe5ef",
+    // Floating shadow — same treatment as LeaveScreen.tsx's/
+    // LeaveBalanceChart.tsx's cards, so cards read consistently across
+    // the app's employee-facing screens.
+    shadowColor: "#062B59",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 6,
   },
   // Title, tabs, summary card, and filters — fixed above the list, not part
   // of the FlatList's scrollable content.

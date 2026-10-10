@@ -9,21 +9,33 @@ import AestheticScrollView from "./AestheticScrollView";
 // #1680D8 Used, #DCE7F5 Remaining) so no leave type visually collides with
 // them, and long enough that a typical leave-type list doesn't wrap back
 // onto its own first color.
+//
+// All bright/fully-saturated — no black, no dark/muted shades — and spaced
+// around the hue wheel (red/orange/yellow/lime/green/teal/purple/pink) so no
+// two read as the same color even next to each other. Blue is deliberately
+// left out here — it's reserved for Vacation Leave below — so nothing else
+// can ever cycle onto it and get confused for Vacation's color. Mirrors
+// admin-web's lib/leaveTypeColors.ts — same palette on both platforms.
 const LEAVE_TYPE_COLORS = [
-  "#F97316",
-  "#1BAF7A",
-  "#EDA100",
-  "#E34948",
-  "#7C3AED",
-  "#0EA5B8",
-  "#D6336C",
-  "#4A3AA7",
-  "#65A30D",
+  "#EF4444", // Red
+  "#FB923C", // Orange
+  "#EAB308", // Yellow
+  "#84CC16", // Lime
+  "#22C55E", // Green
+  "#2DD4BF", // Teal
+  "#A855F7", // Purple
+  "#EC4899", // Pink
 ];
 
 // Overrides the index-based palette above for specific leave types.
+// - Vacation Leave is always the same "vacation" blue, regardless of where
+//   it lands in the list — Blue is excluded from the array above so no
+//   other type can ever collide with it.
+// - Bereavement's Fuchsia sits in the one hue gap the main palette doesn't
+//   use, so it also stays distinct no matter which index the rest land on.
 const LEAVE_TYPE_COLOR_OVERRIDES: Record<string, string> = {
-  "Bereavement Leave": "#C71585",
+  "Vacation Leave": "#3B82F6",
+  "Bereavement Leave": "#D946EF",
 };
 
 function colorForLeaveType(name: string, index: number): string {
@@ -183,7 +195,12 @@ export default function LeaveBalanceChart({ balances, loading, pendingCount, onP
 
       <View style={styles.divider} />
 
-      <AestheticScrollView style={styles.barsScroll} nestedScrollEnabled>
+      <AestheticScrollView
+        style={styles.barsScroll}
+        contentContainerStyle={styles.barsScrollContent}
+        trackStyle={{ right: -8 }}
+        nestedScrollEnabled
+      >
       <View style={styles.barsGrid}>
         {balances.map((balance, index) => {
           const color = colorForLeaveType(balance.leaveTypeName, index);
@@ -224,6 +241,13 @@ const styles = StyleSheet.create({
     padding: 14,
     borderWidth: 1,
     borderColor: "#E2E8F0",
+    // Same floating shadow as LeaveScreen.tsx's Request/Undertime cards —
+    // reads as hovering above the page instead of sitting flush on it.
+    shadowColor: "#062B59",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 6,
   },
   centered: {
     alignItems: "center",
@@ -345,6 +369,15 @@ const styles = StyleSheet.create({
   },
   barsScroll: {
     flex: 1,
+  },
+  // Now that the card fills the whole tab (matches DTRScreen.tsx's card
+  // sizing), a short leave-type list no longer fills this scroll area —
+  // flexGrow:1 + centering keeps it from sitting stuck at the top with a
+  // dead gap below; a long list still overflows and scrolls normally.
+  barsScrollContent: {
+    flexGrow: 1,
+    justifyContent: "center",
+    paddingRight: 0,
   },
   barsGrid: {
     flexDirection: "row",

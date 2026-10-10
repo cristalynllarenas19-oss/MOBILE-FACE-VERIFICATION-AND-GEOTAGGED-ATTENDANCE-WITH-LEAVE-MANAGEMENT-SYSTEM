@@ -762,6 +762,7 @@ export type UndertimeFiling = {
   createdAt: string;
   reviewedAt: string | null;
   attendanceRecord?: LateAttendanceRecord;
+  reviewer?: { employee?: { firstName: string; lastName: string } | null } | null;
 };
 
 export type UndertimeEligibility = {

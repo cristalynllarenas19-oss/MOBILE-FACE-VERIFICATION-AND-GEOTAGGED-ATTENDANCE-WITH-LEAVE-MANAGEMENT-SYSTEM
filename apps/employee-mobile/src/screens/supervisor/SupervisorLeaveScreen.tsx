@@ -40,6 +40,10 @@ import { useCachedData } from "../../utils/dataCache";
 // make that feel near-instant without adding real-time transport.
 const LEAVE_POLL_MS = 3000;
 
+function lateMinutesLabel(minutes: number) {
+  return `${minutes} minute${minutes === 1 ? "" : "s"} undertime`;
+}
+
 type Props = {
   currentEmployeeId?: string;
   // Set when arriving here from a leave notification's "View Leave Request"
@@ -358,7 +362,7 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
                   </View>
                   <Text style={styles.dateRange}>
                     {filing.attendanceRecord
-                      ? `${new Date(filing.attendanceRecord.attendanceDate).toLocaleDateString()} · ${filing.attendanceRecord.lateMinutes} minute(s) late`
+                      ? `${new Date(filing.attendanceRecord.attendanceDate).toLocaleDateString()} · ${lateMinutesLabel(filing.attendanceRecord.lateMinutes)}`
                       : new Date(filing.filingDate).toLocaleDateString()}
                   </Text>
                 </View>
@@ -517,7 +521,7 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
                   </View>
                   {reviewUndertime.attendanceRecord && (
                     <Text style={styles.modalMeta}>
-                      {new Date(reviewUndertime.attendanceRecord.attendanceDate).toLocaleDateString()} · {reviewUndertime.attendanceRecord.lateMinutes} minute(s) late
+                      {new Date(reviewUndertime.attendanceRecord.attendanceDate).toLocaleDateString()} · {lateMinutesLabel(reviewUndertime.attendanceRecord.lateMinutes)}
                     </Text>
                   )}
                   {reviewUndertime.reason && <Text style={styles.reasonText}>{reviewUndertime.reason}</Text>}

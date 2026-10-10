@@ -11,6 +11,7 @@ import {
 import CameraScanner, { GeoPoint } from "./components/CameraScanner";
 import type { AuthUser } from "../../lib/api";
 import { CACHE_KEYS, useCachedData, revalidateCached } from "../../lib/dataCache";
+import "./EmployeePortal.css";
 import "./AttendancePage.css";
 
 type Props = { user: AuthUser };
@@ -746,7 +747,7 @@ export function AttendancePage({ user }: Props) {
 const card: CSSProperties = {
   background: "#FFFFFF", borderRadius: 18, padding: 20,
   border: "1px solid #E2E8F0",
-  boxShadow: "0 2px 6px rgba(0,0,0,0.05)",
+  boxShadow: "var(--emp-shadow-card)",
 };
 const btnBase: CSSProperties = {
   display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
