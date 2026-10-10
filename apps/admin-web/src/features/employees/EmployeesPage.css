@@ -572,6 +572,10 @@
   font-weight: 500;
 }
 
+.employee-form-hint--error {
+  color: #b42318;
+}
+
 .employee-leave-grant-line {
   display: flex;
   flex-direction: row;

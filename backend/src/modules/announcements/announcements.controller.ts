@@ -36,6 +36,12 @@ export class AnnouncementsController {
     return this.announcementsService.remove(id);
   }
 
+  @Patch(":id/remind")
+  @RequirePermissions("announcements:write")
+  remind(@Param("id") id: string) {
+    return this.announcementsService.remind(id);
+  }
+
   @Patch(":id/archive")
   @RequirePermissions("announcements:write")
   archive(@Param("id") id: string) {

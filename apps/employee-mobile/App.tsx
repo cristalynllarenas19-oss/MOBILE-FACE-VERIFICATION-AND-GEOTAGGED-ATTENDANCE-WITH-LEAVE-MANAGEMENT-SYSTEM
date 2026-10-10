@@ -3,6 +3,7 @@ import { Alert, AppState } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import * as Location from "expo-location";
 
+import GestureRootView from "./src/components/GestureRootView";
 import LoginScreen from "./src/screens/LoginScreen";
 import MainScreen from "./src/screens/MainScreen";
 import {
@@ -914,6 +915,7 @@ export default function App() {
   }
 
   return (
+    <GestureRootView style={{ flex: 1 }}>
     <SafeAreaProvider>
       {!hasSplashAnimationFinished || !hasSessionCheckFinished ? (
         <SplashScreen onAnimationComplete={handleSplashAnimationComplete} />
@@ -992,5 +994,6 @@ export default function App() {
         onClose={() => setResultModal(null)}
       />
     </SafeAreaProvider>
+    </GestureRootView>
   );
 }

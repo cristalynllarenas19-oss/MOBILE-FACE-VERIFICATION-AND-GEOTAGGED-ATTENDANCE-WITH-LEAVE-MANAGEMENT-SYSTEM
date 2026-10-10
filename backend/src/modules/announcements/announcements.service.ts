@@ -199,6 +199,51 @@ export class AnnouncementsService {
     return { success: true };
   }
 
+  // Reminding inserts a fresh Notification row per targeted user (so it
+  // re-surfaces as unread in their inbox), which means a reminded user ends
+  // up with more than one Notification row for this announcement. Every
+  // other read of "who's a recipient" (here, findOne, findAll) must collapse
+  // those back to one logical recipient per user — the most recent row —
+  // or a reminded employee shows up as a duplicate card/count.
+  private async latestRecipientRowsByUser(entityId: string) {
+    const rows = await this.prisma.notification.findMany({
+      where: { type: ANNOUNCEMENT_NOTIFICATION_TYPE, entityId },
+      orderBy: { createdAt: "desc" },
+      select: { userId: true, readAt: true },
+    });
+    const latestByUser = new Map<string, { userId: string; readAt: Date | null }>();
+    for (const row of rows) {
+      if (!latestByUser.has(row.userId)) latestByUser.set(row.userId, row);
+    }
+    return [...latestByUser.values()];
+  }
+
+  // Re-sends the notification (a fresh, unread Notification row) to every
+  // currently-unviewed recipient. Already-viewed recipients are never
+  // touched, so this can't re-notify someone who already saw it.
+  async remind(id: string) {
+    const announcement = await this.prisma.announcement.findUniqueOrThrow({ where: { id } });
+    if (announcement.status !== AnnouncementStatus.PUBLISHED) {
+      throw new BadRequestException("Only published announcements can be reminded.");
+    }
+
+    const latest = await this.latestRecipientRowsByUser(id);
+    const targetUserIds = latest.filter((row) => !row.readAt).map((row) => row.userId);
+
+    if (targetUserIds.length === 0) {
+      return { remindedCount: 0 };
+    }
+
+    await this.notifications.notifyUsers(targetUserIds, {
+      title: `REMINDER: ${announcement.title}`,
+      message: announcement.message,
+      type: ANNOUNCEMENT_NOTIFICATION_TYPE,
+      entityId: announcement.id,
+    });
+
+    return { remindedCount: targetUserIds.length };
+  }
+
   async archive(id: string) {
     await this.prisma.announcement.update({ where: { id }, data: { archivedAt: new Date() } });
     return { success: true };
@@ -241,29 +286,36 @@ export class AnnouncementsService {
     // "Delivered" and "targeted" are the same number by construction — the
     // Notification rows above are created synchronously in the same request
     // that publishes the Announcement, so there's no async transport that can
-    // partially fail (unlike email/push). "Viewed" is a second groupBy on
-    // the same rows filtered to readAt IS NOT NULL. Drafts/scheduled items
-    // have no Notification rows yet, so their counts are resolved live below.
-    const [totalCounts, viewedCounts] = publishedIds.length
-      ? await Promise.all([
-          this.prisma.notification.groupBy({
-            by: ["entityId"],
-            where: { type: ANNOUNCEMENT_NOTIFICATION_TYPE, entityId: { in: publishedIds } },
-            _count: { _all: true },
-          }),
-          this.prisma.notification.groupBy({
-            by: ["entityId"],
-            where: {
-              type: ANNOUNCEMENT_NOTIFICATION_TYPE,
-              entityId: { in: publishedIds },
-              readAt: { not: null },
-            },
-            _count: { _all: true },
-          }),
-        ])
-      : [[], []];
-    const totalByAnnouncement = new Map(totalCounts.map((row) => [row.entityId, row._count._all]));
-    const viewedByAnnouncement = new Map(viewedCounts.map((row) => [row.entityId, row._count._all]));
+    // partially fail (unlike email/push). Drafts/scheduled items have no
+    // Notification rows yet, so their counts are resolved live below.
+    //
+    // A reminded recipient has more than one Notification row for this
+    // entityId (the original send plus each reminder), so counting raw rows
+    // would inflate both "targeted" and "viewed" — collapse to one row per
+    // (entityId, userId), keeping the most recent, before counting.
+    const notifiedRows = publishedIds.length
+      ? await this.prisma.notification.findMany({
+          where: { type: ANNOUNCEMENT_NOTIFICATION_TYPE, entityId: { in: publishedIds } },
+          orderBy: { createdAt: "desc" },
+          select: { entityId: true, userId: true, readAt: true },
+        })
+      : [];
+
+    const totalByAnnouncement = new Map<string, number>();
+    const viewedByAnnouncement = new Map<string, number>();
+    const seenByAnnouncement = new Map<string, Set<string>>();
+    for (const row of notifiedRows) {
+      const entityId = row.entityId as string;
+      let seen = seenByAnnouncement.get(entityId);
+      if (!seen) {
+        seen = new Set();
+        seenByAnnouncement.set(entityId, seen);
+      }
+      if (seen.has(row.userId)) continue;
+      seen.add(row.userId);
+      totalByAnnouncement.set(entityId, (totalByAnnouncement.get(entityId) ?? 0) + 1);
+      if (row.readAt) viewedByAnnouncement.set(entityId, (viewedByAnnouncement.get(entityId) ?? 0) + 1);
+    }
 
     return Promise.all(
       announcements.map(async (announcement) => {
@@ -319,10 +371,7 @@ export class AnnouncementsService {
       };
     }
 
-    const notified = await this.prisma.notification.findMany({
-      where: { type: ANNOUNCEMENT_NOTIFICATION_TYPE, entityId: id },
-      select: { userId: true, readAt: true },
-    });
+    const notified = await this.latestRecipientRowsByUser(id);
 
     const employees = await this.prisma.employee.findMany({
       where: { userId: { in: notified.map((n) => n.userId) } },

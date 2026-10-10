@@ -1,5 +1,14 @@
 import React, { forwardRef, useRef, useState } from "react";
-import { Animated, ScrollViewProps, StyleSheet, View, ViewStyle } from "react-native";
+import { Animated, LayoutChangeEvent, ScrollViewProps, StyleSheet, View, ViewStyle } from "react-native";
+import { ScrollView as GestureHandlerScrollView } from "react-native-gesture-handler";
+
+// react-native-gesture-handler's ScrollView uses a native pan recognizer
+// instead of RN core's JS-bridge touch-responder negotiation, so it starts
+// scrolling the instant a drag begins even when nested inside a Pressable
+// (e.g. a dismiss-on-tap modal backdrop) — core ScrollView has to first
+// negotiate responder-ship with that ancestor, which reads as a short delay
+// before the content actually moves.
+const AnimatedScrollView = Animated.createAnimatedComponent(GestureHandlerScrollView);
 
 // Drop-in replacement for RN's <ScrollView> — RN's built-in scroll
 // indicator can't be restyled (no rounding, no color, no hover), so this
@@ -54,7 +63,7 @@ const AestheticScrollView = forwardRef<any, Props>(function AestheticScrollView(
 
   return (
     <View style={[styles.wrap, style]}>
-      <Animated.ScrollView
+      <AnimatedScrollView
         ref={ref}
         style={styles.scroller}
         contentContainerStyle={[
@@ -66,19 +75,19 @@ const AestheticScrollView = forwardRef<any, Props>(function AestheticScrollView(
         showsHorizontalScrollIndicator={false}
         scrollEventThrottle={16}
         onScroll={handleScroll}
-        onLayout={(e) => {
+        onLayout={(e: LayoutChangeEvent) => {
           const size = horizontal ? e.nativeEvent.layout.width : e.nativeEvent.layout.height;
           setMetrics((m) => ({ ...m, containerSize: size }));
           onLayout?.(e);
         }}
-        onContentSizeChange={(w, h) => {
+        onContentSizeChange={(w: number, h: number) => {
           setMetrics((m) => ({ ...m, contentSize: horizontal ? w : h }));
           onContentSizeChange?.(w, h);
         }}
         {...rest}
       >
         {children}
-      </Animated.ScrollView>
+      </AnimatedScrollView>
 
       {showBar && (
         <View

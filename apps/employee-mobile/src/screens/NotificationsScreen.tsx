@@ -11,6 +11,7 @@ import {
   StyleSheet,
   Animated,
   Image,
+  useWindowDimensions,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
@@ -36,6 +37,8 @@ import { FormattedAnnouncementText, stripFormattingTokens } from "../utils/richT
 import { saveDataUriToDevice } from "../utils/downloadImage";
 import ResultModal, { ResultModalStatus } from "../components/ResultModal";
 import AestheticFlatList from "../components/AestheticFlatList";
+import AestheticScrollView from "../components/AestheticScrollView";
+import GestureRootView from "../components/GestureRootView";
 import { ZoomableImage } from "../components/ZoomableImage";
 
 // Stable fallbacks so downstream filters don't recompute on every render
@@ -224,6 +227,12 @@ function PulsingDot() {
 
 export default function NotificationsScreen({ visible, onClose, onUnreadCountChange, employeeId, onLogRealAttendance, canReviewTeamRequests, onEvaluateEmployee, onViewLeaveRequest }: Props) {
   const [isRefreshing, setIsRefreshing] = useState(false);
+  // Percentage heights ("82%") can resolve unreliably for a View rendered
+  // inside RN's <Modal> (it isn't always laid out against the full window
+  // the way a normal screen is), silently capping the detail card's
+  // scrollable area far smaller than intended. An explicit pixel value
+  // computed from the actual window height avoids that.
+  const { height: windowHeight } = useWindowDimensions();
 
   // Keyed on `visible` so nothing is fetched until the panel opens; while
   // closed the last cached copy is kept for an instant reopen.
@@ -582,36 +591,64 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
     </Modal>
 
     <Modal visible={!!detailNotification} animationType="fade" transparent onRequestClose={handleCloseDetail}>
-      <Pressable style={styles.detailBackdrop} onPress={handleCloseDetail}>
+      {/*
+        RN's Modal renders its content into a separate native surface, so
+        the GestureHandlerRootView wrapping the whole app (App.tsx) doesn't
+        reach in here — gesture-handler components need their own root
+        inside every Modal that uses them, or they fall back to not
+        responding to touches at all.
+      */}
+      <GestureRootView style={styles.detailGestureRoot}>
+      {/* No tap-to-dismiss on the backdrop — the X button is the only way
+          to close this, so the card doesn't need to intercept/swallow taps
+          either (which also removes the last bit of gesture contention a
+          Pressable ancestor could add to the ScrollView below). */}
+      <View style={styles.detailBackdrop}>
         <BlurView
           intensity={45}
           tint="dark"
           experimentalBlurMethod="dimezisBlurView"
           style={StyleSheet.absoluteFillObject}
         />
-        <Pressable
-          style={[styles.detailSheet, detailIcon?.category === "critical" && styles.detailSheetCritical]}
-          onPress={(event) => event.stopPropagation()}
+        <View
+          style={[
+            styles.detailSheet,
+            { maxHeight: windowHeight * 0.82 },
+            detailIcon?.category === "critical" && styles.detailSheetCritical,
+          ]}
         >
           {detailNotification && detailIcon && (
             <>
               <View style={styles.detailHeader}>
-                <Pressable onPress={handleCloseDetail} style={styles.detailCloseButton} hitSlop={8}>
-                  <Ionicons name="close" size={22} color="#64748B" />
-                </Pressable>
-                <View style={[styles.detailIconCircle, { backgroundColor: `${detailIcon.color}1A` }]}>
-                  <Ionicons name={detailIcon.name} size={26} color={detailIcon.color} />
+                <View
+                  style={[
+                    styles.detailIconCircle,
+                    { backgroundColor: `${detailIcon.color}22`, borderColor: detailIcon.color },
+                  ]}
+                >
+                  <Ionicons name={detailIcon.name} size={20} color={detailIcon.color} />
                 </View>
-                <Text style={styles.detailTitle}>{detailNotification.title}</Text>
-                <Text style={styles.detailTime}>
-                  {new Date(detailNotification.createdAt).toLocaleString("en-US", {
-                    dateStyle: "medium",
-                    timeStyle: "short",
-                  })}
-                </Text>
+                <View style={styles.detailHeaderText}>
+                  <Text style={styles.detailTitle}>{detailNotification.title}</Text>
+                  <Text style={styles.detailTime}>
+                    {new Date(detailNotification.createdAt).toLocaleString("en-US", {
+                      dateStyle: "medium",
+                      timeStyle: "short",
+                    })}
+                  </Text>
+                </View>
+                <Pressable onPress={handleCloseDetail} style={styles.detailCloseButton} hitSlop={8}>
+                  <Ionicons name="close" size={20} color="#64748B" />
+                </Pressable>
               </View>
 
-              <View style={styles.detailScrollContent}>
+              <View style={styles.detailDivider} />
+
+              <AestheticScrollView
+                style={styles.detailScrollContent}
+                contentContainerStyle={styles.detailScrollContentInner}
+                trackStyle={styles.detailScrollTrack}
+              >
                 {detailNotification.type === "ANNOUNCEMENT" ? (
                   <FormattedAnnouncementText
                     message={detailNotification.message}
@@ -820,11 +857,12 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                     )}
                   </View>
                 )}
-              </View>
+              </AestheticScrollView>
             </>
           )}
-        </Pressable>
-      </Pressable>
+        </View>
+      </View>
+      </GestureRootView>
     </Modal>
 
     <ResultModal
@@ -1286,6 +1324,9 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     color: "#64748B",
   },
+  detailGestureRoot: {
+    flex: 1,
+  },
   detailBackdrop: {
     flex: 1,
     alignItems: "center",
@@ -1298,76 +1339,98 @@ const styles = StyleSheet.create({
     // confirmOverlay, actually occludes it instead of just softening it.
     backgroundColor: "rgba(6, 20, 40, 0.55)",
   },
-  // No maxHeight/scrolling — the card just grows to fit whatever it's
-  // showing. Content here (header, message, one or two action rows) is
-  // short enough that this fits comfortably on a normal screen without
-  // needing an internal scroll area.
+  // Capped to a fraction of the screen — a long announcement or a
+  // multi-field resubmit form could otherwise push the card taller than the
+  // phone itself. The header (icon/title/time) stays fixed; only the body
+  // below the divider (detailScrollContent) scrolls internally.
   detailSheet: {
     width: "100%",
     maxWidth: 420,
     backgroundColor: "#FFFFFF",
-    borderRadius: 22,
-    paddingHorizontal: 20,
-    paddingTop: 20,
+    borderRadius: 28,
+    paddingHorizontal: 22,
+    paddingTop: 24,
     paddingBottom: 22,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 20,
-    elevation: 10,
+    borderWidth: 1,
+    borderColor: "#E9EDF2",
+    shadowColor: "#0B1C33",
+    shadowOffset: { width: 0, height: 16 },
+    shadowOpacity: 0.22,
+    shadowRadius: 32,
+    elevation: 14,
   },
   detailSheetCritical: {
     borderLeftWidth: 4,
     borderLeftColor: "#DC2626",
   },
+  // Deliberately compact — a horizontal row (icon, title+time, close) that
+  // takes as little vertical space as possible, so the message below the
+  // divider (the thing the user actually opened this for) reads as the
+  // card's visual focus rather than the header.
   detailHeader: {
+    flexDirection: "row",
     alignItems: "center",
-    position: "relative",
-    paddingTop: 8,
-    marginBottom: 16,
+    gap: 10,
   },
   detailIconCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1.5,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 12,
+    flexShrink: 0,
+  },
+  detailHeaderText: {
+    flex: 1,
+    minWidth: 0,
   },
   detailTitle: {
-    fontSize: 17,
+    fontSize: 15.5,
     fontWeight: "700",
-    color: "#062B59",
-    textAlign: "center",
-    lineHeight: 22,
-    paddingHorizontal: 32,
+    color: "#0B2545",
+    lineHeight: 20,
   },
   detailTime: {
-    fontSize: 12,
+    fontSize: 11.5,
     color: "#94A3B8",
     fontWeight: "600",
-    textAlign: "center",
-    marginTop: 4,
+    marginTop: 2,
   },
   detailCloseButton: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
     alignItems: "center",
     justifyContent: "center",
-    zIndex: 1,
+    flexShrink: 0,
+  },
+  detailDivider: {
+    height: 1,
+    backgroundColor: "#E6EAF0",
+    marginHorizontal: -22,
+    marginBottom: 16,
+    marginTop: 14,
   },
   detailScrollContent: {
+    flexShrink: 1,
+  },
+  detailScrollContentInner: {
     paddingBottom: 4,
+  },
+  // Pulls the thumb out of the card's paddingHorizontal (22) toward its
+  // true right edge, instead of sitting flush with the message text.
+  detailScrollTrack: {
+    right: -16,
   },
   detailMessage: {
     fontSize: 15,
     color: "#334155",
-    lineHeight: 22,
+    lineHeight: 23,
+    letterSpacing: 0.1,
   },
   // Only applied to a plain (non-announcement) notification's body — a
   // short, self-contained message reads fine centered, matching the

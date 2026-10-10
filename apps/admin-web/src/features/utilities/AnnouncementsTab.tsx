@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Archive,
   ArchiveRestore,
+  Bell,
   CalendarClock,
   CheckCircle2,
   ChevronDown,
@@ -192,6 +193,9 @@ export function AnnouncementsTab({
   const [viewId, setViewId] = useState<string | null>(null);
   const [viewDetail, setViewDetail] = useState<AnnouncementDetail | null>(null);
   const [isViewLoading, setIsViewLoading] = useState(false);
+  const [viewError, setViewError] = useState<string | null>(null);
+  const [isRemindingAll, setIsRemindingAll] = useState(false);
+  const [showRecipients, setShowRecipients] = useState(false);
 
   const loadAnnouncements = () => {
     apiRequest<AnnouncementListItem[]>(`/announcements?archived=${showArchived}`)
@@ -225,6 +229,8 @@ export function AnnouncementsTab({
   };
 
   useEffect(() => {
+    setShowRecipients(false);
+    setViewError(null);
     if (!viewId) {
       setViewDetail(null);
       return;
@@ -232,7 +238,7 @@ export function AnnouncementsTab({
     setIsViewLoading(true);
     apiRequest<AnnouncementDetail>(`/announcements/${viewId}`)
       .then(setViewDetail)
-      .catch(() => undefined)
+      .catch((err) => setViewError(err instanceof Error ? err.message : "Failed to load announcement."))
       .finally(() => setIsViewLoading(false));
   }, [viewId]);
 
@@ -774,6 +780,44 @@ export function AnnouncementsTab({
     }
   }
 
+  // Reminding is just re-sending the notification — it only ever touches
+  // recipients who haven't viewed it yet, so it can't re-notify someone who
+  // already saw it.
+  async function remindAnnouncement(id: string) {
+    try {
+      setIsRemindingAll(true);
+
+      const result = await apiRequest<{ remindedCount: number }>(`/announcements/${id}/remind`, {
+        method: "PATCH",
+      });
+
+      if (result.remindedCount === 0) {
+        notify({
+          type: "success",
+          title: "Nothing to Remind",
+          message: "Everyone has already viewed this announcement.",
+        });
+      } else {
+        notify({
+          type: "success",
+          title: "Reminder Sent",
+          message: `Reminded ${result.remindedCount} ${result.remindedCount === 1 ? "employee" : "employees"}.`,
+        });
+        if (viewId === id) {
+          apiRequest<AnnouncementDetail>(`/announcements/${id}`).then(setViewDetail).catch(() => undefined);
+        }
+      }
+    } catch (err) {
+      notify({
+        type: "error",
+        title: "Couldn't Send Reminder",
+        message: err instanceof Error ? err.message : "Failed to send reminder.",
+      });
+    } finally {
+      setIsRemindingAll(false);
+    }
+  }
+
   return (
     <>
       <div className="filter-tabs announcement-archive-tabs">
@@ -1205,8 +1249,12 @@ export function AnnouncementsTab({
             </div>
 
             <div className="utilities-modal-body">
-              {isViewLoading || !viewDetail ? (
+              {isViewLoading ? (
                 <p className="employee-form-hint">Loading announcement…</p>
+              ) : viewError ? (
+                <p className="employee-form-hint employee-form-hint--error">{viewError}</p>
+              ) : !viewDetail ? (
+                <p className="employee-form-hint">Announcement not found.</p>
               ) : (
                 <>
                   <div className="announcement-view-message">{renderFormattedText(viewDetail.message)}</div>
@@ -1230,12 +1278,21 @@ export function AnnouncementsTab({
                     </div>
                   </div>
 
-                  <div className="announcement-recipient-list">
-                    <p className="employee-leave-grants-title">Recipients</p>
-                    {viewDetail.recipients.length === 0 ? (
+                  <div className="announcement-recipient-section">
+                    <button
+                      type="button"
+                      className="announcement-recipient-toggle"
+                      onClick={() => setShowRecipients((v) => !v)}
+                      aria-expanded={showRecipients}
+                    >
+                      Recipients ({viewDetail.recipients.length})
+                      <ChevronDown size={14} className={showRecipients ? "announcement-recipient-toggle-icon is-open" : "announcement-recipient-toggle-icon"} />
+                    </button>
+                    {showRecipients && (viewDetail.recipients.length === 0 ? (
                       <p className="employee-form-hint">No employees were targeted by this announcement.</p>
                     ) : (
-                      viewDetail.recipients.map((recipient, index) => (
+                      <div className="announcement-recipient-list">
+                      {viewDetail.recipients.map((recipient, index) => (
                         <div key={index} className="announcement-recipient-row">
                           <div>
                             <strong>{recipient.firstName} {recipient.lastName}</strong>
@@ -1249,14 +1306,24 @@ export function AnnouncementsTab({
                             <span className="announcement-recipient-unviewed">Not viewed</span>
                           )}
                         </div>
-                      ))
-                    )}
+                      ))}
+                      </div>
+                    ))}
                   </div>
                 </>
               )}
             </div>
 
             <div className="utilities-modal-actions">
+              {canManage && viewDetail && viewDetail.status === "PUBLISHED" && viewDetail.notViewedCount > 0 && (
+                <button
+                  className="outline-button"
+                  disabled={isRemindingAll}
+                  onClick={() => remindAnnouncement(viewDetail.id)}
+                >
+                  <Bell size={13} /> {isRemindingAll ? "Reminding…" : `Remind All (${viewDetail.notViewedCount})`}
+                </button>
+              )}
               {canManage && viewDetail && (
                 viewDetail.archivedAt ? (
                   <button className="outline-button" onClick={() => unarchiveAnnouncement(viewDetail.id)}>

@@ -45,12 +45,16 @@ export function NotificationDetailModal({
         onClick={(e) => e.stopPropagation()}
       >
         <ModalCloseButton onClose={onClose} />
-        <span className={`notif-detail-icon ${category}`}>
-          <NotificationIcon type={notification.type} />
-        </span>
-
-        <h2 id="notif-detail-title" className="notif-detail-title">{notification.title}</h2>
-        <p className="notif-detail-time">{formatFullDate(notification.createdAt)}</p>
+        <div className="notif-detail-header">
+          <span className={`notif-detail-icon ${category}`}>
+            <NotificationIcon type={notification.type} />
+          </span>
+          <div className="notif-detail-header-text">
+            <h2 id="notif-detail-title" className="notif-detail-title">{notification.title}</h2>
+            <p className="notif-detail-time">{formatFullDate(notification.createdAt)}</p>
+          </div>
+        </div>
+        <div className="notif-detail-divider" />
         {notification.type === "ANNOUNCEMENT" ? (
           <div className="notif-detail-message">{renderFormattedText(notification.message)}</div>
         ) : (
