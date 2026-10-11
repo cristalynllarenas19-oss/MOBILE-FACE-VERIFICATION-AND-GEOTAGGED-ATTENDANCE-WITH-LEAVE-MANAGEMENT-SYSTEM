@@ -30,6 +30,7 @@ import {
   getTeamUndertimeFilings,
   approveUndertimeFiling,
   rejectUndertimeFiling,
+  filedMinutes,
 } from "../../api";
 import { useCachedData } from "../../utils/dataCache";
 
@@ -56,8 +57,11 @@ type Props = {
 
 export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusRequestId, onFocusRequestHandled }: Props) {
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [filter, setFilter] = useState<"PENDING" | "ALL">("PENDING");
+  const [selectedFilter, setFilter] = useState<"PENDING" | "LAPSED" | "ALL">("PENDING");
   const [requestType, setRequestType] = useState<"leave" | "undertime">("leave");
+  // Undertime filings never lapse, so on that tab a leftover "Lapsed"
+  // selection falls back to showing everything.
+  const filter = requestType === "undertime" && selectedFilter === "LAPSED" ? "ALL" : selectedFilter;
 
   const [reviewRequest, setReviewRequest] = useState<TeamLeaveRequest | null>(null);
   const [remarks, setRemarks] = useState("");
@@ -119,7 +123,11 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
   }, [refresh, refreshUndertime]);
 
   const visibleRequests = requests.filter((r) =>
-    filter === "PENDING" ? r.status === "PENDING" || r.status === "CANCELLATION_PENDING" : true,
+    filter === "PENDING"
+      ? r.status === "PENDING" || r.status === "CANCELLATION_PENDING"
+      : filter === "LAPSED"
+        ? r.status === "LAPSED"
+        : true,
   );
   const visibleUndertimeFilings = undertimeFilings.filter((f) => (filter === "PENDING" ? f.status === "PENDING" : true));
 
@@ -185,6 +193,12 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
   // already reviewed, and never their own), mirrors LeavePage.tsx's
   // canReviewRequest.
   const canReview = reviewRequest?.status === "PENDING" && !isOwnRequest;
+  // A request that lapsed only because nobody decided it in time ("Lapsed -
+  // Absent") can still be approved late, turning those absent days into
+  // leave. One that lapsed because the employee reported for work can't —
+  // mirrors admin-web's canApproveLapsed and the backend's own guard.
+  const canApproveLapsed =
+    reviewRequest?.status === "LAPSED" && reviewRequest.lapseReason !== "REPORTED_FOR_WORK" && !isOwnRequest;
   // An employee's request to cancel their own already-approved leave sits
   // here until a Supervisor/Admin decides on it (mirrors leave.service.ts's
   // approveCancellation/denyCancellation).
@@ -288,10 +302,11 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
       <SegmentedControl
         segments={[
           { key: "PENDING", label: "Pending" },
+          ...(requestType === "leave" ? [{ key: "LAPSED", label: "Lapsed" }] : []),
           { key: "ALL", label: "All" },
         ]}
         value={filter}
-        onChange={(key) => setFilter(key as "PENDING" | "ALL")}
+        onChange={(key) => setFilter(key as "PENDING" | "LAPSED" | "ALL")}
         style={styles.tabSwitcher}
       />
 
@@ -308,8 +323,14 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
             {visibleRequests.length === 0 ? (
               <EmptyState
                 icon="calendar-outline"
-                title={filter === "PENDING" ? "No pending requests" : "No leave requests"}
-                message={filter === "PENDING" ? "You're all caught up." : "Requests from your team will show up here."}
+                title={filter === "PENDING" ? "No pending requests" : filter === "LAPSED" ? "No lapsed requests" : "No leave requests"}
+                message={
+                  filter === "PENDING"
+                    ? "You're all caught up."
+                    : filter === "LAPSED"
+                      ? "Requests that were never decided before their leave dates passed will show up here."
+                      : "Requests from your team will show up here."
+                }
               />
             ) : (
               visibleRequests.map((request) => (
@@ -320,7 +341,7 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
                       <Text style={styles.employeeName} numberOfLines={1}>
                         {request.employee.firstName} {request.employee.lastName}
                       </Text>
-                      <StatusPill status={request.status} />
+                      <StatusPill status={request.status} lapseReason={request.lapseReason} />
                     </View>
                     <Text style={styles.leaveType}>{request.leaveType.name}</Text>
                     <Text style={styles.dateRange}>
@@ -362,7 +383,7 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
                   </View>
                   <Text style={styles.dateRange}>
                     {filing.attendanceRecord
-                      ? `${new Date(filing.attendanceRecord.attendanceDate).toLocaleDateString()} · ${lateMinutesLabel(filing.attendanceRecord.lateMinutes)}`
+                      ? `${new Date(filing.attendanceRecord.attendanceDate).toLocaleDateString()} · ${lateMinutesLabel(filedMinutes(filing.attendanceRecord))}`
                       : new Date(filing.filingDate).toLocaleDateString()}
                   </Text>
                 </View>
@@ -393,7 +414,7 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
                     </View>
                   </View>
                   <View style={styles.modalStatusRow}>
-                    <StatusPill status={reviewRequest.status} />
+                    <StatusPill status={reviewRequest.status} lapseReason={reviewRequest.lapseReason} />
                   </View>
                   <Text style={styles.modalMeta}>
                     {new Date(reviewRequest.startDate).toLocaleDateString()} - {new Date(reviewRequest.endDate).toLocaleDateString()}
@@ -405,9 +426,19 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
                   {isOwnRequest && (
                     <Text style={styles.warningText}>This is your own leave request — you cannot approve or reject it.</Text>
                   )}
-                  {!isOwnRequest && reviewRequest.status !== "PENDING" && reviewRequest.status !== "CANCELLATION_PENDING" && (
-                    <Text style={styles.warningText}>This request has already been reviewed.</Text>
+                  {!isOwnRequest && reviewRequest.status === "LAPSED" && (
+                    <Text style={styles.warningText}>
+                      {canApproveLapsed
+                        ? "This request lapsed without a decision. You can still approve it to turn the absent days into leave."
+                        : "This request lapsed because the employee reported for work on the leave dates. It can no longer be approved."}
+                    </Text>
                   )}
+                  {!isOwnRequest &&
+                    reviewRequest.status !== "PENDING" &&
+                    reviewRequest.status !== "CANCELLATION_PENDING" &&
+                    reviewRequest.status !== "LAPSED" && (
+                      <Text style={styles.warningText}>This request has already been reviewed.</Text>
+                    )}
 
                   {canDecideCancellation && (
                     <View style={styles.modalActions}>
@@ -490,6 +521,14 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
                       )}
                     </>
                   )}
+
+                  {canApproveLapsed && (
+                    <View style={styles.modalActions}>
+                      <Pressable style={styles.approveButton} onPress={() => handleReview("approve")}>
+                        <Text style={styles.approveText}>Approve Leave</Text>
+                      </Pressable>
+                    </View>
+                  )}
                 </>
               )}
             </AestheticScrollView>
@@ -521,7 +560,7 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
                   </View>
                   {reviewUndertime.attendanceRecord && (
                     <Text style={styles.modalMeta}>
-                      {new Date(reviewUndertime.attendanceRecord.attendanceDate).toLocaleDateString()} · {lateMinutesLabel(reviewUndertime.attendanceRecord.lateMinutes)}
+                      {new Date(reviewUndertime.attendanceRecord.attendanceDate).toLocaleDateString()} · {lateMinutesLabel(filedMinutes(reviewUndertime.attendanceRecord))}
                     </Text>
                   )}
                   {reviewUndertime.reason && <Text style={styles.reasonText}>{reviewUndertime.reason}</Text>}
@@ -600,7 +639,8 @@ const styles = StyleSheet.create({
     ...cardShadow,
   },
   cardPressed: { opacity: 0.85 },
-  cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 },
+  // Wraps so a long status pill drops under the name instead of crushing it.
+  cardHeader: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 8, rowGap: 4 },
   employeeName: { fontSize: 14, fontWeight: "700", color: "#062B59", flexShrink: 1 },
   leaveType: { fontSize: 13, color: "#334155", marginTop: 4, fontWeight: "600" },
   dateRange: { fontSize: 12, color: "#64748B", marginTop: 2 },

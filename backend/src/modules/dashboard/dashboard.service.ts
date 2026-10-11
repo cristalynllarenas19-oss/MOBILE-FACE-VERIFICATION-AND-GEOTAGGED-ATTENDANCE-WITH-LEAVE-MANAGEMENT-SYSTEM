@@ -200,12 +200,12 @@ export class DashboardService {
     ) {
       const deptMap = new Map<
         string,
-        { department: string; present: number; late: number; absent: number; onLeave: number; officialBusiness: number }
+        { department: string; present: number; late: number; absent: number; onLeave: number }
       >();
 
       for (const dept of departments) {
         if (!deptMap.has(dept.name)) {
-          deptMap.set(dept.name, { department: dept.name, present: 0, late: 0, absent: 0, onLeave: 0, officialBusiness: 0 });
+          deptMap.set(dept.name, { department: dept.name, present: 0, late: 0, absent: 0, onLeave: 0 });
         }
       }
 
@@ -218,7 +218,6 @@ export class DashboardService {
           case "LATE":              row.late             += 1; break;
           case "ABSENT":            row.absent           += 1; break;
           case "ON_LEAVE":          row.onLeave          += 1; break;
-          case "OFFICIAL_BUSINESS": row.officialBusiness += 1; break;
         }
       }
 
@@ -282,7 +281,6 @@ export class DashboardService {
         late: records.filter((r) => r.status === "LATE").length,
         absent,
         onLeave: records.filter((r) => r.status === "ON_LEAVE").length + onLeaveNoRecord.length,
-        officialBusiness: records.filter((r) => r.status === "OFFICIAL_BUSINESS").length,
         // Lets the frontend distinguish a Sunday (company-wide day off) from
         // a day with genuinely no data yet — both otherwise sum to all-zero.
         isDayOff: isDayOff(date),

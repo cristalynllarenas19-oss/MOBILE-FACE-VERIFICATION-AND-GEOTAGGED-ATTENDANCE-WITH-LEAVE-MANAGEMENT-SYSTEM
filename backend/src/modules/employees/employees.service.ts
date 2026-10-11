@@ -1,4 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger } from "@nestjs/common";
+import { canContinueOvernightRecord, isInsidePreviousDayShift } from "../attendance/attendance-shift.util";
+import { isNonWorkingDay } from "../../common/utils/schedule.util";
 import { LeaveTypeKind } from "@prisma/client";
 import * as argon2 from "argon2";
 import { generateTemporaryPassword } from "../../common/utils/password.util";
@@ -260,9 +262,37 @@ export class EmployeesService {
         OR: [{ endsOn: null }, { endsOn: { gte: now } }],
       },
       orderBy: { startsOn: "desc" },
-      select: { workingDays: true },
+      select: { workingDays: true, shift: { select: { startTime: true, endTime: true, lateThresholdMinutes: true } } },
     });
-    const hasScheduleToday = Boolean(activeSchedule?.workingDays.includes(now.getDay()));
+    // After midnight on an overnight shift the working day is still
+    // yesterday (see AttendanceService.resolveOfficeAttendanceDate) — the
+    // employee must stay able to punch their break and Time Out even when
+    // today itself isn't one of their working days.
+    const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    const insideOvernightShift = Boolean(
+      activeSchedule &&
+        isInsidePreviousDayShift(activeSchedule.shift, now) &&
+        !isNonWorkingDay(yesterday, activeSchedule.workingDays),
+    );
+    const openOvernightRecord = await this.prisma.attendanceRecord.findUnique({
+      where: {
+        employeeId_attendanceDate_recordType_visitNumber: {
+          employeeId,
+          attendanceDate: yesterday,
+          recordType: "OFFICE",
+          visitNumber: 1,
+        },
+      },
+      select: { timeInAt: true, timeOutAt: true, shift: { select: { startTime: true, endTime: true, lateThresholdMinutes: true } } },
+    });
+    const canCloseOvernightRecord = Boolean(
+      openOvernightRecord?.timeInAt &&
+        !openOvernightRecord.timeOutAt &&
+        openOvernightRecord.shift &&
+        canContinueOvernightRecord(openOvernightRecord.shift, yesterday, now),
+    );
+    const hasScheduleToday =
+      Boolean(activeSchedule?.workingDays.includes(now.getDay())) || insideOvernightShift || canCloseOvernightRecord;
 
     return { ...employee, hasActiveFaceEnrollment: faceProfiles.length > 0, hasScheduleToday };
   }

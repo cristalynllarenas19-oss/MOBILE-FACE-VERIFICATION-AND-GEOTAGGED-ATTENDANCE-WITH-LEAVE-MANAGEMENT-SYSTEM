@@ -40,7 +40,7 @@ export function getEligibilityMessage(eligibility: AttendanceEligibility | null)
   return null;
 }
 
-export type ApplicableAction = "Time In" | "Time Out" | "Start Lunch" | "End Lunch" | "Start Visit" | "End Visit";
+export type ApplicableAction = "Time In" | "Time Out" | "Start Lunch" | "End Lunch" | "Start Break" | "End Break" | "Start Visit" | "End Visit";
 
 // Whichever single action the employee would currently be attempting —
 // mirrors the same state the Time In/Out/Lunch buttons themselves are
@@ -51,11 +51,12 @@ export function getApplicableAction(params: {
   hasTimedOut: boolean;
   hasOpenVisit: boolean;
   isOnLunch: boolean;
+  isBreak?: boolean;
 }): ApplicableAction | null {
-  const { isField, hasTimedIn, hasTimedOut, hasOpenVisit, isOnLunch } = params;
+  const { isField, hasTimedIn, hasTimedOut, hasOpenVisit, isOnLunch, isBreak } = params;
   if (isField) return hasOpenVisit ? "End Visit" : "Start Visit";
   if (!hasTimedIn) return "Time In";
-  if (isOnLunch) return "End Lunch";
+  if (isOnLunch) return isBreak ? "End Break" : "End Lunch";
   if (!hasTimedOut) return "Time Out";
   return null;
 }
@@ -146,9 +147,11 @@ export default function AttendanceScreen({
 
   // Sunday is a company-wide rest day for every role — no attendance is
   // taken or required from anyone, mirrored from the same rule enforced
-  // server-side in AttendanceService.submit().
-  // TEMPORARILY DISABLED FOR TESTING — re-enable before shipping.
-  const isTodayDayOff = false; // new Date().getDay() === 0;
+  // server-side in AttendanceService.submit(). Judged on the working day
+  // the server resolved, not the clock — a Saturday night shift still has
+  // to close out on Sunday morning.
+  const isTodayDayOff =
+    (todayAttendance?.attendanceDate ? new Date(todayAttendance.attendanceDate) : new Date()).getDay() === 0;
 
   const hasTimedIn = Boolean(todayAttendance?.timeInAt);
   const hasTimedOut = Boolean(todayAttendance?.timeOutAt);
@@ -172,6 +175,10 @@ export default function AttendanceScreen({
   const isOnLunch = Boolean(
     hasOpenVisit && todayAttendance?.lunchOutAt && !todayAttendance?.lunchInAt,
   );
+  // "Lunch" on a daytime shift, "Break" on a night/evening one — decided
+  // server-side from the assigned shift (see resolveBreakKind).
+  const isBreak = todayAttendance?.breakKind === "BREAK";
+  const breakWord = isBreak ? "Break" : "Lunch";
 
   const statusLabel = isTodayDayOff && !hasTimedIn
     ? "Day Off"
@@ -211,13 +218,17 @@ export default function AttendanceScreen({
   );
   const hasUnresolvedFlaggedAttempt = Boolean(todayAttendance?.hasUnresolvedFlaggedAttempt);
   const isEligible = isConfigEligible && geofenceStatus === "inside" && !hasUnresolvedFlaggedAttempt;
-  const applicableAction = getApplicableAction({ isField, hasTimedIn, hasTimedOut, hasOpenVisit, isOnLunch });
+  const applicableAction = getApplicableAction({ isField, hasTimedIn, hasTimedOut, hasOpenVisit, isOnLunch, isBreak });
   const eligibilityMessage =
     getEligibilityMessage(eligibility) ??
     getUnauthorizedAttemptMessage(hasUnresolvedFlaggedAttempt, applicableAction) ??
     getGeofenceMessage(geofenceStatus, applicableAction);
 
-  const timeInDisabled = isLoading || !isEligible || isTodayDayOff || (isField ? hasOpenVisit : hasTimedIn);
+  // On approved leave with nothing timed in: attendance can't be recorded
+  // (enforced server-side in AttendanceService.submit()).
+  const onLeaveToday = !hasTimedIn ? todayAttendance?.onLeave ?? null : null;
+  const timeInDisabled =
+    isLoading || !isEligible || isTodayDayOff || Boolean(onLeaveToday) || (isField ? hasOpenVisit : hasTimedIn);
   const timeOutDisabled = isField
     ? isLoading || !isEligible || isTodayDayOff || !hasOpenVisit
     : isLoading || !isEligible || isTodayDayOff || !hasTimedIn || hasTimedOut;
@@ -231,7 +242,7 @@ export default function AttendanceScreen({
   const showLunchSection = !isField && hasTimedIn;
   const lunchCompleted = hasLunchOut && hasLunchIn;
   const lunchButtonDisabled = isLoading || !isEligible || hasTimedOut || lunchCompleted;
-  const lunchButtonLabel = lunchCompleted ? "LUNCH COMPLETED" : hasLunchOut ? "END LUNCH" : "START LUNCH";
+  const lunchButtonLabel = (lunchCompleted ? `${breakWord} COMPLETED` : hasLunchOut ? `END ${breakWord}` : `START ${breakWord}`).toUpperCase();
   const handleLunchPress = hasLunchOut && !hasLunchIn ? onLunchIn : onLunchOut;
 
   return (
@@ -299,7 +310,7 @@ export default function AttendanceScreen({
                 {hasTimedOut
                   ? "Total Time Worked"
                   : isOnLunch
-                    ? "Time Worked (On Lunch)"
+                    ? `Time Worked (On ${breakWord})`
                     : "Time Worked"}
               </Text>
             </View>
@@ -405,7 +416,7 @@ export default function AttendanceScreen({
               </View>
 
               <Text style={styles.timeLabel}>
-                Start Lunch
+                Start {breakWord}
               </Text>
 
               <Text style={styles.timeValue}>
@@ -421,7 +432,7 @@ export default function AttendanceScreen({
               </View>
 
               <Text style={styles.timeLabel}>
-                End Lunch
+                End {breakWord}
               </Text>
 
               <Text style={styles.timeValue}>
@@ -431,6 +442,16 @@ export default function AttendanceScreen({
           </View>
         )}
       </View>
+
+      {onLeaveToday && !(isTodayDayOff && !hasTimedIn) && (
+        <View style={[styles.dayOffCard, { backgroundColor: "#EFF6FF", borderColor: "#BFDBFE" }]}>
+          <Ionicons name="calendar-outline" size={22} color="#1680D8" />
+
+          <Text style={[styles.dayOffText, { color: "#1E3A8A" }]}>
+            You are on approved {onLeaveToday.leaveTypeName} today. Attendance can't be recorded while on leave.
+          </Text>
+        </View>
+      )}
 
       {isTodayDayOff && !hasTimedIn && (
         <View style={styles.dayOffCard}>
@@ -446,7 +467,7 @@ export default function AttendanceScreen({
         </View>
       )}
 
-      {eligibilityMessage && (
+      {eligibilityMessage && !(isTodayDayOff && !hasTimedIn) && !onLeaveToday && (
         <View style={styles.eligibilityWarningCard}>
           <Ionicons
             name="alert-circle-outline"

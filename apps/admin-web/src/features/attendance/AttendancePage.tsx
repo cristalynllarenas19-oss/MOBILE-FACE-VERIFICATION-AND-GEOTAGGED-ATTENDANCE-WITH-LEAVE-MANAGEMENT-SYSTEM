@@ -9,7 +9,7 @@ import { useActiveDepartments } from "../../lib/departments";
 import { PermissionCode, permissions } from "../../types/rbac";
 import "./AttendancePage.css";
 
-type AttendanceStatus = "PRESENT" | "LATE" | "ABSENT" | "ON_LEAVE" | "OFFICIAL_BUSINESS" | "PENDING_REVIEW" | "FLAGGED";
+type AttendanceStatus = "PRESENT" | "LATE" | "ABSENT" | "ON_LEAVE" | "PENDING_REVIEW" | "FLAGGED";
 
 const ATTENDANCE_PAGE_SIZE = 10;
 
@@ -35,6 +35,8 @@ type AttendanceRecord = {
   timeOutAt?: string | null;
   lunchOutAt?: string | null;
   lunchInAt?: string | null;
+  // "BREAK" when the record's shift break isn't a lunch (night/evening shifts).
+  breakKind?: "LUNCH" | "BREAK";
   status: AttendanceStatus;
   recordType?: "OFFICE" | "FIELD";
   visitNumber?: number;
@@ -131,8 +133,8 @@ function formatDate(value: string) {
 // here too even though no real AttendanceRecord ever persists that value —
 // see AttendancePage's status-filter comment). An approved leave or a
 // genuine no-show (ON_LEAVE/ABSENT) means no attendance was ever expected to
-// be recorded here, so it reads as "—" instead. A real PRESENT/LATE/
-// OFFICIAL_BUSINESS record with a timestamp still missing (e.g. not yet
+// be recorded here, so it reads as "—" instead. A real PRESENT/LATE
+// record with a timestamp still missing (e.g. not yet
 // timed out) also reads as "—", not "Pending".
 function formatTime(value: string | null | undefined, status?: AttendanceStatus) {
   if (status === "ON_LEAVE" || status === "ABSENT") return "—";
@@ -170,11 +172,11 @@ function formatTodayLabel(date: Date) {
 
 const photoTabOrder: PhotoLogType[] = ["TIME_IN", "TIME_OUT", "LUNCH_OUT", "LUNCH_IN"];
 
-function photoTabLabel(tab: PhotoLogType) {
+function photoTabLabel(tab: PhotoLogType, breakWord = "Lunch") {
   if (tab === "TIME_IN") return "Time In";
   if (tab === "TIME_OUT") return "Time Out";
-  if (tab === "LUNCH_OUT") return "Start Lunch";
-  return "End Lunch";
+  if (tab === "LUNCH_OUT") return `Start ${breakWord}`;
+  return `End ${breakWord}`;
 }
 
 function photoUri(log?: AttendanceLog | null) {
@@ -202,12 +204,13 @@ function AttendanceDetailsModal({
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const registeredFace = record.employee.faceProfiles?.[0]?.referenceImageData;
 
+  const breakWord = record.breakKind === "BREAK" ? "Break" : "Lunch";
   const availablePhotoTabs = photoTabOrder.filter((tab) => record.logs.some((log) => log.logType === tab));
   const [activePhotoTab, setActivePhotoTab] = useState<PhotoLogType>(availablePhotoTabs[0] ?? "TIME_IN");
   const selectedLog = record.logs.find((log) => log.logType === activePhotoTab) ?? record.logs[0];
   const mapQuery = selectedLog ? `${selectedLog.latitude},${selectedLog.longitude}` : "";
 
-  const updateStatus = async (action: "approve" | "official-business") => {
+  const updateStatus = async (action: "approve") => {
     setIsSaving(true);
     setError("");
     try {
@@ -216,11 +219,7 @@ function AttendanceDetailsModal({
         body: JSON.stringify({ remarks: remarks.trim() }),
       });
       const suffix = remarks.trim() ? ` Remarks noted: ${remarks.trim()}` : "";
-      onUpdated(
-        updated,
-        action === "approve" ? "Attendance Approved" : "Marked as Official Business",
-        action === "approve" ? `Attendance was approved.${suffix}` : `Attendance was marked as Official Business.${suffix}`,
-      );
+      onUpdated(updated, "Attendance Approved", `Attendance was approved.${suffix}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to update attendance.");
     } finally {
@@ -291,7 +290,7 @@ function AttendanceDetailsModal({
                       className={`attendance-photo-tab${activePhotoTab === tab ? " active" : ""}`}
                       onClick={() => setActivePhotoTab(tab)}
                     >
-                      {photoTabLabel(tab)}
+                      {photoTabLabel(tab, breakWord)}
                     </button>
                   ))}
                 </div>
@@ -309,14 +308,14 @@ function AttendanceDetailsModal({
                   )}
                 </figure>
                 <figure className="attendance-compare-item">
-                  <figcaption>{photoTabLabel(activePhotoTab)} Capture</figcaption>
+                  <figcaption>{photoTabLabel(activePhotoTab, breakWord)} Capture</figcaption>
                   {photoUri(selectedLog) ? (
                     <button
                       type="button"
                       className="attendance-compare-photo"
                       onClick={() => setPreviewImage(photoUri(selectedLog))}
                     >
-                      <img src={photoUri(selectedLog) ?? undefined} alt={`${photoTabLabel(activePhotoTab)} capture`} />
+                      <img src={photoUri(selectedLog) ?? undefined} alt={`${photoTabLabel(activePhotoTab, breakWord)} capture`} />
                     </button>
                   ) : (
                     <div className="attendance-compare-photo attendance-photo-empty">No photo captured</div>
@@ -363,8 +362,8 @@ function AttendanceDetailsModal({
             </div>
             <div className="attendance-times">
               <div><span>Time In</span><strong>{formatTime(record.timeInAt, record.status)}</strong></div>
-              <div><span>Lunch Out</span><strong>{formatTime(record.lunchOutAt, record.status)}</strong></div>
-              <div><span>Lunch In</span><strong>{formatTime(record.lunchInAt, record.status)}</strong></div>
+              <div><span>{breakWord} Out</span><strong>{formatTime(record.lunchOutAt, record.status)}</strong></div>
+              <div><span>{breakWord} In</span><strong>{formatTime(record.lunchInAt, record.status)}</strong></div>
               <div><span>Time Out</span><strong>{formatTime(record.timeOutAt, record.status)}</strong></div>
             </div>
 
@@ -477,7 +476,7 @@ export function AttendancePage({
     // AttendanceLog with no AttendanceRecord yet, so they're fetched
     // separately and merged in as synthetic rows — see flaggedLogToRecord().
     // AttendanceRecord.status is never actually persisted as PENDING_REVIEW
-    // (every real record is written as PRESENT/LATE/OFFICIAL_BUSINESS — see
+    // (every real record is written as PRESENT/LATE — see
     // AttendanceService.submit/updateStatus), so "Pending Review" in this
     // dropdown is the same underlying data as "Flagged": an AttendanceLog
     // still awaiting an admin decision.
@@ -640,7 +639,7 @@ export function AttendancePage({
               <th>DATE</th>
               <th>TIME IN</th>
               <th>TIME OUT</th>
-              <th>LUNCH BREAK</th>
+              <th>LUNCH / BREAK</th>
               <th>STATUS</th>
               <th>ACTION</th>
             </tr>
@@ -660,8 +659,8 @@ export function AttendancePage({
                   <td data-label="Date">{formatDate(record.attendanceDate)}</td>
                   <td data-label="Time In">{formatTime(record.timeInAt, record.status)}</td>
                   <td data-label="Time Out">{formatTime(record.timeOutAt, record.status)}</td>
-                  <td data-label="Lunch Break">
-                    {record.lunchOutAt ? `${formatTime(record.lunchOutAt)} – ${formatTime(record.lunchInAt)}` : "—"}
+                  <td data-label={record.breakKind === "BREAK" ? "Break" : "Lunch Break"}>
+                    {record.lunchOutAt ? `${record.breakKind === "BREAK" ? "Break " : ""}${formatTime(record.lunchOutAt)} – ${formatTime(record.lunchInAt)}` : "—"}
                   </td>
                   <td data-label="Status"><Badge tone={getStatusTone(record.status)}>{getStatusLabel(record.status)}</Badge></td>
                   <td data-label="Action">

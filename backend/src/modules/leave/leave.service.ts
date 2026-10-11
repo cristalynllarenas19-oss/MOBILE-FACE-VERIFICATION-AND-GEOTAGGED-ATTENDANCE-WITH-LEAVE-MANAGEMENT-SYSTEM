@@ -16,7 +16,8 @@ type LeaveRequestStatus =
   | "REJECTED"
   | "NEEDS_REVISION"
   | "CANCELLED"
-  | "CANCELLATION_PENDING";
+  | "CANCELLATION_PENDING"
+  | "LAPSED";
 
 // Leave-type cutoff modes for approved self-cancellation. An ADMIN override
 // cancelling on an employee's behalf is not bound by these windows.
@@ -39,6 +40,7 @@ const TIMELINE_ACTIONS = new Set([
   "REQUEST_CANCEL_LEAVE",
   "APPROVE_CANCEL_LEAVE",
   "DENY_CANCEL_LEAVE",
+  "LAPSE_LEAVE",
 ]);
 
 // Local-midnight truncation, matching the same toDateString()-based same-day
@@ -592,9 +594,30 @@ export class LeaveService {
     const wasApproved = existing.status === "APPROVED";
     const isNowApproved = status === "APPROVED";
 
+    // An employee on approved leave can't record attendance (see
+    // AttendanceService.submit) — and the reverse has to hold too: a day
+    // they actually worked can't afterwards be turned into a leave day.
+    if (isNowApproved && !wasApproved) {
+      const worked = await this.prisma.attendanceRecord.findMany({
+        where: {
+          employeeId: existing.employeeId,
+          timeInAt: { not: null },
+          attendanceDate: { gte: toDateOnly(existing.startDate), lte: toDateOnly(existing.endDate) },
+        },
+        select: { attendanceDate: true },
+        orderBy: { attendanceDate: "asc" },
+      });
+      if (worked.length > 0) {
+        const days = Array.from(new Set(worked.map((record) => record.attendanceDate.toLocaleDateString()))).join(", ");
+        throw new BadRequestException(
+          `This employee has attendance on ${days}. A leave can't be approved for a day the employee worked.`,
+        );
+      }
+    }
+
     const request = await this.prisma.leaveRequest.update({
       where: { id },
-      data: { status, reviewedAt: new Date(), reviewedBy: context.actorUserId },
+      data: { status, lapseReason: null, reviewedAt: new Date(), reviewedBy: context.actorUserId },
       include: {
         employee: { include: { department: true } },
         leaveType: true,
@@ -613,6 +636,8 @@ export class LeaveService {
       // approveCancellation(), denyCancellation()) — present only so this
       // Record stays exhaustive over LeaveRequestStatus.
       CANCELLATION_PENDING: "awaiting approval to cancel",
+      // Only ever set by LeaveLapseService, never through this transition.
+      LAPSED: "lapsed",
     };
 
     if (request.employee.userId && status !== "PENDING") {
@@ -1076,6 +1101,11 @@ export class LeaveService {
         status: "PENDING",
         reviewedBy: null,
         reviewedAt: null,
+        // The request is waiting on a reviewer again: restart the "still
+        // awaiting a decision" reminder from now (see LeaveLapseService).
+        reviewClockStartedAt: new Date(),
+        overdueNotifiedAt: null,
+        overdueNotifiedUserIds: [],
         attachmentName: dto.attachmentName,
         attachmentMimeType: dto.attachmentMimeType,
         attachmentData: dto.attachmentData,

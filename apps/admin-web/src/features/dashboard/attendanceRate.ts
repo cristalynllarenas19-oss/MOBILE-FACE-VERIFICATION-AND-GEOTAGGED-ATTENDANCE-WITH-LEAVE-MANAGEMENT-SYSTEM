@@ -3,7 +3,7 @@ import { DeptAttendanceRow } from "../../components/ui/BarChart";
 export type RateTone = "good" | "warn" | "bad";
 
 export function computeAttendanceRate(row: DeptAttendanceRow): { rate: number; total: number; attended: number } {
-  const total = row.present + row.late + row.absent + row.onLeave + row.officialBusiness;
+  const total = row.present + row.late + row.absent + row.onLeave;
   const attended = row.present + row.late;
   const rate = total > 0 ? Math.round((attended / total) * 100) : 0;
   return { rate, total, attended };

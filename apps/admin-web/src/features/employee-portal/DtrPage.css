@@ -24,6 +24,44 @@
   min-height: 420px;
 }
 
+/* Month group header — click to show/hide that month's rows. */
+.dtr-month-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 16px;
+  border: none;
+  background: #f8fafc;
+  color: #062b59;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color 0.12s ease;
+}
+.dtr-month-header:hover:not(:disabled) {
+  background: #eef2f7;
+}
+/* The current month: always open, so it's a plain label, not a control. */
+.dtr-month-header:disabled {
+  cursor: default;
+  color: #062b59;
+}
+.dtr-month-header:focus-visible {
+  outline: 2px solid #1680d8;
+  outline-offset: -2px;
+}
+.dtr-month-label {
+  font-size: 13px;
+  font-weight: 800;
+}
+.dtr-month-count {
+  margin-left: auto;
+  color: #64748b;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
 /* ── Dense table row layout ("Dense table" row-redesign sample) ──────────
    A status dot instead of a text badge, and an inline bar under Hours
    Rendered against an 8-hour target — built for scanning many records at
@@ -46,6 +84,7 @@
   color: #94a3b8;
   border-bottom: 1px solid #e2e8f0;
   background: #f8fafc;
+  text-align: center;
 }
 .dtr-dense-row {
   width: 100%;
@@ -94,6 +133,12 @@
 .dtr-dense-date-cell {
   display: flex;
   align-items: flex-start;
+  /* A fixed-width block centered in the column, with its contents starting
+     at the left edge — so every row's dot and date line up with each other
+     no matter how long that row's text is. */
+  width: 170px;
+  max-width: 100%;
+  margin: 0 auto;
   gap: 8px;
   min-width: 0;
 }
@@ -121,6 +166,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.dtr-dense-undertime {
+  margin-top: 1px;
+  color: #17a34a;
+  font-size: 10.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
 
 /* Lunch is a single short value (or an em dash) with nothing else in its
    column to anchor against, unlike Time In → Out's left-to-right flow — so
@@ -133,6 +185,7 @@
 .dtr-dense-time {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
   color: #475569;
   font-size: 12.5px;
@@ -146,11 +199,19 @@
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+  text-align: center;
 }
 .dtr-dense-bar-label {
   font-size: 12.5px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
+}
+.dtr-dense-early-out {
+  margin-top: -2px;
+  color: #dc2626;
+  font-size: 10.5px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 .dtr-dense-bar-track {
   height: 4px;

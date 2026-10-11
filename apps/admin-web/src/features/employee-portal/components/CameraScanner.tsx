@@ -80,6 +80,8 @@ export type GeoPoint = { latitude: number; longitude: number; accuracy: number }
 
 type Props = {
   logType: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN";
+  // True on a shift whose break isn't a lunch (night/evening shifts).
+  isBreak?: boolean;
   onComplete: (location: GeoPoint, faceBase64: string) => void;
   onCancel: () => void;
 };
@@ -211,22 +213,19 @@ function playSuccessChime() {
   }
 }
 
-function logTypeLabel(logType: Props["logType"]) {
-  if (logType === "TIME_IN") return "TIME IN";
-  if (logType === "TIME_OUT") return "TIME OUT";
-  if (logType === "LUNCH_OUT") return "LUNCH OUT";
-  return "LUNCH IN";
-}
-
-function logTypeTitle(logType: Props["logType"]) {
+function logTypeTitle(logType: Props["logType"], isBreak = false) {
   if (logType === "TIME_IN") return "Time In";
   if (logType === "TIME_OUT") return "Time Out";
-  if (logType === "LUNCH_OUT") return "Lunch Out";
-  return "Lunch In";
+  if (logType === "LUNCH_OUT") return isBreak ? "Break Start" : "Lunch Out";
+  return isBreak ? "Break End" : "Lunch In";
+}
+
+function logTypeLabel(logType: Props["logType"], isBreak = false) {
+  return logTypeTitle(logType, isBreak).toUpperCase();
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
-export default function CameraScanner({ logType, onComplete, onCancel }: Props) {
+export default function CameraScanner({ logType, isBreak, onComplete, onCancel }: Props) {
   const videoRef       = useRef<HTMLVideoElement>(null);
   const streamRef      = useRef<MediaStream | null>(null);
   const stageRef       = useRef<HTMLDivElement>(null);
@@ -612,7 +611,7 @@ export default function CameraScanner({ logType, onComplete, onCancel }: Props) 
         <div style={S.topBarTextWrap}>
           <div style={S.titleRow}>
             <ShieldCheck size={14} color="#2563EB" />
-            <span style={S.title}>{logTypeTitle(logType)} Verification</span>
+            <span style={S.title}>{logTypeTitle(logType, isBreak)} Verification</span>
           </div>
           <span style={S.subtitle}>Secure face check with location confirmation</span>
         </div>
@@ -764,7 +763,7 @@ export default function CameraScanner({ logType, onComplete, onCancel }: Props) 
               </div>
               <div style={S.gpsTextCol}>
                 <div style={S.dateBadge}>
-                  {logTypeLabel(logType)} · {formatStampDate(overlayDate)}
+                  {logTypeLabel(logType, isBreak)} · {formatStampDate(overlayDate)}
                 </div>
                 <div style={S.addressText}>{overlayAddress ?? "Locating…"}</div>
               </div>

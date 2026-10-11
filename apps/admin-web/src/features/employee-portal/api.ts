@@ -3,6 +3,9 @@ import { apiRequest } from "../../lib/api";
 export type AttendanceRecordType = "OFFICE" | "FIELD";
 
 export type TodayAttendance = {
+  // The working day this record belongs to — yesterday's date during the
+  // after-midnight half of an overnight shift.
+  attendanceDate?: string;
   status: string;
   timeInAt: string | null;
   timeOutAt: string | null;
@@ -15,6 +18,12 @@ export type TodayAttendance = {
   // renderTimeInAt (or timeInAt) plus 9 hours, so the 1-hour lunch break
   // doesn't eat into the 8 hours actually worked.
   expectedTimeOutAt?: string | null;
+  // Set when this working day is covered by an approved leave and nothing
+  // has been timed in — attendance can't be recorded while on leave.
+  onLeave?: { leaveTypeName: string } | null;
+  // "BREAK" when the assigned shift doesn't span noon (night/evening
+  // shifts), so the Start/End buttons read "Break" instead of "Lunch".
+  breakKind?: "LUNCH" | "BREAK";
   visitNumber?: number;
   workLocationId?: string | null;
   recordType?: AttendanceRecordType;
@@ -64,6 +73,18 @@ export type AttendanceHistoryRecord = {
   // server-side so the list can show the camera badge without shipping the
   // photo data itself (see getHistory()'s comment in attendance.service.ts).
   hasPhoto?: boolean;
+  // Set on rows the server rebuilt for a day with no attendance record: an
+  // absence, or a day on approved leave (leaveTypeName says which leave).
+  isSynthetic?: boolean;
+  leaveTypeName?: string | null;
+  // The shift the employee was scheduled for on a rebuilt (absent/leave) day.
+  scheduledShift?: { name: string | null; startTime: string; endTime: string } | null;
+  breakKind?: "LUNCH" | "BREAK";
+  lateMinutes?: number;
+  // Minutes timed out before the shift's scheduled end.
+  undertimeMinutes?: number;
+  // Whether this record's undertime filing has been approved.
+  hasApprovedUndertime?: boolean;
   logs: AttendanceLogPhoto[];
 };
 
@@ -191,7 +212,8 @@ export type LeaveRequestHistoryEvent = {
     | "CANCEL_LEAVE"
     | "REQUEST_CANCEL_LEAVE"
     | "APPROVE_CANCEL_LEAVE"
-    | "DENY_CANCEL_LEAVE";
+    | "DENY_CANCEL_LEAVE"
+    | "LAPSE_LEAVE";
   status: string | null;
   actorName: string | null;
   occurredAt: string;
@@ -208,6 +230,8 @@ export type LeaveRequest = {
   startDate: string;
   endDate: string;
   totalDays: string;
+  // Set only on a LAPSED request: "REPORTED_FOR_WORK" or "NOT_DECIDED".
+  lapseReason?: string | null;
   status: string;
   reason: string;
   createdAt: string;
@@ -327,8 +351,16 @@ export type LateAttendanceRecord = {
   id: string;
   attendanceDate: string;
   lateMinutes: number;
+  undertimeMinutes?: number;
   timeInAt: string | null;
 };
+
+// Undertime a filing covers for a day: minutes late plus minutes timed out
+// before the shift's scheduled end.
+export function filedMinutes(record: { lateMinutes?: number; undertimeMinutes?: number }) {
+  return (record.lateMinutes ?? 0) + (record.undertimeMinutes ?? 0);
+}
+
 
 export type UndertimeFiling = {
   id: string;

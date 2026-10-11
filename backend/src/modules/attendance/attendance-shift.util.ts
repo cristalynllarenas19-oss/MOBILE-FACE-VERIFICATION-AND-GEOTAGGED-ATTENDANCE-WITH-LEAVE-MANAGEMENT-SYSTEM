@@ -63,30 +63,158 @@ export function computeShiftSpanMinutes(shift: ShiftTimeFields): number {
   return endMinutes <= startMinutes ? endMinutes + 24 * 60 - startMinutes : endMinutes - startMinutes;
 }
 
-// Total break minutes deducted from raw elapsed time to get paid
-// totalMinutes (see upsertAttendanceRecord). Morning/afternoon breaks are
-// always the shift's flat configured amount — there's no punch mechanism for
-// either. Lunch instead uses the employee's own measured Lunch Out -> Lunch
-// In duration whenever both punches exist, uncapped in either direction: a
-// shorter-than-scheduled lunch credits the extra time as worked, and a
-// longer one costs the extra time, rather than everyone getting the same
-// flat deduction regardless of how long they actually took. Falls back to
-// the shift's flat lunchBreakMinutes when the lunch punches are missing or
-// incomplete (no Lunch Out, or Lunch Out with no matching Lunch In yet).
-export function computeTotalBreakMinutes(
-  shift: {
-    morningBreakMinutes: number;
-    afternoonBreakMinutes: number;
-    lunchBreakMinutes: number;
-  },
-  lunchPunch?: { lunchOutAt: Date | null; lunchInAt: Date | null },
+// breakStartTime ("HH:mm") and breakKind are stored per shift (see the
+// Shift model). Both are optional here only so a shift saved before those
+// columns existed still resolves, through the same defaults a new shift is
+// saved with — see defaultBreakStartTime / defaultBreakKind.
+type ShiftBreakFields = ShiftTimeFields & {
+  lunchBreakMinutes: number;
+  breakStartTime?: string | null;
+  breakKind?: string | null;
+};
+
+// LUNCH when the break falls around midday; BREAK on any shift where it
+// doesn't (night/evening shifts), where calling it "lunch" would be wrong.
+// Clients label their Start/End buttons from this.
+export type ShiftBreakKind = "LUNCH" | "BREAK";
+
+export type ShiftBreakWindow = { start: Date; end: Date; kind: ShiftBreakKind };
+
+export function shiftCrossesMidnight(shift: Pick<ShiftTimeFields, "startTime" | "endTime">): boolean {
+  return timeToMinutes(shift.endTime) <= timeToMinutes(shift.startTime);
+}
+
+function minutesToTime(totalMinutes: number): string {
+  const minutes = ((totalMinutes % 1440) + 1440) % 1440;
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+}
+
+const DEFAULT_HOURS_WORKED_BEFORE_BREAK = 4;
+const LUNCH_EARLIEST_HOUR = 10;
+const LUNCH_LATEST_HOUR = 15;
+
+// What a shift's break is saved as when the admin doesn't choose one: the
+// shift's 5th hour — 12:00 on an 08:00 start, 02:00 on a 22:00 start.
+export function defaultBreakStartTime(startTime: string): string {
+  return minutesToTime(timeToMinutes(startTime) + DEFAULT_HOURS_WORKED_BEFORE_BREAK * 60);
+}
+
+// What a break is called when the admin doesn't choose: lunch if it starts
+// around midday, a plain break otherwise.
+export function defaultBreakKind(breakStartTime: string): ShiftBreakKind {
+  const hour = Math.floor(timeToMinutes(breakStartTime) / 60);
+  return hour >= LUNCH_EARLIEST_HOUR && hour < LUNCH_LATEST_HOUR ? "LUNCH" : "BREAK";
+}
+
+// The shift's single scheduled break on a given attendanceDate, from its
+// stored breakStartTime and lunchBreakMinutes. A break time earlier in the
+// day than the shift's start belongs to the after-midnight half of an
+// overnight shift. Null when the shift has no break configured or the break
+// doesn't fit inside the shift.
+export function resolveBreakWindow(shift: ShiftBreakFields, attendanceDate: Date): ShiftBreakWindow | null {
+  const durationMs = shift.lunchBreakMinutes * 60000;
+  if (durationMs <= 0) return null;
+
+  const shiftStart = parseTimeOnDate(attendanceDate, shift.startTime).getTime();
+  const shiftEnd = resolveShiftEndOnDate(shift, attendanceDate).getTime();
+  const breakStartTime = shift.breakStartTime || defaultBreakStartTime(shift.startTime);
+
+  let start = parseTimeOnDate(attendanceDate, breakStartTime).getTime();
+  if (start < shiftStart) start += 24 * 60 * 60000;
+  const end = start + durationMs;
+  if (end > shiftEnd) return null;
+
+  const kind: ShiftBreakKind =
+    shift.breakStartTime && (shift.breakKind === "LUNCH" || shift.breakKind === "BREAK")
+      ? shift.breakKind
+      : defaultBreakKind(breakStartTime);
+  return { start: new Date(start), end: new Date(end), kind };
+}
+
+export function resolveBreakKind(shift: ShiftBreakFields | null | undefined): ShiftBreakKind {
+  if (!shift) return "LUNCH";
+  return resolveBreakWindow(shift, new Date(2000, 0, 1))?.kind ?? "LUNCH";
+}
+
+// ── Overnight shifts ─────────────────────────────────────────────────────
+// A shift that crosses midnight is one working day filed under the calendar
+// date it STARTED on, so a scan made after midnight has to be matched back
+// to the previous day's record rather than opening a new one for "today".
+
+function previousDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() - 1);
+}
+
+// True while `now` still falls inside the overnight shift that started on
+// the previous calendar day (e.g. 1:00 AM during a 22:00-07:00 shift).
+export function isInsidePreviousDayShift(shift: ShiftTimeFields, now: Date): boolean {
+  if (!shiftCrossesMidnight(shift)) return false;
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return now.getTime() < resolveShiftEndOnDate(shift, previousDay(today)).getTime();
+}
+
+// Whether `now` falls inside one of this person's scheduled shifts: today's,
+// or — for an overnight shift — the one that began yesterday and is still
+// running. The shift's start day has to be one of their working days.
+export function isOnShiftAt(
+  shift: Pick<ShiftTimeFields, "startTime" | "endTime">,
+  workingDays: number[],
+  now: Date,
+): boolean {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const fullShift = { ...shift, lateThresholdMinutes: 0 };
+  return [today, previousDay(today)].some((day) => {
+    if (!workingDays.includes(day.getDay())) return false;
+    const start = parseTimeOnDate(day, shift.startTime).getTime();
+    const end = resolveShiftEndOnDate(fullShift, day).getTime();
+    return now.getTime() >= start && now.getTime() < end;
+  });
+}
+
+// Whether a still-open record of an overnight shift that started on
+// `recordDate` can still take a break punch or Time Out at `now`. It stays
+// open past the shift's end (overtime, or a late time out) until the moment
+// that is closer to the next shift's start than to this shift's end — from
+// then on a scan is the next day's Time In instead.
+export function canContinueOvernightRecord(shift: ShiftTimeFields, recordDate: Date, now: Date): boolean {
+  if (!shiftCrossesMidnight(shift)) return false;
+  const shiftEnd = resolveShiftEndOnDate(shift, recordDate).getTime();
+  const nextShiftStart = parseTimeOnDate(recordDate, shift.startTime).getTime() + 24 * 60 * 60000;
+  return now.getTime() < (shiftEnd + nextShiftStart) / 2;
+}
+
+// Break minutes deducted from raw elapsed time to get totalMinutes (see
+// upsertAttendanceRecord). Only time the employee was actually on the clock
+// for is deducted:
+// - both punches: the measured Start -> End duration, uncapped either way;
+// - Start only (never ended): the scheduled length, but never more than the
+//   time between that Start punch and Time Out;
+// - no punches: however much of the scheduled window (see
+//   resolveBreakWindow) falls between the effective Time In and Time Out —
+//   zero for someone who timed out before it began or timed in after it
+//   ended.
+export function computeBreakMinutes(
+  shift: ShiftBreakFields,
+  attendanceDate: Date,
+  workStart: Date,
+  timeOut: Date,
+  breakPunch?: { lunchOutAt: Date | null; lunchInAt: Date | null },
 ): number {
-  const measuredLunch =
-    lunchPunch?.lunchOutAt && lunchPunch.lunchInAt
-      ? Math.max(0, Math.round((lunchPunch.lunchInAt.getTime() - lunchPunch.lunchOutAt.getTime()) / 60000))
-      : null;
-  const lunchMinutes = measuredLunch ?? shift.lunchBreakMinutes;
-  return shift.morningBreakMinutes + shift.afternoonBreakMinutes + lunchMinutes;
+  const minutesBetween = (from: number, to: number) => Math.max(0, Math.round((to - from) / 60000));
+
+  if (breakPunch?.lunchOutAt && breakPunch.lunchInAt) {
+    return minutesBetween(breakPunch.lunchOutAt.getTime(), breakPunch.lunchInAt.getTime());
+  }
+  if (breakPunch?.lunchOutAt) {
+    return Math.min(shift.lunchBreakMinutes, minutesBetween(breakPunch.lunchOutAt.getTime(), timeOut.getTime()));
+  }
+
+  const window = resolveBreakWindow(shift, attendanceDate);
+  if (!window) return 0;
+  return minutesBetween(
+    Math.max(window.start.getTime(), workStart.getTime()),
+    Math.min(window.end.getTime(), timeOut.getTime()),
+  );
 }
 
 export function computeMinutesLate(shift: ShiftTimeFields, arrivalTime: Date, attendanceDate: Date): number {

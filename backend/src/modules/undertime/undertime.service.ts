@@ -2,7 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable } from "@nestjs/com
 import { PrismaService } from "../../prisma/prisma.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
-import { CutoffBounds, getFilingTargetCutoff, isFilingDay, validateCutoffBounds } from "../../common/utils/cutoff.util";
+import { CutoffBounds, getFilingTargetCutoff, isFilingDay, validateCutoffBounds, validateFilingDaysAgainstCutoffs } from "../../common/utils/cutoff.util";
 
 type UndertimeStatus = "PENDING" | "APPROVED" | "REJECTED";
 
@@ -38,6 +38,10 @@ export class UndertimeService {
     }
 
     const existing = await this.getSettings();
+    const clash = validateFilingDaysAgainstCutoffs(days, existing);
+    if (clash) {
+      throw new BadRequestException(clash);
+    }
 
     const settings = await this.prisma.undertimeSettings.update({
       where: { id: "singleton" },
@@ -68,6 +72,10 @@ export class UndertimeService {
     }
 
     const existing = await this.getSettings();
+    const clash = validateFilingDaysAgainstCutoffs(existing.filingDaysOfMonth, bounds);
+    if (clash) {
+      throw new BadRequestException(`${clash} Change the filing days first.`);
+    }
 
     const settings = await this.prisma.undertimeSettings.update({
       where: { id: "singleton" },
@@ -100,7 +108,8 @@ export class UndertimeService {
   }
 
   // Tells the frontend whether filing is currently allowed, which cutoff it
-  // would file for, which late AttendanceRecords are pickable, and whether a
+  // would file for, which late or early-time-out AttendanceRecords are
+  // pickable (still returned as `lateRecords`), and whether a
   // filing already exists for that cutoff — the UI never has to hardcode the
   // filing days, the cutoff boundaries, or the 1-per-cutoff cap, it just
   // reflects whatever this returns.
@@ -123,7 +132,7 @@ export class UndertimeService {
           where: {
             employeeId,
             attendanceDate: { gte: targetCutoff.start, lte: targetCutoff.end },
-            lateMinutes: { gt: 0 },
+            OR: [{ lateMinutes: { gt: 0 } }, { undertimeMinutes: { gt: 0 }, timeOutAt: { not: null } }],
           },
           orderBy: { attendanceDate: "asc" },
         });
@@ -161,8 +170,8 @@ export class UndertimeService {
     if (!attendanceRecord || attendanceRecord.employeeId !== employeeId) {
       throw new BadRequestException("Attendance record not found.");
     }
-    if (attendanceRecord.lateMinutes <= 0) {
-      throw new BadRequestException("Only a late attendance record can be filed for undertime.");
+    if (attendanceRecord.lateMinutes <= 0 && attendanceRecord.undertimeMinutes <= 0) {
+      throw new BadRequestException("Only a late or early time-out attendance record can be filed for undertime.");
     }
     if (attendanceRecord.attendanceDate < targetCutoff.start || attendanceRecord.attendanceDate > targetCutoff.end) {
       throw new BadRequestException("This attendance record is outside the current filing cutoff.");

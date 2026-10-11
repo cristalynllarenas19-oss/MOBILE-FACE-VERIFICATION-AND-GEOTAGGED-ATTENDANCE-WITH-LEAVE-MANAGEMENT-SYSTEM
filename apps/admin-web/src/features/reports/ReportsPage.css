@@ -186,6 +186,16 @@
   vertical-align: middle;
 }
 
+/* Every status pill is the same size regardless of label, like the Leave
+   Management table — sized to fit the longest one, "LAPSED - REPORTED TO
+   WORK", so it never spills past its column. */
+.reports-table-card td .badge {
+  width: 186px;
+  padding: 5px 8px;
+  font-size: 10.5px;
+  letter-spacing: 0.01em;
+}
+
 .reports-table-card tbody tr:last-child td {
   border-bottom: none;
 }

@@ -1,7 +1,7 @@
 
 import { CSSProperties, useMemo, useState } from "react";
-import { ArrowRight, Camera, Eye, RefreshCw, X } from "lucide-react";
-import { AttendanceHistoryRecord, AttendanceLogPhoto, getAttendanceHistory, getAttendanceRecordPhotos } from "./api";
+import { ArrowRight, Camera, ChevronDown, ChevronRight, Eye, RefreshCw, X } from "lucide-react";
+import { AttendanceHistoryRecord, AttendanceLogPhoto, filedMinutes, getAttendanceHistory, getAttendanceRecordPhotos } from "./api";
 import type { AuthUser } from "../../lib/api";
 import { CACHE_KEYS, useCachedData } from "../../lib/dataCache";
 import { SegmentedControl } from "../../components/ui/SegmentedControl";
@@ -27,9 +27,9 @@ function fmtTime(v: string | null) {
   if (!v) return "--:--";
   return new Date(v).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
-function photoTabLabel(tab: PhotoTab, isOffice: boolean) {
-  if (tab === "LUNCH_OUT") return "Start Lunch";
-  if (tab === "LUNCH_IN") return "End Lunch";
+function photoTabLabel(tab: PhotoTab, isOffice: boolean, breakWord = "Lunch") {
+  if (tab === "LUNCH_OUT") return `Start ${breakWord}`;
+  if (tab === "LUNCH_IN") return `End ${breakWord}`;
   if (tab === "TIME_IN") return isOffice ? "Time In" : "Visit Start";
   return isOffice ? "Time Out" : "Visit End";
 }
@@ -47,10 +47,10 @@ function photoUri(log: AttendanceLogPhoto) {
 }
 function statusTone(s: string): { color: string; bg: string; icon: string } {
   if (s === "PRESENT")           return { color: "#17A34A", bg: "#ECFDF3", icon: "✓" };
-  if (s === "LATE")              return { color: "#D97706", bg: "#FFFBEB", icon: "⚠" };
+  if (s === "LATE")              return { color: "#CA8A04", bg: "#FEFCE8", icon: "⚠" };
   if (s === "ON_LEAVE")          return { color: "#1680D8", bg: "#EFF6FF", icon: "📅" };
-  if (s === "OFFICIAL_BUSINESS") return { color: "#7C3AED", bg: "#F5F3FF", icon: "💼" };
   if (s === "ABSENT")            return { color: "#DC2626", bg: "#FEF2F2", icon: "✕" };
+  if (s === "LEAVE_PENDING")     return { color: "#B45309", bg: "#FEF3C7", icon: "⏳" };
   return { color: "#94A3B8", bg: "#F8FAFC", icon: "⏱" };
 }
 // Local (not UTC) YYYY-MM-DD, so a "2026-08-25" input value lines up with
@@ -60,6 +60,89 @@ function toLocalDateStr(v: string | Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 const todayStr = toLocalDateStr(new Date());
+
+// The list is grouped by month: one header row per month, followed by that
+// month's records only while it is expanded. The current month is always
+// shown and can't be collapsed; every earlier month starts collapsed and
+// can be opened. (With nothing in the current month, the newest month
+// starts open instead — but stays collapsible like any past month.)
+type MonthRow =
+  | { kind: "month"; key: string; label: string; count: number; expanded: boolean; locked: boolean }
+  | { kind: "record"; record: AttendanceHistoryRecord };
+
+function monthKeyOf(value: string | Date) {
+  const d = typeof value === "string" ? new Date(value) : value;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function buildMonthRows(records: AttendanceHistoryRecord[], toggled: Record<string, boolean>): MonthRow[] {
+  const groups: { key: string; label: string; records: AttendanceHistoryRecord[] }[] = [];
+  for (const record of records) {
+    const key = monthKeyOf(record.attendanceDate);
+    let group = groups[groups.length - 1];
+    if (!group || group.key !== key) {
+      group = groups.find((g) => g.key === key) ?? {
+        key,
+        label: new Date(record.attendanceDate).toLocaleDateString("en-US", { month: "long", year: "numeric" }),
+        records: [],
+      };
+      if (!groups.includes(group)) groups.push(group);
+    }
+    group.records.push(record);
+  }
+
+  const currentKey = monthKeyOf(new Date());
+  const defaultOpenKey = groups.some((g) => g.key === currentKey) ? currentKey : groups[0]?.key;
+
+  const rows: MonthRow[] = [];
+  for (const group of groups) {
+    const locked = group.key === currentKey;
+    const expanded = locked || (toggled[group.key] ?? group.key === defaultOpenKey);
+    rows.push({ kind: "month", key: group.key, label: group.label, count: group.records.length, expanded, locked });
+    if (expanded) for (const record of group.records) rows.push({ kind: "record", record });
+  }
+  return rows;
+}
+
+
+// What to tell the employee about a day with no attendance record — an
+// absence, an approved leave, or a leave still awaiting a decision.
+function missedDayDetail(record: AttendanceHistoryRecord): { title: string; message: string; note: string | null } {
+  const leave = record.leaveTypeName ?? "leave";
+  if (record.status === "ON_LEAVE") {
+    return {
+      title: "On Leave",
+      message: `You were on approved ${leave} on this day, so no attendance was required.`,
+      note: null,
+    };
+  }
+  if (record.status === "LEAVE_PENDING") {
+    return {
+      title: "Leave Pending",
+      message: `Your ${leave} request for this day is still awaiting a decision, and no attendance has been logged.`,
+      note: "It will be recorded as an absence only if the request is not approved and you did not report for work.",
+    };
+  }
+  return {
+    title: "Absent",
+    message: "No attendance was logged on this day, so it is recorded as an absence.",
+    note: null,
+  };
+}
+
+function formatShiftClock(time: string) {
+  const [hours, minutes] = time.split(":").map(Number);
+  if ([hours, minutes].some((n) => Number.isNaN(n))) return time;
+  return `${hours % 12 === 0 ? 12 : hours % 12}:${String(minutes).padStart(2, "0")} ${hours >= 12 ? "PM" : "AM"}`;
+}
+
+function scheduledShiftText(record: AttendanceHistoryRecord) {
+  const shift = record.scheduledShift;
+  if (!shift) return null;
+  const hours = `${formatShiftClock(shift.startTime)} – ${formatShiftClock(shift.endTime)}`;
+  return shift.name ? `${shift.name}, ${hours}` : hours;
+}
+
 
 export function DtrPage({ user }: Props) {
   const historyCache = useCachedData<AttendanceHistoryRecord[]>(
@@ -81,6 +164,7 @@ export function DtrPage({ user }: Props) {
   const [isLoadingPhotos, setIsLoadingPhotos] = useState(false);
 
   const activeLog = selected?.logs.find((l) => l.logType === photoTab) ?? null;
+  const selectedBreakWord = selected?.breakKind === "BREAK" ? "Break" : "Lunch";
 
   // Attendance photos are stored raw/unwatermarked (see CameraScanner's
   // finishScan) — the GPS stamp is drawn here as a DOM overlay from the
@@ -105,6 +189,21 @@ export function DtrPage({ user }: Props) {
   async function openRecord(record: AttendanceHistoryRecord) {
     setSelected(record);
     setPhotoTab("TIME_IN");
+    // An absent/leave day is rebuilt by the server on every fetch, so the
+    // copy in this tab's cached list can predate details added since (its
+    // scheduled shift, a leave decided in the meantime). Re-fetch and swap
+    // in the current version of the same day.
+    if (record.isSynthetic) {
+      try {
+        const fresh = await getAttendanceHistory(user.employeeId!);
+        historyCache.setData(fresh);
+        const current = fresh.find((row) => row.id === record.id);
+        setSelected((open) => (open && open.id === record.id ? current ?? open : open));
+      } catch (error) {
+        console.error("Failed to refresh attendance history", error);
+      }
+      return;
+    }
     if (!record.hasPhoto) return;
     setIsLoadingPhotos(true);
     try {
@@ -146,6 +245,10 @@ export function DtrPage({ user }: Props) {
 
   const isOffice     = activeTab === "office";
   const listData     = isOffice ? officeRecs : filteredField;
+  // Months the user has explicitly opened/closed; anything not in here
+  // follows the default (current month open, earlier months closed).
+  const [toggledMonths, setToggledMonths] = useState<Record<string, boolean>>({});
+  const monthRows = useMemo(() => buildMonthRows(listData, toggledMonths), [listData, toggledMonths]);
 
   return (
     <div className="dtr-shell emp-form-page">
@@ -247,12 +350,30 @@ export function DtrPage({ user }: Props) {
           <div className="dtr-dense-head">
             <span>Date</span>
             <span>{isOffice ? "Time In → Out" : "Visit Start → End"}</span>
-            <span style={{ textAlign: "center" }}>Lunch</span>
+            <span style={{ textAlign: "center" }}>Lunch / Break</span>
             <span>Hours Rendered</span>
             <span />
           </div>
           <div className="dtr-records-scroll emp-scroll-thin">
-            {listData.map((item, idx) => {
+            {monthRows.map((row, idx) => {
+              if (row.kind === "month") {
+                return (
+                  <button
+                    key={`month-${row.key}`}
+                    type="button"
+                    className="dtr-month-header"
+                    style={{ borderTop: idx === 0 ? "none" : "1px solid #E2E8F0" }}
+                    aria-expanded={row.locked ? undefined : row.expanded}
+                    disabled={row.locked}
+                    onClick={() => setToggledMonths((current) => ({ ...current, [row.key]: !row.expanded }))}
+                  >
+                    {!row.locked && (row.expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />)}
+                    <span className="dtr-month-label">{row.label}</span>
+                    <span className="dtr-month-count">{row.count} {row.count === 1 ? "record" : "records"}</span>
+                  </button>
+                );
+              }
+              const item       = row.record;
               const tone       = statusTone(item.status);
               const hrs        = fmtHours(item.totalMinutes);
               const inProgress = Boolean(item.timeInAt) && !item.timeOutAt;
@@ -273,7 +394,7 @@ export function DtrPage({ user }: Props) {
                   onClick={() => openRecord(item)}
                   onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openRecord(item); } }}
                   className="dtr-dense-row"
-                  style={{ borderTop: idx === 0 ? "none" : "1px solid #EDF3F8" }}
+                  style={{ borderTop: "1px solid #EDF3F8" }}
                   title={item.status.replace("_", " ")}
                 >
                   <span className="dtr-dense-date-cell">
@@ -283,11 +404,21 @@ export function DtrPage({ user }: Props) {
                       {item.workLocation?.name && (
                         <span className="dtr-dense-site">{item.workLocation.name}</span>
                       )}
+                      {(item.status === "ON_LEAVE" || item.status === "LEAVE_PENDING") && item.leaveTypeName && (
+                        <span className="dtr-dense-site">{item.leaveTypeName}</span>
+                      )}
+                      {item.hasApprovedUndertime && (
+                        <span className="dtr-dense-undertime">
+                          Approved undertime{filedMinutes(item) ? ` · ${fmtHours(filedMinutes(item))}` : ""}
+                        </span>
+                      )}
                     </span>
                   </span>
 
                   <span className="dtr-dense-time">
-                    {fmtTime(item.timeInAt)} <ArrowRight size={11} color="#CBD5E1" /> {fmtTime(item.timeOutAt)}
+                    {item.isSynthetic ? "—" : (
+                      <>{fmtTime(item.timeInAt)} <ArrowRight size={11} color="#CBD5E1" /> {fmtTime(item.timeOutAt)}</>
+                    )}
                   </span>
 
                   <span className="dtr-dense-time dtr-dense-lunch">
@@ -295,23 +426,29 @@ export function DtrPage({ user }: Props) {
                   </span>
 
                   <span className="dtr-dense-bar-wrap">
-                    <span className="dtr-dense-bar-label" style={{ color: hrs ? tone.color : inProgress ? tone.color : "#94A3B8" }}>
-                      {hrs ?? (inProgress ? "In progress" : "--")}
+                    <span className="dtr-dense-bar-label" style={{ color: hrs || inProgress || item.isSynthetic ? tone.color : "#94A3B8" }}>
+                      {item.status === "ABSENT" ? "Absent" : item.status === "ON_LEAVE" ? "On leave" : item.status === "LEAVE_PENDING" ? "Leave pending" : hrs ?? (inProgress ? "In progress" : "--")}
                       {isOffice && !!item.overtimeMinutes && (
                         <span style={{ color: "#D97706", fontWeight: 700 }}> +{fmtHours(item.overtimeMinutes)} OT</span>
                       )}
                     </span>
+                    {/* On its own line under the hours, not appended to them —
+                        "2h 59m · 1h 14m early out" wrapped mid-phrase in this
+                        narrow column and read as two competing totals. */}
+                    {isOffice && !!item.timeOutAt && !!item.undertimeMinutes && (
+                      <span className="dtr-dense-early-out">Early out {fmtHours(item.undertimeMinutes)}</span>
+                    )}
                     <span className="dtr-dense-bar-track">
                       <span className="dtr-dense-bar-fill" style={{ width: `${barPct}%`, background: tone.color }} />
                     </span>
                   </span>
 
-                  {hasPhotos ? (
+                  {hasPhotos || item.isSynthetic ? (
                     <button
                       type="button"
                       className="dtr-dense-view-btn"
                       onClick={(e) => { e.stopPropagation(); openRecord(item); }}
-                      title="View captured photos"
+                      title={item.isSynthetic ? "View details" : "View captured photos"}
                     >
                       <Eye size={16} />
                       View
@@ -327,20 +464,66 @@ export function DtrPage({ user }: Props) {
       )}
 
       {/* ── Photo modal ──────────────────────────────────────────────────────── */}
-      {selected && (
+      {/* ── Absent / leave day details ───────────────────────────────────────── */}
+      {selected?.isSynthetic && (() => {
+        const detail = missedDayDetail(selected);
+        const tone = statusTone(selected.status);
+        const shiftText = scheduledShiftText(selected);
+        return (
+          <div style={overlayS}>
+            <div style={{ ...modalCard, maxWidth: 400, padding: 20, textAlign: "center" }}>
+              <div style={{
+                width: 64, height: 64, borderRadius: "50%", margin: "4px auto 14px",
+                background: tone.bg, color: tone.color,
+                display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, fontWeight: 800,
+              }}>
+                {tone.icon}
+              </div>
+              <p style={{ color: "#64748B", fontSize: 13, fontWeight: 600, margin: "0 0 4px" }}>
+                {fmtDate(selected.attendanceDate)}
+              </p>
+              <h3 style={{ color: tone.color, fontSize: 18, fontWeight: 800, margin: "0 0 10px" }}>{detail.title}</h3>
+              <p style={{ color: "#334155", fontSize: 14, lineHeight: "20px", margin: "0 0 14px" }}>{detail.message}</p>
+
+              <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 12, padding: "10px 14px", textAlign: "left", marginBottom: 14 }}>
+                {shiftText && (
+                  <div style={missedDetailRow}>
+                    <span style={missedDetailLabel}>Scheduled shift</span>
+                    <span style={missedDetailValue}>{shiftText}</span>
+                  </div>
+                )}
+                {selected.leaveTypeName && (
+                  <div style={missedDetailRow}>
+                    <span style={missedDetailLabel}>Leave</span>
+                    <span style={missedDetailValue}>{selected.leaveTypeName}</span>
+                  </div>
+                )}
+                <div style={missedDetailRow}>
+                  <span style={missedDetailLabel}>Time in / out</span>
+                  <span style={missedDetailValue}>None logged</span>
+                </div>
+              </div>
+
+              {detail.note && (
+                <p style={{ color: "#64748B", fontSize: 12, lineHeight: "17px", margin: "0 0 16px" }}>{detail.note}</p>
+              )}
+              <button
+                onClick={() => setSelected(null)}
+                style={{ display: "block", width: "100%", height: 46, borderRadius: 12, border: "none", background: "#062B59", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer" }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
+      {selected && !selected.isSynthetic && (
         <div style={overlayS}>
           <div className="emp-scroll-thin" style={modalCard}>
-            <button
-              type="button"
-              onClick={() => setSelected(null)}
-              style={modalCloseBtn}
-              aria-label="Close"
-            >
-              <X size={15} color="#64748B" />
-            </button>
 
             {/* Title */}
-            <p style={{ color: "#062B59", fontSize: 15, fontWeight: 800, textAlign: "center", marginBottom: 14, paddingRight: 28 }}>
+            <p style={{ color: "#062B59", fontSize: 15, fontWeight: 800, textAlign: "center", marginBottom: 14 }}>
               {fmtDate(selected.attendanceDate)}
               {selected.workLocation?.name ? ` · ${selected.workLocation.name}` : ""}
             </p>
@@ -351,10 +534,10 @@ export function DtrPage({ user }: Props) {
                 { key: "TIME_IN", label: photoTabLabel("TIME_IN", isOffice) },
                 { key: "TIME_OUT", label: photoTabLabel("TIME_OUT", isOffice) },
                 ...(isOffice && selected.logs.some((l) => l.logType === "LUNCH_OUT")
-                  ? [{ key: "LUNCH_OUT", label: "Start Lunch" }]
+                  ? [{ key: "LUNCH_OUT", label: `Start ${selectedBreakWord}` }]
                   : []),
                 ...(isOffice && selected.logs.some((l) => l.logType === "LUNCH_IN")
-                  ? [{ key: "LUNCH_IN", label: "End Lunch" }]
+                  ? [{ key: "LUNCH_IN", label: `End ${selectedBreakWord}` }]
                   : []),
               ]}
               value={photoTab}
@@ -418,7 +601,7 @@ export function DtrPage({ user }: Props) {
                               padding: "3px 8px", borderRadius: 6,
                               fontSize: 10, fontWeight: 800,
                             }}>
-                              {photoTabLabel(photoTab, isOffice).toUpperCase()} · {formatStampDate(new Date(activeLog.capturedAt))}
+                              {photoTabLabel(photoTab, isOffice, selectedBreakWord).toUpperCase()} · {formatStampDate(new Date(activeLog.capturedAt))}
                             </div>
                             <div style={{
                               color: "#FFFFFF", fontSize: 10, fontWeight: 700,
@@ -506,10 +689,8 @@ const modalCard: CSSProperties = {
   background: "#fff", borderRadius: 20, padding: 16,
   position: "relative",
 };
-const modalCloseBtn: CSSProperties = {
-  position: "absolute", top: 12, right: 12,
-  width: 28, height: 28, borderRadius: "50%",
-  border: "none", background: "#F1F5F9",
-  display: "flex", alignItems: "center", justifyContent: "center",
-  cursor: "pointer", zIndex: 1,
+const missedDetailRow: CSSProperties = {
+  display: "flex", justifyContent: "space-between", gap: 12, padding: "5px 0",
 };
+const missedDetailLabel: CSSProperties = { color: "#64748B", fontSize: 12.5, fontWeight: 600 };
+const missedDetailValue: CSSProperties = { color: "#0F172A", fontSize: 12.5, fontWeight: 700, textAlign: "right" };

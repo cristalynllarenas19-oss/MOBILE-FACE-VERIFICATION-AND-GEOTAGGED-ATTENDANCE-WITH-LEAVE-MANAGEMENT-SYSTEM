@@ -70,6 +70,11 @@ export function UndertimeSettingsCard({
       .catch(() => undefined);
   }, []);
 
+  function filingDaysShareCutoff(days: number[]) {
+    const inCutoff1 = days.filter((day) => day >= cutoff1Start && day <= cutoff1End).length;
+    return inCutoff1 > 1 || days.length - inCutoff1 > 1;
+  }
+
   function startEditingFiling() {
     setFilingSnapshot({ dayOne, dayTwo });
     setIsFilingEditing(true);
@@ -100,8 +105,13 @@ export function UndertimeSettingsCard({
       setDayOne(String(day));
       return;
     }
-    if (!dayTwo) {
-      setDayTwo(String(day));
+    if (filingDaysShareCutoff([Number(dayOne), day])) {
+      notify({
+        type: "error",
+        title: "Invalid Filing Day",
+        message: `The ${day} is in the same cutoff period as the ${dayOne}. Pick a day in the other cutoff period.`,
+        buttonLabel: "Pick Other Date",
+      });
       return;
     }
     setDayTwo(String(day));
@@ -111,6 +121,14 @@ export function UndertimeSettingsCard({
     const days = [Number(dayOne), Number(dayTwo)].filter((day) => Number.isInteger(day) && day >= 1 && day <= 31);
     if (days.length === 0) {
       notify({ type: "error", title: "Invalid Filing Day", message: "Enter at least one valid filing day (1-31)." });
+      return;
+    }
+    if (filingDaysShareCutoff(days)) {
+      notify({
+        type: "error",
+        title: "Invalid Filing Days",
+        message: "Both filing days fall in the same cutoff period. Each cutoff period can contain only one filing day.",
+      });
       return;
     }
 
@@ -173,12 +191,32 @@ export function UndertimeSettingsCard({
       });
       return;
     }
+    const filingDays = [Number(dayOne), Number(dayTwo)].filter((d) => d >= 1);
+    const inRange = filingDays.filter((d) => d >= start && d <= end).length;
+    if (inRange > 1 || filingDays.length - inRange > 1) {
+      setCutoffPendingStart(null);
+      notify({
+        type: "error",
+        title: "Invalid Cutoff Range",
+        message: "That range would put both filing days in the same cutoff period. Pick a range that separates them, or change the filing days first.",
+        buttonLabel: "Pick Other Dates",
+      });
+      return;
+    }
     setCutoff1Start(start);
     setCutoff1End(end);
     setCutoffPendingStart(null);
   }
 
   function saveCutoffs() {
+    if (filingDaysShareCutoff([Number(dayOne), Number(dayTwo)].filter((day) => day >= 1))) {
+      notify({
+        type: "error",
+        title: "Invalid Cutoff Range",
+        message: "Both filing days would fall in the same cutoff period. Each cutoff period can contain only one filing day — change the filing days first.",
+      });
+      return;
+    }
     setIsSavingCutoff(true);
     apiRequest<CutoffSettings>("/undertime-filings/settings/cutoffs", {
       method: "PATCH",
@@ -208,8 +246,8 @@ export function UndertimeSettingsCard({
       </div>
       <h4>Undertime Settings</h4>
       <p>
-        When employees may file undertime, and the two semi-monthly cutoff periods used to match a late attendance
-        record to the right filing window.
+        When employees may file undertime, and the two semi-monthly cutoff periods used to match a late or early time-out
+        attendance record to the right filing window.
       </p>
 
       <div className="undertime-unified-grid">
@@ -236,7 +274,7 @@ export function UndertimeSettingsCard({
                 );
               })}
             </div>
-            <p className="cutoff-group-caption">Employees may file undertime on these two days each month.</p>
+            <p className="cutoff-group-caption">Employees may file undertime on these two days each month — one in each cutoff period.</p>
 
             {canManage && (
               <div className="undertime-panel-actions">
@@ -318,12 +356,12 @@ export function UndertimeSettingsCard({
         </div>
       </div>
 
-      <span className="backup-restore-action-note">
-        <ShieldCheck size={13} />
-        {canManage
-          ? "Each panel saves independently and applies to every employee immediately."
-          : "Only administrators can edit undertime settings."}
-      </span>
+      {!canManage && (
+        <span className="backup-restore-action-note">
+          <ShieldCheck size={13} />
+          Only administrators can edit undertime settings.
+        </span>
+      )}
     </section>
   );
 }

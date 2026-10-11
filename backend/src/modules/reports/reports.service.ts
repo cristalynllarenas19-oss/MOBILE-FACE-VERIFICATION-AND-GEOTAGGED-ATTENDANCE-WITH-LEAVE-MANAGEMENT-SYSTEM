@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { dedupeToLatestVisitPerEmployeeDay } from "../attendance/attendance-dedup.util";
-import { computeAbsenceCutoff } from "../attendance/attendance-shift.util";
+import { computeAbsenceCutoff, resolveBreakKind } from "../attendance/attendance-shift.util";
 import { getApprovedLeaveByEmployee } from "../../common/utils/on-leave.util";
 import { isDayOff } from "../../common/utils/schedule.util";
 
@@ -55,7 +55,11 @@ export class ReportsService {
     const [attendanceRecords, leaves, schedules, employees, leaveTypes, leaveBalanceRows, approvedLeaveRequests] = await Promise.all([
       this.prisma.attendanceRecord.findMany({
         where: { attendanceDate: { gte: monthStart, lte: endDate }, ...departmentWhere },
-        include: { employee: { include: { department: true } }, workLocation: true },
+        include: {
+          employee: { include: { department: true } },
+          workLocation: true,
+          shift: { select: { startTime: true, endTime: true, lateThresholdMinutes: true, lunchBreakMinutes: true, breakStartTime: true, breakKind: true } },
+        },
         orderBy: { attendanceDate: "desc" },
       }),
       this.prisma.leaveRequest.findMany({
@@ -92,7 +96,7 @@ export class ReportsService {
 
     // Absent/On-Leave never get a real AttendanceRecord row (see
     // on-leave.util.ts), so the raw query above only ever contains
-    // Present/Late/Official Business rows. When the filtered range collapses
+    // Present/Late rows. When the filtered range collapses
     // to exactly one day, reconstruct the missing Absent/On-Leave rows for
     // that day the same way AttendanceService.findAll() already does for
     // Attendance Management's own single-day view — a genuine multi-day
@@ -160,7 +164,10 @@ export class ReportsService {
         }
       }
     }
-    const attendance = [...attendanceRecords, ...syntheticRows];
+    const attendance = [
+      ...attendanceRecords.map(({ shift, ...record }) => ({ ...record, breakKind: resolveBreakKind(shift) })),
+      ...syntheticRows,
+    ];
 
     const balanceKey = (employeeId: string, leaveTypeId: string) => `${employeeId}:${leaveTypeId}`;
     const balanceMap = new Map(leaveBalanceRows.map((b) => [balanceKey(b.employeeId, b.leaveTypeId), b]));
@@ -214,6 +221,25 @@ export class ReportsService {
       {},
     );
 
+    // Undertime filings, placed by the day the undertime happened (the
+    // attendance record they were filed against) rather than the later date
+    // they were filed on — same date range and department scope as the rest.
+    const undertime = await this.prisma.undertimeFiling.findMany({
+      where: { attendanceRecord: { attendanceDate: { gte: monthStart, lte: endDate } }, ...departmentWhere },
+      select: {
+        id: true,
+        filingDate: true,
+        reason: true,
+        status: true,
+        remarks: true,
+        reviewedAt: true,
+        employee: { select: { firstName: true, lastName: true, department: { select: { name: true } } } },
+        attendanceRecord: { select: { attendanceDate: true, lateMinutes: true, undertimeMinutes: true } },
+        reviewer: { select: { email: true, employee: { select: { firstName: true, lastName: true } } } },
+      },
+      orderBy: { filingDate: "desc" },
+    });
+
     const leaveByStatus = leaves.reduce<Record<string, number>>((totals, request) => {
       totals[request.status] = (totals[request.status] ?? 0) + 1;
       return totals;
@@ -232,6 +258,7 @@ export class ReportsService {
       },
       attendance,
       leaves,
+      undertime,
       schedules,
       employees,
       leaveBalances,

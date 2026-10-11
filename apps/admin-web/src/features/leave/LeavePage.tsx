@@ -60,6 +60,8 @@ type LeaveRequest = {
   startDate: string;
   endDate: string;
   totalDays: string;
+  // Set only on a LAPSED request: "REPORTED_FOR_WORK" or "NOT_DECIDED".
+  lapseReason?: string | null;
   status: string;
   reason: string;
   createdAt: string;
@@ -170,7 +172,7 @@ type UndertimeFiling = {
   remarks: string | null;
   createdAt: string;
   employee: { id: string; firstName: string; lastName: string; department: { name: string } | null };
-  attendanceRecord?: { attendanceDate: string; lateMinutes: number } | null;
+  attendanceRecord?: { attendanceDate: string; lateMinutes: number; undertimeMinutes?: number } | null;
   reviewer?: { email: string; employee?: { firstName: string; lastName: string } | null } | null;
 };
 
@@ -193,7 +195,7 @@ function getLeaveTone(status: string) {
   if (status === "REJECTED") return "danger";
   // Its own neutral tone, not REJECTED's — withdrawing your own request
   // isn't a rejection.
-  if (status === "CANCELLED") return "neutral";
+  if (status === "CANCELLED" || status === "LAPSED") return "neutral";
   return "warning";
 }
 
@@ -205,7 +207,10 @@ function titleCaseStatus(status: string) {
     .join(" ");
 }
 
-function getLeaveStatusLabel(status: string, _isAdmin: boolean) {
+function getLeaveStatusLabel(status: string, _isAdmin: boolean, lapseReason?: string | null) {
+  // A lapsed request always says which kind: the employee came to work on
+  // those days anyway, or nobody decided in time and the days stand as absent.
+  if (status === "LAPSED") return lapseReason === "REPORTED_FOR_WORK" ? "Lapsed - Reported to Work" : "Lapsed - Absent";
   // SUPERVISOR_APPROVED only exists on legacy rows from the old two-step
   // flow — approval is single-step now, so it reads as plain "Approved".
   if (status === "SUPERVISOR_APPROVED") return "Approved";
@@ -213,6 +218,11 @@ function getLeaveStatusLabel(status: string, _isAdmin: boolean) {
   // wording used on the employee portal and the mobile app.
   if (status === "CANCELLATION_PENDING") return "Pending Cancellation";
   return titleCaseStatus(status);
+}
+
+// Undertime a filing covers: minutes late plus minutes timed out early.
+function filedMinutes(record: { lateMinutes: number; undertimeMinutes?: number }) {
+  return record.lateMinutes + (record.undertimeMinutes ?? 0);
 }
 
 function minutesLabel(minutes: number) {
@@ -1331,6 +1341,19 @@ export function LeavePage({
       (reviewRequest.status === "PENDING" || reviewRequest.status === "SUPERVISOR_APPROVED"),
   );
 
+  // A request that lapsed only because nobody decided it in time (the
+  // employee really was away — "Lapsed - Absent") can still be approved
+  // late, turning those absent days into leave. Same reviewer rule as a
+  // normal review: the supervisor for their employees, HR/Admin for a
+  // supervisor's own request. One that lapsed because the employee reported
+  // for work can never be approved (the backend refuses it too).
+  const canApproveLapsed = Boolean(
+    reviewRequest &&
+      !(isOwnRequest && !isAdmin) &&
+      reviewRequest.status === "LAPSED" &&
+      reviewRequest.lapseReason !== "REPORTED_FOR_WORK",
+  );
+
   // Cancelling a filed leave request is for the employee who filed it
   // (self-service, elsewhere), HR/Admin as a manual-correction override, or
   // a Supervisor for someone else's request in their own department — never
@@ -1723,7 +1746,7 @@ export function LeavePage({
                       </td>
                       <td data-label="Days">{r.totalDays}</td>
                       <td data-label="Status">
-                        <Badge tone={getLeaveTone(r.status)}>{getLeaveStatusLabel(r.status, isAdmin)}</Badge>
+                        <Badge tone={getLeaveTone(r.status)}>{getLeaveStatusLabel(r.status, isAdmin, r.lapseReason)}</Badge>
                       </td>
                       <td data-label="Action">
                         <button
@@ -1820,7 +1843,7 @@ export function LeavePage({
                       <td data-label="Date Filed">{formatDate(r.createdAt)}</td>
                       <td data-label="Days">{r.totalDays}</td>
                       <td data-label="Status">
-                        <Badge tone={getLeaveTone(r.status)}>{getLeaveStatusLabel(r.status, isAdmin)}</Badge>
+                        <Badge tone={getLeaveTone(r.status)}>{getLeaveStatusLabel(r.status, isAdmin, r.lapseReason)}</Badge>
                       </td>
                       <td data-label="Action">
                         <button
@@ -1968,7 +1991,7 @@ export function LeavePage({
                     <td data-label="Employee">{f.employee.firstName} {f.employee.lastName}</td>
                     <td data-label="Department">{f.employee.department?.name ?? "Unassigned"}</td>
                     <td data-label="Attendance Date">{f.attendanceRecord ? formatDate(f.attendanceRecord.attendanceDate) : formatDate(f.filingDate)}</td>
-                    <td data-label="Late Minutes">{f.attendanceRecord?.lateMinutes ?? "—"}</td>
+                    <td data-label="Undertime Minutes">{f.attendanceRecord ? filedMinutes(f.attendanceRecord) : "—"}</td>
                     <td data-label="Status">
                       <Badge tone={getLeaveTone(f.status)}>{getLeaveStatusLabel(f.status, isAdmin)}</Badge>
                     </td>
@@ -2149,7 +2172,7 @@ export function LeavePage({
               <div><span>Total Days</span><strong>{reviewRequest.totalDays}</strong></div>
               <div>
                 <span>Status</span>
-                <Badge tone={getLeaveTone(reviewRequest.status)}>{getLeaveStatusLabel(reviewRequest.status, isAdmin)}</Badge>
+                <Badge tone={getLeaveTone(reviewRequest.status)}>{getLeaveStatusLabel(reviewRequest.status, isAdmin, reviewRequest.lapseReason)}</Badge>
               </div>
               {reviewRequest.status !== "PENDING" && (
                 <div><span>Reviewed By</span><strong>{reviewerName(reviewRequest)}</strong></div>
@@ -2380,6 +2403,11 @@ export function LeavePage({
                   )}
                 </>
               )}
+              {!historyViewOnly && canApproveLapsed && (
+                <button className="primary-button" onClick={() => reviewLeave("approve")} disabled={isSaving}>
+                  Approve Leave
+                </button>
+              )}
               {!historyViewOnly && canCancelRequest && !canReviewRequest && (
                 <button className="leave-reject-button" onClick={cancelRequest} disabled={isSaving || !cancelNote.trim()}>
                   Cancel Leave
@@ -2437,7 +2465,7 @@ export function LeavePage({
                 {reviewUndertime.attendanceRecord && (
                   <>
                     <div><span>Attendance Date</span><strong>{formatDate(reviewUndertime.attendanceRecord.attendanceDate)}</strong></div>
-                    <div><span>Late Minutes</span><strong>{minutesLabel(reviewUndertime.attendanceRecord.lateMinutes)}</strong></div>
+                    <div><span>Undertime Minutes</span><strong>{minutesLabel(filedMinutes(reviewUndertime.attendanceRecord))}</strong></div>
                   </>
                 )}
                 <div><span>Date Filed</span><strong>{formatDate(reviewUndertime.createdAt)}</strong></div>

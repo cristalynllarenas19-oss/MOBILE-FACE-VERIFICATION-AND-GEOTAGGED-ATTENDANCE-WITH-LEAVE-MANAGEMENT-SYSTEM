@@ -81,16 +81,21 @@ type PickedAttachment = {
   base64: string;
 };
 
-function timeAgo(value: string) {
-  const diffMs = Date.now() - new Date(value).getTime();
-  const minutes = Math.floor(diffMs / 60000);
-  if (minutes < 1) return "Just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(value).toLocaleDateString();
+// Compact stamp pinned to the top-right of each row ("09 Oct"). Anything from
+// today shows the clock time instead — while a notification is still fresh the
+// hour is the useful part, and the date would just read as today on every row.
+function shortDate(value: string) {
+  const date = new Date(value);
+  const now = new Date();
+  if (date.toDateString() === now.toDateString()) {
+    return date.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  }
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = date.toLocaleDateString("en-US", { month: "short" });
+  if (date.getFullYear() !== now.getFullYear()) {
+    return `${day} ${month} ${String(date.getFullYear()).slice(2)}`;
+  }
+  return `${day} ${month}`;
 }
 
 // Category carries the color (scannable at a glance); the glyph disambiguates
@@ -117,11 +122,14 @@ const NOTIFICATION_ICON_MAP: Record<string, { name: keyof typeof Ionicons.glyphM
   LEAVE_REJECTED: { name: "close-circle-outline", category: "rejected" },
   LEAVE_CANCELLATION_REQUESTED: { name: "hourglass-outline", category: "pending" },
   LEAVE_CANCELLED: { name: "ban-outline", category: "neutral" },
+  LEAVE_LAPSED: { name: "hourglass-outline", category: "neutral" },
+  LEAVE_DECISION_OVERDUE: { name: "hourglass-outline", category: "pending" },
   ANNOUNCEMENT: { name: "megaphone-outline", category: "announce" },
   PROBATION_REGULARIZATION_DUE: { name: "ribbon-outline", category: "pending" },
   SUPERVISOR_EVALUATION_REQUIRED: { name: "clipboard-outline", category: "pending" },
   EVALUATION_CONVERSION_OUTCOME: { name: "ribbon-outline", category: "info" },
   EMPLOYEE_REGULARIZED: { name: "ribbon-outline", category: "success" },
+  UNDERTIME_SUBMITTED: { name: "hourglass-outline", category: "pending" },
   ATTENDANCE_FLAGGED: { name: "alert-circle-outline", category: "pending" },
   ATTENDANCE_VALIDATED: { name: "shield-checkmark-outline", category: "success" },
   ATTENDANCE_FAKE_ATTEMPT: { name: "warning-outline", category: "critical" },
@@ -133,6 +141,98 @@ function notificationIcon(type: string | null) {
   const entry = type ? NOTIFICATION_ICON_MAP[type] : undefined;
   if (!entry) return { name: "notifications-outline" as const, color: "#244c7a", category: "info" as const };
   return { name: entry.name, color: CATEGORY_COLORS[entry.category], category: entry.category };
+}
+
+// Quick-filter tiles above the feed. Each tile scopes the list to a slice of
+// NOTIFICATION_ICON_MAP's types; "Other" is a catch-all that claims whatever
+// no tile above lists, so a type that isn't named here still has somewhere to
+// appear and nothing can quietly vanish from a filtered view.
+//
+// Evaluation/regularization notifications have no tile of their own and fall
+// through to "Other": three of the four only ever reach an Admin or a
+// Supervisor, and the employee-facing one (EMPLOYEE_REGULARIZED) arrives at
+// most once in a career — not enough traffic to earn a permanent tile that
+// would read as empty for nearly every employee.
+type NotificationGroup = {
+  id: string;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  types: string[];
+};
+
+// The tiles are navigation, not status — they all carry one blue and the glyph
+// alone tells them apart. Per-category color stays where it means something:
+// CATEGORY_COLORS on the rows themselves.
+//
+// This is the system blue (#1680D8) darkened at the same hue and saturation
+// rather than the near-black navy (#062B59) used for headings — at 24px a
+// navy glyph reads as charcoal, not as blue.
+const GROUP_ICON_COLOR = "#0F5FA6";
+
+const NOTIFICATION_GROUPS: NotificationGroup[] = [
+  {
+    id: "leave",
+    label: "Leave",
+    icon: "calendar-outline",
+    types: [
+      "LEAVE_SUBMITTED",
+      "LEAVE_RESUBMITTED",
+      "LEAVE_NEEDS_REQUIREMENTS",
+      "LEAVE_APPROVED",
+      "LEAVE_REJECTED",
+      "LEAVE_CANCELLATION_REQUESTED",
+      "LEAVE_CANCELLED",
+      "LEAVE_LAPSED",
+      "LEAVE_DECISION_OVERDUE",
+    ],
+  },
+  {
+    id: "attendance",
+    label: "Attendance",
+    icon: "time-outline",
+    // Includes the two account-security types — a flagged impersonation and a
+    // same-day face-mismatch streak are both things that happened at a time
+    // clock, and the employee looking for them is looking for an attendance
+    // problem, not browsing a separate security log.
+    types: [
+      "ATTENDANCE_FLAGGED",
+      "ATTENDANCE_VALIDATED",
+      "ATTENDANCE_LOCKED",
+      "ATTENDANCE_FAKE_ATTEMPT",
+      "FACE_MISMATCH_STREAK",
+    ],
+  },
+  {
+    id: "undertime",
+    label: "Undertime",
+    icon: "hourglass-outline",
+    types: ["UNDERTIME_SUBMITTED"],
+  },
+  {
+    id: "announcements",
+    label: "Announcements",
+    icon: "megaphone-outline",
+    types: ["ANNOUNCEMENT"],
+  },
+  {
+    id: "other",
+    label: "Other",
+    icon: "ellipsis-horizontal-circle-outline",
+    types: [],
+  },
+];
+
+const GROUPED_TYPES = new Set(NOTIFICATION_GROUPS.flatMap((group) => group.types));
+
+// The leading tile. It owns no types — selecting it just clears the filter —
+// so it lives outside NOTIFICATION_GROUPS and is stitched in at render time.
+// `activeGroupId === null` is what "All is selected" means.
+const ALL_TILE_ID = "all";
+
+function matchesGroup(group: NotificationGroup, type: string | null) {
+  // The catch-all tile (no types of its own) takes whatever no other tile claims.
+  if (group.types.length === 0) return !type || !GROUPED_TYPES.has(type);
+  return !!type && group.types.includes(type);
 }
 
 function formatBytes(bytes: number) {
@@ -260,6 +360,23 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
 
   // Which notification's full details are currently popped up.
   const [detailNotification, setDetailNotification] = useState<AppNotification | null>(null);
+
+  // Feed filters: the selected quick-filter tile (null = everything) and the
+  // search box above it. Both only narrow what the list renders — the unread
+  // counts stay global, so filtering never makes the badge look smaller than
+  // the number of things actually waiting.
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+
+  // Clear them whenever the panel closes — reopening it should always land on
+  // the whole feed, not on whatever slice was left selected last time (which
+  // would otherwise look like missing notifications).
+  useEffect(() => {
+    if (!visible) {
+      setActiveGroupId(null);
+      setSearch("");
+    }
+  }, [visible]);
 
   // Inline review state for a supervisor acting on a team member's request
   // straight from the notification detail. `reviewAction` is null while just
@@ -483,6 +600,24 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
   const hasUnread = notifications.some((item) => !item.readAt);
   const unreadCount = notifications.filter((item) => !item.readAt).length;
 
+  const activeGroup = NOTIFICATION_GROUPS.find((group) => group.id === activeGroupId) ?? null;
+  const searchTerm = search.trim().toLowerCase();
+  const isFiltered = !!activeGroup || searchTerm.length > 0;
+  const visibleNotifications = notifications.filter((item) => {
+    if (activeGroup && !matchesGroup(activeGroup, item.type)) return false;
+    if (!searchTerm) return true;
+    return `${item.title} ${item.message}`.toLowerCase().includes(searchTerm);
+  });
+  const tiles = [
+    { id: ALL_TILE_ID, label: "All", icon: "apps-outline" as const, unread: unreadCount },
+    ...NOTIFICATION_GROUPS.map((group) => ({
+      id: group.id,
+      label: group.label,
+      icon: group.icon,
+      unread: notifications.filter((item) => !item.readAt && matchesGroup(group, item.type)).length,
+    })),
+  ];
+
   const detailIcon = detailNotification ? notificationIcon(detailNotification.type) : null;
   const detailLeaveRequest = detailNotification?.entityId
     ? leaveRequests.find((r) => r.id === detailNotification.entityId)
@@ -513,34 +648,99 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
           </Pressable>
           <View style={styles.headerTitleRow}>
             <Text style={styles.headerTitle}>Notifications</Text>
-            {unreadCount > 0 && (
-              <View style={styles.headerBadge}>
-                <Text style={styles.headerBadgeText}>{unreadCount > 99 ? "99+" : unreadCount}</Text>
-              </View>
+          </View>
+          {/* Same width as the back button so the title stays optically
+              centered — the unread badge and the Mark-all action now sit in
+              the section row below, right next to the list they act on. */}
+          <View style={styles.headerSpacer} />
+        </View>
+
+        <View style={styles.listHeader}>
+          <View style={styles.searchBar}>
+            <Ionicons name="search" size={18} color="#1680D8" />
+            <TextInput
+              value={search}
+              onChangeText={setSearch}
+              placeholder="Search notifications"
+              placeholderTextColor="#94A3B8"
+              style={styles.searchInput}
+              returnKeyType="search"
+              autoCorrect={false}
+            />
+            {search.length > 0 && (
+              <Pressable onPress={() => setSearch("")} hitSlop={10}>
+                <Ionicons name="close-circle" size={18} color="#CBD5E1" />
+              </Pressable>
             )}
           </View>
-          <Pressable
-            onPress={handleMarkAllRead}
-            disabled={!hasUnread}
-            style={({ pressed }) => [styles.headerButton, pressed && styles.headerButtonPressed]}
-          >
-            <Text style={[styles.markAllText, !hasUnread && styles.markAllTextDisabled]}>Mark all read</Text>
-          </Pressable>
+
+          <View style={styles.groupGrid}>
+            {tiles.map((tile) => {
+              const isActive = (activeGroupId ?? ALL_TILE_ID) === tile.id;
+              return (
+                <Pressable
+                  key={tile.id}
+                  style={({ pressed }) => [styles.groupTile, pressed && styles.groupTilePressed]}
+                  // Tapping the selected tile again falls back to All rather
+                  // than to no selection, so one tile is always lit.
+                  onPress={() => setActiveGroupId(isActive || tile.id === ALL_TILE_ID ? null : tile.id)}
+                >
+                  <View style={styles.groupIconWrap}>
+                    <View style={[styles.groupIconCircle, isActive && styles.groupIconCircleActive]}>
+                      <Ionicons
+                        name={tile.icon}
+                        size={24}
+                        color={isActive ? "#FFFFFF" : GROUP_ICON_COLOR}
+                      />
+                    </View>
+                    {tile.unread > 0 && <View style={styles.groupDot} />}
+                  </View>
+                  <Text style={styles.groupLabel} numberOfLines={2}>
+                    {tile.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <View style={styles.sectionRow}>
+            <View style={styles.sectionTitleRow}>
+              <Text style={styles.sectionTitle}>{activeGroup ? activeGroup.label : "Notifications"}</Text>
+              {unreadCount > 0 && (
+                <View style={styles.sectionBadge}>
+                  <Text style={styles.sectionBadgeText}>{unreadCount > 99 ? "99+" : unreadCount}</Text>
+                </View>
+              )}
+            </View>
+            <Pressable
+              onPress={handleMarkAllRead}
+              disabled={!hasUnread}
+              hitSlop={8}
+              style={({ pressed }) => [styles.markAllButton, pressed && styles.headerButtonPressed]}
+            >
+              <Text style={[styles.markAllText, !hasUnread && styles.markAllTextDisabled]}>Mark All as Read</Text>
+            </Pressable>
+          </View>
         </View>
 
         <AestheticFlatList
-          data={notifications}
+          data={visibleNotifications}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={notifications.length === 0 ? styles.emptyContainer : styles.listContainer}
+          contentContainerStyle={styles.listContainer}
+          keyboardShouldPersistTaps="handled"
           refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} colors={["#1680D8"]} />}
           ListEmptyComponent={
             !isLoading ? (
               <View style={styles.emptyState}>
                 <View style={styles.emptyIconCircle}>
-                  <Ionicons name="mail-open-outline" size={30} color="#94A3B8" />
+                  <Ionicons name={isFiltered ? "search-outline" : "mail-open-outline"} size={30} color="#94A3B8" />
                 </View>
-                <Text style={styles.emptyText}>You're all caught up</Text>
-                <Text style={styles.emptySubtext}>New notifications will show up here.</Text>
+                <Text style={styles.emptyText}>{isFiltered ? "Nothing matches that" : "You're all caught up"}</Text>
+                <Text style={styles.emptySubtext}>
+                  {isFiltered
+                    ? "Try another category or a different search."
+                    : "New notifications will show up here."}
+                </Text>
               </View>
             ) : null
           }
@@ -565,15 +765,20 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                   </View>
                   <View style={styles.notificationBody}>
                     <View style={styles.notificationTitleRow}>
-                      <Text style={[styles.notificationTitle, isUnread && styles.notificationTitleUnread]} numberOfLines={1}>
+                      <Text
+                        style={[styles.notificationTitle, isUnread && styles.notificationTitleUnread]}
+                        numberOfLines={2}
+                      >
                         {item.title}
                       </Text>
-                      {isUnread && <PulsingDot />}
+                      <View style={styles.notificationMeta}>
+                        <Text style={styles.notificationTime}>{shortDate(item.createdAt)}</Text>
+                        {isUnread && <PulsingDot />}
+                      </View>
                     </View>
                     <Text style={styles.notificationMessage} numberOfLines={2}>
                       {item.type === "ANNOUNCEMENT" ? stripFormattingTokens(item.message) : item.message}
                     </Text>
-                    <Text style={styles.notificationTime}>{timeAgo(item.createdAt)}</Text>
                   </View>
                 </Pressable>
 
@@ -940,10 +1145,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: "#F1F5F9",
   },
-  headerButton: {
-    minWidth: 40,
-    paddingVertical: 4,
-    paddingHorizontal: 4,
+  headerSpacer: {
+    width: 36,
+    height: 36,
   },
   headerButtonPressed: {
     opacity: 0.6,
@@ -958,19 +1162,9 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#062B59",
   },
-  headerBadge: {
-    minWidth: 20,
-    height: 20,
-    paddingHorizontal: 5,
-    borderRadius: 10,
-    backgroundColor: "#1680D8",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  headerBadgeText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#FFFFFF",
+  markAllButton: {
+    paddingVertical: 2,
+    paddingLeft: 8,
   },
   markAllText: {
     fontSize: 12.5,
@@ -982,18 +1176,135 @@ const styles = StyleSheet.create({
     color: "#CBD5E1",
   },
   listContainer: {
-    paddingVertical: 10,
+    paddingBottom: 10,
     paddingHorizontal: 12,
   },
-  emptyContainer: {
-    flexGrow: 1,
+
+  // --- Pinned header: search box, category tiles, section row --------------
+  // Sits above the list rather than inside it, so only the notification cards
+  // scroll — the search field and the category filters stay reachable no
+  // matter how far down the feed the user is.
+  listHeader: {
+    paddingTop: 12,
+    paddingHorizontal: 12,
+    backgroundColor: "#FFFFFF",
   },
-  emptyState: {
+  searchBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    height: 46,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#BFDCF7",
+  },
+  searchInput: {
     flex: 1,
+    fontSize: 14,
+    color: "#1E293B",
+    // RN gives a TextInput generous intrinsic padding on Android, which
+    // pushes the text off the vertical center of a fixed-height row.
+    paddingVertical: 0,
+  },
+  groupGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    rowGap: 16,
+    marginTop: 18,
+    marginBottom: 18,
+    // Applies per wrapped line, so the full first row of three is unaffected
+    // while a short trailing row (currently Announcements + Other) centers
+    // under it instead of hanging off the left edge.
+    justifyContent: "center",
+  },
+  groupTile: {
+    // Three per row, so the grid keeps its shape whatever the label lengths.
+    width: "33.333%",
+    alignItems: "center",
+    gap: 7,
+    paddingHorizontal: 4,
+  },
+  groupTilePressed: {
+    opacity: 0.6,
+  },
+  groupIconWrap: {
+    // The unread dot hangs off the circle's corner, so it needs a positioned
+    // parent that is exactly the circle's size.
+    position: "relative",
+  },
+  groupIconCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    // An opaque pale blue, not GROUP_ICON_COLOR at low alpha — a dark blue
+    // thinned out over white lands on a bluish gray, which is what made the
+    // tiles read as gray. The selected tile flips to the solid color.
+    backgroundColor: "#E3F0FB",
+  },
+  groupIconCircleActive: {
+    backgroundColor: "#0F5FA6",
+  },
+  groupDot: {
+    position: "absolute",
+    top: -1,
+    right: -1,
+    width: 11,
+    height: 11,
+    borderRadius: 6,
+    backgroundColor: "#EF4444",
+    borderWidth: 2,
+    borderColor: "#FFFFFF",
+  },
+  groupLabel: {
+    fontSize: 11.5,
+    fontWeight: "700",
+    color: "#0F5FA6",
+    textAlign: "center",
+    lineHeight: 15,
+  },
+  sectionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingBottom: 10,
+  },
+  sectionTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexShrink: 1,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#0F172A",
+    flexShrink: 1,
+  },
+  sectionBadge: {
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 6,
+    borderRadius: 11,
+    backgroundColor: "#EF4444",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sectionBadgeText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+
+  emptyState: {
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    paddingTop: 80,
+    paddingTop: 40,
+    paddingBottom: 60,
   },
   emptyIconCircle: {
     width: 64,
@@ -1056,14 +1367,21 @@ const styles = StyleSheet.create({
   },
   notificationTitleRow: {
     flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
+    alignItems: "flex-start",
+    gap: 10,
   },
   notificationTitle: {
-    flexShrink: 1,
+    flex: 1,
     fontSize: 14,
     fontWeight: "600",
     color: "#1E293B",
+  },
+  // Date and unread dot, pinned to the top-right corner of the row.
+  notificationMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    paddingTop: 1,
   },
   notificationTitleUnread: {
     fontWeight: "700",
@@ -1079,7 +1397,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "#94A3B8",
     fontWeight: "600",
-    marginTop: 6,
   },
   unreadDotWrap: {
     width: 8,
@@ -1092,13 +1409,13 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: "#1680D8",
+    backgroundColor: "#EF4444",
   },
   unreadDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: "#1680D8",
+    backgroundColor: "#EF4444",
   },
   resubmitPanel: {
     marginTop: 16,

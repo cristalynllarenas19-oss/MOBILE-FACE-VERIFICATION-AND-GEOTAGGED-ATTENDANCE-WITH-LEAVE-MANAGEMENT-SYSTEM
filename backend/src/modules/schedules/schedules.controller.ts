@@ -86,9 +86,9 @@ export class SchedulesController {
       name: string;
       startTime: string;
       endTime: string;
-      morningBreakMinutes?: number;
-      afternoonBreakMinutes?: number;
       lunchBreakMinutes?: number;
+      breakStartTime?: string;
+      breakKind?: string;
       enableRounding?: boolean;
       roundingIntervalMinutes?: number;
       lateThresholdMinutes?: number;
@@ -110,9 +110,9 @@ export class SchedulesController {
       name?: string;
       startTime?: string;
       endTime?: string;
-      morningBreakMinutes?: number;
-      afternoonBreakMinutes?: number;
       lunchBreakMinutes?: number;
+      breakStartTime?: string;
+      breakKind?: string;
       enableRounding?: boolean;
       roundingIntervalMinutes?: number;
       lateThresholdMinutes?: number;

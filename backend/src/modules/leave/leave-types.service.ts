@@ -29,6 +29,7 @@ export class LeaveTypesService {
       defaultDays: number;
       requiresDocument?: boolean;
       supportingDocumentAfterDays?: number;
+      reviewReminderHours?: number | null;
       requiresHrValidation?: boolean;
       requiresEhsActivation?: boolean;
       allowWithoutPay?: boolean;
@@ -71,6 +72,7 @@ export class LeaveTypesService {
         defaultDays: dto.defaultDays,
         requiresDocument: dto.requiresDocument ?? false,
         supportingDocumentAfterDays: dto.supportingDocumentAfterDays,
+        reviewReminderHours: dto.reviewReminderHours,
         requiresHrValidation: dto.requiresHrValidation ?? false,
         requiresEhsActivation: dto.requiresEhsActivation ?? false,
         allowWithoutPay: dto.allowWithoutPay ?? false,
@@ -100,6 +102,7 @@ export class LeaveTypesService {
           defaultDays: created.defaultDays,
           requiresDocument: created.requiresDocument,
           supportingDocumentAfterDays: created.supportingDocumentAfterDays,
+          reviewReminderHours: created.reviewReminderHours,
           requiresHrValidation: created.requiresHrValidation,
           requiresEhsActivation: created.requiresEhsActivation,
           allowWithoutPay: created.allowWithoutPay,
@@ -128,6 +131,7 @@ export class LeaveTypesService {
       defaultDays?: number;
       requiresDocument?: boolean;
       supportingDocumentAfterDays?: number;
+      reviewReminderHours?: number | null;
       requiresHrValidation?: boolean;
       requiresEhsActivation?: boolean;
       allowWithoutPay?: boolean;
@@ -167,6 +171,7 @@ export class LeaveTypesService {
         defaultDays: dto.defaultDays,
         requiresDocument: dto.requiresDocument,
         supportingDocumentAfterDays: dto.supportingDocumentAfterDays,
+        reviewReminderHours: dto.reviewReminderHours,
         requiresHrValidation: dto.requiresHrValidation,
         requiresEhsActivation: dto.requiresEhsActivation,
         allowWithoutPay: dto.allowWithoutPay,
@@ -206,6 +211,7 @@ export class LeaveTypesService {
           defaultDays: existing.defaultDays,
           requiresDocument: existing.requiresDocument,
           supportingDocumentAfterDays: existing.supportingDocumentAfterDays,
+          reviewReminderHours: existing.reviewReminderHours,
           requiresHrValidation: existing.requiresHrValidation,
           requiresEhsActivation: existing.requiresEhsActivation,
           allowWithoutPay: existing.allowWithoutPay,
@@ -226,6 +232,7 @@ export class LeaveTypesService {
           defaultDays: updated.defaultDays,
           requiresDocument: updated.requiresDocument,
           supportingDocumentAfterDays: updated.supportingDocumentAfterDays,
+          reviewReminderHours: updated.reviewReminderHours,
           requiresHrValidation: updated.requiresHrValidation,
           requiresEhsActivation: updated.requiresEhsActivation,
           allowWithoutPay: updated.allowWithoutPay,

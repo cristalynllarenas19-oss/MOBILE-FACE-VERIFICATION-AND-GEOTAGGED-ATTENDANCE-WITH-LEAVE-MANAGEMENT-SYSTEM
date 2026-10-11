@@ -72,6 +72,18 @@ export function isFilingDay(reference: Date, filingDaysOfMonth: number[]): boole
   return filingDaysOfMonth.includes(reference.getDate());
 }
 
+// Each filing day files for the cutoff preceding the one it sits in (see
+// getFilingTargetCutoff), so two filing days inside the same cutoff would
+// both target the same prior cutoff and leave the other with no filing day
+// at all — returns null when valid, else a user-facing message.
+export function validateFilingDaysAgainstCutoffs(filingDaysOfMonth: number[], bounds: CutoffBounds): string | null {
+  const inCutoff1 = filingDaysOfMonth.filter((day) => day >= bounds.cutoff1Start && day <= bounds.cutoff1End);
+  const inCutoff2 = filingDaysOfMonth.filter((day) => day < bounds.cutoff1Start || day > bounds.cutoff1End);
+  const clash = inCutoff1.length > 1 ? inCutoff1 : inCutoff2.length > 1 ? inCutoff2 : null;
+  if (!clash) return null;
+  return `Filing days ${clash.join(" and ")} fall in the same cutoff period. Each cutoff period can contain only one filing day.`;
+}
+
 // Validates that the two cutoffs partition every day of the month exactly
 // once: Cutoff 1 must not wrap, and Cutoff 2 must start the day after
 // Cutoff 1 ends and end the day before Cutoff 1 begins (wrapping into the

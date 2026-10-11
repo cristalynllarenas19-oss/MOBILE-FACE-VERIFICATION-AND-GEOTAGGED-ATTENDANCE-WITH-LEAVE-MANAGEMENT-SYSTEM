@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable } from "@nestjs/common";
+import { defaultBreakKind, defaultBreakStartTime, resolveBreakWindow } from "../attendance/attendance-shift.util";
 import { PrismaService } from "../../prisma/prisma.service";
 
 type ScheduleFilters = {
@@ -198,6 +199,32 @@ export class SchedulesService {
     }
   }
 
+  // Resolves what to save for a shift's break. Anything the admin didn't
+  // choose falls back to the default (the shift's 5th hour; lunch if around
+  // midday) — and the result has to actually fit inside the shift.
+  private resolveShiftBreak(input: {
+    startTime: string;
+    endTime: string;
+    lunchBreakMinutes: number;
+    breakStartTime?: string;
+    breakKind?: string;
+  }) {
+    const breakStartTime = input.breakStartTime || defaultBreakStartTime(input.startTime);
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(breakStartTime)) {
+      throw new BadRequestException("Break start must be a valid time.");
+    }
+    if (input.breakKind !== undefined && input.breakKind !== "LUNCH" && input.breakKind !== "BREAK") {
+      throw new BadRequestException("Break type must be Lunch or Break.");
+    }
+    const breakKind = input.breakKind ?? defaultBreakKind(breakStartTime);
+
+    const shift = { ...input, breakStartTime, breakKind, lateThresholdMinutes: 0 };
+    if (input.lunchBreakMinutes > 0 && !resolveBreakWindow(shift, new Date(2000, 0, 1))) {
+      throw new BadRequestException("The break must start and end within the shift's hours.");
+    }
+    return { breakStartTime, breakKind };
+  }
+
   private optionalWholeMinutes(value: number | undefined, fieldLabel: string, min = 0) {
     if (value === undefined) return undefined;
     if (!Number.isInteger(value) || value < min) {
@@ -221,9 +248,9 @@ export class SchedulesService {
     name: string;
     startTime: string;
     endTime: string;
-    morningBreakMinutes: number;
-    afternoonBreakMinutes: number;
     lunchBreakMinutes: number;
+    breakStartTime: string | null;
+    breakKind: string;
     enableRounding: boolean;
     roundingIntervalMinutes: number;
     lateThresholdMinutes: number;
@@ -235,9 +262,9 @@ export class SchedulesService {
       name: shift.name,
       startTime: shift.startTime,
       endTime: shift.endTime,
-      morningBreakMinutes: shift.morningBreakMinutes,
-      afternoonBreakMinutes: shift.afternoonBreakMinutes,
       lunchBreakMinutes: shift.lunchBreakMinutes,
+      breakStartTime: shift.breakStartTime,
+      breakKind: shift.breakKind,
       enableRounding: shift.enableRounding,
       roundingIntervalMinutes: shift.roundingIntervalMinutes,
       lateThresholdMinutes: shift.lateThresholdMinutes,
@@ -252,9 +279,9 @@ export class SchedulesService {
       name: string;
       startTime: string;
       endTime: string;
-      morningBreakMinutes?: number;
-      afternoonBreakMinutes?: number;
       lunchBreakMinutes?: number;
+      breakStartTime?: string;
+      breakKind?: string;
       enableRounding?: boolean;
       roundingIntervalMinutes?: number;
       lateThresholdMinutes?: number;
@@ -267,23 +294,27 @@ export class SchedulesService {
     const name = dto.name.trim();
     await this.assertNoDuplicateShiftName(name);
     this.assertValidShiftTimes(dto.startTime, dto.endTime);
-    const morningBreakMinutes = this.optionalWholeMinutes(dto.morningBreakMinutes, "Morning Break") ?? 15;
-    const afternoonBreakMinutes = this.optionalWholeMinutes(dto.afternoonBreakMinutes, "Afternoon Break") ?? 15;
-    const lunchBreakMinutes = this.optionalWholeMinutes(dto.lunchBreakMinutes, "Lunch Break") ?? 60;
+    const lunchBreakMinutes = this.optionalWholeMinutes(dto.lunchBreakMinutes, "Break") ?? 60;
     const roundingIntervalMinutes = this.optionalWholeMinutes(dto.roundingIntervalMinutes, "Rounding Interval", 1) ?? 15;
     const lateThresholdMinutes = this.optionalWholeMinutes(dto.lateThresholdMinutes, "Late Threshold") ?? 0;
     const undertimeThresholdMinutes = this.optionalWholeMinutes(dto.undertimeThresholdMinutes, "Undertime Threshold") ?? 0;
     const workingDays = dto.workingDays ?? [1, 2, 3, 4, 5];
     this.assertValidWorkingDays(workingDays);
+    const shiftBreak = this.resolveShiftBreak({
+      startTime: dto.startTime,
+      endTime: dto.endTime,
+      lunchBreakMinutes,
+      breakStartTime: dto.breakStartTime,
+      breakKind: dto.breakKind,
+    });
 
     const created = await this.prisma.shift.create({
       data: {
         name,
         startTime: dto.startTime,
         endTime: dto.endTime,
-        morningBreakMinutes,
-        afternoonBreakMinutes,
         lunchBreakMinutes,
+        ...shiftBreak,
         enableRounding: dto.enableRounding ?? false,
         roundingIntervalMinutes,
         lateThresholdMinutes,
@@ -313,9 +344,9 @@ export class SchedulesService {
       name?: string;
       startTime?: string;
       endTime?: string;
-      morningBreakMinutes?: number;
-      afternoonBreakMinutes?: number;
       lunchBreakMinutes?: number;
+      breakStartTime?: string;
+      breakKind?: string;
       enableRounding?: boolean;
       roundingIntervalMinutes?: number;
       lateThresholdMinutes?: number;
@@ -334,13 +365,21 @@ export class SchedulesService {
     const startTime = dto.startTime ?? existing.startTime;
     const endTime = dto.endTime ?? existing.endTime;
     this.assertValidShiftTimes(startTime, endTime);
-    const morningBreakMinutes = this.optionalWholeMinutes(dto.morningBreakMinutes, "Morning Break");
-    const afternoonBreakMinutes = this.optionalWholeMinutes(dto.afternoonBreakMinutes, "Afternoon Break");
-    const lunchBreakMinutes = this.optionalWholeMinutes(dto.lunchBreakMinutes, "Lunch Break");
+    const lunchBreakMinutes = this.optionalWholeMinutes(dto.lunchBreakMinutes, "Break");
     const roundingIntervalMinutes = this.optionalWholeMinutes(dto.roundingIntervalMinutes, "Rounding Interval", 1);
     const lateThresholdMinutes = this.optionalWholeMinutes(dto.lateThresholdMinutes, "Late Threshold");
     const undertimeThresholdMinutes = this.optionalWholeMinutes(dto.undertimeThresholdMinutes, "Undertime Threshold");
     if (dto.workingDays !== undefined) this.assertValidWorkingDays(dto.workingDays);
+    // A changed start time moves the default break with it unless the admin
+    // set the break explicitly in this same save.
+    const startChanged = startTime !== existing.startTime;
+    const shiftBreak = this.resolveShiftBreak({
+      startTime,
+      endTime,
+      lunchBreakMinutes: lunchBreakMinutes ?? existing.lunchBreakMinutes,
+      breakStartTime: dto.breakStartTime ?? (startChanged ? undefined : existing.breakStartTime ?? undefined),
+      breakKind: dto.breakKind ?? (startChanged || dto.breakStartTime ? undefined : existing.breakKind),
+    });
 
     const updated = await this.prisma.shift.update({
       where: { id },
@@ -348,9 +387,8 @@ export class SchedulesService {
         name,
         startTime: dto.startTime,
         endTime: dto.endTime,
-        morningBreakMinutes,
-        afternoonBreakMinutes,
         lunchBreakMinutes,
+        ...shiftBreak,
         enableRounding: dto.enableRounding,
         roundingIntervalMinutes,
         lateThresholdMinutes,

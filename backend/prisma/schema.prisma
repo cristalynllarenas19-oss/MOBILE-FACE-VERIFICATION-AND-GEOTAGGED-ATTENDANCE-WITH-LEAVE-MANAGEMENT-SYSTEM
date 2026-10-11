@@ -90,7 +90,6 @@ enum AttendanceStatus {
   LATE
   ABSENT
   ON_LEAVE
-  OFFICIAL_BUSINESS
   PENDING_REVIEW
   // Synthetic-only, like ABSENT: represents a flagged AttendanceLog with no
   // AttendanceRecord yet. Never written to a real AttendanceRecord.status.
@@ -135,6 +134,10 @@ enum LeaveStatus {
   // CANCELLED. Cancelling a PENDING/SUPERVISOR_APPROVED request (nothing
   // committed yet) or an ADMIN override skips this state entirely.
   CANCELLATION_PENDING
+  // Never decided before its dates passed — set automatically by
+  // LeaveLapseService, never by a reviewer. A reviewer can still approve a
+  // lapsed request afterwards.
+  LAPSED
 }
 
 enum UndertimeStatus {
@@ -548,11 +551,11 @@ model AttendanceRecord {
   // records and any OFFICE time-in with no resolvable shift.
   renderTimeInAt   DateTime?            @map("render_time_in_at")
   timeOutAt        DateTime?            @map("time_out_at")
-  // Optional, OFFICE-only lunch break window. When both punches exist, the
-  // measured Lunch Out -> Lunch In duration is deducted from totalMinutes in
-  // place of the shift's flat lunchBreakMinutes (see computeTotalBreakMinutes)
-  // — never affects late/undertime math, which is anchored to shift
-  // start/end instead.
+  // Optional, OFFICE-only break punches (shown as "Lunch" on a daytime
+  // shift, "Break" on a night shift). When both exist, the measured
+  // duration is deducted from totalMinutes in place of the shift's
+  // scheduled break window (see computeBreakMinutes) — never affects
+  // late/undertime math, which is anchored to shift start/end instead.
   lunchOutAt       DateTime?            @map("lunch_out_at")
   lunchInAt        DateTime?            @map("lunch_in_at")
   status           AttendanceStatus     @default(PENDING_REVIEW)
@@ -656,6 +659,9 @@ model LeaveType {
   defaultDays                 Decimal            @map("default_days")
   requiresDocument            Boolean            @default(false) @map("requires_document")
   supportingDocumentAfterDays Int?               @map("supporting_document_after_days")
+  // Hours after filing before reviewers are reminded a request of this type
+  // is still undecided. Null = use LeaveSettings.reviewReminderHours.
+  reviewReminderHours         Int?               @map("review_reminder_hours")
   requiresHrValidation        Boolean            @default(false) @map("requires_hr_validation")
   requiresEhsActivation       Boolean            @default(false) @map("requires_ehs_activation")
   ehsActivated                Boolean            @default(false) @map("ehs_activated")
@@ -726,6 +732,18 @@ model LeaveRequest {
   // Only set while status is CANCELLATION_PENDING — the status to revert to
   // if a Supervisor/Admin denies the employee's cancellation request.
   preCancellationStatus LeaveStatus?    @map("pre_cancellation_status")
+  // The "still awaiting a decision" reminder: who has received it so far
+  // (each reviewer gets it during their own shift), and when the last of
+  // them did — set once nobody is left to remind.
+  overdueNotifiedAt  DateTime?          @map("overdue_notified_at")
+  overdueNotifiedUserIds String[]       @default([]) @map("overdue_notified_user_ids")
+  // When the current wait for a decision began — null = when it was filed;
+  // reset to "now" on every resubmission, which restarts the reminder.
+  reviewClockStartedAt DateTime?        @map("review_clock_started_at")
+  // Why a LAPSED request lapsed — "REPORTED_FOR_WORK" (the employee worked
+  // every requested day) or "NOT_DECIDED" (nobody decided in time, so the
+  // days stand as absences). Null for every other status.
+  lapseReason        String?            @map("lapse_reason")
   employee           Employee           @relation(fields: [employeeId], references: [id])
   leaveType          LeaveType          @relation(fields: [leaveTypeId], references: [id])
   reviewer           User?              @relation(fields: [reviewedBy], references: [id])
@@ -837,6 +855,21 @@ model UndertimeFiling {
 // hardcoded constant, now editable via UndertimeService.updateSettings.
 // Lazily created on first read/write rather than seeded, same as any other
 // upsert-on-access singleton.
+// Single-row config (id is always "singleton"), lazily created on first
+// access like UndertimeSettings. lapseGraceDays: how many days after a
+// leave's end date an undecided request is given before it lapses.
+model LeaveSettings {
+  id             String   @id @default("singleton")
+  lapseGraceDays Int      @default(7) @map("lapse_grace_days")
+  // Hours after a request is filed before its reviewers are reminded it is
+  // still undecided — the default for any leave type without its own value.
+  reviewReminderHours Int @default(24) @map("review_reminder_hours")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  updatedBy      String?  @map("updated_by")
+
+  @@map("leave_settings")
+}
+
 model UndertimeSettings {
   id                String    @id @default("singleton")
   filingDaysOfMonth Int[]     @default([8, 23]) @map("filing_days_of_month")
@@ -856,9 +889,13 @@ model Shift {
   name                      String
   startTime                 String             @map("start_time")
   endTime                   String             @map("end_time")
-  morningBreakMinutes       Int                @default(15) @map("morning_break_minutes")
-  afternoonBreakMinutes     Int                @default(15) @map("afternoon_break_minutes")
+  // The shift's single break: how long it is, what time it starts ("HH:mm"
+  // — earlier than startTime means after midnight on an overnight shift),
+  // and whether it's called LUNCH or BREAK. Saved with the shift (defaulting
+  // to its 5th hour — see defaultBreakStartTime) and admin-editable.
   lunchBreakMinutes         Int                @default(60) @map("lunch_break_minutes")
+  breakStartTime            String?            @map("break_start_time")
+  breakKind                 String             @default("LUNCH") @map("break_kind")
   enableRounding            Boolean            @default(false) @map("enable_rounding")
   roundingIntervalMinutes   Int                @default(15) @map("rounding_interval_minutes")
   lateThresholdMinutes      Int                @default(0) @map("late_threshold_minutes")

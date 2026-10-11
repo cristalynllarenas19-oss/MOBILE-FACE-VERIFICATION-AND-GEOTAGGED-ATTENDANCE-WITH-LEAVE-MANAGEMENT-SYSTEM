@@ -32,6 +32,7 @@ type ReportData = {
     timeOutAt?: string | null;
     lunchOutAt?: string | null;
     lunchInAt?: string | null;
+    breakKind?: "LUNCH" | "BREAK";
     workLocation?: { name: string } | null;
     employee: { firstName: string; lastName: string; department: { name: string } };
   }[];
@@ -41,8 +42,21 @@ type ReportData = {
     endDate: string;
     totalDays: string;
     status: string;
+    // Set only on a LAPSED request: "REPORTED_FOR_WORK" or "NOT_DECIDED".
+    lapseReason?: string | null;
     employee: { firstName: string; lastName: string; employmentStatus?: string; department: { name: string } };
     leaveType: { name: string };
+  }[];
+  undertime: {
+    id: string;
+    filingDate: string;
+    reason: string | null;
+    status: string;
+    remarks: string | null;
+    reviewedAt: string | null;
+    employee: { firstName: string; lastName: string; department: { name: string } };
+    attendanceRecord: { attendanceDate: string; lateMinutes: number; undertimeMinutes?: number };
+    reviewer?: { email: string; employee?: { firstName: string; lastName: string } | null } | null;
   }[];
   schedules: {
     id: string;
@@ -72,7 +86,7 @@ type ReportData = {
   }[];
 };
 
-type ReportTab = "ALL" | "attendance" | "leave" | "schedules" | "employees" | "leaveBalances";
+type ReportTab = "ALL" | "attendance" | "leave" | "undertime" | "schedules" | "employees" | "leaveBalances";
 type SavePicker = (options: {
   suggestedName: string;
   types: { description: string; accept: Record<string, string[]> }[];
@@ -87,14 +101,46 @@ const REPORT_TYPE_LABELS: Record<ReportTab, string> = {
   ALL: "All Reports",
   attendance: "DTR / Attendance",
   leave: "Leave",
+  undertime: "Undertime",
   schedules: "Schedules",
   employees: "List of Employees",
   leaveBalances: "Remaining Leave",
 };
 
-// "All Reports" bundles these three tabs — spelled out in the print/PDF
+// "All Reports" bundles these four tabs — spelled out in the print/PDF
 // header since "All Reports" alone doesn't say what's included.
-const ALL_REPORTS_INCLUDES = ["DTR", "Attendance", REPORT_TYPE_LABELS.leave, REPORT_TYPE_LABELS.schedules].join(" | ");
+const ALL_REPORTS_INCLUDES = ["DTR", "Attendance", REPORT_TYPE_LABELS.leave, REPORT_TYPE_LABELS.undertime, REPORT_TYPE_LABELS.schedules].join(" | ");
+
+const UNDERTIME_STATUS_FILTERS = ["PENDING", "APPROVED", "REJECTED"] as const;
+type UndertimeStatus = (typeof UNDERTIME_STATUS_FILTERS)[number];
+
+const UNDERTIME_HEAD = ["Employee", "Department", "Undertime Date", "Minutes", "Reason", "Date Filed", "Status", "Reviewed By"];
+
+type UndertimeRow = ReportData["undertime"][number];
+
+// Undertime a filing covers: minutes late plus minutes timed out early —
+// same total the Leave Management page shows.
+function undertimeMinutes(row: UndertimeRow) {
+  return row.attendanceRecord.lateMinutes + (row.attendanceRecord.undertimeMinutes ?? 0);
+}
+
+function undertimeReviewer(row: UndertimeRow) {
+  if (!row.reviewer) return "—";
+  return row.reviewer.employee ? `${row.reviewer.employee.firstName} ${row.reviewer.employee.lastName}` : row.reviewer.email;
+}
+
+function undertimeCells(row: UndertimeRow): (string | number)[] {
+  return [
+    employeeName(row),
+    row.employee.department.name,
+    formatDate(row.attendanceRecord.attendanceDate),
+    undertimeMinutes(row),
+    row.reason ?? "—",
+    formatDate(row.filingDate),
+    row.status,
+    undertimeReviewer(row),
+  ];
+}
 
 function employeeName(row: { employee: { firstName: string; lastName: string } }) {
   return `${row.employee.firstName} ${row.employee.lastName}`;
@@ -181,7 +227,32 @@ function formatUsedDates(dates: { startDate: string; endDate: string }[]) {
     .join(", ");
 }
 
+const LEAVE_STATUS_FILTERS = ["PENDING", "APPROVED", "REJECTED", "CANCELLED", "LAPSED"] as const;
+type LeaveStatusBucket = (typeof LEAVE_STATUS_FILTERS)[number];
+
+// Every leave status lands in exactly one of the filter tabs, so the counts
+// always add up to the total under "All".
+function leaveStatusBucket(status: string): LeaveStatusBucket {
+  if (status === "APPROVED" || status === "SUPERVISOR_APPROVED") return "APPROVED";
+  if (status === "REJECTED" || status === "NEEDS_REVISION") return "REJECTED";
+  if (status === "CANCELLED") return "CANCELLED";
+  if (status === "LAPSED") return "LAPSED";
+  // PENDING, plus an approved leave still awaiting a cancellation decision.
+  return "PENDING";
+}
+
+// Same wording as the Leave Management page — a lapsed request always says
+// whether the employee came to work anyway or the days stand as absent.
+function leaveStatusText(request: { status: string; lapseReason?: string | null }) {
+  if (request.status === "LAPSED") {
+    return request.lapseReason === "REPORTED_FOR_WORK" ? "LAPSED - REPORTED TO WORK" : "LAPSED - ABSENT";
+  }
+  if (request.status === "CANCELLATION_PENDING") return "PENDING CANCELLATION";
+  return request.status.replace(/_/g, " ");
+}
+
 function statusTone(status: string) {
+  if (status === "CANCELLED" || status === "LAPSED") return "neutral";
   if (status === "PRESENT" || status === "APPROVED" || status === "SUPERVISOR_APPROVED") return "success";
   if (status === "ABSENT" || status === "REJECTED" || status === "NEEDS_REVISION") return "danger";
   return "warning";
@@ -231,7 +302,8 @@ export function ReportsPage({
     to: new Date().toISOString().slice(0, 10),
     department: "ALL",
   });
-  const [leaveStatusFilter, setLeaveStatusFilter] = useState<"ALL" | "PENDING" | "APPROVED" | "REJECTED">("ALL");
+  const [leaveStatusFilter, setLeaveStatusFilter] = useState<"ALL" | LeaveStatusBucket>("ALL");
+  const [undertimeStatusFilter, setUndertimeStatusFilter] = useState<"ALL" | UndertimeStatus>("ALL");
 
   const loadReport = () => {
     const params = new URLSearchParams();
@@ -271,23 +343,38 @@ export function ReportsPage({
   }, [data, filters]);
 
   const leaveStatusCounts = useMemo(() => {
-    const counts = { PENDING: 0, APPROVED: 0, REJECTED: 0 };
-    for (const r of leavesInRange) {
-      if (r.status === "PENDING") counts.PENDING += 1;
-      else if (r.status === "APPROVED" || r.status === "SUPERVISOR_APPROVED") counts.APPROVED += 1;
-      else if (r.status === "REJECTED" || r.status === "NEEDS_REVISION") counts.REJECTED += 1;
-    }
+    const counts: Record<LeaveStatusBucket, number> = { PENDING: 0, APPROVED: 0, REJECTED: 0, CANCELLED: 0, LAPSED: 0 };
+    for (const r of leavesInRange) counts[leaveStatusBucket(r.status)] += 1;
     return counts;
   }, [leavesInRange]);
 
   const filteredLeaves = useMemo(() => {
     if (leaveStatusFilter === "ALL") return leavesInRange;
-    return leavesInRange.filter((request) => {
-      if (leaveStatusFilter === "APPROVED") return request.status === "APPROVED" || request.status === "SUPERVISOR_APPROVED";
-      if (leaveStatusFilter === "REJECTED") return request.status === "REJECTED" || request.status === "NEEDS_REVISION";
-      return request.status === leaveStatusFilter;
-    });
+    return leavesInRange.filter((request) => leaveStatusBucket(request.status) === leaveStatusFilter);
   }, [leavesInRange, leaveStatusFilter]);
+
+  const undertimeInRange = useMemo(() => {
+    if (!data) return [];
+    return (data.undertime ?? []).filter((filing) => {
+      const deptMatch = filters.department === "ALL" || filing.employee.department.name === filters.department;
+      return deptMatch && isInDateRange(filing.attendanceRecord.attendanceDate, filters.from, filters.to);
+    });
+  }, [data, filters]);
+
+  const undertimeStatusCounts = useMemo(() => {
+    const counts: Record<UndertimeStatus, number> = { PENDING: 0, APPROVED: 0, REJECTED: 0 };
+    for (const filing of undertimeInRange) {
+      if (filing.status in counts) counts[filing.status as UndertimeStatus] += 1;
+    }
+    return counts;
+  }, [undertimeInRange]);
+
+  // Like the leave status tabs: also narrows what the exports and the
+  // result count include, not just the table on screen.
+  const filteredUndertime = useMemo(() => {
+    if (undertimeStatusFilter === "ALL") return undertimeInRange;
+    return undertimeInRange.filter((filing) => filing.status === undertimeStatusFilter);
+  }, [undertimeInRange, undertimeStatusFilter]);
 
   const filteredSchedules = useMemo(() => {
     if (!data) return [];
@@ -329,29 +416,31 @@ export function ReportsPage({
   const tabCount =
     tab === "attendance" ? filteredAttendance.length
     : tab === "leave" ? filteredLeaves.length
+    : tab === "undertime" ? filteredUndertime.length
     : tab === "schedules" ? filteredSchedules.length
     : tab === "employees" ? filteredEmployeesList.length
     : tab === "leaveBalances" ? filteredLeaveBalances.length
-    : filteredAttendance.length + filteredLeaves.length + filteredSchedules.length;
+    : filteredAttendance.length + filteredLeaves.length + filteredUndertime.length + filteredSchedules.length;
 
   const generatedRangeLabel = `Generated: ${filters.from ? formatDate(filters.from) : "—"} to ${filters.to ? formatDate(filters.to) : "—"}`;
 
   const exportCsv = async () => {
     const aRows = [
-      ["Employee", "Department", "Site", "Date", "Time In", "Time Out", "Lunch Break", "Status"],
+      ["Employee", "Department", "Site", "Date", "Time In", "Time Out", "Lunch / Break", "Status"],
       ...filteredAttendance.map((r) => [
         employeeName(r), r.employee.department.name, r.workLocation?.name ?? "—", formatDate(r.attendanceDate),
         formatTime(r.timeInAt, r.status), formatTime(r.timeOutAt, r.status),
-        r.lunchOutAt ? `${formatTime(r.lunchOutAt)} - ${formatTime(r.lunchInAt)}` : "—", r.status,
+        r.lunchOutAt ? `${r.breakKind === "BREAK" ? "Break " : ""}${formatTime(r.lunchOutAt)} - ${formatTime(r.lunchInAt)}` : "—", r.status,
       ]),
     ];
     const lRows = [
       ["Employee", "Department", "Classification", "Leave Type", "Dates", "Days", "Status"],
       ...filteredLeaves.map((r) => [
         employeeName(r), r.employee.department.name, formatEmploymentStatus(r.employee.employmentStatus), r.leaveType.name,
-        `${formatDate(r.startDate)} - ${formatDate(r.endDate)}`, r.totalDays, r.status,
+        `${formatDate(r.startDate)} - ${formatDate(r.endDate)}`, r.totalDays, leaveStatusText(r),
       ]),
     ];
+    const uRows = [UNDERTIME_HEAD, ...filteredUndertime.map(undertimeCells)];
     const sRows = [
       ["Employee", "Department", "Position", "Shift", "Time", "Effective Dates"],
       ...filteredSchedules.map((s) => [
@@ -373,10 +462,11 @@ export function ReportsPage({
     const rows =
       tab === "attendance" ? aRows
       : tab === "leave" ? lRows
+      : tab === "undertime" ? uRows
       : tab === "schedules" ? sRows
       : tab === "employees" ? eRows
       : tab === "leaveBalances" ? rbRows
-      : [["ATTENDANCE"], ...aRows, [], ["LEAVE"], ...lRows, [], [REPORT_TYPE_LABELS.schedules.toUpperCase()], ...sRows];
+      : [["ATTENDANCE"], ...aRows, [], ["LEAVE"], ...lRows, [], ["UNDERTIME"], ...uRows, [], [REPORT_TYPE_LABELS.schedules.toUpperCase()], ...sRows];
     const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\r\n");
     // Leading BOM tells Excel the file is UTF-8 — without it Excel reads it
     // as ANSI and "—" shows up as "â€”".
@@ -446,11 +536,11 @@ export function ReportsPage({
 
     if (tab === "ALL" || tab === "attendance") {
       addSection("DTR / Attendance",
-        ["Employee", "Department", "Site", "Date", "Time In", "Time Out", "Lunch Break", "Status"],
+        ["Employee", "Department", "Site", "Date", "Time In", "Time Out", "Lunch / Break", "Status"],
         filteredAttendance.map((r) => [
           employeeName(r), r.employee.department.name, r.workLocation?.name ?? "—", formatDate(r.attendanceDate),
           formatTime(r.timeInAt, r.status), formatTime(r.timeOutAt, r.status),
-          r.lunchOutAt ? `${formatTime(r.lunchOutAt)} - ${formatTime(r.lunchInAt)}` : "—", r.status,
+          r.lunchOutAt ? `${r.breakKind === "BREAK" ? "Break " : ""}${formatTime(r.lunchOutAt)} - ${formatTime(r.lunchInAt)}` : "—", r.status,
         ])
       );
     }
@@ -459,9 +549,12 @@ export function ReportsPage({
         ["Employee", "Department", "Classification", "Leave Type", "Start Date", "End Date", "Days", "Status"],
         filteredLeaves.map((r) => [
           employeeName(r), r.employee.department.name, formatEmploymentStatus(r.employee.employmentStatus), r.leaveType.name,
-          formatDate(r.startDate), formatDate(r.endDate), r.totalDays, r.status,
+          formatDate(r.startDate), formatDate(r.endDate), r.totalDays, leaveStatusText(r),
         ])
       );
+    }
+    if (tab === "ALL" || tab === "undertime") {
+      addSection("Undertime", UNDERTIME_HEAD, filteredUndertime.map(undertimeCells));
     }
     if (tab === "ALL" || tab === "schedules") {
       addSection("Schedules",
@@ -533,6 +626,7 @@ export function ReportsPage({
             options={[
               { value: "attendance", label: "DTR / Attendance" },
               { value: "leave", label: "Leave" },
+              { value: "undertime", label: "Undertime" },
               { value: "schedules", label: "Schedules" },
               { value: "employees", label: "List of Employees" },
               { value: "leaveBalances", label: "Remaining Leave" },
@@ -603,7 +697,7 @@ export function ReportsPage({
             <thead>
               <tr>
                 <th>Employee</th><th>Department</th><th>Site</th><th>Date</th>
-                <th>Time In</th><th>Time Out</th><th>Lunch Break</th><th>Status</th>
+                <th>Time In</th><th>Time Out</th><th>Lunch / Break</th><th>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -617,7 +711,7 @@ export function ReportsPage({
                   <td>{formatDate(record.attendanceDate)}</td>
                   <td>{formatTime(record.timeInAt, record.status)}</td>
                   <td>{formatTime(record.timeOutAt, record.status)}</td>
-                  <td>{record.lunchOutAt ? `${formatTime(record.lunchOutAt)} – ${formatTime(record.lunchInAt)}` : "—"}</td>
+                  <td>{record.lunchOutAt ? `${record.breakKind === "BREAK" ? "Break " : ""}${formatTime(record.lunchOutAt)} – ${formatTime(record.lunchInAt)}` : "—"}</td>
                   <td><Badge tone={statusTone(record.status)}>{record.status.replace(/_/g, " ")}</Badge></td>
                 </tr>
               ))}
@@ -630,7 +724,7 @@ export function ReportsPage({
         <section className="table-card reports-table-card">
           {tab === "ALL" && <div className="reports-table-label">Leave</div>}
           <div className="reports-status-tabs">
-            {(["PENDING", "APPROVED", "REJECTED"] as const).map((status) => (
+            {LEAVE_STATUS_FILTERS.map((status) => (
               <button
                 key={status}
                 className={leaveStatusFilter === status ? "active" : ""}
@@ -658,7 +752,47 @@ export function ReportsPage({
                   <td>{request.leaveType.name}</td>
                   <td>{formatDate(request.startDate)} – {formatDate(request.endDate)}</td>
                   <td>{request.totalDays}</td>
-                  <td><Badge tone={statusTone(request.status)}>{request.status.replace(/_/g, " ")}</Badge></td>
+                  <td><Badge tone={statusTone(request.status)}>{leaveStatusText(request)}</Badge></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
+
+      {(tab === "ALL" || tab === "undertime") && (
+        <section className="table-card reports-table-card">
+          {tab === "ALL" && <div className="reports-table-label">Undertime</div>}
+          <div className="reports-status-tabs">
+            {UNDERTIME_STATUS_FILTERS.map((status) => (
+              <button
+                key={status}
+                className={undertimeStatusFilter === status ? "active" : ""}
+                onClick={() => setUndertimeStatusFilter((current) => (current === status ? "ALL" : status))}
+              >
+                {status.charAt(0) + status.slice(1).toLowerCase()} ({undertimeStatusCounts[status]})
+              </button>
+            ))}
+          </div>
+          <table>
+            <thead>
+              <tr>
+                {UNDERTIME_HEAD.map((heading) => <th key={heading}>{heading}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {filteredUndertime.length === 0 ? (
+                <tr><td colSpan={UNDERTIME_HEAD.length} className="reports-empty">No undertime filings match the current filters.</td></tr>
+              ) : filteredUndertime.map((filing) => (
+                <tr key={filing.id}>
+                  <td>{employeeName(filing)}</td>
+                  <td>{filing.employee.department.name}</td>
+                  <td>{formatDate(filing.attendanceRecord.attendanceDate)}</td>
+                  <td>{undertimeMinutes(filing)}</td>
+                  <td>{filing.reason ?? "—"}</td>
+                  <td>{formatDate(filing.filingDate)}</td>
+                  <td><Badge tone={statusTone(filing.status)}>{filing.status}</Badge></td>
+                  <td>{undertimeReviewer(filing)}</td>
                 </tr>
               ))}
             </tbody>

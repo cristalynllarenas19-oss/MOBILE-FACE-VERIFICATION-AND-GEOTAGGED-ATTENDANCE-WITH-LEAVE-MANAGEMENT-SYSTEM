@@ -46,6 +46,14 @@ function getWorkedMs(attendance: TodayAttendance, now: number) {
   return Math.max(0, worked);
 }
 
+function formatDuration(totalMinutes: number) {
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `${minutes}m`;
+  if (minutes === 0) return `${hours}h`;
+  return `${hours}h ${minutes}m`;
+}
+
 function formatElapsed(ms: number) {
   const totalSeconds = Math.floor(ms / 1000);
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -73,7 +81,7 @@ function getEligibilityMessage(eligibility: AttendanceEligibility | null) {
   return null;
 }
 
-type ApplicableAction = "Time In" | "Time Out" | "Start Lunch" | "End Lunch" | "Start Visit" | "End Visit";
+type ApplicableAction = "Time In" | "Time Out" | "Start Lunch" | "End Lunch" | "Start Break" | "End Break" | "Start Visit" | "End Visit";
 
 
 function getApplicableAction(params: {
@@ -82,11 +90,12 @@ function getApplicableAction(params: {
   hasTimedOut: boolean;
   hasOpenVisit: boolean;
   isOnLunch: boolean;
+  isBreak: boolean;
 }): ApplicableAction | null {
-  const { isField, hasTimedIn, hasTimedOut, hasOpenVisit, isOnLunch } = params;
+  const { isField, hasTimedIn, hasTimedOut, hasOpenVisit, isOnLunch, isBreak } = params;
   if (isField) return hasOpenVisit ? "End Visit" : "Start Visit";
   if (!hasTimedIn) return "Time In";
-  if (isOnLunch) return "End Lunch";
+  if (isOnLunch) return isBreak ? "End Break" : "End Lunch";
   if (!hasTimedOut) return "Time Out";
   return null;
 }
@@ -137,6 +146,9 @@ export function AttendancePage({ user }: Props) {
   const [scanType,      setScanType]      = useState<"TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN" | null>(null);
   const [isSubmitting,  setIsSubmitting]  = useState(false);
   const [resultModal,   setResultModal]   = useState<ResultState | null>(null);
+  // Minutes short of the expected time out, while the "time out early?"
+  // confirmation is showing.
+  const [earlyOutMinutes, setEarlyOutMinutes] = useState<number | null>(null);
 
   // FIELD site picker
   const [selectedSite,      setSelectedSite]      = useState<WorkLocation | null>(null);
@@ -183,7 +195,9 @@ export function AttendancePage({ user }: Props) {
   const now = new Date();
 
   
-  const isTodayDayOff = now.getDay() === 0;
+  // Judged on the working day the server resolved, not the clock — a
+  // Saturday night shift still has to close out on Sunday morning.
+  const isTodayDayOff = (todayAtt?.attendanceDate ? new Date(todayAtt.attendanceDate) : now).getDay() === 0;
 
   // ── Status logic ──────────────────────────────────────────────────────────
   const hasTimedIn   = Boolean(todayAtt?.timeInAt);
@@ -230,6 +244,10 @@ export function AttendancePage({ user }: Props) {
   const hasLunchOut = Boolean(todayAtt?.lunchOutAt);
   const hasLunchIn = Boolean(todayAtt?.lunchInAt);
   const isOnLunch = Boolean(hasOpenVisit && hasLunchOut && !hasLunchIn);
+  // "Lunch" on a daytime shift, "Break" on one that doesn't span noon —
+  // decided server-side from the assigned shift (see resolveBreakKind).
+  const isBreak = todayAtt?.breakKind === "BREAK";
+  const breakWord = isBreak ? "Break" : "Lunch";
 
   // Live worked-time counter (OFFICE-only): ticks every second while the
   // session is open, then holds the final Time In → Time Out total once
@@ -242,17 +260,20 @@ export function AttendancePage({ user }: Props) {
     return () => clearInterval(interval);
   }, [isField, hasOpenVisit]);
   const workedMs = todayAtt ? getWorkedMs(todayAtt, nowTick) : 0;
-  const applicableAction = getApplicableAction({ isField, hasTimedIn, hasTimedOut, hasOpenVisit, isOnLunch });
+  const applicableAction = getApplicableAction({ isField, hasTimedIn, hasTimedOut, hasOpenVisit, isOnLunch, isBreak });
   const eligibilityMessage = getEligibilityMessage(eligibility) ?? getGeofenceMessage(geofenceStatus, applicableAction);
   const showLunchSection = !isField && hasTimedIn;
   const lunchCompleted = hasLunchOut && hasLunchIn;
 
-  const timeInDisabled  = isSubmitting || isLoading || isTodayDayOff || !isEligible || (isField ? hasOpenVisit : hasTimedIn);
+  // On approved leave with nothing timed in: attendance can't be recorded
+  // (enforced server-side in AttendanceService.submit()).
+  const onLeaveToday = !hasTimedIn ? todayAtt?.onLeave ?? null : null;
+  const timeInDisabled  = isSubmitting || isLoading || isTodayDayOff || Boolean(onLeaveToday) || !isEligible || (isField ? hasOpenVisit : hasTimedIn);
   const timeOutDisabled = isField
     ? isSubmitting || isLoading || isTodayDayOff || !isEligible || !hasOpenVisit
     : isSubmitting || isLoading || isTodayDayOff || !isEligible || !hasTimedIn || hasTimedOut;
   const lunchButtonDisabled = isSubmitting || isLoading || isTodayDayOff || !isEligible || hasTimedOut || lunchCompleted;
-  const lunchButtonLabel = lunchCompleted ? "LUNCH COMPLETED" : hasLunchOut ? "END LUNCH" : "START LUNCH";
+  const lunchButtonLabel = (lunchCompleted ? `${breakWord} COMPLETED` : hasLunchOut ? `END ${breakWord}` : `START ${breakWord}`).toUpperCase();
 
   // ── Handlers ─────────────────────────────────────────────────────────────
   function ensureEligible() {
@@ -274,13 +295,21 @@ export function AttendancePage({ user }: Props) {
 
   async function handleTimeOut() {
     if (!ensureEligible()) return;
+    // A time out can't be undone by the employee, so an early one is
+    // confirmed first rather than closing the day on an accidental tap.
+    const expected = !isField && todayAtt?.expectedTimeOutAt ? new Date(todayAtt.expectedTimeOutAt).getTime() : null;
+    const minutesEarly = expected ? Math.floor((expected - Date.now()) / 60000) : 0;
+    if (minutesEarly > 0) {
+      setEarlyOutMinutes(minutesEarly);
+      return;
+    }
     setScanType("TIME_OUT");
   }
 
   async function handleLunch() {
     if (!ensureEligible()) return;
     if (!todayAtt?.timeInAt) {
-      setResultModal({ status: "info", title: "Time In Required", message: "You need to time in before logging your lunch break." });
+      setResultModal({ status: "info", title: "Time In Required", message: `You need to time in before logging your ${breakWord.toLowerCase()} break.` });
       return;
     }
     if (todayAtt.timeOutAt) {
@@ -290,11 +319,11 @@ export function AttendancePage({ user }: Props) {
 
     const next = hasLunchOut && !hasLunchIn ? "LUNCH_IN" : "LUNCH_OUT";
     if (next === "LUNCH_OUT" && hasLunchOut) {
-      setResultModal({ status: "info", title: "Lunch Break Already Started", message: "You've already logged the start of your lunch break." });
+      setResultModal({ status: "info", title: `${breakWord} Break Already Started`, message: `You've already logged the start of your ${breakWord.toLowerCase()} break.` });
       return;
     }
     if (next === "LUNCH_IN" && hasLunchIn) {
-      setResultModal({ status: "info", title: "Lunch Break Already Ended", message: "You've already logged the end of your lunch break." });
+      setResultModal({ status: "info", title: `${breakWord} Break Already Ended`, message: `You've already logged the end of your ${breakWord.toLowerCase()} break.` });
       return;
     }
 
@@ -361,8 +390,8 @@ export function AttendancePage({ user }: Props) {
           ? result.logType === "TIME_IN" ? "Visit Start" : "Visit End"
           : result.logType === "TIME_IN" ? "Time In"
             : result.logType === "TIME_OUT" ? "Time Out"
-              : result.logType === "LUNCH_OUT" ? "Lunch Break Start"
-                : "Lunch Break End";
+              : result.logType === "LUNCH_OUT" ? `${breakWord} Break Start`
+                : `${breakWord} Break End`;
       // Same instant the server wrote to the AttendanceRecord — never the
       // browser's own clock, which would drift from the DTR by however long
       // verification took plus network latency.
@@ -412,6 +441,7 @@ export function AttendancePage({ user }: Props) {
     return (
       <CameraScanner
         logType={scanType}
+        isBreak={isBreak}
         onComplete={handleScanComplete}
         onCancel={() => { setScanType(null); setSelectedSite(null); }}
       />
@@ -468,7 +498,7 @@ export function AttendancePage({ user }: Props) {
                   />
                 )}
                 <span style={{ color: "#64748B", fontSize: 13, fontWeight: 600 }}>
-                  {hasTimedOut ? "Total Time Worked" : isOnLunch ? "Time Worked (On Lunch)" : "Time Worked"}
+                  {hasTimedOut ? "Total Time Worked" : isOnLunch ? `Time Worked (On ${breakWord})` : "Time Worked"}
                 </span>
               </div>
               <span
@@ -538,7 +568,7 @@ export function AttendancePage({ user }: Props) {
                 <div style={{ width: 36, height: 36, borderRadius: 18, background: "#FFF7ED", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 8 }}>
                   <Utensils size={18} color="#EA580C" />
                 </div>
-                <p style={{ color: "#64748B", fontSize: 13, marginBottom: 4 }}>Start Lunch</p>
+                <p style={{ color: "#64748B", fontSize: 13, marginBottom: 4 }}>Start {breakWord}</p>
                 <p className="att-time-val" style={{ color: "#062B59", fontWeight: 700, fontSize: 16, margin: 0 }}>
                   {fmtTime(todayAtt?.lunchOutAt)}
                 </p>
@@ -550,7 +580,7 @@ export function AttendancePage({ user }: Props) {
                 <div style={{ width: 36, height: 36, borderRadius: 18, background: "#FFF7ED", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 8 }}>
                   <Utensils size={18} color="#EA580C" />
                 </div>
-                <p style={{ color: "#64748B", fontSize: 13, marginBottom: 4 }}>End Lunch</p>
+                <p style={{ color: "#64748B", fontSize: 13, marginBottom: 4 }}>End {breakWord}</p>
                 <p className="att-time-val" style={{ color: "#062B59", fontWeight: 700, fontSize: 16, margin: 0 }}>
                   {fmtTime(todayAtt?.lunchInAt)}
                 </p>
@@ -558,6 +588,22 @@ export function AttendancePage({ user }: Props) {
             </div>
           )}
         </div>
+
+        {onLeaveToday && !(isTodayDayOff && !hasTimedIn) && (
+          <div
+            className="att-day-off"
+            style={{
+              display: "flex", alignItems: "center", gap: 10,
+              background: "#EFF6FF", border: "1px solid #BFDBFE",
+              borderRadius: 14, padding: 14, marginTop: 16,
+            }}
+          >
+            <AlertCircle size={20} color="#1680D8" />
+            <span style={{ color: "#1E3A8A", fontSize: 13, lineHeight: 1.4 }}>
+              You are on approved {onLeaveToday.leaveTypeName} today. Attendance can't be recorded while on leave.
+            </span>
+          </div>
+        )}
 
         {isTodayDayOff && !hasTimedIn && (
           <div
@@ -628,7 +674,7 @@ export function AttendancePage({ user }: Props) {
           </button>
         )}
 
-        {eligibilityMessage ? (
+        {(isTodayDayOff && !hasTimedIn) || onLeaveToday ? null : eligibilityMessage ? (
           <div className="att-info" style={{
             display: "flex", alignItems: "flex-start", gap: 10,
             background: "#FEF2F2", border: "1px solid #FECACA",
@@ -689,6 +735,53 @@ export function AttendancePage({ user }: Props) {
             <button
               onClick={() => setSitePickerVisible(false)}
               style={{ ...btnBase, background: "#F1F5F9", color: "#475569", marginTop: 12 }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Early time-out confirmation ────────────────────────────────────── */}
+      {earlyOutMinutes !== null && (
+        <div style={overlayS}>
+          <div style={{ ...modalCard, textAlign: "center" }}>
+            <div style={iconCircle("#FFFBEB")}>
+              <AlertCircle size={48} color="#D97706" />
+            </div>
+            <h3 style={{ color: "#062B59", fontSize: 18, fontWeight: 700, margin: "0 0 6px" }}>
+              Time Out Early?
+            </h3>
+            {/* How early is the headline, with both times laid out under
+                it — same layout as employee-mobile's EarlyTimeOutModal. */}
+            <p style={{ color: "#D97706", fontSize: 32, fontWeight: 800, lineHeight: 1.15, margin: 0, fontVariantNumeric: "tabular-nums" }}>
+              {formatDuration(earlyOutMinutes)}
+            </p>
+            <p style={{ color: "#64748B", fontSize: 13, fontWeight: 600, margin: "0 0 16px" }}>
+              before your expected time out
+            </p>
+            <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 12, padding: "10px 14px", display: "grid", gap: 8, marginBottom: 14, textAlign: "left" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 13 }}>
+                <span style={{ color: "#64748B", fontWeight: 600 }}>Time out now</span>
+                <strong style={{ color: "#0F172A", fontVariantNumeric: "tabular-nums" }}>{fmtTime(new Date().toISOString())}</strong>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 13 }}>
+                <span style={{ color: "#64748B", fontWeight: 600 }}>Expected time out</span>
+                <strong style={{ color: "#0F172A", fontVariantNumeric: "tabular-nums" }}>{fmtTime(todayAtt?.expectedTimeOutAt)}</strong>
+              </div>
+            </div>
+            <p style={{ color: "#475569", fontSize: 13.5, lineHeight: "19px", margin: "0 0 18px" }}>
+              This will be recorded as an early time out and can't be undone.
+            </p>
+            <button
+              onClick={() => { setEarlyOutMinutes(null); setScanType("TIME_OUT"); }}
+              style={{ ...btnBase, background: "#D97706" }}
+            >
+              Time Out Anyway
+            </button>
+            <button
+              onClick={() => setEarlyOutMinutes(null)}
+              style={{ ...btnBase, background: "#F1F5F9", color: "#475569", marginTop: 10 }}
             >
               Cancel
             </button>

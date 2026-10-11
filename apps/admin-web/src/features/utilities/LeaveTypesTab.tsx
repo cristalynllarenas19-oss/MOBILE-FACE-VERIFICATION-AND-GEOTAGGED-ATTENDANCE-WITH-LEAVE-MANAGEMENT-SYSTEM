@@ -34,6 +34,7 @@ type LeaveType = {
   defaultDays: string;
   requiresDocument: boolean;
   supportingDocumentAfterDays: number | null;
+  reviewReminderHours: number | null;
   requiresHrValidation: boolean;
   requiresEhsActivation: boolean;
   ehsActivated: boolean;
@@ -99,6 +100,7 @@ const emptyForm = {
   defaultDays: "15",
   requiresDocument: false,
   supportingDocumentAfterDays: "",
+  reviewReminderHours: "",
   requiresHrValidation: false,
   requiresEhsActivation: false,
   allowWithoutPay: false,
@@ -217,6 +219,7 @@ export function LeaveTypesTab({
       defaultDays: type.defaultDays,
       requiresDocument: type.requiresDocument,
       supportingDocumentAfterDays: type.supportingDocumentAfterDays != null ? String(type.supportingDocumentAfterDays) : "",
+      reviewReminderHours: type.reviewReminderHours != null ? String(type.reviewReminderHours) : "",
       requiresHrValidation: type.requiresHrValidation,
       requiresEhsActivation: type.requiresEhsActivation,
       allowWithoutPay: type.allowWithoutPay,
@@ -255,6 +258,9 @@ export function LeaveTypesTab({
         requiresDocument: form.requiresDocument,
         supportingDocumentAfterDays:
           form.requiresDocument && form.supportingDocumentAfterDays ? Number(form.supportingDocumentAfterDays) : undefined,
+        // Blank = fall back to the system default (sent as null so an
+        // existing value is actually cleared, not just left alone).
+        reviewReminderHours: form.reviewReminderHours.trim() ? Number(form.reviewReminderHours) : null,
         requiresHrValidation: form.requiresHrValidation,
         requiresEhsActivation: form.requiresEhsActivation,
         allowWithoutPay: form.allowWithoutPay,
@@ -593,6 +599,19 @@ export function LeaveTypesTab({
                       onChange={(e) => setForm((c) => ({ ...c, requiresDocument: e.target.checked }))}
                     />
                     <span>Requires supporting document</span>
+                  </label>
+
+                  <label className="utilities-field">
+                    <span className="utilities-field-label">Remind reviewer after how many hours</span>
+                    <input
+                      className="utilities-input"
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={form.reviewReminderHours}
+                      onChange={(e) => setForm((c) => ({ ...c, reviewReminderHours: e.target.value }))}
+                      placeholder="Leave blank to use the default"
+                    />
                   </label>
 
                   {form.requiresDocument && (

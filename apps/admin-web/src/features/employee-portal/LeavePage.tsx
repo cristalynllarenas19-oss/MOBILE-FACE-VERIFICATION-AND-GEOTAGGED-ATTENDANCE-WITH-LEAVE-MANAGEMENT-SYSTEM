@@ -1,12 +1,13 @@
 
 
 import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Calendar, CalendarClock, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronUp, Clock, FileText, Lock as LockIcon, Paperclip, Search, X, XCircle } from "lucide-react";
+import { AlertCircle, Calendar, CalendarClock, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronUp, Clock, FileText, Lock as LockIcon, Paperclip, Search, Timer, X, XCircle } from "lucide-react";
 import "./EmployeePortal.css";
 import {
   LeaveType, LeaveBalance, LeaveRequest, UndertimeEligibility, UndertimeFiling, MySchedule,
   getLeaveTypes, getLeaveBalances, getLeaveRequests, createLeaveRequest, cancelLeaveRequest, resubmitLeaveRequest,
   getUndertimeEligibility, getUndertimeFilings, fileUndertime, getMySchedules,
+  filedMinutes,
 } from "./api";
 import { LeaveBalanceChart } from "./components/LeaveBalanceChart";
 import { CalendarPicker } from "./components/CalendarPicker";
@@ -24,7 +25,7 @@ type Tab   = "balance" | "request" | "undertime";
 
 const MAX_BYTES = 5 * 1024 * 1024;
 
-type RequestStatusFilter = "ALL" | "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+type RequestStatusFilter = "ALL" | "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED" | "LAPSED";
 
 // Same neutral pill style as every other filter chip here (Filed From/To
 // below) — a permanent per-status color made the row read as decoration
@@ -34,14 +35,16 @@ const STATUS_FILTERS: { key: Exclude<RequestStatusFilter, "ALL">; label: string 
   { key: "APPROVED", label: "Approved" },
   { key: "REJECTED", label: "Rejected" },
   { key: "CANCELLED", label: "Cancelled" },
+  { key: "LAPSED", label: "Lapsed" },
 ];
 
-// Buckets a request's raw status into one of the four filter chips — same
+// Buckets a request's raw status into one of the five filter chips — same
 // grouping as statusTone below (mirrors employee-mobile's LeaveScreen.tsx).
 function statusFilterBucket(status: string): Exclude<RequestStatusFilter, "ALL"> | null {
   if (status === "APPROVED" || status === "SUPERVISOR_APPROVED") return "APPROVED";
   if (status === "REJECTED") return "REJECTED";
   if (status === "CANCELLED") return "CANCELLED";
+  if (status === "LAPSED") return "LAPSED";
   if (status === "PENDING" || status === "NEEDS_REVISION" || status === "CANCELLATION_PENDING") return "PENDING";
   return null;
 }
@@ -52,6 +55,8 @@ function statusTone(s: string) {
   // Darker red than REJECTED, not a different color family — still reads as
   // "not approved" but distinct in shade from an outright rejection.
   if (s === "CANCELLED") return { color: "#7F1D1D", bg: "#FEE2E2" };
+  // Neutral grey, not red — nobody rejected it; it simply ran out of time.
+  if (s === "LAPSED") return { color: "#475569", bg: "#E2E8F0" };
   // Same amber pill as plain Pending, but red text — this is the one that
   // needs the employee to act (resubmit), so it should still stand out from
   // a plain "awaiting someone else" Pending. Matches the My Leave Balance
@@ -64,7 +69,17 @@ function statusTone(s: string) {
 // approval flow — approval is single-step now, so it reads as plain
 // "Approved" here, same as admin-web's Leave Management page and the mobile
 // app (keeps the label consistent across every surface that shows it).
-function statusLabel(s: string) {
+// Every status pill on this page is one fixed size, sized to fit the
+// longest label ("LAPSED - REPORTED TO WORK") — same as the Leave
+// Management and Reports tables — so a column of them lines up.
+const STATUS_PILL_SIZE: CSSProperties = {
+  width: 178, boxSizing: "border-box", justifyContent: "center", textAlign: "center", whiteSpace: "nowrap",
+};
+
+// A lapsed request always says which kind: the employee came to work on
+// those days anyway, or nobody decided in time and the days stand as absent.
+function statusLabel(s: string, lapseReason?: string | null) {
+  if (s === "LAPSED") return lapseReason === "REPORTED_FOR_WORK" ? "LAPSED - REPORTED TO WORK" : "LAPSED - ABSENT";
   if (s === "SUPERVISOR_APPROVED") return "APPROVED";
   // Reads clearer as "PENDING CANCELLATION" than a plain underscore swap
   // ("CANCELLATION PENDING") — same wording used on the mobile app and the
@@ -122,7 +137,13 @@ function formatUndertimeTimelineDate(iso: string) {
 
 function buildUndertimeTimelineSteps(filing: UndertimeFiling): UndertimeTimelineStep[] {
   const steps: UndertimeTimelineStep[] = [
-    { key: "filed", tone: "done", title: "Filed", when: formatUndertimeTimelineDate(filing.createdAt), detail: "Submitted." },
+    {
+      key: "filed",
+      tone: "done",
+      title: "Filed",
+      when: formatUndertimeTimelineDate(filing.createdAt),
+      detail: `Submitted.${filing.reason ? ` "${filing.reason}"` : ""}`,
+    },
   ];
   if (filing.reviewedAt) {
     // Same "Approved/Rejected by {name}." format as the leave request
@@ -947,13 +968,14 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
             {r.leaveType.name}
           </p>
           <span style={{
-            display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0, whiteSpace: "nowrap",
+            display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0,
             background: tone.bg, color: tone.color,
             fontWeight: 700, fontSize: 10,
             borderRadius: 999, padding: "4px 9px",
+            ...STATUS_PILL_SIZE,
           }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: tone.color, flexShrink: 0 }} />
-            {statusLabel(r.status)}
+            {statusLabel(r.status, r.lapseReason)}
           </span>
         </div>
         <p style={{ display: "flex", alignItems: "center", gap: 6, color: "#64748B", fontWeight: 600, fontSize: 13, margin: "8px 0 0" }}>
@@ -1382,8 +1404,8 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
       {tab === "undertime" && (
         <div style={{ background: "#FFFFFF", borderRadius: 18, border: "1px solid #E2E8F0", padding: 20, boxShadow: "var(--emp-shadow-card)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
-            <div style={{ width: 28, height: 28, borderRadius: 8, background: "#FCE7F3", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-              <FileText size={16} color="#DC2777" />
+            <div style={{ width: 28, height: 28, borderRadius: 8, background: "#CCFBF1", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              <Timer size={16} color="#0D9488" />
             </div>
             <h3 style={{ color: "#062B59", fontSize: 18, fontWeight: 700, margin: 0 }}>File Undertime</h3>
           </div>
@@ -1410,9 +1432,15 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
               ) : undertimeEligibility.existingFiling ? (
                 "You've already filed undertime for this cutoff."
               ) : undertimeEligibility.lateRecords.length === 0 ? (
-                "You have no late attendance within this cutoff to file."
+                <>
+                  You have no late or early time-out attendance within this cutoff to file. Undertime can be filed on the{" "}
+                  <strong style={{ color: "#1680D8", fontWeight: 700 }}>
+                    {ordinalDaysOfMonth(undertimeEligibility.filingDaysOfMonth)}
+                  </strong>{" "}
+                  of the month.
+                </>
               ) : (
-                "Select one late day below to file undertime for this cutoff."
+                "Select one late or early time-out day below to file undertime for this cutoff."
               )}
             </p>
           )}
@@ -1470,7 +1498,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                           <span style={{ fontSize: 12, color: "#64748B", fontWeight: 600 }}>Late Day</span>
                           <span style={{ fontSize: 12, color: "#334155", fontWeight: 700 }}>
                             {filing.attendanceRecord
-                              ? `${new Date(filing.attendanceRecord.attendanceDate).toLocaleDateString()} (${minutesLabel(filing.attendanceRecord.lateMinutes)})`
+                              ? `${new Date(filing.attendanceRecord.attendanceDate).toLocaleDateString()} (${minutesLabel(filedMinutes(filing.attendanceRecord))})`
                               : "—"}
                           </span>
                         </div>
@@ -1541,7 +1569,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                               }}
                             >
                               <span style={{ fontSize: 13, color: "#334155", fontWeight: selected ? 700 : 400 }}>
-                                {new Date(record.attendanceDate).toLocaleDateString()} — {lateMinutesLabel(record.lateMinutes)}
+                                {new Date(record.attendanceDate).toLocaleDateString()} — {lateMinutesLabel(filedMinutes(record))}
                               </span>
                               {selected && <CheckCircle size={16} color="#DC2777" />}
                             </div>
@@ -1564,7 +1592,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                         <p style={{ color: "#062B59", fontSize: 15, fontWeight: 700, margin: "8px 0 6px" }}>Add a Reason</p>
                         {selectedLateRecordForReview && (
                           <p style={{ color: "#64748B", fontSize: 13, margin: "0 0 10px" }}>
-                            {new Date(selectedLateRecordForReview.attendanceDate).toLocaleDateString()} — {lateMinutesLabel(selectedLateRecordForReview.lateMinutes)}
+                            {new Date(selectedLateRecordForReview.attendanceDate).toLocaleDateString()} — {lateMinutesLabel(filedMinutes(selectedLateRecordForReview))}
                           </p>
                         )}
                         <label style={{ ...fldLbl, display: "inline-flex", alignItems: "baseline", gap: 4 }}>
@@ -1603,7 +1631,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                           <div style={{ display: "flex", justifyContent: "space-between", gap: 10, borderBottom: "1px solid #FBCFE8", marginBottom: 8, paddingBottom: 8 }}>
                             <span style={{ fontSize: 12, color: "#9D174D", fontWeight: 600 }}>Late Day</span>
                             <span style={{ fontSize: 12, color: "#831843", fontWeight: 700 }}>
-                              {new Date(selectedLateRecordForReview.attendanceDate).toLocaleDateString()} ({minutesLabel(selectedLateRecordForReview.lateMinutes)})
+                              {new Date(selectedLateRecordForReview.attendanceDate).toLocaleDateString()} ({minutesLabel(filedMinutes(selectedLateRecordForReview))})
                             </span>
                           </div>
                           <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
@@ -1656,17 +1684,6 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
       {historyOpen && (
         <div style={overlayNoBg}>
           <div className="emp-scroll-thin" style={modalCardFloating}>
-            <button
-              type="button"
-              onClick={() => {
-                setHistoryOpen(false);
-                setExpandedHistoryFilingId(null);
-              }}
-              style={modalCloseBtn}
-              aria-label="Close"
-            >
-              <X size={15} color="#64748B" />
-            </button>
             {expandedHistoryFiling ? (
               <>
                 <button
@@ -1688,26 +1705,18 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                   const tone = statusTone(filing.status);
                   const steps = buildUndertimeTimelineSteps(filing);
                   return (
-                    <div style={{ background: "#F8FAFC", borderRadius: 12, padding: 14 }}>
-                      <p style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 600, fontSize: 13, color: "#64748B", margin: 0 }}>
-                        <Calendar size={13} color="#64748B" />
+                    <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 12, padding: 14 }}>
+                      <p style={{ fontWeight: 700, margin: "0 0 3px", color: "#062B59" }}>
+                        {filing.attendanceRecord ? lateMinutesLabel(filedMinutes(filing.attendanceRecord)) : "Undertime"}
+                      </p>
+                      <p style={{ color: "#475569", fontSize: 13, margin: "0 0 8px" }}>
                         {new Date(
                           filing.attendanceRecord ? filing.attendanceRecord.attendanceDate : filing.filingDate
                         ).toLocaleDateString()}
                       </p>
-                      {filing.attendanceRecord && (
-                        <p style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 17, color: tone.color, margin: "6px 0 0" }}>
-                          <Clock size={15} color={tone.color} />
-                          {lateMinutesLabel(filing.attendanceRecord.lateMinutes)}
-                        </p>
-                      )}
-                      {filing.reason && <p style={{ color: "#64748B", fontSize: 13, margin: "8px 0 0" }}>{filing.reason}</p>}
-                      <span style={{ display: "inline-block", marginTop: 8, fontSize: 11, fontWeight: 700, padding: "4px 9px", borderRadius: 999, color: tone.color, background: tone.bg }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", fontSize: 10, fontWeight: 700, padding: "4px 9px", borderRadius: 999, color: tone.color, background: tone.bg, ...STATUS_PILL_SIZE }}>
                         {statusLabel(filing.status)}
                       </span>
-                      {filing.status === "REJECTED" && filing.remarks && (
-                        <p style={{ color: "#64748B", fontSize: 12, margin: "8px 0 0" }}>Remarks: {filing.remarks}</p>
-                      )}
                       {/* Same visual language as components/ui/LeaveTimeline.tsx
                           — a dedicated step-builder rather than reusing that
                           component, since its action vocabulary is leave-specific. */}
@@ -1853,10 +1862,11 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                               ).toLocaleDateString()}
                             </p>
                             <span style={{
-                              display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0, whiteSpace: "nowrap",
+                              display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0,
                               background: tone.bg, color: tone.color,
                               fontWeight: 700, fontSize: 10,
                               borderRadius: 999, padding: "4px 9px",
+                              ...STATUS_PILL_SIZE,
                             }}>
                               <span style={{ width: 6, height: 6, borderRadius: "50%", background: tone.color, flexShrink: 0 }} />
                               {statusLabel(filing.status)}
@@ -1865,7 +1875,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                           {filing.attendanceRecord && (
                             <p style={{ display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 15, color: tone.color, margin: "4px 0 0" }}>
                               <Clock size={14} color={tone.color} />
-                              {lateMinutesLabel(filing.attendanceRecord.lateMinutes)}
+                              {lateMinutesLabel(filedMinutes(filing.attendanceRecord))}
                             </p>
                           )}
                           <p style={{ color: "#94A3B8", fontSize: 12.5, margin: "8px 0 0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
@@ -1878,15 +1888,11 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                 </div>
               </>
             )}
-            <button
-              onClick={() => {
-                setHistoryOpen(false);
-                setExpandedHistoryFilingId(null);
-              }}
-              style={{ ...primBtn, marginTop: 10 }}
-            >
-              Close
-            </button>
+            {!expandedHistoryFiling && (
+              <button onClick={() => setHistoryOpen(false)} style={{ ...primBtn, marginTop: 10 }}>
+                Close
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -1895,9 +1901,6 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
       {showPending && (
         <div style={overlayNoBg}>
           <div className="emp-scroll-thin" style={modalCardFloating}>
-            <button type="button" onClick={() => setShowPending(false)} style={modalCloseBtn} aria-label="Close">
-              <X size={15} color="#64748B" />
-            </button>
             <h3 style={{ color: "#062B59", fontWeight: 700, marginBottom: 14 }}>My Leave Requests</h3>
 
             <SegmentedControl
@@ -1912,8 +1915,9 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
 
             {/* Same navy-active/grey-inactive colors as every other pill on
                 this page (Balance/Request/Undertime, Current/Past) instead of
-                a third color; flex:1 keeps all four on one line. */}
-            <div style={{ display: "flex", gap: 5, marginBottom: 10 }}>
+                a third color. Six chips (All + five statuses) in two rows of
+                three, so none of them is squeezed. */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 10 }}>
               <button
                 type="button"
                 onClick={() => setRequestsStatusFilter("ALL")}
@@ -2025,18 +2029,6 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                 All requests
               </button>
               <h3 style={{ color: "#062B59", fontWeight: 700, margin: "0 0 12px" }}>Leave Request Details</h3>
-              {/* "X" closes the whole flow; the back row above returns to the list. */}
-              <button
-                type="button"
-                onClick={() => {
-                  setFocusedRequestId(null);
-                  setShowPending(false);
-                }}
-                style={{ ...modalCloseBtn, top: 20, right: 20 }}
-                aria-label="Close"
-              >
-                <X size={15} color="#64748B" />
-              </button>
               {/* Which request this is stays visible too, not just the
                   generic page title above — same reasoning as the back
                   row/title: it's orientation, not scrollable detail. */}
@@ -2046,12 +2038,13 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                   {new Date(focusedRequest.startDate).toLocaleDateString()} – {new Date(focusedRequest.endDate).toLocaleDateString()}
                 </p>
                 <span style={{
-                  display: "inline-block",
+                  display: "inline-flex", alignItems: "center",
                   background: statusTone(focusedRequest.status).bg, color: statusTone(focusedRequest.status).color,
-                  fontWeight: 700, fontSize: 11,
-                  borderRadius: 999, padding: "3px 8px",
+                  fontWeight: 700, fontSize: 10,
+                  borderRadius: 999, padding: "4px 9px",
+                  ...STATUS_PILL_SIZE,
                 }}>
-                  {statusLabel(focusedRequest.status)}
+                  {statusLabel(focusedRequest.status, focusedRequest.lapseReason)}
                 </span>
               </div>
             </div>

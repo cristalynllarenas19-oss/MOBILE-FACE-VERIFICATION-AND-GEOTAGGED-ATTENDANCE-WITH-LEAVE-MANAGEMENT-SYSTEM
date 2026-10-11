@@ -7,14 +7,16 @@ import type { Notification } from "./UtilitiesPage";
 
 type ActorRef = { email: string; employee?: { firstName: string; lastName: string } | null } | null;
 
+type BreakKind = "LUNCH" | "BREAK";
+
 type Shift = {
   id: string;
   name: string;
   startTime: string;
   endTime: string;
-  morningBreakMinutes: number;
-  afternoonBreakMinutes: number;
   lunchBreakMinutes: number;
+  breakStartTime: string | null;
+  breakKind: BreakKind;
   enableRounding: boolean;
   roundingIntervalMinutes: number;
   lateThresholdMinutes: number;
@@ -85,6 +87,49 @@ function formatWorkingHoursLong(startTime: string, endTime: string): string | nu
   return parts.length > 0 ? parts.join(" ") : "0 hours";
 }
 
+// What the backend saves when the admin doesn't choose a break (see
+// defaultBreakStartTime / defaultBreakKind in attendance-shift.util.ts): the
+// shift's 5th hour, called lunch when it starts around midday. Only used to
+// pre-fill the form — the saved shift carries its own break time and type.
+function defaultBreakStart(startTime: string): string {
+  if (!startTime) return "";
+  const [h, m] = startTime.split(":").map(Number);
+  if ([h, m].some((n) => Number.isNaN(n))) return "";
+  const total = (h * 60 + m + 4 * 60) % 1440;
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
+function defaultBreakKind(breakStartTime: string): BreakKind {
+  const hour = Number(breakStartTime.split(":")[0]);
+  return hour >= 10 && hour < 15 ? "LUNCH" : "BREAK";
+}
+
+function breakKindLabel(kind: BreakKind) {
+  return kind === "BREAK" ? "Break" : "Lunch";
+}
+
+// The break's clock range, or null when it has no length or doesn't fit
+// inside the shift (a break time earlier than the shift's start belongs to
+// the after-midnight half of an overnight shift).
+function describeShiftBreak(startTime: string, endTime: string, breakStartTime: string, breakMinutes: number): string | null {
+  const span = computeShiftMinutes(startTime, endTime);
+  if (span === null || !breakStartTime || !Number.isFinite(breakMinutes) || breakMinutes <= 0) return null;
+  const toMinutes = (time: string) => {
+    const [h, m] = time.split(":").map(Number);
+    return h * 60 + m;
+  };
+  const start = toMinutes(startTime);
+  let breakStart = toMinutes(breakStartTime);
+  if (Number.isNaN(breakStart)) return null;
+  if (breakStart < start) breakStart += 1440;
+  if (breakStart + breakMinutes > start + span) return null;
+  const toClock = (minutes: number) => {
+    const m = minutes % 1440;
+    return formatTime12h(`${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`);
+  };
+  return `${toClock(breakStart)} – ${toClock(breakStart + breakMinutes)}`;
+}
+
 const PAGE_SIZE = 10;
 
 // value matches JS Date.getDay() (0=Sunday..6=Saturday); displayed Mon-first.
@@ -110,9 +155,9 @@ const emptyForm = {
   name: "",
   startTime: "",
   endTime: "",
-  morningBreakMinutes: "15",
-  afternoonBreakMinutes: "15",
   lunchBreakMinutes: "60",
+  breakStartTime: "",
+  breakKind: "LUNCH" as BreakKind,
   enableRounding: false,
   roundingIntervalMinutes: "15",
   lateThresholdMinutes: "0",
@@ -178,9 +223,9 @@ export function ShiftsTab({
       name: shift.name,
       startTime: shift.startTime,
       endTime: shift.endTime,
-      morningBreakMinutes: String(shift.morningBreakMinutes),
-      afternoonBreakMinutes: String(shift.afternoonBreakMinutes),
       lunchBreakMinutes: String(shift.lunchBreakMinutes),
+      breakStartTime: shift.breakStartTime ?? defaultBreakStart(shift.startTime),
+      breakKind: shift.breakKind,
       enableRounding: shift.enableRounding,
       roundingIntervalMinutes: String(shift.roundingIntervalMinutes),
       lateThresholdMinutes: String(shift.lateThresholdMinutes),
@@ -227,9 +272,9 @@ export function ShiftsTab({
         name: form.name.trim(),
         startTime: form.startTime,
         endTime: form.endTime,
-        morningBreakMinutes: Number(form.morningBreakMinutes || 0),
-        afternoonBreakMinutes: Number(form.afternoonBreakMinutes || 0),
         lunchBreakMinutes: Number(form.lunchBreakMinutes || 0),
+        breakStartTime: form.breakStartTime || undefined,
+        breakKind: form.breakStartTime ? form.breakKind : undefined,
         enableRounding: form.enableRounding,
         roundingIntervalMinutes: Number(form.roundingIntervalMinutes || 15),
         lateThresholdMinutes: Number(form.lateThresholdMinutes || 0),
@@ -305,6 +350,17 @@ export function ShiftsTab({
   };
 
   const liveHours = computeShiftHours(form.startTime, form.endTime);
+  const liveBreakLabel = breakKindLabel(form.breakKind);
+  const liveBreakRange = describeShiftBreak(form.startTime, form.endTime, form.breakStartTime, Number(form.lunchBreakMinutes || 0));
+  const viewBreakLabel = viewShift ? breakKindLabel(viewShift.breakKind) : "Lunch";
+  const viewBreakRange = viewShift
+    ? describeShiftBreak(
+        viewShift.startTime,
+        viewShift.endTime,
+        viewShift.breakStartTime ?? defaultBreakStart(viewShift.startTime),
+        viewShift.lunchBreakMinutes,
+      )
+    : null;
 
   return (
     <>
@@ -433,7 +489,14 @@ export function ShiftsTab({
                           type="time"
                           value={form.startTime}
                           onChange={(e) => {
-                            setForm((c) => ({ ...c, startTime: e.target.value }));
+                            const startTime = e.target.value;
+                            const breakStartTime = defaultBreakStart(startTime);
+                            setForm((c) => ({
+                              ...c,
+                              startTime,
+                              breakStartTime,
+                              breakKind: breakStartTime ? defaultBreakKind(breakStartTime) : c.breakKind,
+                            }));
                             setTimeError(null);
                           }}
                           required
@@ -465,31 +528,34 @@ export function ShiftsTab({
                   <div className="shift-form-section">
                     <div className="utilities-field-row shift-break-grid">
                       <label className="utilities-field">
-                        <span className="utilities-field-label">Morning Break</span>
+                        <span className="utilities-field-label">Break Type</span>
+                        <select
+                          className="utilities-input"
+                          value={form.breakKind}
+                          onChange={(e) => setForm((c) => ({ ...c, breakKind: e.target.value as BreakKind }))}
+                        >
+                          <option value="LUNCH">Lunch</option>
+                          <option value="BREAK">Break</option>
+                        </select>
+                      </label>
+                      <label className="utilities-field">
+                        <span className="utilities-field-label">{liveBreakLabel} Start</span>
                         <input
                           className="utilities-input"
-                          type="number"
-                          min="0"
-                          step="1"
-                          value={form.morningBreakMinutes}
-                          onChange={(e) => setForm((c) => ({ ...c, morningBreakMinutes: e.target.value }))}
-                          placeholder="0"
+                          type="time"
+                          value={form.breakStartTime}
+                          onChange={(e) => {
+                            const breakStartTime = e.target.value;
+                            setForm((c) => ({
+                              ...c,
+                              breakStartTime,
+                              breakKind: breakStartTime ? defaultBreakKind(breakStartTime) : c.breakKind,
+                            }));
+                          }}
                         />
                       </label>
                       <label className="utilities-field">
-                        <span className="utilities-field-label">Afternoon Break</span>
-                        <input
-                          className="utilities-input"
-                          type="number"
-                          min="0"
-                          step="1"
-                          value={form.afternoonBreakMinutes}
-                          onChange={(e) => setForm((c) => ({ ...c, afternoonBreakMinutes: e.target.value }))}
-                          placeholder="0"
-                        />
-                      </label>
-                      <label className="utilities-field">
-                        <span className="utilities-field-label">Lunch Break</span>
+                        <span className="utilities-field-label">{liveBreakLabel} Minutes</span>
                         <input
                           className="utilities-input"
                           type="number"
@@ -501,6 +567,13 @@ export function ShiftsTab({
                         />
                       </label>
                     </div>
+                    {liveBreakRange ? (
+                      <span className="shift-inline-note">{liveBreakLabel}: {liveBreakRange}</span>
+                    ) : (
+                      Number(form.lunchBreakMinutes || 0) > 0 && form.startTime && form.endTime && (
+                        <span className="utilities-field-error">The break must start and end within the shift's hours.</span>
+                      )
+                    )}
                   </div>
 
                   <div className="shift-form-section">
@@ -624,18 +697,14 @@ export function ShiftsTab({
 
               <div className="shift-view-form-grid">
                 <div className="shift-form-section">
-                  <div className="shift-view-readonly-row shift-view-break-row">
+                  <div className="shift-view-readonly-row">
                     <div>
-                      <span>Morning Break</span>
-                      <strong>{viewShift.morningBreakMinutes}</strong>
-                    </div>
-                    <div>
-                      <span>Afternoon Break</span>
-                      <strong>{viewShift.afternoonBreakMinutes}</strong>
-                    </div>
-                    <div>
-                      <span>Lunch Break</span>
+                      <span>{viewBreakLabel} Minutes</span>
                       <strong>{viewShift.lunchBreakMinutes}</strong>
+                    </div>
+                    <div>
+                      <span>{viewBreakLabel} Time</span>
+                      <strong>{viewBreakRange ?? "—"}</strong>
                     </div>
                   </div>
                 </div>
@@ -718,9 +787,11 @@ export function ShiftsTab({
                 <div>
                   <span>Breaks</span>
                   <div className="utilities-shift-breaks">
-                    <strong>Morning Break — {viewShift.morningBreakMinutes} min</strong>
-                    <strong>Lunch Break — {viewShift.lunchBreakMinutes} min</strong>
-                    <strong>Afternoon Break — {viewShift.afternoonBreakMinutes} min</strong>
+                    <strong>
+                      {viewBreakRange
+                        ? `${viewBreakLabel} — ${viewBreakRange} (${viewShift.lunchBreakMinutes} min)`
+                        : "None"}
+                    </strong>
                   </div>
                 </div>
                 <div>

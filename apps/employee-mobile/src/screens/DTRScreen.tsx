@@ -15,6 +15,7 @@ import {
   AttendanceLogPhoto,
   getAttendanceHistory,
   getAttendanceRecordPhotos,
+  filedMinutes,
 } from "../api";
 import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
 import SegmentedControl from "../components/SegmentedControl";
@@ -31,6 +32,50 @@ type PhotoStampTile = { key: string; url: string; left: number; top: number };
 // Stable fallback so useMemo filters don't recompute on every render while
 // the cache/network is still empty.
 const EMPTY_RECORDS: AttendanceHistoryRecord[] = [];
+
+// The list is grouped by month: one header row per month, followed by that
+// month's records only while it is expanded. The current month is always
+// shown and can't be collapsed; every earlier month starts collapsed and
+// can be opened. (With nothing in the current month, the newest month
+// starts open instead — but stays collapsible like any past month.)
+type MonthRow =
+  | { kind: "month"; key: string; label: string; count: number; expanded: boolean; locked: boolean }
+  | { kind: "record"; record: AttendanceHistoryRecord };
+
+function monthKeyOf(value: string | Date) {
+  const d = typeof value === "string" ? new Date(value) : value;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function buildMonthRows(records: AttendanceHistoryRecord[], toggled: Record<string, boolean>): MonthRow[] {
+  const groups: { key: string; label: string; records: AttendanceHistoryRecord[] }[] = [];
+  for (const record of records) {
+    const key = monthKeyOf(record.attendanceDate);
+    let group = groups[groups.length - 1];
+    if (!group || group.key !== key) {
+      group = groups.find((g) => g.key === key) ?? {
+        key,
+        label: new Date(record.attendanceDate).toLocaleDateString("en-US", { month: "long", year: "numeric" }),
+        records: [],
+      };
+      if (!groups.includes(group)) groups.push(group);
+    }
+    group.records.push(record);
+  }
+
+  const currentKey = monthKeyOf(new Date());
+  const defaultOpenKey = groups.some((g) => g.key === currentKey) ? currentKey : groups[0]?.key;
+
+  const rows: MonthRow[] = [];
+  for (const group of groups) {
+    const locked = group.key === currentKey;
+    const expanded = locked || (toggled[group.key] ?? group.key === defaultOpenKey);
+    rows.push({ kind: "month", key: group.key, label: group.label, count: group.records.length, expanded, locked });
+    if (expanded) for (const record of group.records) rows.push({ kind: "record", record });
+  }
+  return rows;
+}
+
 const PHOTO_STAMP_TILE_SIZE = 256;
 const PHOTO_STAMP_MAP_SIZE = 56;
 const PHOTO_STAMP_MAP_ZOOM = 16;
@@ -137,19 +182,54 @@ function formatPhotoStampCoordinates(latitude: string | number, longitude: strin
   return `${Math.abs(lat).toFixed(6)}°${lat >= 0 ? "N" : "S"}, ${Math.abs(lng).toFixed(6)}°${lng >= 0 ? "E" : "W"}`;
 }
 
-function photoTabLabel(tab: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN", isOfficeTab: boolean) {
-  if (tab === "LUNCH_OUT") return "Start Lunch";
-  if (tab === "LUNCH_IN") return "End Lunch";
+function photoTabLabel(
+  tab: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN",
+  isOfficeTab: boolean,
+  breakWord = "Lunch",
+) {
+  if (tab === "LUNCH_OUT") return `Start ${breakWord}`;
+  if (tab === "LUNCH_IN") return `End ${breakWord}`;
   if (tab === "TIME_IN") return isOfficeTab ? "Time In" : "Visit Start";
   return isOfficeTab ? "Time Out" : "Visit End";
 }
 
+// What to tell the employee about a day with no attendance record — an
+// absence, an approved leave, or a leave still awaiting a decision.
+function missedDayDetail(record: AttendanceHistoryRecord): { title: string; message: string; note: string | null } {
+  const leave = record.leaveTypeName ?? "leave";
+  if (record.status === "ON_LEAVE") {
+    return {
+      title: "On Leave",
+      message: `You were on approved ${leave} on this day, so no attendance was required.`,
+      note: null,
+    };
+  }
+  if (record.status === "LEAVE_PENDING") {
+    return {
+      title: "Leave Pending",
+      message: `Your ${leave} request for this day is still awaiting a decision, and no attendance has been logged.`,
+      note: "It will be recorded as an absence only if the request is not approved and you did not report for work.",
+    };
+  }
+  return {
+    title: "Absent",
+    message: "No attendance was logged on this day, so it is recorded as an absence.",
+    note: null,
+  };
+}
+
+function formatShiftClock(time: string) {
+  const [hours, minutes] = time.split(":").map(Number);
+  if ([hours, minutes].some((n) => Number.isNaN(n))) return time;
+  return `${hours % 12 === 0 ? 12 : hours % 12}:${String(minutes).padStart(2, "0")} ${hours >= 12 ? "PM" : "AM"}`;
+}
+
 function statusTone(status: string) {
   if (status === "PRESENT") return { color: "#17A34A", bg: "#ECFDF3", icon: "checkmark-circle" as const };
-  if (status === "LATE") return { color: "#D97706", bg: "#FFFBEB", icon: "alert-circle" as const };
+  if (status === "LATE") return { color: "#CA8A04", bg: "#FEFCE8", icon: "alert-circle" as const };
   if (status === "ON_LEAVE") return { color: "#1680D8", bg: "#EFF6FF", icon: "calendar" as const };
-  if (status === "OFFICIAL_BUSINESS") return { color: "#7C3AED", bg: "#F5F3FF", icon: "briefcase" as const };
   if (status === "ABSENT") return { color: "#DC2626", bg: "#FEF2F2", icon: "close-circle" as const };
+  if (status === "LEAVE_PENDING") return { color: "#B45309", bg: "#FEF3C7", icon: "hourglass" as const };
   return { color: "#94A3B8", bg: "#F8FAFC", icon: "time" as const };
 }
 
@@ -180,6 +260,7 @@ export default function DTRScreen({ employeeId }: Props) {
   const [isFromPickerVisible, setIsFromPickerVisible] = useState(false);
   const [isToPickerVisible, setIsToPickerVisible] = useState(false);
   const activeLog = selectedRecord?.logs.find((l) => l.logType === photoTab) ?? null;
+  const selectedBreakWord = selectedRecord?.breakKind === "BREAK" ? "Break" : "Lunch";
   // The GPS stamp is drawn from the log's own permanently stored address
   // (resolved once, server-side, at submission time — see attendance.
   // service.ts submit()). Deliberately never re-geocoded here: a capture is
@@ -249,6 +330,10 @@ export default function DTRScreen({ employeeId }: Props) {
 
   const isOfficeTab = activeTab === "office";
   const listData = isOfficeTab ? officeRecords : filteredFieldRecords;
+  // Months the user has explicitly opened/closed; anything not in here
+  // follows the default (current month open, earlier months closed).
+  const [toggledMonths, setToggledMonths] = useState<Record<string, boolean>>({});
+  const monthRows = useMemo(() => buildMonthRows(listData, toggledMonths), [listData, toggledMonths]);
   const hasDateFilter = Boolean(dateFrom || dateTo);
 
   return (
@@ -357,8 +442,8 @@ export default function DTRScreen({ employeeId }: Props) {
 
     <AestheticFlatList
       style={styles.list}
-      data={listData}
-      keyExtractor={(item) => item.id}
+      data={monthRows}
+      keyExtractor={(row) => (row.kind === "month" ? `month-${row.key}` : row.record.id)}
       refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} colors={["#1680D8"]} />}
       ListEmptyComponent={
         !isLoading ? (
@@ -381,7 +466,24 @@ export default function DTRScreen({ employeeId }: Props) {
         ) : null
       }
       contentContainerStyle={styles.listContent}
-      renderItem={({ item }) => {
+      renderItem={({ item: row }) => {
+        if (row.kind === "month") {
+          return (
+            <Pressable
+              style={({ pressed }) => [styles.monthHeader, pressed && !row.locked && styles.monthHeaderPressed]}
+              // The current month is always open — a plain label, not a toggle.
+              disabled={row.locked}
+              onPress={() => setToggledMonths((current) => ({ ...current, [row.key]: !row.expanded }))}
+            >
+              {!row.locked && (
+                <Ionicons name={row.expanded ? "chevron-down" : "chevron-forward"} size={16} color="#062B59" />
+              )}
+              <Text style={styles.monthLabel}>{row.label}</Text>
+              <Text style={styles.monthCount}>{row.count} {row.count === 1 ? "record" : "records"}</Text>
+            </Pressable>
+          );
+        }
+        const item = row.record;
         const tone = statusTone(item.status);
         const hoursRendered = formatHoursRendered(item.totalMinutes);
         const inProgress = Boolean(item.timeInAt) && !item.timeOutAt;
@@ -400,14 +502,63 @@ export default function DTRScreen({ employeeId }: Props) {
                 {item.workLocation?.name && (
                   <Text style={styles.siteNameText} numberOfLines={1}>{item.workLocation.name}</Text>
                 )}
+                {(item.status === "ON_LEAVE" || item.status === "LEAVE_PENDING") && !!item.leaveTypeName && (
+                  <Text style={styles.siteNameText} numberOfLines={1}>{item.leaveTypeName}</Text>
+                )}
+                {item.hasApprovedUndertime && (
+                  <Text style={styles.undertimeBadge} numberOfLines={1}>APPROVED UNDERTIME</Text>
+                )}
               </View>
-              <Text style={[styles.accHoursText, { color: hoursRendered ? tone.color : "#94A3B8" }]}>
-                {hoursRendered ?? (inProgress ? "In progress" : item.status === "ABSENT" ? "Absent" : "--")}
+              <Text style={[styles.accHoursText, { color: hoursRendered || item.isSynthetic ? tone.color : "#94A3B8" }]}>
+                {item.status === "ABSENT"
+                  ? "Absent"
+                  : item.status === "ON_LEAVE"
+                    ? "On leave"
+                    : item.status === "LEAVE_PENDING"
+                      ? "Leave pending"
+                      : hoursRendered ?? (inProgress ? "In progress" : "--")}
               </Text>
               <Ionicons name={isExpanded ? "chevron-down" : "chevron-forward"} size={16} color="#94A3B8" />
             </Pressable>
 
-            {isExpanded && (
+            {/* An absent/leave day has no times or photos — it expands into
+                an explanation of why there's nothing logged instead. */}
+            {isExpanded && item.isSynthetic && (() => {
+              const detail = missedDayDetail(item);
+              const shift = item.scheduledShift;
+              const shiftHours = shift ? `${formatShiftClock(shift.startTime)} – ${formatShiftClock(shift.endTime)}` : null;
+              return (
+                <View style={styles.accDetail}>
+                  <Text style={styles.missedMessage}>{detail.message}</Text>
+                  {/* Name and hours on separate lines — as one string it broke
+                      mid-time ("8:00 AM –" / "5:00 PM") on a phone's width. */}
+                  {!!shiftHours && (
+                    <View style={styles.missedRow}>
+                      <Text style={styles.timeLabel}>Scheduled shift</Text>
+                      <View style={styles.missedValueGroup}>
+                        {!!shift?.name && <Text style={styles.missedValue} numberOfLines={1}>{shift.name}</Text>}
+                        <Text style={[styles.missedValue, !!shift?.name && styles.missedValueSub]} numberOfLines={1}>
+                          {shiftHours}
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+                  {!!item.leaveTypeName && (
+                    <View style={styles.missedRow}>
+                      <Text style={styles.timeLabel}>Leave</Text>
+                      <Text style={styles.missedValue}>{item.leaveTypeName}</Text>
+                    </View>
+                  )}
+                  <View style={styles.missedRow}>
+                    <Text style={styles.timeLabel}>Time in / out</Text>
+                    <Text style={styles.missedValue}>None logged</Text>
+                  </View>
+                  {!!detail.note && <Text style={styles.missedNote}>{detail.note}</Text>}
+                </View>
+              );
+            })()}
+
+            {isExpanded && !item.isSynthetic && (
               <View style={styles.accDetail}>
                 <View style={styles.rowBody}>
                   <View style={styles.timeBlock}>
@@ -421,7 +572,7 @@ export default function DTRScreen({ employeeId }: Props) {
                   </View>
                   {isOfficeTab && item.lunchOutAt && (
                     <View style={styles.timeBlock}>
-                      <Text style={styles.timeLabel}>Lunch Break</Text>
+                      <Text style={styles.timeLabel}>{item.breakKind === "BREAK" ? "Break" : "Lunch Break"}</Text>
                       <Text style={styles.timeValue} numberOfLines={1} adjustsFontSizeToFit>
                         {formatTimeRangeCompact(item.lunchOutAt, item.lunchInAt ?? null)}
                       </Text>
@@ -434,6 +585,24 @@ export default function DTRScreen({ employeeId }: Props) {
                     <Text style={styles.timeLabel}>Overtime</Text>
                     <Text style={[styles.timeValue, styles.overtimeValue]}>
                       {formatHoursRendered(item.overtimeMinutes)}
+                    </Text>
+                  </View>
+                )}
+
+                {isOfficeTab && !!item.timeOutAt && !!item.undertimeMinutes && (
+                  <View style={styles.overtimeRow}>
+                    <Text style={styles.timeLabel}>Early Out</Text>
+                    <Text style={[styles.timeValue, styles.earlyOutValue]}>
+                      {formatHoursRendered(item.undertimeMinutes)}
+                    </Text>
+                  </View>
+                )}
+
+                {item.hasApprovedUndertime && (
+                  <View style={styles.overtimeRow}>
+                    <Text style={styles.timeLabel}>Undertime</Text>
+                    <Text style={[styles.timeValue, styles.undertimeValue]}>
+                      {filedMinutes(item) ? `${formatHoursRendered(filedMinutes(item))} · Approved` : "Approved"}
                     </Text>
                   </View>
                 )}
@@ -472,8 +641,8 @@ export default function DTRScreen({ employeeId }: Props) {
           <SegmentedControl
             segments={[
               { key: "TIME_IN", label: photoTabLabel("TIME_IN", isOfficeTab) },
-              ...(isOfficeTab ? [{ key: "LUNCH_OUT", label: "Start Lunch" }] : []),
-              ...(isOfficeTab ? [{ key: "LUNCH_IN", label: "End Lunch" }] : []),
+              ...(isOfficeTab ? [{ key: "LUNCH_OUT", label: `Start ${selectedBreakWord}` }] : []),
+              ...(isOfficeTab ? [{ key: "LUNCH_IN", label: `End ${selectedBreakWord}` }] : []),
               { key: "TIME_OUT", label: photoTabLabel("TIME_OUT", isOfficeTab) },
             ]}
             value={photoTab}
@@ -500,7 +669,7 @@ export default function DTRScreen({ employeeId }: Props) {
                       <View style={styles.photoStampText}>
                         <View style={styles.photoStampTimeBadge}>
                           <Text style={styles.photoStampTimeText}>
-                            {photoTabLabel(photoTab, isOfficeTab).toUpperCase()} · {formatPhotoStampTime(log!.capturedAt)}
+                            {photoTabLabel(photoTab, isOfficeTab, selectedBreakWord).toUpperCase()} · {formatPhotoStampTime(log!.capturedAt)}
                           </Text>
                         </View>
                         <Text style={styles.photoStampLocationText} numberOfLines={2}>
@@ -642,6 +811,30 @@ const styles = StyleSheet.create({
   // toggles the detail block below instead of jumping straight to the photo
   // modal (that's now reached via the "View captured photos" link inside
   // the expanded state).
+  monthHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 10,
+    borderRadius: 12,
+    backgroundColor: "#F1F5F9",
+  },
+  monthHeaderPressed: {
+    backgroundColor: "#E2E8F0",
+  },
+  monthLabel: {
+    flex: 1,
+    color: "#062B59",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  monthCount: {
+    color: "#64748B",
+    fontSize: 11.5,
+    fontWeight: "600",
+  },
   accItem: {
     backgroundColor: "#fff",
     borderWidth: 1,
@@ -732,6 +925,58 @@ const styles = StyleSheet.create({
   overtimeValue: {
     color: "#D97706",
     marginTop: 0,
+  },
+  missedMessage: {
+    color: "#334155",
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "600",
+    marginTop: 10,
+    marginBottom: 6,
+  },
+  missedRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 12,
+    marginTop: 6,
+  },
+  missedValueGroup: {
+    flex: 1,
+    alignItems: "flex-end",
+  },
+  missedValueSub: {
+    color: "#64748B",
+    fontWeight: "600",
+    marginTop: 1,
+  },
+  missedValue: {
+    flexShrink: 1,
+    textAlign: "right",
+    color: "#334155",
+    fontSize: 12.5,
+    fontWeight: "700",
+  },
+  missedNote: {
+    color: "#94A3B8",
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: 10,
+  },
+  earlyOutValue: {
+    color: "#DC2626",
+    marginTop: 0,
+  },
+  undertimeValue: {
+    color: "#17A34A",
+    marginTop: 0,
+  },
+  undertimeBadge: {
+    marginTop: 2,
+    color: "#17A34A",
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.3,
   },
   emptyState: {
     alignItems: "center",

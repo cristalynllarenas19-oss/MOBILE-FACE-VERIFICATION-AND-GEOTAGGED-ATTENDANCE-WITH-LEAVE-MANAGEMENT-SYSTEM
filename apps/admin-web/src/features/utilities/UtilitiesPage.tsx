@@ -4,6 +4,7 @@ import { NotificationModal, type NotificationConfig } from "../../components/ui/
 import { PermissionCode, permissions } from "../../types/rbac";
 import { LeaveTypesTab } from "./LeaveTypesTab";
 import { UndertimeSettingsCard } from "./UndertimeSettingsCard";
+import { LeaveLapseSettingsCard } from "./LeaveLapseSettingsCard";
 import { ShiftsTab } from "./ShiftsTab";
 import { AuditLogsTab } from "./AuditLogsTab";
 import { DepartmentsTab } from "./DepartmentsTab";
@@ -39,6 +40,7 @@ export function UtilitiesPage({ user, tab = "leave-types" }: { user?: { permissi
     <>
       <NotificationModal notification={notification} onClose={() => setNotification(null)} />
 
+      {tab === "leave-types" && <LeaveLapseSettingsCard canManage={canManageLeaveTypes} notify={setNotification} />}
       {tab === "leave-types" && <LeaveTypesTab canManage={canManageLeaveTypes} notify={setNotification} />}
       {tab === "undertime" && <UndertimeSettingsCard canManage={canManageLeaveTypes} notify={setNotification} />}
       {tab === "shifts" && <ShiftsTab canManageShifts={canManageShifts} notify={setNotification} />}

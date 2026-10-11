@@ -217,10 +217,11 @@
 }
 
 /* Fixed width (not min-width) so every status pill in a column is the same
-   size regardless of label — sized to fit the longest one, "Pending
-   Cancellation". */
+   size regardless of label — sized to fit the longest one, "Lapsed -
+   Reported to Work". */
 .leave-table-card td .badge {
-  width: 140px;
+  width: 176px;
+  white-space: nowrap;
   height: 28px;
   padding: 0 8px;
   font-size: 11px;

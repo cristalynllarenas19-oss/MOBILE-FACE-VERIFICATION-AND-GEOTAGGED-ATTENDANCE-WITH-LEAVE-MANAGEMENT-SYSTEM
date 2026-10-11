@@ -11,15 +11,14 @@ export type SelectedDay = {
   late: number;
   absent: number;
   onLeave: number;
-  officialBusiness: number;
   isDayOff?: boolean;
   departments: DeptAttendanceRow[];
 };
 
 // Same total computeAttendanceRate already uses everywhere else on this page
-// (present + late + absent + onLeave + officialBusiness) — Late and
-// Official Business aren't shown as their own columns here, but they still
-// count toward each row's Total, same as before.
+// (present + late + absent + onLeave) — Late isn't
+// shown as its own column here, but it still
+// counts toward each row's Total.
 function rowTotal(row: DeptAttendanceRow) {
   return computeAttendanceRate(row).total;
 }

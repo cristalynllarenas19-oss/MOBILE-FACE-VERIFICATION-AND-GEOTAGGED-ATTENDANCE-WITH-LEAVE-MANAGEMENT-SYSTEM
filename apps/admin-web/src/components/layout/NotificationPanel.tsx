@@ -31,6 +31,8 @@ const NOTIFICATION_ICON_MAP: Record<string, { Icon: typeof BellIcon; category: s
   LEAVE_REJECTED: { Icon: CalendarX, category: "rejected" },
   LEAVE_CANCELLATION_REQUESTED: { Icon: Hourglass, category: "pending" },
   LEAVE_CANCELLED: { Icon: Ban, category: "neutral" },
+  LEAVE_LAPSED: { Icon: Hourglass, category: "neutral" },
+  LEAVE_DECISION_OVERDUE: { Icon: Hourglass, category: "pending" },
   ANNOUNCEMENT: { Icon: Megaphone, category: "announce" },
   PROBATION_REGULARIZATION_DUE: { Icon: UserCheck, category: "pending" },
   SUPERVISOR_EVALUATION_REQUIRED: { Icon: ClipboardList, category: "pending" },

@@ -17,6 +17,7 @@ const TONES: Record<string, { color: string; bg: string }> = {
   // Darker red than REJECTED, not a different color family — still reads as
   // "not approved" but distinct in shade from an outright rejection.
   CANCELLED: { color: "#7F1D1D", bg: "#FEE2E2" },
+  LAPSED: { color: "#475569", bg: "#E2E8F0" },
   ON_LEAVE: { color: "#7C3AED", bg: "#EDE9FE" },
   NEEDS_REVISION: { color: "#B45309", bg: "#FEF3C7" },
   CANCELLATION_PENDING: { color: "#B45309", bg: "#FEF3C7" },
@@ -35,11 +36,19 @@ const LABEL_OVERRIDES: Record<string, string> = {
   CANCELLATION_PENDING: "PENDING CANCELLATION",
 };
 
-export default function StatusPill({ status }: { status: string }) {
+// lapseReason only matters for LAPSED — it's what tells "the employee came
+// to work anyway" apart from "nobody decided, so the days stand as absent".
+export default function StatusPill({ status, lapseReason }: { status: string; lapseReason?: string | null }) {
   const tone = TONES[status] ?? DEFAULT_TONE;
+  const label =
+    status === "LAPSED"
+      ? lapseReason === "REPORTED_FOR_WORK"
+        ? "LAPSED - REPORTED TO WORK"
+        : "LAPSED - ABSENT"
+      : LABEL_OVERRIDES[status] ?? status.replace(/_/g, " ");
   return (
     <Text style={[styles.pill, { color: tone.color, backgroundColor: tone.bg }]} numberOfLines={1}>
-      {LABEL_OVERRIDES[status] ?? status.replace(/_/g, " ")}
+      {label}
     </Text>
   );
 }
@@ -52,5 +61,8 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 999,
     overflow: "hidden",
+    // Never squeezed by a sibling in the same row — the longest label
+    // ("LAPSED - REPORTED TO WORK") would otherwise be cut off with "…".
+    flexShrink: 0,
   },
 });

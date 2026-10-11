@@ -43,9 +43,9 @@ describe("SchedulesService", () => {
       expect(prisma.shift.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
-            morningBreakMinutes: 15,
-            afternoonBreakMinutes: 15,
             lunchBreakMinutes: 60,
+            breakStartTime: "12:00",
+            breakKind: "LUNCH",
             roundingIntervalMinutes: 15,
             lateThresholdMinutes: 0,
             undertimeThresholdMinutes: 0,
@@ -59,7 +59,7 @@ describe("SchedulesService", () => {
 
     it("rejects a non-integer break value", async () => {
       prisma.shift.findFirst.mockResolvedValue(null);
-      await expect(service.createShift({ ...validShiftDto, morningBreakMinutes: 15.5 })).rejects.toThrow(
+      await expect(service.createShift({ ...validShiftDto, lunchBreakMinutes: 15.5 })).rejects.toThrow(
         BadRequestException,
       );
     });
@@ -92,7 +92,7 @@ describe("SchedulesService", () => {
 
     it("creates the shift and writes a CREATE_SHIFT audit log on success", async () => {
       prisma.shift.findFirst.mockResolvedValue(null);
-      const created = { id: "shift-1", ...validShiftDto, morningBreakMinutes: 15, afternoonBreakMinutes: 15, lunchBreakMinutes: 60, enableRounding: false, roundingIntervalMinutes: 15, lateThresholdMinutes: 0, undertimeThresholdMinutes: 0, autoShiftAdjustment: false, workingDays: [1, 2, 3, 4, 5] };
+      const created = { id: "shift-1", ...validShiftDto, lunchBreakMinutes: 60, enableRounding: false, roundingIntervalMinutes: 15, lateThresholdMinutes: 0, undertimeThresholdMinutes: 0, autoShiftAdjustment: false, workingDays: [1, 2, 3, 4, 5] };
       prisma.shift.create.mockResolvedValue(created);
 
       const result = await service.createShift(validShiftDto, "actor-1");
@@ -123,8 +123,6 @@ describe("SchedulesService", () => {
       name: "Standard Shift",
       startTime: "08:00",
       endTime: "17:00",
-      morningBreakMinutes: 15,
-      afternoonBreakMinutes: 15,
       lunchBreakMinutes: 60,
       enableRounding: false,
       roundingIntervalMinutes: 15,

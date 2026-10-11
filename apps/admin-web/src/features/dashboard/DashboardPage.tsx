@@ -61,7 +61,6 @@ type CalendarDay = {
   late: number;
   absent: number;
   onLeave: number;
-  officialBusiness: number;
   isDayOff: boolean;
   departments: DeptAttendanceRow[];
 };
@@ -298,7 +297,6 @@ export function DashboardPage({
         late: deptRow?.late ?? 0,
         absent: deptRow?.absent ?? 0,
         onLeave: deptRow?.onLeave ?? 0,
-        officialBusiness: deptRow?.officialBusiness ?? 0,
       };
     });
   }, [summary.calendar.days, departmentFilter]);
@@ -311,9 +309,8 @@ export function DashboardPage({
         late: acc.late + day.late,
         absent: acc.absent + day.absent,
         onLeave: acc.onLeave + day.onLeave,
-        officialBusiness: acc.officialBusiness + day.officialBusiness,
       }),
-      { department: "", present: 0, late: 0, absent: 0, onLeave: 0, officialBusiness: 0 },
+      { department: "", present: 0, late: 0, absent: 0, onLeave: 0 },
     );
     return computeAttendanceRate(totals);
   }, [filteredDays]);

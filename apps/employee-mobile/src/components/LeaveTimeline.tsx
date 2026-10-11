@@ -113,6 +113,14 @@ function eventToStep(event: LeaveRequestHistoryEvent, index: number): TimelineSt
         when,
         detail: `This leave remains approved.${event.remarks ? ` "${event.remarks}"` : ""}`,
       };
+    case "LAPSE_LEAVE":
+      return {
+        key: `lapsed-${index}`,
+        tone: "warn",
+        title: "Lapsed",
+        when,
+        detail: event.remarks ?? "Not decided before the leave dates passed, so the dates are recorded as absent.",
+      };
     default:
       return { key: `event-${index}`, tone: "done", title: event.action, when, detail: `${by}.` };
   }

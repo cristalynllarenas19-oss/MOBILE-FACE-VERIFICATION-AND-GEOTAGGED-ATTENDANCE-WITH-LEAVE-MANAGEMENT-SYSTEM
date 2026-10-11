@@ -15,7 +15,6 @@ export type DeptAttendanceRow = {
   late: number;
   absent: number;
   onLeave: number;
-  officialBusiness: number;
 };
 
 export type AttendanceNavigateFilter = {
@@ -29,7 +28,6 @@ const SERIES = [
   { key: "late",             label: "Late",              color: "#eda100", status: "LATE" },
   { key: "absent",           label: "Absent",            color: "#e34948", status: "ABSENT" },
   { key: "onLeave",          label: "On leave",          color: "#4a3aa7", status: "ON_LEAVE" },
-  { key: "officialBusiness", label: "Official business", color: "#2a78d6", status: "OFFICIAL_BUSINESS" },
 ] as const;
 
 type SeriesKey = typeof SERIES[number]["key"];
@@ -39,7 +37,6 @@ const SORT_OPTIONS = [
   { value: "absent",           label: "Most absent" },
   { value: "late",             label: "Most late" },
   { value: "onLeave",          label: "Most on leave" },
-  { value: "officialBusiness", label: "Most official business" },
   { value: "alphabetical",     label: "Alphabetical" },
 ] as const;
 

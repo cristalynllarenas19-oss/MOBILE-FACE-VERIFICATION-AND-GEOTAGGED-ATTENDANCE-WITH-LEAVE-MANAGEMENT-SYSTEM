@@ -41,6 +41,7 @@ import {
   fileUndertime,
   getMyProfile,
   getMySchedules,
+  filedMinutes,
 } from "../api";
 import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
 import { getRequestDocuments } from "../utils/leaveDocuments";
@@ -109,7 +110,7 @@ function isOneDayLeaveType(name?: string, isSingleDayOnly?: boolean) {
 
 // SUPERVISOR_APPROVED only exists on legacy rows from the old two-step flow;
 // it stays amber because it still needs one more Approve click to finalize.
-type RequestStatusFilter = "ALL" | "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+type RequestStatusFilter = "ALL" | "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED" | "LAPSED";
 
 // Same neutral pill style as every other filter chip here (Filed From/To
 // below) — a permanent per-status color made the row read as decoration
@@ -119,15 +120,17 @@ const STATUS_FILTERS: { key: Exclude<RequestStatusFilter, "ALL">; label: string 
   { key: "APPROVED", label: "Approved" },
   { key: "REJECTED", label: "Rejected" },
   { key: "CANCELLED", label: "Cancelled" },
+  { key: "LAPSED", label: "Lapsed" },
 ];
 
-// Buckets a request's raw status into one of the four filter chips —
+// Buckets a request's raw status into one of the five filter chips —
 // SUPERVISOR_APPROVED joins APPROVED, and PENDING/NEEDS_REVISION/
 // CANCELLATION_PENDING all join PENDING, same grouping as statusTone below.
 function statusFilterBucket(status: string): Exclude<RequestStatusFilter, "ALL"> | null {
   if (status === "APPROVED" || status === "SUPERVISOR_APPROVED") return "APPROVED";
   if (status === "REJECTED") return "REJECTED";
   if (status === "CANCELLED") return "CANCELLED";
+  if (status === "LAPSED") return "LAPSED";
   if (status === "PENDING" || status === "NEEDS_REVISION" || status === "CANCELLATION_PENDING") return "PENDING";
   return null;
 }
@@ -141,6 +144,8 @@ function statusTone(status: string) {
   // Darker red than REJECTED, not a different color family — still reads as
   // "not approved" but distinct in shade from an outright rejection.
   if (status === "CANCELLED") return { color: "#7F1D1D", bg: "#FEE2E2" };
+  // Neutral grey, not red — nobody rejected it; it simply ran out of time.
+  if (status === "LAPSED") return { color: "#475569", bg: "#E2E8F0" };
   // Same amber pill as plain Pending, but red text — this is the one that
   // needs the employee to act (resubmit), so it should still stand out from
   // a plain "awaiting someone else" Pending. Matches the My Leave Balance
@@ -152,7 +157,10 @@ function statusTone(status: string) {
 // Same wording as admin-web's employee portal and Leave Management page, so
 // an employee and their supervisor/HR always read the same status for the
 // same request regardless of which app they're on.
-function statusLabel(status: string) {
+// A lapsed request always says which kind: the employee came to work on
+// those days anyway, or nobody decided in time and the days stand as absent.
+function statusLabel(status: string, lapseReason?: string | null) {
+  if (status === "LAPSED") return lapseReason === "REPORTED_FOR_WORK" ? "LAPSED - REPORTED TO WORK" : "LAPSED - ABSENT";
   if (status === "SUPERVISOR_APPROVED") return "APPROVED";
   if (status === "CANCELLATION_PENDING") return "PENDING CANCELLATION";
   return status.replace(/_/g, " ");
@@ -206,7 +214,13 @@ function formatUndertimeTimelineDate(iso: string) {
 
 function buildUndertimeTimelineSteps(filing: UndertimeFiling): UndertimeTimelineStep[] {
   const steps: UndertimeTimelineStep[] = [
-    { key: "filed", tone: "done", title: "Filed", when: formatUndertimeTimelineDate(filing.createdAt), detail: "Submitted." },
+    {
+      key: "filed",
+      tone: "done",
+      title: "Filed",
+      when: formatUndertimeTimelineDate(filing.createdAt),
+      detail: `Submitted.${filing.reason ? ` "${filing.reason}"` : ""}`,
+    },
   ];
   if (filing.reviewedAt) {
     // Same "Approved/Rejected by {name}." format as the leave request
@@ -1141,7 +1155,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
           <View style={styles.card}>
             <View style={styles.formHeader}>
               <View style={styles.undertimeIconBadge}>
-                <Ionicons color="#DC2777" name="document-text-outline" size={18} />
+                <Ionicons color="#0D9488" name="timer-outline" size={18} />
               </View>
               <Text style={styles.cardTitle}>File Undertime</Text>
             </View>
@@ -1169,9 +1183,15 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                 ) : undertimeEligibility.existingFiling ? (
                   "You've already filed undertime for this cutoff."
                 ) : undertimeEligibility.lateRecords.length === 0 ? (
-                  "You have no late attendance within this cutoff to file."
+                  <>
+                    You have no late or early time-out attendance within this cutoff to file. Undertime can be filed on the{" "}
+                    <Text style={styles.pendingNoticeAccent}>
+                      {ordinalDaysOfMonth(undertimeEligibility.filingDaysOfMonth)}
+                    </Text>{" "}
+                    of the month.
+                  </>
                 ) : (
-                  "Select one late day below to file undertime for this cutoff."
+                  "Select one late or early time-out day below to file undertime for this cutoff."
                 )}
               </Text>
             )}
@@ -1179,7 +1199,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
             {/* Fixed height, regardless of state — the card must never
                 resize as the wizard moves between steps, resolves to a
                 locked state, or has nothing to show. */}
-            <View style={{ height: UNDERTIME_STEP_AREA_HEIGHT, marginTop: 4 }}>
+            <View style={{ flex: 1, minHeight: 0, maxHeight: UNDERTIME_STEP_AREA_HEIGHT, marginTop: 4 }}>
               {!undertimeEligibility ? (
                 <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
                   <ActivityIndicator color="#94A3B8" />
@@ -1234,7 +1254,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                             <Text style={styles.wizardReviewLabel}>Late Day</Text>
                             <Text style={styles.wizardReviewValue}>
                               {filing.attendanceRecord
-                                ? `${new Date(filing.attendanceRecord.attendanceDate).toLocaleDateString()} (${minutesLabel(filing.attendanceRecord.lateMinutes)})`
+                                ? `${new Date(filing.attendanceRecord.attendanceDate).toLocaleDateString()} (${minutesLabel(filedMinutes(filing.attendanceRecord))})`
                                 : "—"}
                             </Text>
                           </View>
@@ -1316,7 +1336,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                                   onPress={() => setSelectedLateRecordId(record.id)}
                                 >
                                   <Text style={[styles.inlineItemText, selected && styles.selectedItemText]}>
-                                    {new Date(record.attendanceDate).toLocaleDateString()} — {lateMinutesLabel(record.lateMinutes)}
+                                    {new Date(record.attendanceDate).toLocaleDateString()} — {lateMinutesLabel(filedMinutes(record))}
                                   </Text>
                                   {selected && <Ionicons name="checkmark-circle" size={20} color="#DC2777" />}
                                 </Pressable>
@@ -1340,7 +1360,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                           <Text style={[styles.cardTitle, { fontSize: 15, marginTop: 8, marginBottom: 6 }]}>Add a Reason</Text>
                           {selectedLateRecord && (
                             <Text style={styles.wizardSummaryText}>
-                              {new Date(selectedLateRecord.attendanceDate).toLocaleDateString()} — {lateMinutesLabel(selectedLateRecord.lateMinutes)}
+                              {new Date(selectedLateRecord.attendanceDate).toLocaleDateString()} — {lateMinutesLabel(filedMinutes(selectedLateRecord))}
                             </Text>
                           )}
                           <View style={styles.wizardLabelRow}>
@@ -1380,7 +1400,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                             <View style={styles.wizardReviewRow}>
                               <Text style={styles.wizardReviewLabel}>Late Day</Text>
                               <Text style={styles.wizardReviewValue}>
-                                {new Date(selectedLateRecord.attendanceDate).toLocaleDateString()} ({minutesLabel(selectedLateRecord.lateMinutes)})
+                                {new Date(selectedLateRecord.attendanceDate).toLocaleDateString()} ({minutesLabel(filedMinutes(selectedLateRecord))})
                               </Text>
                             </View>
                             <View style={[styles.wizardReviewRow, { borderBottomWidth: 0, marginBottom: 0, paddingBottom: 0 }]}>
@@ -1707,7 +1727,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                           </Text>
                         </View>
                         <Text style={[styles.pendingText, { color: tone.color, backgroundColor: tone.bg }]} numberOfLines={1}>
-                          {statusLabel(request.status)}
+                          {statusLabel(request.status, request.lapseReason)}
                         </Text>
                         <LeaveTimeline
                           history={request.history}
@@ -1828,9 +1848,11 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                   style={styles.requestsTabSwitcher}
                 />
 
-                <View style={styles.statusFilterRow}>
+                {/* Six chips (All + five statuses) in two rows of three, so
+                    none of them is squeezed. */}
+                <View style={styles.statusFilterGrid}>
                   <Pressable
-                    style={[styles.statusFilterChip, requestsStatusFilter === "ALL" && styles.statusFilterChipActive]}
+                    style={[styles.statusFilterChip, styles.statusFilterGridChip, requestsStatusFilter === "ALL" && styles.statusFilterChipActive]}
                     onPress={() => setRequestsStatusFilter("ALL")}
                   >
                     <Text
@@ -1847,7 +1869,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                     return (
                       <Pressable
                         key={filter.key}
-                        style={[styles.statusFilterChip, active && styles.statusFilterChipActive]}
+                        style={[styles.statusFilterChip, styles.statusFilterGridChip, active && styles.statusFilterChipActive]}
                         onPress={() => setRequestsStatusFilter(filter.key)}
                       >
                         <Text
@@ -1896,7 +1918,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                 </View>
 
                 <AestheticScrollView
-                  style={{ height: 280 }}
+                  style={{ height: 280, flexShrink: 1 }}
                   contentContainerStyle={{ paddingRight: 0 }}
                   trackStyle={{ right: -10 }}
                 >
@@ -1924,14 +1946,14 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                             requestsCache.refresh().catch(() => undefined);
                           }}
                         >
-                          <View style={styles.summaryTopRow}>
-                            <Text style={[styles.requestTitle, { flex: 1 }]}>
+                          <View style={[styles.summaryTopRow, styles.summaryTopRowWrap]}>
+                            <Text style={[styles.requestTitle, styles.summaryTitleWrap]}>
                               {request.leaveType.name}
                             </Text>
                             <View style={[styles.statusPill, { backgroundColor: tone.bg }]}>
                               <View style={[styles.statusDot, { backgroundColor: tone.color }]} />
                               <Text style={[styles.statusPillText, { color: tone.color }]} numberOfLines={1}>
-                                {statusLabel(request.status)}
+                                {statusLabel(request.status, request.lapseReason)}
                               </Text>
                             </View>
                           </View>
@@ -2005,7 +2027,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                 </Pressable>
                 <Text style={styles.modalTitle}>Undertime Filing Details</Text>
                 <AestheticScrollView
-                  style={{ flex: 1 }}
+                  style={{ maxHeight: 480 }}
                   contentContainerStyle={{ paddingRight: 0 }}
                   trackStyle={{ right: -10 }}
                 >
@@ -2015,6 +2037,9 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                     const timelineSteps = buildUndertimeTimelineSteps(filing);
                     return (
                       <View style={styles.requestCard}>
+                        <Text style={styles.requestTitle}>
+                          {filing.attendanceRecord ? lateMinutesLabel(filedMinutes(filing.attendanceRecord)) : "Undertime"}
+                        </Text>
                         <View style={styles.requestDateRow}>
                           <Ionicons name="calendar-outline" size={13} color="#64748B" />
                           <Text style={styles.requestDateText}>
@@ -2023,21 +2048,9 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                             ).toLocaleDateString()}
                           </Text>
                         </View>
-                        {filing.attendanceRecord && (
-                          <View style={[styles.filingMinutesRow, { marginTop: 6 }]}>
-                            <Ionicons name="time-outline" size={15} color={tone.color} />
-                            <Text style={[styles.filingMinutesText, { fontSize: 17, color: tone.color }]}>
-                              {lateMinutesLabel(filing.attendanceRecord.lateMinutes)}
-                            </Text>
-                          </View>
-                        )}
-                        {filing.reason && <Text style={styles.filingReasonText}>{filing.reason}</Text>}
                         <Text style={[styles.pendingText, { color: tone.color, backgroundColor: tone.bg }]} numberOfLines={1}>
                           {statusLabel(filing.status)}
                         </Text>
-                        {filing.status === "REJECTED" && filing.remarks && (
-                          <Text style={styles.requirementNoteText}>Remarks: {filing.remarks}</Text>
-                        )}
                         {/* Same visual language as LeaveTimeline.tsx (label,
                             node/line rail, tone colors) — a dedicated
                             step-builder rather than reusing that component,
@@ -2173,7 +2186,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                             <View style={styles.filingMinutesRow}>
                               <Ionicons name="time-outline" size={14} color={tone.color} />
                               <Text style={[styles.filingMinutesText, { color: tone.color }]}>
-                                {lateMinutesLabel(filing.attendanceRecord.lateMinutes)}
+                                {lateMinutesLabel(filedMinutes(filing.attendanceRecord))}
                               </Text>
                             </View>
                           )}
@@ -2358,7 +2371,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 10,
-    backgroundColor: "#FCE7F3",
+    backgroundColor: "#CCFBF1",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -2620,7 +2633,9 @@ const styles = StyleSheet.create({
     borderColor: "#BFDBFE",
     borderRadius: 10,
     paddingVertical: 10,
-    marginTop: 20,
+    marginTop: 12,
+    // Lifts it off the card's bottom edge a little.
+    marginBottom: 8,
   },
   viewHistoryButtonText: { color: "#1680D8", fontSize: 12, fontWeight: "700" },
   // No dimmed backdrop — just the floating card. The shadow/border below is
@@ -2649,6 +2664,12 @@ const styles = StyleSheet.create({
   },
   summaryCardPressed: { backgroundColor: "#EEF2F7" },
   summaryTopRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 8 },
+  // Leave request cards: the title keeps its natural width and the status
+  // pill drops to its own line when both can't fit — a long pill ("LAPSED -
+  // REPORTED TO WORK") used to squeeze the title down to a few letters per
+  // line instead.
+  summaryTopRowWrap: { flexWrap: "wrap", rowGap: 4 },
+  summaryTitleWrap: { maxWidth: "100%", marginBottom: 2 },
   // Undertime filing history only — the badge sits in its own row paired
   // with the reason, instead of sharing a row with the title (which is now
   // two separate lines: date, then minutes).
@@ -2686,6 +2707,9 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   statusFilterRow: { flexDirection: "row", gap: 5, marginBottom: 10 },
+  // Wrapping variant for the leave-request filters: three chips per row.
+  statusFilterGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 10 },
+  statusFilterGridChip: { flexGrow: 1, flexShrink: 0, flexBasis: "30%" },
   filedDateRow: { flexDirection: "row", gap: 8, marginBottom: 12 },
   filedDateBox: {
     flex: 1,

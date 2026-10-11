@@ -20,6 +20,8 @@ import { distanceInMeters } from "../utils/geofence";
 
 type CameraScannerProps = {
   logType: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN";
+  // True on a shift whose break isn't a lunch (night/evening shifts).
+  isBreak?: boolean;
   // Called the instant the liveness-verified photo is captured — not once
   // identity/geofence/submission are known. locationPromise is still in
   // flight (started right after capture, not awaited here) so the caller
@@ -52,6 +54,12 @@ const LOG_TYPE_LABEL: Record<CameraScannerProps["logType"], string> = {
   LUNCH_OUT: "Lunch Start",
   LUNCH_IN: "Lunch End",
 };
+
+function logTypeLabel(logType: CameraScannerProps["logType"], isBreak?: boolean) {
+  if (isBreak && logType === "LUNCH_OUT") return "Break Start";
+  if (isBreak && logType === "LUNCH_IN") return "Break End";
+  return LOG_TYPE_LABEL[logType];
+}
 
 type MapTileCell = { key: string; url: string; left: number; top: number };
 type MapGrid = { cells: MapTileCell[] };
@@ -320,7 +328,7 @@ function createDeferred() {
 }
 
 
-export default function CameraScanner({ logType, onComplete, onCancel, workLocations, onOutOfRange }: CameraScannerProps) {
+export default function CameraScanner({ logType, isBreak, onComplete, onCancel, workLocations, onOutOfRange }: CameraScannerProps) {
   const cameraRef = useRef<CameraView | null>(null);
   const shotRef = useRef<View>(null);
   const mainImageReadyRef = useRef<(() => void) | null>(null);
@@ -1179,7 +1187,7 @@ export default function CameraScanner({ logType, onComplete, onCancel, workLocat
         <View style={styles.topBarTextWrap}>
           <View style={styles.titleRow}>
             <Ionicons name="shield-checkmark" size={14} color="#2563EB" />
-            <Text style={styles.title}>{LOG_TYPE_LABEL[logType]} Verification</Text>
+            <Text style={styles.title}>{logTypeLabel(logType, isBreak)} Verification</Text>
           </View>
           <Text style={styles.subtitle}>Secure face check with location confirmation</Text>
         </View>
@@ -1280,7 +1288,7 @@ export default function CameraScanner({ logType, onComplete, onCancel, workLocat
                   <View style={styles.gpsTextColumn}>
                     <View style={styles.dateBadge}>
                       <Text style={styles.dateBadgeText}>
-                        {LOG_TYPE_LABEL[logType].toUpperCase()} · {formatStampDate(overlayDate)}
+                        {logTypeLabel(logType, isBreak).toUpperCase()} · {formatStampDate(overlayDate)}
                       </Text>
                     </View>
                     <Text style={styles.addressText} numberOfLines={2}>{overlayAddress ?? "Locating..."}</Text>

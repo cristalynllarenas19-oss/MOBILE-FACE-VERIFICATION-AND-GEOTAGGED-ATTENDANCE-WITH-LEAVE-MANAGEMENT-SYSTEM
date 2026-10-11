@@ -8,18 +8,26 @@ import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.serv
 import { NotificationsService } from "../notifications/notifications.service";
 import { SubmitAttendanceDto } from "./dto/submit-attendance.dto";
 import {
+  canContinueOvernightRecord,
   computeAbsenceCutoff,
+  computeBreakMinutes,
   computeExpectedTimeOut,
   computeMinutesLate,
   computeMinutesOvertime,
   computeMinutesUndertime,
   computeRenderTimeIn,
-  computeTotalBreakMinutes,
   findBestMatchingShift,
+  isInsidePreviousDayShift,
+  resolveBreakKind,
   roundToInterval,
 } from "./attendance-shift.util";
 import { getApprovedLeaveByEmployee } from "../../common/utils/on-leave.util";
-import { isDayOff } from "../../common/utils/schedule.util";
+import { resolveMissedDays } from "./attendance-missed-days.util";
+import { isDayOff, isNonWorkingDay } from "../../common/utils/schedule.util";
+
+// How far back the employee's own DTR rebuilds absent/on-leave days when
+// their real records don't already reach that far.
+const HISTORY_MISSED_DAYS_WINDOW = 30;
 
 type AttendanceFilters = {
   department?: string;
@@ -94,6 +102,7 @@ export class AttendanceService {
         employee: { include: { department: true, position: { select: { title: true } }, faceProfiles: { orderBy: { enrolledAt: "desc" }, take: 1 } } },
         workLocation: { select: { name: true } },
         logs: { orderBy: { capturedAt: "desc" } },
+        shift: { select: { startTime: true, endTime: true, lateThresholdMinutes: true, lunchBreakMinutes: true, breakStartTime: true, breakKind: true } },
       },
       orderBy: [{ attendanceDate: "desc" }, { visitNumber: "asc" }],
       take: 100,
@@ -104,8 +113,9 @@ export class AttendanceService {
       orderBy: { createdAt: "desc" },
     });
 
-    const withRemarks = records.map((record) => ({
+    const withRemarks = records.map(({ shift, ...record }) => ({
       ...record,
+      breakKind: resolveBreakKind(shift),
       adminRemarks: remarks.find((remark) => remark.entityId === record.id)?.newValues,
     }));
 
@@ -282,7 +292,7 @@ export class AttendanceService {
 
   async updateStatus(
     id: string,
-    status: "PRESENT" | "OFFICIAL_BUSINESS",
+    status: "PRESENT",
     remarks?: string,
     context: AuditLogContext = {},
     scopeDepartmentId?: string,
@@ -307,7 +317,7 @@ export class AttendanceService {
 
     await this.auditLogs.record({
       ...context,
-      action: status === "PRESENT" ? "CORRECT_ATTENDANCE" : "MARK_OFFICIAL_BUSINESS",
+      action: "CORRECT_ATTENDANCE",
       module: "Attendance",
       entityType: "AttendanceRecord",
       entityId: id,
@@ -327,11 +337,17 @@ export class AttendanceService {
 ) {
   const now = new Date();
 
-  const attendanceDate = new Date(
-    now.getFullYear(),
-    now.getMonth(),
-    now.getDate(),
-  );
+  // The working day this moment belongs to — the previous calendar day
+  // while an overnight shift that started then is still running. FIELD
+  // visits have no shift to span midnight, so they always use today.
+  const employee = await this.prisma.employee.findUnique({
+    where: { id: employeeId },
+    select: { attendanceMode: true },
+  });
+  const attendanceDate =
+    employee?.attendanceMode === "FIELD"
+      ? new Date(now.getFullYear(), now.getMonth(), now.getDate())
+      : await this.resolveOfficeAttendanceDate(employeeId, now);
 
   // findFirst ordered by timeInAt desc, rather than findUnique on
   // visitNumber 1, so a FIELD employee's most recent visit today is
@@ -347,6 +363,13 @@ export class AttendanceService {
 
   const hasUnresolvedFlaggedAttempt = await this.hasUnresolvedFlaggedAttempt(employeeId, attendanceDate);
 
+  // Set when this working day is covered by an approved leave and nothing
+  // has been timed in — the client locks its buttons instead of letting the
+  // employee scan first and be refused after (see submit()).
+  const approvedLeave = record?.timeInAt
+    ? undefined
+    : (await getApprovedLeaveByEmployee(this.prisma, [employeeId], attendanceDate)).get(employeeId);
+
   // The effective start time (rounded to shift rules where applicable) drives
   // the "expected time out" shown to the employee, same as it drives
   // totalMinutes math in upsertAttendanceRecord. The resolved shift's own
@@ -356,9 +379,13 @@ export class AttendanceService {
   const resolvedShift = record?.shiftId
     ? await this.prisma.shift.findUnique({ where: { id: record.shiftId } })
     : null;
+  // Before Time In there's no record to carry a shift yet, so fall back to
+  // whichever shift is currently assigned.
+  const breakShift = resolvedShift ?? (record ? null : await this.resolveActiveShift(employeeId, now));
 
   return {
     ...(record ?? {
+      attendanceDate,
       status: isDayOff(attendanceDate) ? "DAY_OFF" : "ABSENT",
       timeInAt: null,
       timeOutAt: null,
@@ -366,6 +393,8 @@ export class AttendanceService {
       lunchInAt: null,
     }),
     expectedTimeOutAt: effectiveStart ? computeExpectedTimeOut(effectiveStart, resolvedShift ?? undefined) : null,
+    breakKind: resolveBreakKind(breakShift),
+    onLeave: approvedLeave ? { leaveTypeName: approvedLeave.leaveTypeName } : null,
     hasUnresolvedFlaggedAttempt,
   };
 }
@@ -420,7 +449,11 @@ export class AttendanceService {
   // moment, via whichever EmployeeSchedule assignment is currently active
   // (startsOn <= at, and endsOn is null or still in the future).
   private async resolveActiveShift(employeeId: string, at: Date) {
-    const schedule = await this.prisma.employeeSchedule.findFirst({
+    return (await this.resolveActiveSchedule(employeeId, at))?.shift ?? null;
+  }
+
+  private async resolveActiveSchedule(employeeId: string, at: Date) {
+    return this.prisma.employeeSchedule.findFirst({
       where: {
         employeeId,
         startsOn: { lte: at },
@@ -429,7 +462,52 @@ export class AttendanceService {
       orderBy: { startsOn: "desc" },
       include: { shift: true },
     });
-    return schedule?.shift ?? null;
+  }
+
+  // Which calendar day an OFFICE scan made at `now` is filed under. Normally
+  // today — but a shift that crosses midnight is one working day filed under
+  // the date it started on, so a scan after midnight resolves to yesterday
+  // when either:
+  // - yesterday's record is still open on an overnight shift (the break
+  //   punches and Time Out all happen after midnight); or
+  // - the employee's overnight shift from yesterday is still running and
+  //   yesterday was one of their working days (a Time In that arrives after
+  //   midnight is a very late arrival for that shift, not an early one for
+  //   tonight's).
+  private async resolveOfficeAttendanceDate(employeeId: string, now: Date): Promise<Date> {
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+
+    const previous = await this.prisma.attendanceRecord.findUnique({
+      where: {
+        employeeId_attendanceDate_recordType_visitNumber: {
+          employeeId,
+          attendanceDate: yesterday,
+          recordType: "OFFICE",
+          visitNumber: 1,
+        },
+      },
+      include: { shift: true },
+    });
+    if (
+      previous?.timeInAt &&
+      !previous.timeOutAt &&
+      previous.shift &&
+      canContinueOvernightRecord(previous.shift, yesterday, now)
+    ) {
+      return yesterday;
+    }
+
+    const schedule = await this.resolveActiveSchedule(employeeId, now);
+    if (
+      schedule &&
+      isInsidePreviousDayShift(schedule.shift, now) &&
+      !isNonWorkingDay(yesterday, schedule.workingDays)
+    ) {
+      return yesterday;
+    }
+
+    return today;
   }
 
   // Computes shift-based lateness/undertime and upserts the day's
@@ -497,10 +575,13 @@ export class AttendanceService {
             : effectiveTime;
           undertimeMinutesValue = computeMinutesUndertime(shift, departureForRules, attendanceDate);
           overtimeMinutesValue = computeMinutesOvertime(shift, departureForRules, attendanceDate);
-          breakMinutesTotal = computeTotalBreakMinutes(shift, {
-            lunchOutAt: existingRecord.lunchOutAt,
-            lunchInAt: existingRecord.lunchInAt,
-          });
+          const workStart = existingRecord.renderTimeInAt ?? existingRecord.timeInAt;
+          if (workStart) {
+            breakMinutesTotal = computeBreakMinutes(shift, attendanceDate, workStart, effectiveTime, {
+              lunchOutAt: existingRecord.lunchOutAt,
+              lunchInAt: existingRecord.lunchInAt,
+            });
+          }
         }
       }
     }
@@ -544,9 +625,9 @@ export class AttendanceService {
         ...(logType === "TIME_OUT" && existingRecord?.timeInAt
           ? {
               timeOutAt: effectiveTime,
-              // Raw elapsed time minus the shift's configured break minutes
+              // Raw elapsed time minus the break minutes that fell inside it
               // (0 for FIELD or when no shift was resolved) — see
-              // computeTotalBreakMinutes. Floored at 0 so a time-out recorded
+              // computeBreakMinutes. Floored at 0 so a time-out recorded
               // implausibly soon after time-in never goes negative.
               totalMinutes: Math.max(
                 0,
@@ -561,8 +642,8 @@ export class AttendanceService {
 
         // Recorded here for late/undertime purposes to stay unaffected by
         // lunch timing; totalMinutes at Time Out uses these two timestamps
-        // instead of the shift's flat lunchBreakMinutes once both exist — see
-        // computeTotalBreakMinutes.
+        // instead of the shift's scheduled break window once both exist — see
+        // computeBreakMinutes.
         ...(logType === "LUNCH_OUT" ? { lunchOutAt: effectiveTime } : {}),
         ...(logType === "LUNCH_IN" ? { lunchInAt: effectiveTime } : {}),
       },
@@ -593,15 +674,22 @@ export class AttendanceService {
     }
 
     const now = new Date();
-    const attendanceDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const isField = employee.attendanceMode === "FIELD";
+
+    // The working day this scan belongs to — yesterday for the after-midnight
+    // half of an overnight shift (see resolveOfficeAttendanceDate), so its
+    // break punches and Time Out land on the record its Time In opened.
+    const attendanceDate = isField
+      ? new Date(now.getFullYear(), now.getMonth(), now.getDate())
+      : await this.resolveOfficeAttendanceDate(dto.employeeId, now);
 
     // Sunday is a company-wide rest day for every role — employee, supervisor,
     // and admin/HR alike — so no attendance is taken or required from anyone.
+    // Checked against the working day, not the clock: a Saturday night shift
+    // still closes out on Sunday morning.
     if (isDayOff(attendanceDate)) {
       throw new BadRequestException("Today is a scheduled day off (Sunday). Attendance is not required.");
     }
-
-    const isField = employee.attendanceMode === "FIELD";
 
     // For a FIXED employee, recordType is always OFFICE. For a FIELD
     // employee, recordType is auto-detected per visit from the classification
@@ -696,6 +784,20 @@ export class AttendanceService {
       }
 
       location = await this.geolocation.getLocationForEmployee(dto.employeeId);
+    }
+
+    // An employee on approved leave can't record attendance for that day.
+    // Only a Time In is refused — a record already open (e.g. an overnight
+    // shift that began before the leave) can still be closed out. A leave
+    // that is merely pending doesn't block anything: working that day is
+    // simply recorded as present.
+    if (logType === "TIME_IN") {
+      const onLeave = (await getApprovedLeaveByEmployee(this.prisma, [dto.employeeId], attendanceDate)).get(dto.employeeId);
+      if (onLeave) {
+        throw new BadRequestException(
+          `You are on approved ${onLeave.leaveTypeName} today. Attendance can't be recorded while on leave.`,
+        );
+      }
     }
 
     if (!location) {
@@ -821,8 +923,8 @@ export class AttendanceService {
     const logTypeLabel: Record<typeof logType & string, string> = {
       TIME_IN: "time in",
       TIME_OUT: "time out",
-      LUNCH_OUT: "lunch break start",
-      LUNCH_IN: "lunch break end",
+      LUNCH_OUT: "break start",
+      LUNCH_IN: "break end",
     };
 
     // Neither a flat rejection nor a flagged/borderline attempt creates or
@@ -948,7 +1050,7 @@ export class AttendanceService {
       // the employee's own result doesn't depend on, so — like the approved
       // branch above — they're fired without awaiting to keep this response
       // as fast as the actual verification work allows.
-      flaggedAttemptCount = await this.recordFlaggedAttempt(dto.employeeId);
+      flaggedAttemptCount = await this.recordFlaggedAttempt(dto.employeeId, attendanceDate);
       if (flaggedAttemptCount === FLAGGED_NOTIFY_THRESHOLD) {
         void this.notifyFlaggedAttempt(employee, flaggedLog.id, logType!, logTypeLabel).catch((error) =>
           console.error("Failed to notify supervisor of flagged attendance attempt", error),
@@ -1020,15 +1122,13 @@ export class AttendanceService {
   // crossed FLAGGED_NOTIFY_THRESHOLD. Resets whenever a flag lands on a day
   // different from the one last recorded, mirroring
   // FaceVerificationService.recordFaceMismatch().
-  private async recordFlaggedAttempt(employeeId: string): Promise<number> {
+  private async recordFlaggedAttempt(employeeId: string, today: Date): Promise<number> {
     const employee = await this.prisma.employee.findUnique({
       where: { id: employeeId },
       select: { flaggedAttemptCount: true, flaggedAttemptCountDate: true },
     });
     if (!employee) return 0;
 
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const isSameDay = employee.flaggedAttemptCountDate?.getTime() === today.getTime();
     const nextCount = isSameDay ? employee.flaggedAttemptCount + 1 : 1;
 
@@ -1314,6 +1414,8 @@ export class AttendanceService {
         take: limit,
         include: {
           workLocation: { select: { name: true } },
+          undertimeFilings: { where: { status: "APPROVED" }, select: { id: true }, take: 1 },
+          shift: { select: { startTime: true, endTime: true, lateThresholdMinutes: true, lunchBreakMinutes: true, breakStartTime: true, breakKind: true } },
           // Include every attempt for the day, not just the approved
           // TIME_IN/TIME_OUT ones — rejected attempts still have a captured
           // photo and the employee should be able to review it too.
@@ -1351,8 +1453,101 @@ export class AttendanceService {
         : [];
       const recordIdsWithPhoto = new Set(logsWithPhoto.map((log) => log.attendanceRecordId));
 
-      return records.map((record) => ({ ...record, hasPhoto: recordIdsWithPhoto.has(record.id) }));
+      const realRows = records.map(({ undertimeFilings, shift, ...record }) => ({
+        ...record,
+        breakKind: resolveBreakKind(shift),
+        hasPhoto: recordIdsWithPhoto.has(record.id),
+        hasApprovedUndertime: undertimeFilings.length > 0,
+      }));
+
+      // Absent and on-leave days have no AttendanceRecord, so they're rebuilt
+      // here for the same span the real rows cover (at least the last
+      // HISTORY_MISSED_DAYS_WINDOW days) — see resolveMissedDays.
+      const missedRows = await this.buildMissedDayRows(employeeId, records.at(-1)?.attendanceDate);
+
+      return [...realRows, ...missedRows].sort((a, b) => b.attendanceDate.getTime() - a.attendanceDate.getTime());
     });
+  }
+
+  private async buildMissedDayRows(employeeId: string, oldestRecordDate?: Date) {
+    const now = new Date();
+    const employee = await this.prisma.employee.findUnique({
+      where: { id: employeeId },
+      select: { hireDate: true, attendanceMode: true },
+    });
+    if (!employee) return [];
+
+    const defaultStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - HISTORY_MISSED_DAYS_WINDOW);
+    const windowStart =
+      oldestRecordDate && oldestRecordDate.getTime() < defaultStart.getTime() ? oldestRecordDate : defaultStart;
+
+    const [recorded, leaves, schedules] = await Promise.all([
+      this.prisma.attendanceRecord.findMany({
+        where: { employeeId, attendanceDate: { gte: windowStart } },
+        select: { attendanceDate: true },
+      }),
+      this.prisma.leaveRequest.findMany({
+        where: {
+          employeeId,
+          status: { in: ["APPROVED", "PENDING", "SUPERVISOR_APPROVED", "NEEDS_REVISION"] },
+          startDate: { lte: now },
+          endDate: { gte: windowStart },
+        },
+        select: { status: true, startDate: true, endDate: true, leaveType: { select: { name: true } } },
+      }),
+      this.prisma.employeeSchedule.findMany({
+        where: { employeeId },
+        orderBy: { startsOn: "desc" },
+        select: {
+          startsOn: true,
+          endsOn: true,
+          workingDays: true,
+          shift: { select: { name: true, startTime: true, endTime: true, lateThresholdMinutes: true } },
+        },
+      }),
+    ]);
+
+    const missedDays = resolveMissedDays({
+      windowStart,
+      now,
+      hireDate: employee.hireDate,
+      recordedDates: recorded.map((record) => record.attendanceDate),
+      leaves: leaves.map((leave) => ({
+        startDate: leave.startDate,
+        endDate: leave.endDate,
+        leaveTypeName: leave.leaveType.name,
+        approved: leave.status === "APPROVED",
+      })),
+      schedules,
+    });
+
+    const recordType: "OFFICE" | "FIELD" = employee.attendanceMode === "FIELD" ? "FIELD" : "OFFICE";
+    return missedDays.map((missed) => ({
+      id: `${missed.status.toLowerCase()}-${employeeId}-${missed.date.getTime()}`,
+      employeeId,
+      attendanceDate: missed.date,
+      recordType,
+      visitNumber: 1,
+      workLocationId: null,
+      workLocation: null,
+      timeInAt: null,
+      timeOutAt: null,
+      lunchOutAt: null,
+      lunchInAt: null,
+      status: missed.status,
+      leaveTypeName: missed.leaveTypeName ?? null,
+      scheduledShift: missed.shift
+        ? { name: missed.shift.name ?? null, startTime: missed.shift.startTime, endTime: missed.shift.endTime }
+        : null,
+      totalMinutes: 0,
+      lateMinutes: 0,
+      undertimeMinutes: 0,
+      overtimeMinutes: 0,
+      logs: [],
+      hasPhoto: false,
+      hasApprovedUndertime: false,
+      isSynthetic: true,
+    }));
   }
 
   // Full-resolution photos for one attendance record's logs — fetched lazily

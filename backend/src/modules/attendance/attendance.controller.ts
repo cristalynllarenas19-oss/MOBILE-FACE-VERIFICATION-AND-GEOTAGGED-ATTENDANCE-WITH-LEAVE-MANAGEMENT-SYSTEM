@@ -60,7 +60,7 @@ export class AttendanceController {
   }
 
   // Face-mismatch attempts awaiting an admin/supervisor decision. Gated the
-  // same as approve/official-business below since it surfaces a captured
+  // same as approve below since it surfaces a captured
   // "this might not be you" photo per attempt.
   @Get("flagged")
   @RequirePermissions("attendance:write")
@@ -88,13 +88,6 @@ export class AttendanceController {
   approve(@Param("id") id: string, @Body() body: { remarks?: string }, @Req() request: Request) {
     const departmentId = getSupervisorDepartmentScope((request as any).user);
     return this.attendanceService.updateStatus(id, "PRESENT", body.remarks, getAuditContext(request), departmentId);
-  }
-
-  @Patch(":id/official-business")
-  @RequirePermissions("attendance:write")
-  officialBusiness(@Param("id") id: string, @Body() body: { remarks?: string }, @Req() request: Request) {
-    const departmentId = getSupervisorDepartmentScope((request as any).user);
-    return this.attendanceService.updateStatus(id, "OFFICIAL_BUSINESS", body.remarks, getAuditContext(request), departmentId);
   }
 
   @Patch("flagged/:logId/validate")

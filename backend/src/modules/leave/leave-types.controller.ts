@@ -21,6 +21,11 @@ export class CreateLeaveTypeDto {
   @IsNumber()
   supportingDocumentAfterDays?: number;
 
+  // null clears it back to the system default.
+  @IsOptional()
+  @IsNumber()
+  reviewReminderHours?: number | null;
+
   @IsOptional()
   @IsBoolean()
   requiresHrValidation?: boolean;
@@ -97,6 +102,11 @@ export class UpdateLeaveTypeDto {
   @IsOptional()
   @IsNumber()
   supportingDocumentAfterDays?: number;
+
+  // null clears it back to the system default.
+  @IsOptional()
+  @IsNumber()
+  reviewReminderHours?: number | null;
 
   @IsOptional()
   @IsBoolean()

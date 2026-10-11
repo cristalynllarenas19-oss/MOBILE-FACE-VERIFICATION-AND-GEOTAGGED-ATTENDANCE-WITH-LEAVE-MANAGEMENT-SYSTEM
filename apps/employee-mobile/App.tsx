@@ -15,6 +15,7 @@ import {
 import SupervisorMainScreen from "./src/screens/SupervisorMainScreen";
 import CameraScanner from "./src/components/CameraScanner";
 import ResultModal, { ResultModalStatus } from "./src/components/ResultModal";
+import EarlyTimeOutModal from "./src/components/EarlyTimeOutModal";
 import VerifyOtpScreen from "./src/screens/VerifyOtpScreen";
 import NewPasswordScreen from "./src/screens/NewPasswordScreen";
 import SetInitialPasswordScreen from "./src/screens/SetInitialPasswordScreen";
@@ -104,7 +105,7 @@ type ResultModalState = {
 // Human-readable label for a given scan action, used wherever the employee
 // needs to be told which specific attendance action is affected (approved,
 // rejected, out-of-range, or gated behind the unauthorized-attempt warning).
-function getActionLabel(type: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN", isFieldMode: boolean) {
+function getActionLabel(type: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN", isFieldMode: boolean, isBreak = false) {
   if (isFieldMode) {
     return type === "TIME_IN" ? "Visit Start" : "Visit End";
   }
@@ -114,9 +115,9 @@ function getActionLabel(type: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN",
     case "TIME_OUT":
       return "Time Out";
     case "LUNCH_OUT":
-      return "Lunch Break Start";
+      return isBreak ? "Break Start" : "Lunch Break Start";
     case "LUNCH_IN":
-      return "Lunch Break End";
+      return isBreak ? "Break End" : "Lunch Break End";
   }
 }
 
@@ -173,6 +174,8 @@ export default function App() {
 
   const [scanType, setScanType] = useState<"TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN" | null>(null);
   const [resultModal, setResultModal] = useState<ResultModalState | null>(null);
+  // Set while the "Time Out Early?" confirmation is showing.
+  const [earlyTimeOut, setEarlyTimeOut] = useState<{ minutesEarly: number; now: Date; expectedAt: Date } | null>(null);
 
   // FIELD-employee site visit state: which site they're about to start a
   // visit at (auto-detected from GPS, carried through to the camera capture
@@ -577,12 +580,15 @@ export default function App() {
     const hasTimedOut = Boolean(todayAttendance?.timeOutAt);
     const hasOpenVisit = hasTimedIn && !hasTimedOut;
     const isOnLunch = Boolean(hasOpenVisit && todayAttendance?.lunchOutAt && !todayAttendance?.lunchInAt);
+    const isBreak = todayAttendance?.breakKind === "BREAK";
+    const breakWord = isBreak ? "Break" : "Lunch";
     const applicableAction = getApplicableAction({
       isField: isFieldMode,
       hasTimedIn,
       hasTimedOut,
       hasOpenVisit,
       isOnLunch,
+      isBreak,
     });
     // Mirrors AttendanceScreen's own isEligible/eligibilityMessage, which is
     // what actually disables the Time In/Out/Lunch buttons — this is just
@@ -626,6 +632,15 @@ export default function App() {
       return;
     }
 
+    if (type === "TIME_IN" && !todayAttendance?.timeInAt && todayAttendance?.onLeave) {
+      setResultModal({
+        status: "info",
+        title: "You're On Leave",
+        message: `You are on approved ${todayAttendance.onLeave.leaveTypeName} today. Attendance can't be recorded while on leave.`,
+      });
+      return;
+    }
+
     if (type === "TIME_IN" && todayAttendance?.timeInAt) {
       setResultModal({
         status: "info",
@@ -658,7 +673,7 @@ export default function App() {
         setResultModal({
           status: "info",
           title: "Time In Required",
-          message: "You need to time in before logging your lunch break.",
+          message: `You need to time in before logging your ${breakWord.toLowerCase()} break.`,
         });
         return;
       }
@@ -675,8 +690,8 @@ export default function App() {
       if (type === "LUNCH_OUT" && todayAttendance?.lunchOutAt) {
         setResultModal({
           status: "info",
-          title: "Lunch Break Already Started",
-          message: "You've already logged the start of your lunch break.",
+          title: `${breakWord} Break Already Started`,
+          message: `You've already logged the start of your ${breakWord.toLowerCase()} break.`,
         });
         return;
       }
@@ -684,8 +699,8 @@ export default function App() {
       if (type === "LUNCH_IN" && !todayAttendance?.lunchOutAt) {
         setResultModal({
           status: "info",
-          title: "Lunch Break Not Started",
-          message: "Log Lunch Out before Lunch In.",
+          title: `${breakWord} Break Not Started`,
+          message: `Start your ${breakWord.toLowerCase()} break before ending it.`,
         });
         return;
       }
@@ -693,14 +708,24 @@ export default function App() {
       if (type === "LUNCH_IN" && todayAttendance?.lunchInAt) {
         setResultModal({
           status: "info",
-          title: "Lunch Break Already Ended",
-          message: "You've already logged the end of your lunch break.",
+          title: `${breakWord} Break Already Ended`,
+          message: `You've already logged the end of your ${breakWord.toLowerCase()} break.`,
         });
         return;
       }
     }
 
-    
+    // A time out can't be undone by the employee, so an early one is
+    // confirmed first rather than closing the day on an accidental tap.
+    if (type === "TIME_OUT" && todayAttendance?.expectedTimeOutAt) {
+      const expected = new Date(todayAttendance.expectedTimeOutAt);
+      const minutesEarly = Math.floor((expected.getTime() - Date.now()) / 60000);
+      if (minutesEarly > 0) {
+        setEarlyTimeOut({ minutesEarly, now: new Date(), expectedAt: expected });
+        return;
+      }
+    }
+
     setScanType(type);
   }
 
@@ -786,7 +811,7 @@ export default function App() {
       });
 
       // The server is the authority on whether this was a Time In or Time Out.
-      const actionLabel = getActionLabel(result.logType, user.attendanceMode === "FIELD");
+      const actionLabel = getActionLabel(result.logType, user.attendanceMode === "FIELD", todayAttendance?.breakKind === "BREAK");
       const reason = result.faceResult.reason ?? result.geoResult.reason;
       const friendlyMessage = getFriendlyReason(reason, result.verificationStatus);
 
@@ -881,15 +906,16 @@ export default function App() {
       hasTimedOut,
       hasOpenVisit,
       isOnLunch,
+      isBreak: todayAttendance?.breakKind === "BREAK",
     });
     const type =
       applicableAction === "Time In" || applicableAction === "Start Visit"
         ? "TIME_IN"
         : applicableAction === "Time Out" || applicableAction === "End Visit"
           ? "TIME_OUT"
-          : applicableAction === "Start Lunch"
+          : applicableAction === "Start Lunch" || applicableAction === "Start Break"
             ? "LUNCH_OUT"
-            : applicableAction === "End Lunch"
+            : applicableAction === "End Lunch" || applicableAction === "End Break"
               ? "LUNCH_IN"
               : null;
     if (!type) return;
@@ -897,7 +923,9 @@ export default function App() {
   }
 
   function handleOutOfRange() {
-    const actionLabel = scanType ? getActionLabel(scanType, user?.attendanceMode === "FIELD") : "Attendance";
+    const actionLabel = scanType
+      ? getActionLabel(scanType, user?.attendanceMode === "FIELD", todayAttendance?.breakKind === "BREAK")
+      : "Attendance";
 
     setScanType(null);
     setSelectedWorkLocation(null);
@@ -947,6 +975,7 @@ export default function App() {
       ) : scanType ? (
         <CameraScanner
           logType={scanType}
+          isBreak={todayAttendance?.breakKind === "BREAK"}
           onComplete={handleScanComplete}
           onCancel={() => {
             setScanType(null);
@@ -985,6 +1014,15 @@ export default function App() {
           onSwitchToSupervisorPortal={() => setPortal("supervisor")}
         />
       )}
+
+      <EarlyTimeOutModal
+        prompt={earlyTimeOut}
+        onCancel={() => setEarlyTimeOut(null)}
+        onConfirm={() => {
+          setEarlyTimeOut(null);
+          setScanType("TIME_OUT");
+        }}
+      />
 
       <ResultModal
         visible={!!resultModal}
