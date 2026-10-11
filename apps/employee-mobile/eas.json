@@ -14,6 +14,11 @@
       "channel": "preview",
       "env": { "EXPO_PUBLIC_API_BASE_URL": "https://backend-production-etala.up.railway.app/api/v1" }
     },
+    "local": {
+      "distribution": "internal",
+      "channel": "local",
+      "env": { "EXPO_PUBLIC_API_BASE_URL": "http://192.168.137.1:3001/api/v1" }
+    },
     "production": {
       "autoIncrement": true,
       "channel": "production"
