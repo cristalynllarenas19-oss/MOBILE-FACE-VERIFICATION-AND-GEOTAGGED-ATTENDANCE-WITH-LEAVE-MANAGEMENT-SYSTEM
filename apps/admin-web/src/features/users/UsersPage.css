@@ -447,11 +447,33 @@
   box-shadow: 0 14px 30px rgba(15, 23, 42, 0.14);
 }
 
-/* Always-visible list under the search bar (not a floating dropdown) — fills
-   the modal body and scrolls on its own. */
-.employee-list-inline {
-  max-height: 400px;
-  box-shadow: none;
+/* Floating dropdown under the search box — opens on focus, closes on pick,
+   Escape or clicking away. */
+.employee-list-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 5;
+  max-height: 280px;
+}
+
+.employee-search-chevron {
+  position: absolute;
+  top: 50%;
+  right: 13px;
+  color: #41536b;
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition: transform 0.15s;
+}
+
+.employee-search-chevron.open {
+  transform: translateY(-50%) rotate(180deg);
+}
+
+.employee-suggestion.selected {
+  background: #eff6ff;
 }
 
 .employee-suggestion {

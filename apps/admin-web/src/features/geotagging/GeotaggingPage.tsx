@@ -103,11 +103,14 @@ class GeotaggingErrorBoundary extends Component<
 function ViewAreaEmployeesModal({
   location,
   employeeList,
+  hideDepartmentFilter,
   onClose,
   onUnassign,
 }: {
   location: GeotaggedLocation;
   employeeList: EmployeeOption[];
+  // Supervisors are locked to their own department, so the filter is pointless.
+  hideDepartmentFilter?: boolean;
   onClose: () => void;
   // Omitted for users without geolocation write access — no button shown.
   onUnassign?: (employee: EmployeeOption) => void;
@@ -153,7 +156,7 @@ function ViewAreaEmployeesModal({
           </button>
         </div>
 
-        {!isGlobal && departmentOptions.length > 1 && (
+        {!hideDepartmentFilter && !isGlobal && departmentOptions.length > 1 && (
           <div className="geotagging-modal-toolbar">
             <span className="geotagging-modal-toolbar-label">
               {deptFilter !== "ALL"
@@ -1536,6 +1539,7 @@ function GeotaggingPageContent({
           key={viewingLocation.id}
           location={viewingLocation}
           employeeList={getLocationEmployees(viewingLocation)}
+          hideDepartmentFilter={isDepartmentLocked}
           onClose={() => setViewingLocationId(null)}
           onUnassign={canWrite ? (employee) => confirmUnassignEmployee(viewingLocation, employee) : undefined}
         />

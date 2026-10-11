@@ -63,6 +63,15 @@ function parseLocalDate(value: string | undefined, endOfDay = false): Date | und
 // MISMATCH_NOTIFY_THRESHOLD for the confident-mismatch path.
 const FLAGGED_NOTIFY_THRESHOLD = 3;
 
+// Longest from/to range findAll() rebuilds Absent/On-Leave rows for, one day
+// at a time. Those rows are never stored, so each day costs its own leave
+// and schedule lookups.
+const MAX_RECONSTRUCTED_DAYS = 31;
+// How far back the unfiltered list rebuilds them.
+const DEFAULT_RECONSTRUCTED_DAYS = 14;
+// Row cap on real records per findAll() call.
+const MAX_LISTED_RECORDS = 100;
+
 @Injectable()
 export class AttendanceService {
   constructor(
@@ -105,7 +114,7 @@ export class AttendanceService {
         shift: { select: { startTime: true, endTime: true, lateThresholdMinutes: true, lunchBreakMinutes: true, breakStartTime: true, breakKind: true } },
       },
       orderBy: [{ attendanceDate: "desc" }, { visitNumber: "asc" }],
-      take: 100,
+      take: MAX_LISTED_RECORDS,
     });
 
     const remarks = await this.prisma.auditLog.findMany({
@@ -124,10 +133,9 @@ export class AttendanceService {
     // Attendance" button), or only one of `from`/`to` set (the admin filters
     // the Attendance Management list by a single date using just one of the
     // two date inputs) — is the only case where Absent/On-Leave employees
-    // can be reconstructed: neither ever gets a real AttendanceRecord row,
-    // so without this they'd be invisible here even though the Dashboard
-    // already counts them. A genuine multi-day range (both set, and
-    // different) still can't be reconstructed per-day this way.
+    // can be reconstructed from one date: neither ever gets a real
+    // AttendanceRecord row, so without this they'd be invisible here even
+    // though the Dashboard already counts them.
     const singleDay =
       attendanceDate ??
       (fromDate && toDate
@@ -135,16 +143,40 @@ export class AttendanceService {
         : (fromDate ?? toDate));
 
     // When the admin applies no date filter at all (the default Attendance
-    // Management view), today still needs a complete reconstruction so it
-    // can anchor the top of the newest-first list — same rationale as an
-    // explicit singleDay filter, just anchored to "today" instead of a
-    // chosen date. A genuine multi-day range keeps the pre-existing
-    // limitation above (no reconstruction) and returns as before.
+    // Management view), the last DEFAULT_RECONSTRUCTED_DAYS days up to today
+    // are reconstructed, so recent no-shows are listed without having to
+    // pick a date first. A genuine multi-day range is reconstructed day by day,
+    // up to MAX_RECONSTRUCTED_DAYS and never past today; a longer range
+    // returns real records only.
     const hasDateFilter = Boolean(filters.date || filters.from || filters.to);
     const today = new Date();
     const todayLocalMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const syntheticDay = singleDay ?? (hasDateFilter ? undefined : todayLocalMidnight);
-    if (!syntheticDay) return withRemarks;
+    const toLocalMidnight = (value: Date) => new Date(value.getFullYear(), value.getMonth(), value.getDate());
+
+    const syntheticDays: Date[] = [];
+    if (singleDay) {
+      syntheticDays.push(toLocalMidnight(singleDay));
+    } else if (!hasDateFilter) {
+      // If the real-record cap was hit, days older than the oldest returned
+      // record would list only their absentees, so they're left out.
+      const oldestLoaded =
+        records.length === MAX_LISTED_RECORDS ? toLocalMidnight(records[records.length - 1].attendanceDate) : undefined;
+      for (let offset = DEFAULT_RECONSTRUCTED_DAYS - 1; offset >= 0; offset -= 1) {
+        const day = new Date(today.getFullYear(), today.getMonth(), today.getDate() - offset);
+        if (!oldestLoaded || day >= oldestLoaded) syntheticDays.push(day);
+      }
+    } else if (fromDate && toDate) {
+      const lastDay = toDate < todayLocalMidnight ? toLocalMidnight(toDate) : todayLocalMidnight;
+      for (
+        let day = toLocalMidnight(fromDate);
+        day <= lastDay;
+        day = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1)
+      ) {
+        syntheticDays.push(day);
+      }
+      if (syntheticDays.length > MAX_RECONSTRUCTED_DAYS) syntheticDays.length = 0;
+    }
+    if (syntheticDays.length === 0) return withRemarks;
 
     const employees = await this.prisma.employee.findMany({
       where: {
@@ -165,119 +197,125 @@ export class AttendanceService {
         position: { select: { title: true } },
       },
     });
+    const employeeIds = employees.map((e) => e.id);
 
-    // Scoped to syntheticDay specifically, not "has any record at all" —
-    // when there's no date filter, withRemarks spans many dates, so an
-    // employee last recorded days ago must still get today's reconstruction.
-    const recordedEmployeeIds = new Set(
-      withRemarks
-        .filter((record) => record.attendanceDate.toDateString() === syntheticDay.toDateString())
-        .map((record) => record.employeeId),
-    );
-    const onLeaveByEmployee = await getApprovedLeaveByEmployee(
-      this.prisma,
-      employees.map((e) => e.id),
-      syntheticDay,
-    );
-
-    // Whichever schedule was actually active for each employee ON
-    // syntheticDay (not "today", unless that's what syntheticDay is) — same
-    // rule the Dashboard uses, but resolved per the specific day being
-    // reconstructed so browsing a past date stays historically accurate even
-    // if the employee's shift has since changed.
-    const schedulesOnDay = await this.prisma.employeeSchedule.findMany({
+    // Who really has a record on each reconstructed day. Queried on its own
+    // (ids + dates only, no status/type filter, no row cap) rather than read
+    // off withRemarks — that list is capped and filtered, so relying on it
+    // would mark someone Absent on a day they actually timed in.
+    const recordedRows = await this.prisma.attendanceRecord.findMany({
       where: {
-        employeeId: { in: employees.map((e) => e.id) },
-        startsOn: { lte: syntheticDay },
-        OR: [{ endsOn: null }, { endsOn: { gte: syntheticDay } }],
+        employeeId: { in: employeeIds },
+        attendanceDate: {
+          gte: syntheticDays[0],
+          lte: new Date(syntheticDays[syntheticDays.length - 1].getTime() + 24 * 60 * 60000 - 1),
+        },
       },
-      orderBy: { startsOn: "desc" },
-      select: {
-        employeeId: true,
-        workingDays: true,
-        shift: { select: { startTime: true, endTime: true, lateThresholdMinutes: true } },
-      },
+      select: { employeeId: true, attendanceDate: true },
     });
-    const scheduleByEmployee = new Map<
-      string,
-      { workingDays: number[]; shift: { startTime: string; endTime: string; lateThresholdMinutes: number } }
-    >();
-    for (const schedule of schedulesOnDay) {
-      if (!scheduleByEmployee.has(schedule.employeeId)) {
-        scheduleByEmployee.set(schedule.employeeId, schedule);
-      }
-    }
-    const now = new Date();
-    // An employee with no schedule active on that day has nothing to
-    // compare arrival against, so they're never no-show-absent — same rule
-    // the Dashboard uses. For a past syntheticDay the cutoff has necessarily
-    // already elapsed; for today it may not have (both fall out of this
-    // comparison naturally since it's anchored to syntheticDay).
-    function isPastAbsenceCutoff(employeeId: string): boolean {
-      const schedule = scheduleByEmployee.get(employeeId);
-      if (!schedule) return false;
-      return now >= computeAbsenceCutoff(schedule.shift, syntheticDay!);
-    }
-    function isWorkingDay(employeeId: string): boolean {
-      const schedule = scheduleByEmployee.get(employeeId);
-      if (!schedule) return true;
-      return schedule.workingDays.includes(syntheticDay!.getDay());
-    }
+    const recordedKeys = new Set(
+      recordedRows.map((record) => `${record.employeeId}::${record.attendanceDate.toDateString()}`),
+    );
 
+    const now = new Date();
     const wantsStatus = (status: "ABSENT" | "ON_LEAVE") => !filters.status || filters.status === "ALL" || filters.status === status;
     // Synthetic Absent/On-Leave rows always carry recordType OFFICE (no real
     // visit happened), so a FIELD-only filter should exclude them entirely.
     const wantsSyntheticRecordType = !filters.recordType || filters.recordType === "ALL" || filters.recordType === "OFFICE";
 
-    const dayKey =
-      filters.date ??
-      filters.from ??
-      `${syntheticDay.getFullYear()}-${String(syntheticDay.getMonth() + 1).padStart(2, "0")}-${String(syntheticDay.getDate()).padStart(2, "0")}`;
-
     const syntheticRows = [];
-    for (const employee of wantsSyntheticRecordType ? employees : []) {
-      if (recordedEmployeeIds.has(employee.id)) continue;
-      const onLeave = onLeaveByEmployee.get(employee.id);
-      const base = {
-        id: `${onLeave ? "leave" : "absent"}-${employee.id}-${dayKey}`,
-        attendanceDate: syntheticDay,
-        recordType: "OFFICE" as const,
-        visitNumber: 1,
-        workLocationId: null,
-        workLocation: null,
-        timeInAt: null,
-        timeOutAt: null,
-        lunchOutAt: null,
-        lunchInAt: null,
-        totalMinutes: 0,
-        lateMinutes: 0,
-        undertimeMinutes: 0,
-        shiftId: null,
-        employeeId: employee.id,
-        employee: {
-          employeeNo: employee.employeeNo,
-          firstName: employee.firstName,
-          lastName: employee.lastName,
-          department: employee.department,
-          position: employee.position,
-          faceProfiles: [],
+    for (const syntheticDay of wantsSyntheticRecordType ? syntheticDays : []) {
+      const onLeaveByEmployee = await getApprovedLeaveByEmployee(this.prisma, employeeIds, syntheticDay);
+
+      // Whichever schedule was actually active for each employee ON
+      // syntheticDay (not "today", unless that's what syntheticDay is) — same
+      // rule the Dashboard uses, but resolved per the specific day being
+      // reconstructed so browsing a past date stays historically accurate even
+      // if the employee's shift has since changed.
+      const schedulesOnDay = await this.prisma.employeeSchedule.findMany({
+        where: {
+          employeeId: { in: employeeIds },
+          startsOn: { lte: syntheticDay },
+          OR: [{ endsOn: null }, { endsOn: { gte: syntheticDay } }],
         },
-        logs: [],
-        adminRemarks: undefined,
-        isSynthetic: true,
+        orderBy: { startsOn: "desc" },
+        select: {
+          employeeId: true,
+          workingDays: true,
+          shift: { select: { startTime: true, endTime: true, lateThresholdMinutes: true } },
+        },
+      });
+      const scheduleByEmployee = new Map<
+        string,
+        { workingDays: number[]; shift: { startTime: string; endTime: string; lateThresholdMinutes: number } }
+      >();
+      for (const schedule of schedulesOnDay) {
+        if (!scheduleByEmployee.has(schedule.employeeId)) {
+          scheduleByEmployee.set(schedule.employeeId, schedule);
+        }
+      }
+      // An employee with no schedule active on that day has nothing to
+      // compare arrival against, so they're never no-show-absent — same rule
+      // the Dashboard uses. For a past syntheticDay the cutoff has necessarily
+      // already elapsed; for today it may not have (both fall out of this
+      // comparison naturally since it's anchored to syntheticDay).
+      const isPastAbsenceCutoff = (employeeId: string) => {
+        const schedule = scheduleByEmployee.get(employeeId);
+        if (!schedule) return false;
+        return now >= computeAbsenceCutoff(schedule.shift, syntheticDay);
+      };
+      const isWorkingDay = (employeeId: string) => {
+        const schedule = scheduleByEmployee.get(employeeId);
+        if (!schedule) return true;
+        return schedule.workingDays.includes(syntheticDay.getDay());
       };
 
-      if (onLeave && wantsStatus("ON_LEAVE")) {
-        syntheticRows.push({ ...base, status: "ON_LEAVE" as const, leaveTypeName: onLeave.leaveTypeName });
-      } else if (
-        !onLeave &&
-        !isDayOff(syntheticDay) &&
-        employee.hireDate <= syntheticDay &&
-        wantsStatus("ABSENT") &&
-        isPastAbsenceCutoff(employee.id) &&
-        isWorkingDay(employee.id)
-      ) {
-        syntheticRows.push({ ...base, status: "ABSENT" as const });
+      const dayKey = `${syntheticDay.getFullYear()}-${String(syntheticDay.getMonth() + 1).padStart(2, "0")}-${String(syntheticDay.getDate()).padStart(2, "0")}`;
+
+      for (const employee of employees) {
+        if (recordedKeys.has(`${employee.id}::${syntheticDay.toDateString()}`)) continue;
+        const onLeave = onLeaveByEmployee.get(employee.id);
+        const base = {
+          id: `${onLeave ? "leave" : "absent"}-${employee.id}-${dayKey}`,
+          attendanceDate: syntheticDay,
+          recordType: "OFFICE" as const,
+          visitNumber: 1,
+          workLocationId: null,
+          workLocation: null,
+          timeInAt: null,
+          timeOutAt: null,
+          lunchOutAt: null,
+          lunchInAt: null,
+          totalMinutes: 0,
+          lateMinutes: 0,
+          undertimeMinutes: 0,
+          shiftId: null,
+          employeeId: employee.id,
+          employee: {
+            employeeNo: employee.employeeNo,
+            firstName: employee.firstName,
+            lastName: employee.lastName,
+            department: employee.department,
+            position: employee.position,
+            faceProfiles: [],
+          },
+          logs: [],
+          adminRemarks: undefined,
+          isSynthetic: true,
+        };
+
+        if (onLeave && wantsStatus("ON_LEAVE")) {
+          syntheticRows.push({ ...base, status: "ON_LEAVE" as const, leaveTypeName: onLeave.leaveTypeName });
+        } else if (
+          !onLeave &&
+          !isDayOff(syntheticDay) &&
+          employee.hireDate <= syntheticDay &&
+          wantsStatus("ABSENT") &&
+          isPastAbsenceCutoff(employee.id) &&
+          isWorkingDay(employee.id)
+        ) {
+          syntheticRows.push({ ...base, status: "ABSENT" as const });
+        }
       }
     }
 

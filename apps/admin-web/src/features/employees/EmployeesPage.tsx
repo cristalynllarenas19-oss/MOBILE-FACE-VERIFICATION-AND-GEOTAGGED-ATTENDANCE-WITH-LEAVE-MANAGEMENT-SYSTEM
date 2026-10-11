@@ -19,7 +19,7 @@ import {
 } from "../../lib/attendanceModes";
 import { PermissionCode, permissions } from "../../types/rbac";
 import { useEmployeeTypes } from "../../lib/employeeTypes";
-import { useAvailablePositions } from "../../lib/positions";
+import { useAvailablePositions, usePositions } from "../../lib/positions";
 import type { EmploymentStatus } from "../../types/employment";
 import "./EmployeesPage.css";
 
@@ -1615,7 +1615,7 @@ export function EmployeesPage({
   const lockedDepartmentName = isDepartmentLocked ? user?.department : undefined;
 
   const [departmentFilter, setDepartmentFilter] = useState("ALL");
-  const [modeFilter, setModeFilter] = useState<"ALL" | "FIELD" | "NON_FIELD">("ALL");
+  const [positionFilter, setPositionFilter] = useState("ALL");
   const [nameSort, setNameSort] = useState<"asc" | "desc" | null>(null);
   const [showArchivedOnly, setShowArchivedOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -1678,10 +1678,17 @@ export function EmployeesPage({
 
   const activeEmployeeCount = employees.filter((employee) => employee.employmentStatus !== "SEPARATED").length;
 
+  // Every active position from Utilities → Positions — never a list kept in
+  // this app or inferred from whoever happens to hold a position.
+  const { positions: allPositions } = usePositions();
+  const positionFilterOptions = allPositions.filter((position) => position.isActive);
+  const activePositionFilter = positionFilterOptions.some((position) => position.id === positionFilter)
+    ? positionFilter
+    : "ALL";
+
   const visibleEmployees = employees.filter((employee) => {
     if (departmentFilter !== "ALL" && employee.department.name !== departmentFilter) return false;
-    if (modeFilter === "FIELD" && (employee.department.attendanceMode === "BOTH" || employee.attendanceMode !== "FIELD")) return false;
-    if (modeFilter === "NON_FIELD" && (employee.department.attendanceMode === "BOTH" || employee.attendanceMode === "FIELD")) return false;
+    if (activePositionFilter !== "ALL" && employee.positionId !== activePositionFilter) return false;
     if (showArchivedOnly) {
       if (employee.employmentStatus !== "SEPARATED") return false;
     } else {
@@ -1702,7 +1709,7 @@ export function EmployeesPage({
     setNameSort((current) => (current === "asc" ? "desc" : current === "desc" ? null : "asc"));
   };
 
-  useEffect(() => setPage(1), [departmentFilter, modeFilter, showArchivedOnly, searchQuery, nameSort]);
+  useEffect(() => setPage(1), [departmentFilter, activePositionFilter, showArchivedOnly, searchQuery, nameSort]);
   const pageCount = Math.max(1, Math.ceil(sortedVisibleEmployees.length / EMPLOYEES_PAGE_SIZE));
   const pageSafe = Math.min(page, pageCount);
   const pagedEmployees = sortedVisibleEmployees.slice(
@@ -1793,20 +1800,16 @@ export function EmployeesPage({
           </div>
         </div>
 
-        {/* MODE — Field / Non-field, matching the wording used in the MODE column */}
         <div className="employees-filter-group">
-          <label className="employees-filter-label">Mode</label>
+          <label className="employees-filter-label">Position</label>
           <DropdownFilter
             className="department-select"
-            value={modeFilter}
-            onChange={(value) => setModeFilter(value as "ALL" | "FIELD" | "NON_FIELD")}
-            options={[
-              { value: "NON_FIELD", label: "Non-field" },
-              { value: "FIELD", label: "Field" },
-            ]}
-            allLabel="Non-field & Field"
-            menuLabel="Filter by attendance mode"
-            ariaLabel="Filter employees by attendance mode"
+            value={activePositionFilter}
+            onChange={setPositionFilter}
+            options={positionFilterOptions.map((position) => ({ value: position.id, label: position.title }))}
+            allLabel="All Positions"
+            menuLabel="Filter by position"
+            ariaLabel="Filter employees by position"
           />
         </div>
 

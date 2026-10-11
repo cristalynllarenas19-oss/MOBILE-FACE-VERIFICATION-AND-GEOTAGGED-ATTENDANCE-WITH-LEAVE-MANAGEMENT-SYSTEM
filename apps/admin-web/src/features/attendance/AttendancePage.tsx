@@ -491,9 +491,21 @@ export function AttendancePage({
         ? apiRequest<FlaggedLog[]>("/attendance/flagged").catch(() => [] as FlaggedLog[])
         : Promise.resolve<FlaggedLog[]>([]),
     ]);
+    // /attendance/flagged takes no filters, so the date range and type are
+    // applied here — otherwise flagged attempts from any date would show up
+    // inside a narrower range.
+    const fromTime = dateFrom ? new Date(`${dateFrom}T00:00:00`).getTime() : null;
+    const toTime = dateTo ? new Date(`${dateTo}T23:59:59.999`).getTime() : null;
     const flaggedRecords = flaggedLogs
       .filter((log) => departmentFilter === "ALL" || log.employee.department.name === departmentFilter)
-      .map(flaggedLogToRecord);
+      .map(flaggedLogToRecord)
+      .filter((record) => {
+        if (recordTypeFilter !== "ALL" && record.recordType !== recordTypeFilter) return false;
+        const time = new Date(record.attendanceDate).getTime();
+        if (fromTime !== null && time < fromTime) return false;
+        if (toTime !== null && time > toTime) return false;
+        return true;
+      });
     // Newest date first across both sources (a stable sort, so same-date
     // ties keep flaggedRecords ahead of fetchedRecords, and fetchedRecords
     // keep the backend's own ordering) — otherwise flagged rows from any

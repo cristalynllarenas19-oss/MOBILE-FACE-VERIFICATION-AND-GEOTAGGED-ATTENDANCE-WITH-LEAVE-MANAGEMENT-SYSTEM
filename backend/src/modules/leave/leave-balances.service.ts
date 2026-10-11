@@ -110,7 +110,11 @@ export class LeaveBalancesService {
       .filter(
         (leaveType) =>
           leaveType.applicableStatuses.includes(employee.employmentStatus) &&
-          isEligibleForLeaveType(leaveType.kind, employee.sex),
+          isEligibleForLeaveType(leaveType.kind, employee.sex) &&
+          // An archived type drops out unless this employee already used days
+          // of it this year — those stay visible so the history adds up.
+          (leaveType.isActive ||
+            Number(balances.find((row) => row.leaveTypeId === leaveType.id)?.usedDays ?? 0) > 0),
       )
       .map((leaveType) => {
       const balance = balances.find((row) => row.leaveTypeId === leaveType.id);
@@ -194,7 +198,9 @@ export class LeaveBalancesService {
       const applicableTypes = leaveTypes.filter(
         (leaveType) =>
           leaveType.applicableStatuses.includes(employee.employmentStatus) &&
-          isEligibleForLeaveType(leaveType.kind, employee.sex),
+          isEligibleForLeaveType(leaveType.kind, employee.sex) &&
+          // Same archived-type rule as findForEmployee.
+          (leaveType.isActive || (balanceLookup.get(`${employee.id}::${leaveType.id}`)?.usedDays ?? 0) > 0),
       );
 
       let totalEarnedDays = 0;

@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { AlertTriangle, Plus, X } from "lucide-react";
+import { AlertTriangle, ChevronDown, Plus, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { NotificationModal, type NotificationConfig } from "../../components/ui/NotificationModal";
 import { apiRequest } from "../../lib/api";
@@ -61,6 +61,7 @@ export function UsersPage() {
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [form, setForm] = useState(initialForm);
   const [employeeSearch, setEmployeeSearch] = useState("");
+  const [isEmployeeListOpen, setIsEmployeeListOpen] = useState(false);
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(false);
   const [employeeError, setEmployeeError] = useState("");
@@ -101,6 +102,7 @@ export function UsersPage() {
     setIsAddOpen(false);
     setForm(initialForm);
     setEmployeeSearch("");
+    setIsEmployeeListOpen(false);
     setEmployeeError("");
     setAdminsToReplace(null);
     setError("");
@@ -133,6 +135,7 @@ export function UsersPage() {
 
   const selectEmployee = (employee: EmployeeOption) => {
     setEmployeeSearch(`${employee.firstName} ${employee.lastName}`);
+    setIsEmployeeListOpen(false);
     setForm((current) => ({
       ...current,
       employeeId: employee.id,
@@ -298,35 +301,68 @@ export function UsersPage() {
 
             <form className="user-form" onSubmit={handleCreateUser}>
               <div className="user-form-body">
-                <label className="employee-search-field">
-                  Employee
-                  <div className="employee-search-control">
-                    <input
-                      type="text"
-                      value={employeeSearch}
-                      onChange={(event) => {
-                        setEmployeeSearch(event.target.value);
-                        // Editing the search drops the current pick so the list comes back.
-                        if (form.employeeId) {
-                          setForm((current) => ({ ...current, employeeId: "", department: "", position: "" }));
-                        }
-                      }}
-                      placeholder="Search by Employee Name, Email, or Department"
-                      autoComplete="off"
-                    />
-                    <button
-                      type="button"
-                      className="employee-search-clear"
-                      onClick={clearEmployeeSearch}
-                      aria-label="Clear employee search"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                </label>
+                <div
+                  className="employee-search-field"
+                  onBlur={(event) => {
+                    if (!event.currentTarget.contains(event.relatedTarget)) setIsEmployeeListOpen(false);
+                  }}
+                >
+                  <label>
+                    Employee
+                    <div className="employee-search-control">
+                      <input
+                        type="text"
+                        role="combobox"
+                        aria-expanded={isEmployeeListOpen}
+                        aria-controls="add-user-employee-list"
+                        value={employeeSearch}
+                        onFocus={() => setIsEmployeeListOpen(true)}
+                        onClick={() => setIsEmployeeListOpen(true)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Escape" && isEmployeeListOpen) {
+                            event.stopPropagation();
+                            setIsEmployeeListOpen(false);
+                          }
+                        }}
+                        onChange={(event) => {
+                          setEmployeeSearch(event.target.value);
+                          setIsEmployeeListOpen(true);
+                          // Editing the search drops the current pick so the list comes back.
+                          if (form.employeeId) {
+                            setForm((current) => ({ ...current, employeeId: "", department: "", position: "" }));
+                          }
+                        }}
+                        placeholder="Search by Employee Name, Email, or Department"
+                        autoComplete="off"
+                      />
+                      {employeeSearch ? (
+                        <button
+                          type="button"
+                          className="employee-search-clear"
+                          onClick={clearEmployeeSearch}
+                          aria-label="Clear employee search"
+                        >
+                          <X size={14} />
+                        </button>
+                      ) : (
+                        <ChevronDown
+                          size={15}
+                          className={`employee-search-chevron${isEmployeeListOpen ? " open" : ""}`}
+                          aria-hidden="true"
+                        />
+                      )}
+                    </div>
+                  </label>
 
-                {!form.employeeId && (
-                    <div className="employee-suggestions employee-list-inline" role="listbox">
+                  {isEmployeeListOpen && (
+                    <div
+                      id="add-user-employee-list"
+                      className="employee-suggestions employee-list-dropdown"
+                      role="listbox"
+                      // Keeps focus in the search box, so clicking a greyed-out
+                      // row or the scrollbar doesn't close the list.
+                      onMouseDown={(event) => event.preventDefault()}
+                    >
                       {isLoadingEmployees && <div className="employee-suggestion-state">Loading employees...</div>}
                       {!isLoadingEmployees && employeeError && (
                         <div className="employee-suggestion-state error">{employeeError}</div>
@@ -340,10 +376,11 @@ export function UsersPage() {
                           <button
                             type="button"
                             key={employee.id}
-                            className={`employee-suggestion${assignedRole ? " assigned" : ""}`}
+                            className={`employee-suggestion${assignedRole ? " assigned" : ""}${employee.id === form.employeeId ? " selected" : ""}`}
                             onClick={() => selectEmployee(employee)}
                             disabled={!!assignedRole}
                             aria-disabled={!!assignedRole}
+                            aria-selected={employee.id === form.employeeId}
                             title={assignedRole ? `Already assigned as ${assignedRole}` : undefined}
                             role="option"
                           >
@@ -353,7 +390,8 @@ export function UsersPage() {
                         );
                       })}
                     </div>
-                )}
+                  )}
+                </div>
 
                 {form.employeeId ? (
                   <>

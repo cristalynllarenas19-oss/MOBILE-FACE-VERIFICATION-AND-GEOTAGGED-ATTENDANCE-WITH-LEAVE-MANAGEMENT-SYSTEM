@@ -1890,16 +1890,18 @@ export function LeavePage({
                 ariaLabel="Filter employees by employee type"
               />
 
-              <DropdownFilter
-                className="employee-list-department-filter"
-                value={listDepartmentFilter}
-                onChange={setListDepartmentFilter}
-                options={listDepartmentOptions.map((name) => ({ value: name, label: name }))}
-                allLabel="All Departments"
-                allValue=""
-                menuLabel="Filter by department"
-                ariaLabel="Filter employees by department"
-              />
+              {!isDepartmentLocked && (
+                <DropdownFilter
+                  className="employee-list-department-filter"
+                  value={listDepartmentFilter}
+                  onChange={setListDepartmentFilter}
+                  options={listDepartmentOptions.map((name) => ({ value: name, label: name }))}
+                  allLabel="All Departments"
+                  allValue=""
+                  menuLabel="Filter by department"
+                  ariaLabel="Filter employees by department"
+                />
+              )}
 
               <YearCalendarPicker value={summaryYear} onChange={setSummaryYear} />
             </div>
@@ -2026,15 +2028,17 @@ export function LeavePage({
               aria-label="Search accrual history by employee name"
             />
           </div>
-          <DropdownFilter
-            className="leave-select"
-            value={accrualDepartmentFilter}
-            onChange={setAccrualDepartmentFilter}
-            options={listDepartmentOptions.map((name) => ({ value: name, label: name }))}
-            allLabel="All Departments"
-            menuLabel="Filter by Department"
-            ariaLabel="Filter accrual history by department"
-          />
+          {!isDepartmentLocked && (
+            <DropdownFilter
+              className="leave-select"
+              value={accrualDepartmentFilter}
+              onChange={setAccrualDepartmentFilter}
+              options={listDepartmentOptions.map((name) => ({ value: name, label: name }))}
+              allLabel="All Departments"
+              menuLabel="Filter by Department"
+              ariaLabel="Filter accrual history by department"
+            />
+          )}
         </div>
         <section className="table-card leave-table-card">
           <div className="leave-table-scroll">
