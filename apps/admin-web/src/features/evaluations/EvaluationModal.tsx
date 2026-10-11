@@ -48,8 +48,8 @@ function RatingButtons({
   value: number | undefined;
   disabled: boolean;
   onChange: (n: number) => void;
-  // Smaller circles for inline use next to a criterion's icon+label — the
-  // Overall Performance Rating field keeps the original (non-compact) size.
+  // Smaller circles — used for every rating in the form (criteria and
+  // Overall Performance Rating) so they all read at the same size.
   compact?: boolean;
 }) {
   return (
@@ -179,7 +179,7 @@ export function EvaluationModal({ employeeId, onClose }: { employeeId: string; o
 
   return (
     <div className="evaluation-modal-backdrop" role="presentation">
-      <section className="evaluation-modal" role="dialog" aria-modal="true" aria-labelledby="evaluation-modal-title">
+      <section className="evaluation-modal evaluation-modal--form" role="dialog" aria-modal="true" aria-labelledby="evaluation-modal-title">
         <div className="evaluation-modal-header">
           <div>
             <h2 id="evaluation-modal-title">Performance Evaluation</h2>
@@ -210,62 +210,69 @@ export function EvaluationModal({ employeeId, onClose }: { employeeId: string; o
               </div>
             )}
 
-            <div className="evaluation-criteria-list">
-              {CRITERIA.map((criterion) => {
-                const Icon = criterion.icon;
-                return (
-                  <div className="evaluation-criteria-row" key={criterion.key}>
-                    <span className="evaluation-criteria-icon">
-                      <Icon size={16} />
-                    </span>
-                    <span className="evaluation-criteria-label">{criterion.label}</span>
-                    <RatingButtons
-                      compact
-                      value={form[criterion.key] as number | undefined}
-                      disabled={isLocked}
-                      onChange={(n) => setRating(criterion.key, n)}
-                    />
+            <div className="evaluation-form-columns">
+              <div className="evaluation-criteria-list">
+                {CRITERIA.map((criterion) => {
+                  const Icon = criterion.icon;
+                  return (
+                    <div className="evaluation-criteria-row" key={criterion.key}>
+                      <span className="evaluation-criteria-icon">
+                        <Icon size={16} />
+                      </span>
+                      <span className="evaluation-criteria-label">{criterion.label}</span>
+                      <RatingButtons
+                        compact
+                        value={form[criterion.key] as number | undefined}
+                        disabled={isLocked}
+                        onChange={(n) => setRating(criterion.key, n)}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="evaluation-form-side">
+                <div className="evaluation-field">
+                  <span className="evaluation-field-label">Overall Performance Rating</span>
+                  <RatingButtons
+                    compact
+                    value={form.overallRating}
+                    disabled={isLocked}
+                    onChange={(n) => setRating("overallRating", n)}
+                  />
+                </div>
+
+                <div className="evaluation-field">
+                  <span className="evaluation-field-label">Supervisor Comments / Remarks</span>
+                  <textarea
+                    className="evaluation-textarea"
+                    disabled={isLocked}
+                    placeholder="Optional comments about this employee's performance"
+                    value={form.comments ?? ""}
+                    onChange={(e) => setForm((f) => ({ ...f, comments: e.target.value }))}
+                  />
+                </div>
+
+                <div className="evaluation-field">
+                  <span className="evaluation-field-label">Recommendation</span>
+                  <div className="evaluation-recommendation-list">
+                    {RECOMMENDATIONS.map((option) => (
+                      <label
+                        key={option.key}
+                        className={`evaluation-recommendation-option ${form.recommendation === option.key ? "active" : ""}`}
+                      >
+                        <input
+                          type="radio"
+                          name="recommendation"
+                          disabled={isLocked}
+                          checked={form.recommendation === option.key}
+                          onChange={() => setForm((f) => ({ ...f, recommendation: option.key }))}
+                        />
+                        <span>{option.label}</span>
+                      </label>
+                    ))}
                   </div>
-                );
-              })}
-            </div>
-
-            <div className="evaluation-divider" />
-
-            <div className="evaluation-field">
-              <span className="evaluation-field-label">Overall Performance Rating</span>
-              <RatingButtons value={form.overallRating} disabled={isLocked} onChange={(n) => setRating("overallRating", n)} />
-            </div>
-
-            <div className="evaluation-field">
-              <span className="evaluation-field-label">Supervisor Comments / Remarks</span>
-              <textarea
-                className="evaluation-textarea"
-                disabled={isLocked}
-                placeholder="Optional comments about this employee's performance"
-                value={form.comments ?? ""}
-                onChange={(e) => setForm((f) => ({ ...f, comments: e.target.value }))}
-              />
-            </div>
-
-            <div className="evaluation-field">
-              <span className="evaluation-field-label">Recommendation</span>
-              <div className="evaluation-recommendation-list">
-                {RECOMMENDATIONS.map((option) => (
-                  <label
-                    key={option.key}
-                    className={`evaluation-recommendation-option ${form.recommendation === option.key ? "active" : ""}`}
-                  >
-                    <input
-                      type="radio"
-                      name="recommendation"
-                      disabled={isLocked}
-                      checked={form.recommendation === option.key}
-                      onChange={() => setForm((f) => ({ ...f, recommendation: option.key }))}
-                    />
-                    <span>{option.label}</span>
-                  </label>
-                ))}
+                </div>
               </div>
             </div>
 

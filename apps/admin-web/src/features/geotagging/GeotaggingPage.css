@@ -1616,6 +1616,109 @@
 }
 
 
+/* Supervisor only — the stats row is a grid item of the three-column row, so
+   it relies on the grid's gap instead of its own margin. */
+.geotagging-stats--row {
+  margin: 0;
+}
+
+/* Supervisor only — Map | Assigned Areas | Assigned Employees share one row,
+   with the stats cards stacked on top of Assigned Employees in the right
+   column (same arrangement as the admin's stats + Add Location column). The
+   row has one fixed height and the cards scroll internally. Below 1181px the
+   shared max-width rule further down stacks everything again. */
+@media (min-width: 1181px) {
+  .geotagging-bottom-grid--with-map {
+    height: clamp(426px, calc(100vh - 215px), 660px);
+    grid-template-columns: minmax(0, 4.2fr) minmax(0, 2.85fr) minmax(0, 2.95fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    row-gap: 14px;
+    align-items: stretch;
+  }
+
+  .geotagging-bottom-grid--with-map > .geotagging-map-panel,
+  .geotagging-bottom-grid--with-map > .assigned-list,
+  .geotagging-bottom-grid--with-map > .assigned-employees-panel {
+    height: auto;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .geotagging-bottom-grid--with-map > .geotagging-map-panel {
+    grid-column: 1;
+    grid-row: 1 / -1;
+  }
+
+  .geotagging-bottom-grid--with-map > .assigned-list {
+    grid-column: 2;
+    grid-row: 1 / -1;
+  }
+
+  .geotagging-bottom-grid--with-map > .geotagging-stats {
+    grid-column: 3;
+    grid-row: 1;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .geotagging-bottom-grid--with-map > .assigned-employees-panel {
+    grid-column: 3;
+    grid-row: 2;
+  }
+
+  .geotagging-bottom-grid--with-map .geotagging-stat-card {
+    min-width: 0;
+    max-width: none;
+    padding: 8px 10px;
+  }
+
+  .geotagging-bottom-grid--with-map > .geotagging-map-panel {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .geotagging-bottom-grid--with-map .map-panel-header {
+    flex-shrink: 0;
+  }
+
+  .geotagging-bottom-grid--with-map .geotagging-map {
+    flex: 1;
+    min-height: 0;
+    height: auto;
+  }
+
+  /* Overlaid rather than stacked under the map, so the map keeps its full
+     size while loading and Leaflet never has to re-measure it. */
+  .geotagging-bottom-grid--with-map .map-loading-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    min-height: 0;
+  }
+
+  .geotagging-bottom-grid--with-map .assigned-list-scroll {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+  }
+
+  .geotagging-bottom-grid--with-map .assigned-list-toolbar,
+  .geotagging-bottom-grid--with-map .employee-mode-row {
+    flex-wrap: wrap;
+  }
+
+  .geotagging-bottom-grid--with-map .area-search-wrap {
+    flex: 1 1 130px;
+    width: auto;
+    min-width: 0;
+  }
+
+  .geotagging-bottom-grid--with-map .assignment-save-row {
+    flex-wrap: wrap;
+  }
+}
+
 @media (max-width: 1180px) {
   .geotagging-bottom-grid,
   .geotagging-top-grid {
