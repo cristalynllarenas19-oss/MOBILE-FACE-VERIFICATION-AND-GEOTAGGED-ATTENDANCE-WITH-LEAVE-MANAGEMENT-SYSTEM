@@ -33,6 +33,7 @@ import {
   filedMinutes,
 } from "../../api";
 import { useCachedData } from "../../utils/dataCache";
+import { CARD_SHADOW } from "../../styles/ui";
 
 // There's no push/WebSocket infra in this app — a newly filed leave request
 // only shows up here on the next fetch. Polling this often while the screen
@@ -299,11 +300,13 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
         onChange={(key) => setRequestType(key as "leave" | "undertime")}
         style={styles.tabSwitcher}
       />
+      {/* All first, so the unfiltered list is the one the thumb lands on,
+          even though Pending is what this screen opens on. */}
       <SegmentedControl
         segments={[
+          { key: "ALL", label: "All" },
           { key: "PENDING", label: "Pending" },
           ...(requestType === "leave" ? [{ key: "LAPSED", label: "Lapsed" }] : []),
-          { key: "ALL", label: "All" },
         ]}
         value={filter}
         onChange={(key) => setFilter(key as "PENDING" | "LAPSED" | "ALL")}
@@ -317,8 +320,9 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
           </View>
         ) : (
           <AestheticScrollView
+            style={styles.scroller}
             contentContainerStyle={styles.list}
-            refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => load(true)} tintColor="#062B59" />}
+            refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => load(true)} colors={["#1680D8"]} />}
           >
             {visibleRequests.length === 0 ? (
               <EmptyState
@@ -361,8 +365,9 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
         </View>
       ) : (
         <AestheticScrollView
+          style={styles.scroller}
           contentContainerStyle={styles.list}
-          refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => load(true)} tintColor="#062B59" />}
+          refreshControl={<RefreshControl refreshing={isRefreshing} onRefresh={() => load(true)} colors={["#1680D8"]} />}
         >
           {visibleUndertimeFilings.length === 0 ? (
             <EmptyState
@@ -614,13 +619,10 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
   );
 }
 
-const cardShadow = {
-  shadowColor: "#0F172A",
-  shadowOffset: { width: 0, height: 2 },
-  shadowOpacity: 0.06,
-  shadowRadius: 8,
-  elevation: 2,
-};
+// The employee-facing screens card shadow, shared from styles/ui so every
+// card in the app floats the same way instead of this screen keeping its own
+// flatter copy.
+const cardShadow = CARD_SHADOW;
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1 },
@@ -628,13 +630,16 @@ const styles = StyleSheet.create({
   tabSwitcher: {
     marginBottom: 12,
   },
+  scroller: { flex: 1 },
   list: { paddingBottom: 24, gap: 10 },
   card: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
     backgroundColor: "#FFFFFF",
-    borderRadius: 16,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
     padding: 14,
     ...cardShadow,
   },
@@ -644,8 +649,8 @@ const styles = StyleSheet.create({
   employeeName: { fontSize: 14, fontWeight: "700", color: "#062B59", flexShrink: 1 },
   leaveType: { fontSize: 13, color: "#334155", marginTop: 4, fontWeight: "600" },
   dateRange: { fontSize: 12, color: "#64748B", marginTop: 2 },
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", alignItems: "center", justifyContent: "center", padding: 24 },
-  modalCard: { width: "100%", maxWidth: 420, maxHeight: "85%", backgroundColor: "#FFFFFF", borderRadius: 22, padding: 20 },
+  modalOverlay: { flex: 1, backgroundColor: "rgba(6, 43, 89, 0.55)", alignItems: "center", justifyContent: "center", padding: 16 },
+  modalCard: { width: "100%", maxWidth: 480, maxHeight: "92%", backgroundColor: "#FFFFFF", borderRadius: 20, padding: 20 },
   modalCloseButton: {
     position: "absolute",
     top: 14,

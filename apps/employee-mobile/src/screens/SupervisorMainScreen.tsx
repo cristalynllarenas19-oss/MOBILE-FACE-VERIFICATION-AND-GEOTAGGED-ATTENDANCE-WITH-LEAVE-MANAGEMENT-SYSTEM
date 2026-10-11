@@ -41,14 +41,14 @@ export default function SupervisorMainScreen({ user, onLogout, canSwitchToEmploy
   const evaluatingEmployeeName = evaluatingEmployee ? `${evaluatingEmployee.firstName} ${evaluatingEmployee.lastName}` : "";
 
   useEffect(() => {
-    let lastKnownCount: number | null = cacheGet<{ count: number }>(CACHE_KEYS.notificationsUnreadCount)?.count ?? null;
+    let lastKnownCount: number | null = cacheGet<{ count: number }>(CACHE_KEYS.notificationsUnreadCount("reviewer"))?.count ?? null;
     const refreshUnreadCount = () => {
-      const cached = cacheGet<{ count: number }>(CACHE_KEYS.notificationsUnreadCount);
+      const cached = cacheGet<{ count: number }>(CACHE_KEYS.notificationsUnreadCount("reviewer"));
       if (cached) setUnreadCount(cached.count);
-      getUnreadNotificationCount()
+      getUnreadNotificationCount("reviewer")
         .then((data) => {
           setUnreadCount(data.count);
-          cacheSet(CACHE_KEYS.notificationsUnreadCount, data);
+          cacheSet(CACHE_KEYS.notificationsUnreadCount("reviewer"), data);
           // A new notification (e.g. "leave cancellation requested") is
           // exactly when the team's leave list most needs to be fresh —
           // nudge it to refetch right away instead of waiting for the Leave
@@ -87,6 +87,7 @@ export default function SupervisorMainScreen({ user, onLogout, canSwitchToEmploy
         visible={notificationsVisible}
         onClose={() => setNotificationsVisible(false)}
         onUnreadCountChange={setUnreadCount}
+        view="reviewer"
         employeeId={user?.employeeId}
         canReviewTeamRequests
         onEvaluateEmployee={setEvaluatingEmployeeId}
@@ -127,7 +128,12 @@ export default function SupervisorMainScreen({ user, onLogout, canSwitchToEmploy
           />
         )}
 
-        {tab === "attendance" && <SupervisorAttendanceScreen />}
+        {/* Same gate admin-web's Attendance page applies: the flagged
+            review queue needs attendance:write, which a Supervisor role
+            only has when an admin granted it. */}
+        {tab === "attendance" && (
+          <SupervisorAttendanceScreen canReviewFlagged={user?.permissions?.includes("attendance:write") ?? false} />
+        )}
 
         {tab === "more" && (
           <MoreScreen

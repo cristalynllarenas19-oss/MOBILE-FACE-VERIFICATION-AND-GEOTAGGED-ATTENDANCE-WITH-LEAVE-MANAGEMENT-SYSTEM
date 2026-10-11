@@ -387,17 +387,19 @@ export default function App() {
       prefetchCached(CACHE_KEYS.leaveRequests(employeeId), () => getLeaveRequests(employeeId));
       prefetchCached(CACHE_KEYS.undertimeEligibility(employeeId), () => getUndertimeEligibility(employeeId));
       prefetchCached(CACHE_KEYS.undertimeFilings(employeeId), () => getUndertimeFilings(employeeId));
-      prefetchCached(CACHE_KEYS.notifications, getNotifications);
-      prefetchCached(CACHE_KEYS.notificationsUnreadCount, getUnreadNotificationCount);
+      prefetchCached(CACHE_KEYS.notifications("personal"), () => getNotifications("personal"));
+      prefetchCached(CACHE_KEYS.notificationsUnreadCount("personal"), () => getUnreadNotificationCount("personal"));
 
       if ((user.roles ?? [user.role]).some((role) => role !== "EMPLOYEE")) {
+        prefetchCached(CACHE_KEYS.notifications("reviewer"), () => getNotifications("reviewer"));
+        prefetchCached(CACHE_KEYS.notificationsUnreadCount("reviewer"), () => getUnreadNotificationCount("reviewer"));
         prefetchCached(CACHE_KEYS.supervisorDashboard, getDashboardSummary);
         prefetchCached(CACHE_KEYS.teamEmployees, getTeamEmployees);
         prefetchCached(CACHE_KEYS.teamAttendance(today), () => getTeamAttendance({ date: today }));
         prefetchCached(CACHE_KEYS.geotaggedLocations, getGeotaggedLocations);
         prefetchCached(CACHE_KEYS.teamLeaveRequests, getTeamLeaveRequests);
         prefetchCached(CACHE_KEYS.teamSchedules, getSchedules);
-        prefetchCached(CACHE_KEYS.teamReportsSummary, getReportsSummary);
+        prefetchCached(`team-reports:${today}:${today}`, () => getReportsSummary({ from: today, to: today }));
       }
     }, 0);
 

@@ -27,8 +27,10 @@ function notifySubscribers(key: string, value: unknown) {
 
 export const CACHE_KEYS = {
   myProfile: "my-profile",
-  notifications: "notifications",
-  notificationsUnreadCount: "notifications:unread-count",
+  // Keyed by portal view so the supervisor and employee inboxes never share
+  // a cached list or badge.
+  notifications: (view: "reviewer" | "personal") => `notifications:${view}`,
+  notificationsUnreadCount: (view: "reviewer" | "personal") => `notifications:unread-count:${view}`,
   leaveTypes: "leave-types",
   todayAttendance: (employeeId: string) => `today-attendance:${employeeId}`,
   attendanceEligibility: (employeeId: string) => `attendance-eligibility:${employeeId}`,

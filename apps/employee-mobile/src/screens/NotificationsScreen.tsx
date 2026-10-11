@@ -22,6 +22,7 @@ import {
   LeaveRequest,
   TeamLeaveRequest,
   getNotifications,
+  NotificationView,
   getLeaveRequests,
   getTeamLeaveRequests,
   approveLeaveRequest,
@@ -53,6 +54,10 @@ type Props = {
   visible: boolean;
   onClose: () => void;
   onUnreadCountChange: (count: number) => void;
+  // Which inbox this is: the supervisor portal's team requests ("reviewer")
+  // or the signed-in person's own notifications ("personal"). The two are
+  // fetched, cached, counted and marked read separately.
+  view: NotificationView;
   employeeId?: string;
   // Backs the "Log Attendance Now" button shown on an ATTENDANCE_LOCKED
   // notification's detail view — optional since the supervisor portal's own
@@ -325,7 +330,7 @@ function PulsingDot() {
   );
 }
 
-export default function NotificationsScreen({ visible, onClose, onUnreadCountChange, employeeId, onLogRealAttendance, canReviewTeamRequests, onEvaluateEmployee, onViewLeaveRequest }: Props) {
+export default function NotificationsScreen({ visible, onClose, onUnreadCountChange, view, employeeId, onLogRealAttendance, canReviewTeamRequests, onEvaluateEmployee, onViewLeaveRequest }: Props) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   // Percentage heights ("82%") can resolve unreliably for a View rendered
   // inside RN's <Modal> (it isn't always laid out against the full window
@@ -337,8 +342,8 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
   // Keyed on `visible` so nothing is fetched until the panel opens; while
   // closed the last cached copy is kept for an instant reopen.
   const notificationsCache = useCachedData<AppNotification[]>(
-    visible ? CACHE_KEYS.notifications : null,
-    getNotifications,
+    visible ? CACHE_KEYS.notifications(view) : null,
+    () => getNotifications(view),
   );
   const leaveRequestsCache = useCachedData<LeaveRequest[]>(
     visible && employeeId ? CACHE_KEYS.leaveRequests(employeeId) : null,
@@ -522,7 +527,7 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
     const updated = notifications.map((item) => ({ ...item, readAt: item.readAt ?? new Date().toISOString() }));
     setNotifications(updated);
     onUnreadCountChange(0);
-    markAllNotificationsRead().catch(() => undefined);
+    markAllNotificationsRead(view).catch(() => undefined);
   }
 
   async function pickAttachment() {

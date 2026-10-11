@@ -24,6 +24,7 @@ import CalendarPickerModal from "../components/CalendarPickerModal";
 
 type Props = {
   employeeId?: string;
+  attendanceMode?: string;
 };
 
 type Tab = "office" | "field";
@@ -233,13 +234,12 @@ function statusTone(status: string) {
   return { color: "#94A3B8", bg: "#F8FAFC", icon: "time" as const };
 }
 
-// DTR for every employee — one screen, two tabs (mirroring the Leave
+// DTR for every employee — one screen, up to two tabs (mirroring the Leave
 // screen's Balance/Request tabs): Office (Time In/Time Out) and Field
-// (Start/End Visit). Every employee sees both tabs regardless of which
-// attendance mode they're assigned — a Fixed employee's Field tab (or a
-// Field employee's Office tab) is simply empty, rather than being a
-// different screen per mode.
-export default function DTRScreen({ employeeId }: Props) {
+// (Start/End Visit). The Field tab is only for field employees, plus anyone
+// who used to be one and still has field records to look back on; everyone
+// else gets the Office list with no tab switcher at all.
+export default function DTRScreen({ employeeId, attendanceMode }: Props) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("office");
   const [selectedRecord, setSelectedRecord] = useState<AttendanceHistoryRecord | null>(null);
@@ -328,7 +328,10 @@ export default function DTRScreen({ employeeId }: Props) {
     return fieldRecords.filter((record) => isMorning(record.timeInAt) === (amPmFilter === "AM"));
   }, [fieldRecords, amPmFilter]);
 
-  const isOfficeTab = activeTab === "office";
+  // Checked against every record, not the date-filtered ones, so narrowing
+  // the date range never makes the tab disappear.
+  const showFieldTab = attendanceMode === "FIELD" || records.some((r) => r.recordType === "FIELD");
+  const isOfficeTab = activeTab === "office" || !showFieldTab;
   const listData = isOfficeTab ? officeRecords : filteredFieldRecords;
   // Months the user has explicitly opened/closed; anything not in here
   // follows the default (current month open, earlier months closed).
@@ -338,15 +341,17 @@ export default function DTRScreen({ employeeId }: Props) {
 
   return (
     <>
-    <SegmentedControl
-      segments={[
-        { key: "office", label: "Office" },
-        { key: "field", label: "Field" },
-      ]}
-      value={activeTab}
-      onChange={(key) => setActiveTab(key as Tab)}
-      style={styles.tabSwitcher}
-    />
+    {showFieldTab && (
+      <SegmentedControl
+        segments={[
+          { key: "office", label: "Office" },
+          { key: "field", label: "Field" },
+        ]}
+        value={activeTab}
+        onChange={(key) => setActiveTab(key as Tab)}
+        style={styles.tabSwitcher}
+      />
+    )}
 
     <View style={styles.card}>
       {/* Pinned header — title and filters stay fixed above the list
@@ -354,7 +359,17 @@ export default function DTRScreen({ employeeId }: Props) {
           ListHeaderComponent, which scrolls with the content). Only the
           record rows below scroll now. */}
       <View style={styles.pinnedHeader}>
-        <Text style={styles.cardTitle}>Daily Time Record</Text>
+        {/* With no Office/Field switcher above, the badge is what says
+            which kind of record this list holds. */}
+        <View style={styles.titleRow}>
+          <Text style={styles.cardTitleInRow}>Daily Time Record</Text>
+          {!showFieldTab && (
+            <View style={styles.modeBadge}>
+              <Ionicons name="business-outline" size={12} color="#1680D8" />
+              <Text style={styles.modeBadgeText}>Office</Text>
+            </View>
+          )}
+        </View>
 
         {/* Mirrors admin-web's CalendarPicker trigger (DtrPage.tsx / LeavePage.tsx
             Request tab) — a full-width outlined box with the icon on the
@@ -743,6 +758,33 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "900",
     marginBottom: 14,
+  },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    marginBottom: 14,
+  },
+  cardTitleInRow: {
+    flexShrink: 1,
+    color: "#062b59",
+    fontSize: 18,
+    fontWeight: "900",
+  },
+  modeBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: "#E8F2FC",
+  },
+  modeBadgeText: {
+    color: "#1680D8",
+    fontSize: 12,
+    fontWeight: "800",
   },
   tabSwitcher: {
     marginBottom: 12,

@@ -822,20 +822,28 @@ export async function fileUndertime(employeeId: string, attendanceRecordId: stri
   });
 }
 
-export async function getNotifications() {
-  return apiRequest<AppNotification[]>("/notifications/me");
+// Which half of the inbox a portal shows: "reviewer" is the team's requests
+// a Supervisor has to act on, "personal" is what is about the signed-in
+// person themselves. A supervisor who switches to their employee profile
+// gets a separate list and a separate unread badge in each.
+export type NotificationView = "reviewer" | "personal";
+
+export async function getNotifications(view: NotificationView) {
+  return apiRequest<AppNotification[]>(`/notifications/me?view=${view}`);
 }
 
-export async function getUnreadNotificationCount() {
-  return apiRequest<{ count: number }>("/notifications/me/unread-count");
+export async function getUnreadNotificationCount(view: NotificationView) {
+  return apiRequest<{ count: number }>(`/notifications/me/unread-count?view=${view}`);
 }
 
 export async function markNotificationRead(id: string) {
   return apiRequest(`/notifications/${id}/read`, { method: "PATCH" });
 }
 
-export async function markAllNotificationsRead() {
-  return apiRequest("/notifications/read-all", { method: "PATCH" });
+// Scoped to the same view, so clearing one portal's list leaves the other
+// portal's unread items unread.
+export async function markAllNotificationsRead(view: NotificationView) {
+  return apiRequest(`/notifications/read-all?view=${view}`, { method: "PATCH" });
 }
 
 // ── Supervisor endpoints ─────────────────────────────────────────────────
@@ -855,7 +863,20 @@ export type DashboardSummary = {
   };
   enrollment: { enrolled: number; total: number };
   geotagging: { assigned: number; total: number };
-  calendar: { monthLabel: string; days: { date: string; status?: string }[] };
+  calendar: {
+    monthLabel: string;
+    days: {
+      date: string;
+      day: number;
+      present: number;
+      late: number;
+      absent: number;
+      onLeave: number;
+      // Tells a company-wide rest day apart from a day with no data yet —
+      // both otherwise sum to all-zero.
+      isDayOff: boolean;
+    }[];
+  };
 };
 
 export async function getDashboardSummary(month?: number, year?: number) {
@@ -879,53 +900,25 @@ export type TeamEmployee = {
   sex?: "MALE" | "FEMALE";
   hireDate?: string;
   department?: { id: string; name: string } | null;
+  positionId?: string | null;
   position?: { title: string } | null;
   supervisorId?: string | null;
 };
 
-export type CreateTeamEmployeeInput = {
-  firstName: string;
-  lastName: string;
-  email: string;
-  department: string;
-  hireDate?: string;
-  // Id of a row from admin-web's Utilities → Employee Types (see getEmployeeTypes).
-  employeeTypeId: string;
-  attendanceMode?: AttendanceMode;
-  sex: "MALE" | "FEMALE";
-  supervisorId?: string;
-};
+// Every position from admin-web's Utilities -> Positions — the only source
+// for the Team tab's Position filter, never a list kept in this app or
+// inferred from whoever happens to hold a position (the same rule
+// EmployeesPage.tsx follows on web).
+export type PositionOption = { id: string; title: string; isActive: boolean };
 
-export type UpdateTeamEmployeeInput = Partial<Omit<CreateTeamEmployeeInput, "email">> & { email?: string };
-
-// Active employee types — the only source for the Employee Type picker; the
-// list is admin-managed (Utilities → Employee Types), never hardcoded here.
-export type EmployeeTypeOption = { id: string; name: string; employmentStatus: string; isActive: boolean };
-
-export async function getEmployeeTypes() {
-  return apiRequest<EmployeeTypeOption[]>("/employee-types");
+export async function getPositions() {
+  return apiRequest<PositionOption[]>("/positions");
 }
 
 export async function getTeamEmployees() {
   // Archived (SEPARATED) employees are not part of the active team roster.
   const employees = await apiRequest<TeamEmployee[]>("/employees");
   return employees.filter((employee) => employee.employmentStatus !== "SEPARATED");
-}
-
-export async function getSupervisorOptions() {
-  return apiRequest<TeamEmployee[]>("/employees/supervisors");
-}
-
-export async function createTeamEmployee(input: CreateTeamEmployeeInput) {
-  return apiRequest<TeamEmployee>("/employees", { method: "POST", body: JSON.stringify(input) });
-}
-
-export async function updateTeamEmployee(id: string, input: UpdateTeamEmployeeInput) {
-  return apiRequest<TeamEmployee>(`/employees/${id}`, { method: "PATCH", body: JSON.stringify(input) });
-}
-
-export async function archiveTeamEmployee(id: string, reason?: string) {
-  return apiRequest<TeamEmployee>(`/employees/${id}/archive`, { method: "PATCH", body: JSON.stringify({ reason }) });
 }
 
 export type TeamAttendanceRecord = {
@@ -938,18 +931,80 @@ export type TeamAttendanceRecord = {
   breakKind?: "LUNCH" | "BREAK";
   status: string;
   visitNumber?: number;
+  recordType?: AttendanceRecordType | null;
   workLocation?: { name: string } | null;
   employee: {
     employeeNo?: string;
     firstName: string;
     lastName: string;
     department: { name: string };
+    position?: { title: string } | null;
   };
 };
 
-export async function getTeamAttendance(params?: { department?: string; status?: string; date?: string; from?: string; to?: string }) {
+export async function getTeamAttendance(params?: {
+  department?: string;
+  status?: string;
+  recordType?: string;
+  date?: string;
+  from?: string;
+  to?: string;
+}) {
   const qs = new URLSearchParams(params as Record<string, string>).toString();
   return apiRequest<TeamAttendanceRecord[]>(`/attendance${qs ? `?${qs}` : ""}`);
+}
+
+// A face-mismatch attempt still awaiting a supervisor/HR decision: an
+// AttendanceLog with no AttendanceRecord behind it yet. Same endpoint and
+// shape admin-web's AttendancePage merges into its list as synthetic
+// "FLAGGED" rows.
+export type FlaggedAttendanceLog = {
+  id: string;
+  logType: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN";
+  capturedAt: string;
+  attendanceDate?: string | null;
+  recordType?: AttendanceRecordType | null;
+  latitude: string;
+  longitude: string;
+  distanceFromSiteMeters: string;
+  faceSimilarityScore?: string | null;
+  verificationStatus: string;
+  failureReason?: string | null;
+  faceImageData?: string | null;
+  faceImageMimeType?: string | null;
+  workLocation?: { name: string } | null;
+  employee: {
+    id: string;
+    employeeNo?: string;
+    firstName: string;
+    lastName: string;
+    department: { name: string };
+    position?: { title: string } | null;
+    // Newest enrolled profile only (take: 1 server-side) — the "registered
+    // face" half of the comparison the reviewer is here to make.
+    faceProfiles?: { referenceImageData?: string | null }[];
+  };
+};
+
+// Needs attendance:write. A Supervisor whose role was not granted it gets a
+// 403 here — callers swallow that and show no flagged rows at all, exactly
+// as admin-web's AttendancePage does.
+export async function getFlaggedAttendanceLogs() {
+  return apiRequest<FlaggedAttendanceLog[]>("/attendance/flagged");
+}
+
+// "validate" records the attempt as genuine attendance; "reject" tags it as
+// a fake attendance attempt. Either way the log leaves the pending-review
+// queue, so the caller refetches afterwards.
+export async function reviewFlaggedAttendanceLog(
+  logId: string,
+  decision: "validate" | "reject",
+  remarks?: string,
+) {
+  return apiRequest<{ id: string }>(`/attendance/flagged/${logId}/${decision}`, {
+    method: "PATCH",
+    body: JSON.stringify({ remarks: remarks?.trim() ?? "" }),
+  });
 }
 
 export type GeoEmployeeOption = {
@@ -1072,7 +1127,13 @@ export type ScheduleAssignment = {
   id: string;
   startsOn: string;
   endsOn?: string | null;
-  employee: { id: string; firstName: string; lastName: string; department: { name: string } };
+  employee: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    department: { name: string };
+    position?: { title: string } | null;
+  };
   shift: { id: string; name: string; startTime: string; endTime: string };
 };
 
@@ -1112,6 +1173,62 @@ export type ReportsSummary = {
   };
   attendanceByStatus: Record<string, number>;
   leaveByStatus: Record<string, number>;
+  attendance: {
+    id: string;
+    attendanceDate: string;
+    status: string;
+    timeInAt?: string | null;
+    timeOutAt?: string | null;
+    lunchOutAt?: string | null;
+    lunchInAt?: string | null;
+    breakKind?: "LUNCH" | "BREAK";
+    workLocation?: { name: string } | null;
+    employee: { firstName: string; lastName: string; department: { name: string } };
+  }[];
+  leaves: {
+    id: string;
+    startDate: string;
+    endDate: string;
+    totalDays: string;
+    status: string;
+    // Set only on a LAPSED request: "REPORTED_FOR_WORK" or "NOT_DECIDED".
+    lapseReason?: string | null;
+    employee: { firstName: string; lastName: string; employmentStatus?: string; department: { name: string } };
+    leaveType: { name: string };
+  }[];
+  undertime?: {
+    id: string;
+    filingDate: string;
+    reason: string | null;
+    status: string;
+    employee: { firstName: string; lastName: string; department: { name: string } };
+    attendanceRecord: { attendanceDate: string; lateMinutes: number; undertimeMinutes?: number };
+    reviewer?: { email: string; employee?: { firstName: string; lastName: string } | null } | null;
+  }[];
+  schedules: {
+    id: string;
+    startsOn: string;
+    endsOn?: string | null;
+    employee: { firstName: string; lastName: string; department: { name: string }; position?: { title: string } | null };
+    shift: { name: string; startTime: string; endTime: string };
+  }[];
+  employees: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    sex?: string | null;
+    hireDate: string;
+    department: { name: string };
+  }[];
+  leaveBalances: {
+    employeeId: string;
+    employee: { firstName: string; lastName: string; sex?: string | null; department: { name: string } };
+    leaveTypeId: string;
+    leaveTypeName: string;
+    remainingDays: number;
+    usedDays: number;
+    usedDates: { startDate: string; endDate: string }[];
+  }[];
 };
 
 export async function getReportsSummary(params?: { from?: string; to?: string; department?: string }) {

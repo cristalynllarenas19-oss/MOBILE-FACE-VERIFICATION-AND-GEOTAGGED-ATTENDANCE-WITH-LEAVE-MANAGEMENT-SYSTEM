@@ -78,14 +78,14 @@ export default function MainScreen({
   }, [refreshProfile]);
 
   useEffect(() => {
-    let lastKnownCount: number | null = cacheGet<{ count: number }>(CACHE_KEYS.notificationsUnreadCount)?.count ?? null;
+    let lastKnownCount: number | null = cacheGet<{ count: number }>(CACHE_KEYS.notificationsUnreadCount("personal"))?.count ?? null;
     const refreshUnreadCount = () => {
-      const cached = cacheGet<{ count: number }>(CACHE_KEYS.notificationsUnreadCount);
+      const cached = cacheGet<{ count: number }>(CACHE_KEYS.notificationsUnreadCount("personal"));
       if (cached) setUnreadCount(cached.count);
-      getUnreadNotificationCount()
+      getUnreadNotificationCount("personal")
         .then((data) => {
           setUnreadCount(data.count);
-          cacheSet(CACHE_KEYS.notificationsUnreadCount, data);
+          cacheSet(CACHE_KEYS.notificationsUnreadCount("personal"), data);
           // A new notification (e.g. "your leave was approved") is exactly
           // when leave data most needs to be fresh — nudge it to refetch
           // right away instead of waiting for LeaveScreen's own poll. Only
@@ -139,6 +139,7 @@ export default function MainScreen({
         visible={notificationsVisible}
         onClose={() => setNotificationsVisible(false)}
         onUnreadCountChange={setUnreadCount}
+        view="personal"
         employeeId={user?.employeeId}
         onLogRealAttendance={() => {
           setNotificationsVisible(false);
@@ -181,10 +182,9 @@ export default function MainScreen({
         )}
 
         {tab === "dtr" && (
-          // Every employee gets the same Office/Field tabbed DTR screen,
-          // regardless of attendance mode — a Fixed employee's Field tab
-          // (and a Field employee's Office tab) will just be empty.
-          <DTRScreen employeeId={user?.employeeId} />
+          // The mode decides whether the Field tab is offered — see
+          // DTRScreen.
+          <DTRScreen employeeId={user?.employeeId} attendanceMode={user?.attendanceMode} />
         )}
 
         {tab === "workarea" && (

@@ -1,6 +1,6 @@
 
 import { CSSProperties, useMemo, useState } from "react";
-import { ArrowRight, Camera, ChevronDown, ChevronRight, Eye, RefreshCw, X } from "lucide-react";
+import { ArrowRight, Building2, Camera, ChevronDown, ChevronRight, Eye, RefreshCw, X } from "lucide-react";
 import { AttendanceHistoryRecord, AttendanceLogPhoto, filedMinutes, getAttendanceHistory, getAttendanceRecordPhotos } from "./api";
 import type { AuthUser } from "../../lib/api";
 import { CACHE_KEYS, useCachedData } from "../../lib/dataCache";
@@ -243,7 +243,11 @@ export function DtrPage({ user }: Props) {
     return fieldRecs.filter((r) => isMorning(r.timeInAt) === (amPm === "AM"));
   }, [fieldRecs, amPm]);
 
-  const isOffice     = activeTab === "office";
+  // The Field tab is only for field employees, plus anyone who used to be
+  // one and still has field records. Checked against every record, not the
+  // date-filtered ones, so narrowing the range never hides the tab.
+  const showFieldTab = user.attendanceMode === "FIELD" || records.some((r) => r.recordType === "FIELD");
+  const isOffice     = activeTab === "office" || !showFieldTab;
   const listData     = isOffice ? officeRecs : filteredField;
   // Months the user has explicitly opened/closed; anything not in here
   // follows the default (current month open, earlier months closed).
@@ -254,7 +258,17 @@ export function DtrPage({ user }: Props) {
     <div className="dtr-shell emp-form-page">
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <h2 className="emp-page-title">Daily Time Record</h2>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+          <h2 className="emp-page-title">Daily Time Record</h2>
+          {/* With no Office/Field switcher below, the badge is what says
+              which kind of record this list holds. */}
+          {!showFieldTab && (
+            <span style={modeBadge}>
+              <Building2 size={12} />
+              Office
+            </span>
+          )}
+        </div>
         <button
           onClick={handleRefresh}
           disabled={isRefresh}
@@ -266,15 +280,17 @@ export function DtrPage({ user }: Props) {
       </div>
 
       {/* Tab switcher */}
-      <SegmentedControl
-        segments={[
-          { key: "office", label: "Office" },
-          { key: "field", label: "Field" },
-        ]}
-        value={activeTab}
-        onChange={(key) => setActiveTab(key as Tab)}
-        style={{ marginBottom: 14 }}
-      />
+      {showFieldTab && (
+        <SegmentedControl
+          segments={[
+            { key: "office", label: "Office" },
+            { key: "field", label: "Field" },
+          ]}
+          value={activeTab}
+          onChange={(key) => setActiveTab(key as Tab)}
+          style={{ marginBottom: 14 }}
+        />
+      )}
 
       {/* Date range filter (From/To, both tabs) — same CalendarPicker popover
           used for Start/End Date on the Request tab, instead of a native
@@ -665,6 +681,20 @@ const dateFilterCard: CSSProperties = {
   background: "#FFFFFF", border: "1px solid #DBE5EF", borderRadius: 18,
   padding: 12, marginBottom: 14,
   boxShadow: "var(--emp-shadow-card)",
+};
+const modeBadge: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 5,
+  padding: "4px 10px",
+  borderRadius: 999,
+  background: "#E8F2FC",
+  color: "#1680D8",
+  fontSize: 12,
+  fontWeight: 800,
+  whiteSpace: "nowrap",
+  // Same bottom margin as the title beside it, so the two stay level.
+  marginBottom: "var(--emp-space-3)",
 };
 const dateFilterFields: CSSProperties = { display: "flex", gap: 10, flex: 1 };
 const clearDateBtn: CSSProperties = {

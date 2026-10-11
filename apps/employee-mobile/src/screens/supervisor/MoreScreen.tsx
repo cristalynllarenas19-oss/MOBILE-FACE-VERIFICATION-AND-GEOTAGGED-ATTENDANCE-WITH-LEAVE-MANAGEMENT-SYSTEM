@@ -11,6 +11,7 @@ import SupervisorSchedulesScreen from "./SupervisorSchedulesScreen";
 import SupervisorReportsScreen from "./SupervisorReportsScreen";
 import Avatar from "../../components/Avatar";
 import AestheticScrollView from "../../components/AestheticScrollView";
+import { CARD_SHADOW } from "../../styles/ui";
 
 type Props = {
   onLogout: () => void;
@@ -54,7 +55,7 @@ export default function MoreScreen({ onLogout, canSwitchToEmployeePortal, onSwit
     return <SupervisorSchedulesScreen onClose={() => setView("root")} />;
   }
   if (view === "reports") {
-    return <SupervisorReportsScreen onClose={() => setView("root")} />;
+    return <SupervisorReportsScreen onClose={() => setView("root")} departmentName={profile?.department?.name} />;
   }
   if (view === "about") {
     return <AboutScreen onClose={() => setView("root")} />;
@@ -65,7 +66,7 @@ export default function MoreScreen({ onLogout, canSwitchToEmployeePortal, onSwit
     : null;
 
   return (
-    <AestheticScrollView contentContainerStyle={styles.container}>
+    <AestheticScrollView style={{ flex: 1 }} contentContainerStyle={styles.container}>
       <View style={styles.profileCard}>
         {avatarSource ? (
           <Image source={{ uri: avatarSource }} style={styles.avatarImage} />
@@ -133,13 +134,10 @@ function MoreRow({
   );
 }
 
-const cardShadow = {
-  shadowColor: "#0F172A",
-  shadowOffset: { width: 0, height: 2 },
-  shadowOpacity: 0.06,
-  shadowRadius: 8,
-  elevation: 2,
-};
+// The employee-facing screens card shadow, shared from styles/ui so every
+// card in the app floats the same way instead of this screen keeping its own
+// flatter copy.
+const cardShadow = CARD_SHADOW;
 
 const styles = StyleSheet.create({
   container: { paddingBottom: 24 },
@@ -161,7 +159,7 @@ const styles = StyleSheet.create({
   sectionTitle: { color: "#94A3B8", fontSize: 12, fontWeight: "700", marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.4 },
   group: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 16,
+    borderRadius: 18,
     paddingHorizontal: 4,
     marginBottom: 18,
     ...cardShadow,

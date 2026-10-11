@@ -13,6 +13,10 @@ const TONES: Record<string, { color: string; bg: string }> = {
   PENDING: { color: "#B45309", bg: "#FEF3C7" },
   PENDING_REVIEW: { color: "#B45309", bg: "#FEF3C7" },
   ABSENT: { color: "#B91C1C", bg: "#FEE2E2" },
+  // Same red as ABSENT — admin-web's getStatusTone() puts FLAGGED and
+  // ABSENT in the same "danger" tone, so a flagged attempt reads as the
+  // same level of problem in both apps.
+  FLAGGED: { color: "#B91C1C", bg: "#FEE2E2" },
   REJECTED: { color: "#B91C1C", bg: "#FEE2E2" },
   // Darker red than REJECTED, not a different color family — still reads as
   // "not approved" but distinct in shade from an outright rejection.
@@ -34,6 +38,9 @@ const DEFAULT_TONE = { color: "#334155", bg: "#F1F5F9" };
 const LABEL_OVERRIDES: Record<string, string> = {
   SUPERVISOR_APPROVED: "APPROVED",
   CANCELLATION_PENDING: "PENDING CANCELLATION",
+  // Reads the same as admin-web's "Flagged – Pending Review" — the status
+  // alone ("flagged") does not say that someone still has to decide on it.
+  FLAGGED: "FLAGGED - PENDING REVIEW",
 };
 
 // lapseReason only matters for LAPSED — it's what tells "the employee came

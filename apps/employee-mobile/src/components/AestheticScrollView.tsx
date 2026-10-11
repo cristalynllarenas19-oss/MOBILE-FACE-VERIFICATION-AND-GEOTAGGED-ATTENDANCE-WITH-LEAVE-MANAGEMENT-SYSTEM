@@ -118,6 +118,12 @@ export default AestheticScrollView;
 const styles = StyleSheet.create({
   wrap: {
     position: "relative",
+    // A plain View never shrinks below its content, so without this a list
+    // taller than the space it was given kept its full height, ran on
+    // underneath whatever sat below it (the bottom tab bar, a dialog's
+    // buttons) and could never scroll its last rows into view. RN's own
+    // ScrollView shrinks by default; this wrapper has to as well.
+    flexShrink: 1,
   },
   scroller: {
     flexGrow: 1,

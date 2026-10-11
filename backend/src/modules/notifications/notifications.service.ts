@@ -35,6 +35,51 @@ function notExpiredFilter() {
   };
 }
 
+// One account can wear two hats: a Supervisor (or Admin) who reviews the
+// team, and the same person as an employee with leave and attendance of
+// their own. Each portal asks for its own half of the inbox so a
+// supervisor who switches to their employee profile sees only what is
+// about them, and the team's requests stay in the supervisor portal.
+export type NotificationView = "reviewer" | "personal";
+
+// Sent to whoever has to act on someone else's request — never to the
+// person the notification is about. Every other type (and any untyped row)
+// is addressed to the employee personally.
+const REVIEWER_NOTIFICATION_TYPES = [
+  "LEAVE_SUBMITTED",
+  "LEAVE_RESUBMITTED",
+  "LEAVE_CANCELLATION_REQUESTED",
+  "LEAVE_DECISION_OVERDUE",
+  "UNDERTIME_SUBMITTED",
+  "ATTENDANCE_FLAGGED",
+  "FACE_MISMATCH_STREAK",
+  "PROBATION_REGULARIZATION_DUE",
+  "SUPERVISOR_EVALUATION_REQUIRED",
+  "EVALUATION_CONVERSION_OUTCOME",
+];
+
+// Company announcements are for the person whichever portal they are in,
+// so they appear in both.
+const SHARED_NOTIFICATION_TYPES = [ANNOUNCEMENT_NOTIFICATION_TYPE];
+
+export function parseNotificationView(value?: string): NotificationView | undefined {
+  return value === "reviewer" || value === "personal" ? value : undefined;
+}
+
+// No view = the whole inbox, which is what a caller that predates the two
+// portals (and an account with only one role) still gets.
+function viewFilter(view?: NotificationView) {
+  if (view === "reviewer") {
+    return { type: { in: [...REVIEWER_NOTIFICATION_TYPES, ...SHARED_NOTIFICATION_TYPES] } };
+  }
+  if (view === "personal") {
+    // `type: null` is spelled out because SQL's NOT IN silently drops
+    // untyped rows.
+    return { OR: [{ type: null }, { type: { notIn: REVIEWER_NOTIFICATION_TYPES } }] };
+  }
+  return {};
+}
+
 @Injectable()
 export class NotificationsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -54,17 +99,17 @@ export class NotificationsService {
     });
   }
 
-  findForUser(userId: string) {
+  findForUser(userId: string, view?: NotificationView) {
     return this.prisma.notification.findMany({
-      where: { userId, ...notExpiredFilter() },
+      where: { userId, AND: [notExpiredFilter(), viewFilter(view)] },
       orderBy: { createdAt: "desc" },
       take: 50,
     });
   }
 
-  async unreadCount(userId: string) {
+  async unreadCount(userId: string, view?: NotificationView) {
     const count = await this.prisma.notification.count({
-      where: { userId, readAt: null, ...notExpiredFilter() },
+      where: { userId, readAt: null, AND: [notExpiredFilter(), viewFilter(view)] },
     });
     return { count };
   }
@@ -78,9 +123,9 @@ export class NotificationsService {
 
   // Skips expired announcements the user can no longer see, so "Mark all
   // read" can't inflate an old announcement's viewed count.
-  markAllRead(userId: string) {
+  markAllRead(userId: string, view?: NotificationView) {
     return this.prisma.notification.updateMany({
-      where: { userId, readAt: null, ...notExpiredFilter() },
+      where: { userId, readAt: null, AND: [notExpiredFilter(), viewFilter(view)] },
       data: { readAt: new Date() },
     });
   }
