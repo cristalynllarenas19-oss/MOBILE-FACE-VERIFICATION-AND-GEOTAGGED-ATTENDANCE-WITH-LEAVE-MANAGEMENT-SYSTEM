@@ -14,6 +14,7 @@ import BottomTab, { SUPERVISOR_TABS } from "../components/BottomTab";
 
 import { SupervisorTab } from "../types";
 import { EmployeeProfile, MobileUser, TeamEmployee, getMyProfile, getUnreadNotificationCount, getTeamLeaveRequests, getTeamEmployees, getTeamEvaluationStatuses } from "../api";
+import { managementRoleLabel } from "../utils/roles";
 import { CACHE_KEYS, cacheGet, cacheSet, revalidateCached, useCachedData } from "../utils/dataCache";
 
 const NOTIFICATION_POLL_MS = 5000;
@@ -80,7 +81,7 @@ export default function SupervisorMainScreen({ user, onLogout, canSwitchToEmploy
         profile={profile}
         unreadCount={unreadCount}
         onPressNotifications={() => setNotificationsVisible(true)}
-        subtitle="Supervisor"
+        subtitle={managementRoleLabel(user)}
       />
 
       <NotificationsScreen
@@ -137,6 +138,7 @@ export default function SupervisorMainScreen({ user, onLogout, canSwitchToEmploy
 
         {tab === "more" && (
           <MoreScreen
+            roleLabel={managementRoleLabel(user)}
             onLogout={onLogout}
             canSwitchToEmployeePortal={canSwitchToEmployeePortal}
             onSwitchToEmployeePortal={onSwitchToEmployeePortal}

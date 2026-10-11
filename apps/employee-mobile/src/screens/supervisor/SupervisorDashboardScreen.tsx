@@ -276,7 +276,7 @@ export default function SupervisorDashboardScreen({ departmentName }: Props) {
       <View style={styles.kpiRow}>
         <KpiChip icon="people" label="Employees" value={stats.totalEmployees} tint="#1680D8" />
         <KpiChip icon="calendar" label="Pending" value={stats.pendingLeaves} tint="#7C3AED" />
-        <KpiChip icon="airplane" label="On leave" value={onLeaveToday} tint="#0EA5E9" />
+        <KpiChip icon="person-remove-outline" label="On leave" value={onLeaveToday} tint="#0EA5E9" />
       </View>
 
       {/* Describes today until a day is tapped on the calendar below, then

@@ -4,9 +4,15 @@
     "slug": "universal-leaf-attendance",
     "owner": "unileaf",
     "version": "0.1.0",
+    "icon": "./assets/app-icon.png",
     "orientation": "portrait",
     "scheme": "ulattendance",
     "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/e-tala-logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FFFFFF"
+    },
     "ios": {
       "supportsTablet": true,
       "infoPlist": {

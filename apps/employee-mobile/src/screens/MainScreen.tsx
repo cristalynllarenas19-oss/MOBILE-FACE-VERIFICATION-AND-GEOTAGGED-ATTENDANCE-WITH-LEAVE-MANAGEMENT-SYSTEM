@@ -40,6 +40,7 @@ type Props = {
   geofenceStatus: GeofenceStatus;
   canSwitchToSupervisorPortal?: boolean;
   onSwitchToSupervisorPortal?: () => void;
+  managementRoleLabel?: string;
 };
 
 export default function MainScreen({
@@ -56,6 +57,7 @@ export default function MainScreen({
   geofenceStatus,
   canSwitchToSupervisorPortal,
   onSwitchToSupervisorPortal,
+  managementRoleLabel,
 }: Props) {
   const [tab, setTab] =
     useState<Tab>("attendance");
@@ -197,6 +199,7 @@ export default function MainScreen({
             onProfileChanged={loadProfile}
             canSwitchToSupervisorPortal={canSwitchToSupervisorPortal}
             onSwitchToSupervisorPortal={onSwitchToSupervisorPortal}
+            managementRoleLabel={managementRoleLabel}
           />
         )}
       </View>

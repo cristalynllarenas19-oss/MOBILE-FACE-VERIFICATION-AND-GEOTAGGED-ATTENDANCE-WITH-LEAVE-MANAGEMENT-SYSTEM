@@ -13,6 +13,7 @@ import {
   getUnauthorizedAttemptMessage,
 } from "./src/screens/AttendanceScreen";
 import SupervisorMainScreen from "./src/screens/SupervisorMainScreen";
+import { hasManagementRole, managementRoleLabel } from "./src/utils/roles";
 import CameraScanner from "./src/components/CameraScanner";
 import ResultModal, { ResultModalStatus } from "./src/components/ResultModal";
 import EarlyTimeOutModal from "./src/components/EarlyTimeOutModal";
@@ -1012,7 +1013,8 @@ export default function App() {
           onLunchOut={() => startScan("LUNCH_OUT")}
           onLunchIn={() => startScan("LUNCH_IN")}
           onLogRealAttendance={handleLogRealAttendance}
-          canSwitchToSupervisorPortal={(user.roles ?? [user.role]).includes("SUPERVISOR")}
+          canSwitchToSupervisorPortal={hasManagementRole(user)}
+          managementRoleLabel={managementRoleLabel(user)}
           onSwitchToSupervisorPortal={() => setPortal("supervisor")}
         />
       )}

@@ -13,11 +13,12 @@ type Props = {
   onProfileChanged?: () => void;
   canSwitchToSupervisorPortal?: boolean;
   onSwitchToSupervisorPortal?: () => void;
+  managementRoleLabel?: string;
 };
 
 type SettingsView = "root" | "profile" | "schedule" | "password" | "about";
 
-export default function SettingsScreen({ onLogout, onProfileChanged, canSwitchToSupervisorPortal, onSwitchToSupervisorPortal }: Props) {
+export default function SettingsScreen({ onLogout, onProfileChanged, canSwitchToSupervisorPortal, onSwitchToSupervisorPortal, managementRoleLabel = "Supervisor" }: Props) {
   const [view, setView] = useState<SettingsView>("root");
   const { data: profile, refresh: refreshProfile } = useCachedData<EmployeeProfile>(
     CACHE_KEYS.myProfile,
@@ -77,7 +78,7 @@ export default function SettingsScreen({ onLogout, onProfileChanged, canSwitchTo
       <SettingsRow icon="calendar-outline" tint="#7C3AED" label="My Schedule" onPress={() => setView("schedule")} />
       <SettingsRow icon="key-outline" tint="#15803D" label="Change Password" onPress={() => setView("password")} />
       {canSwitchToSupervisorPortal && onSwitchToSupervisorPortal && (
-        <SettingsRow icon="swap-horizontal-outline" tint="#DB2777" label="Switch to Supervisor View" onPress={onSwitchToSupervisorPortal} />
+        <SettingsRow icon="swap-horizontal-outline" tint="#DB2777" label={`Switch to ${managementRoleLabel} View`} onPress={onSwitchToSupervisorPortal} />
       )}
       <SettingsRow icon="information-circle-outline" tint="#64748B" label="About" onPress={() => setView("about")} last />
 

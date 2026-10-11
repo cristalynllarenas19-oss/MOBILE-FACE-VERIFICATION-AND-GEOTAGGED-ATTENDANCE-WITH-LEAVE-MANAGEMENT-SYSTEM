@@ -14,6 +14,8 @@ import AestheticScrollView from "../../components/AestheticScrollView";
 import { CARD_SHADOW } from "../../styles/ui";
 
 type Props = {
+  // "Admin" or "Supervisor" — both roles share this portal.
+  roleLabel: string;
   onLogout: () => void;
   canSwitchToEmployeePortal: boolean;
   onSwitchToEmployeePortal: () => void;
@@ -21,7 +23,7 @@ type Props = {
 
 type MoreView = "root" | "profile" | "password" | "geotagging" | "schedules" | "reports" | "about";
 
-export default function MoreScreen({ onLogout, canSwitchToEmployeePortal, onSwitchToEmployeePortal }: Props) {
+export default function MoreScreen({ roleLabel, onLogout, canSwitchToEmployeePortal, onSwitchToEmployeePortal }: Props) {
   const [view, setView] = useState<MoreView>("root");
 
   // Same cache key as ViewProfileScreen/MainScreen so all three share one
@@ -78,7 +80,7 @@ export default function MoreScreen({ onLogout, canSwitchToEmployeePortal, onSwit
           <Text style={styles.profileEmail}>{profile?.user.email}</Text>
         </View>
         <View style={styles.roleBadge}>
-          <Text style={styles.roleBadgeText}>Supervisor</Text>
+          <Text style={styles.roleBadgeText}>{roleLabel}</Text>
         </View>
       </View>
 
