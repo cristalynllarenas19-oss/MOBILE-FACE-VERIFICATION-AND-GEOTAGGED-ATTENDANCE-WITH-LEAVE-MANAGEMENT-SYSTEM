@@ -397,9 +397,42 @@
   padding-top: 4px;
 }
 
+/* Evaluation form (EvaluationModal): same wide shell as the read-only view
+   below, with the seven criteria on the left and overall rating / comments /
+   recommendation on the right so the whole form fits without scrolling. */
+.evaluation-modal--form {
+  width: min(760px, 100%);
+}
+
+.evaluation-form-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 28px;
+  align-items: start;
+}
+
+.evaluation-form-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.evaluation-modal--form .evaluation-textarea {
+  min-height: 68px;
+  resize: none;
+}
+
+.evaluation-modal--form .evaluation-recommendation-list {
+  gap: 6px;
+}
+
+.evaluation-modal--form .evaluation-recommendation-option {
+  padding: 8px 12px;
+}
+
 /* Read-only Performance Evaluation view (EvaluationViewModal): wider, with
-   stats/ratings/comments laid out in columns so it fits without scrolling.
-   The evaluation form (EvaluationModal) keeps the narrow single column. */
+   stats/ratings/comments laid out in columns so it fits without scrolling. */
 .evaluation-modal--view {
   width: min(760px, 100%);
 }
@@ -427,7 +460,8 @@
 @media (max-width: 640px) {
   .evaluation-modal--view .evaluation-stat-grid,
   .evaluation-modal--view .evaluation-detail-grid,
-  .evaluation-view-columns {
+  .evaluation-view-columns,
+  .evaluation-form-columns {
     grid-template-columns: 1fr;
   }
 

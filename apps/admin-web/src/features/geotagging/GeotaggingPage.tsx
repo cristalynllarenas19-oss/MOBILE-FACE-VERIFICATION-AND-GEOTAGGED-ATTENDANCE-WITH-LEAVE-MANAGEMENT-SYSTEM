@@ -925,29 +925,7 @@ function GeotaggingPageContent({
         </div>
       )}
 
-      {isScopedSupervisor ? (
-        <>
-          <section className="geotagging-map-panel geotagging-map-panel--full" aria-label="OpenStreetMap geotagging map">
-            <div className="map-panel-header">
-              <MapPin size={15} className="map-panel-icon" />
-              <span>Street Map - Click anywhere to pin a location</span>
-            </div>
-            <div ref={mapElementRef} className="geotagging-map" />
-            {loading && <div className="map-loading-overlay">Loading map...</div>}
-          </section>
-
-          <div className="geotagging-stats">
-            <div className="geotagging-stat-card">
-              <span className="stat-value">{locations.length}</span>
-              <span className="stat-label">Active Zones</span>
-            </div>
-            <div className="geotagging-stat-card">
-              <span className="stat-value">{assignedEmployees.size}</span>
-              <span className="stat-label">Assigned Employees</span>
-            </div>
-          </div>
-        </>
-      ) : (
+      {!isScopedSupervisor && (
         <div className="geotagging-top-grid">
           <section className="geotagging-map-panel" aria-label="OpenStreetMap geotagging map">
             <div className="map-panel-header">
@@ -1089,7 +1067,31 @@ function GeotaggingPageContent({
         </div>
       )}
 
-      <div className="geotagging-bottom-grid">
+      <div className={`geotagging-bottom-grid${isScopedSupervisor ? " geotagging-bottom-grid--with-map" : ""}`}>
+        {isScopedSupervisor && (
+          <>
+            <div className="geotagging-stats geotagging-stats--row">
+              <div className="geotagging-stat-card">
+                <span className="stat-value">{locations.length}</span>
+                <span className="stat-label">Active Zones</span>
+              </div>
+              <div className="geotagging-stat-card">
+                <span className="stat-value">{assignedEmployees.size}</span>
+                <span className="stat-label">Assigned Employees</span>
+              </div>
+            </div>
+
+            <section className="geotagging-map-panel geotagging-map-panel--full" aria-label="OpenStreetMap geotagging map">
+              <div className="map-panel-header">
+                <MapPin size={15} className="map-panel-icon" />
+                <span>Street Map - Click anywhere to pin a location</span>
+              </div>
+              <div ref={mapElementRef} className="geotagging-map" />
+              {loading && <div className="map-loading-overlay">Loading map...</div>}
+            </section>
+          </>
+        )}
+
         <section className="assigned-list" aria-label="Assigned geotagged areas">
           <div className="panel-heading">
             <div className="panel-heading-icon neutral">
