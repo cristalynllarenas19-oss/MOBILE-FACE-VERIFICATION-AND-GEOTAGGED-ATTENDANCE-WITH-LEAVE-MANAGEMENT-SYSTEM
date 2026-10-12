@@ -6,6 +6,7 @@ import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
 import ViewProfileScreen from "./ViewProfileScreen";
 import MyScheduleScreen from "./MyScheduleScreen";
 import ChangePasswordScreen from "./ChangePasswordScreen";
+import HelpScreen from "./HelpScreen";
 import AboutScreen from "./AboutScreen";
 
 type Props = {
@@ -16,7 +17,7 @@ type Props = {
   managementRoleLabel?: string;
 };
 
-type SettingsView = "root" | "profile" | "schedule" | "password" | "about";
+type SettingsView = "root" | "profile" | "schedule" | "password" | "help" | "about";
 
 export default function SettingsScreen({ onLogout, onProfileChanged, canSwitchToSupervisorPortal, onSwitchToSupervisorPortal, managementRoleLabel = "Supervisor" }: Props) {
   const [view, setView] = useState<SettingsView>("root");
@@ -45,6 +46,9 @@ export default function SettingsScreen({ onLogout, onProfileChanged, canSwitchTo
   }
   if (view === "password") {
     return <ChangePasswordScreen onClose={() => setView("root")} />;
+  }
+  if (view === "help") {
+    return <HelpScreen onClose={() => setView("root")} />;
   }
   if (view === "about") {
     return <AboutScreen onClose={() => setView("root")} />;
@@ -80,6 +84,7 @@ export default function SettingsScreen({ onLogout, onProfileChanged, canSwitchTo
       {canSwitchToSupervisorPortal && onSwitchToSupervisorPortal && (
         <SettingsRow icon="swap-horizontal-outline" tint="#DB2777" label={`Switch to ${managementRoleLabel} View`} onPress={onSwitchToSupervisorPortal} />
       )}
+      <SettingsRow icon="help-circle-outline" tint="#EA580C" label="Help" onPress={() => setView("help")} />
       <SettingsRow icon="information-circle-outline" tint="#64748B" label="About" onPress={() => setView("about")} last />
 
       <Pressable onPress={onLogout} style={({ pressed }) => [styles.logoutRow, pressed && styles.logoutRowPressed]}>

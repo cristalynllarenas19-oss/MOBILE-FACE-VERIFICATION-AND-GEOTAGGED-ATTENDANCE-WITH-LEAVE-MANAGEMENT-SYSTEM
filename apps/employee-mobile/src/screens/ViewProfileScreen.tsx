@@ -95,7 +95,11 @@ export default function ViewProfileScreen({ onClose }: Props) {
           <View style={styles.card}>
             <InfoRow icon="person-outline" label="Full Name" value={`${profile?.firstName ?? ""} ${profile?.lastName ?? ""}`} />
             <InfoRow icon="mail-outline" label="Email Address" value={profile?.user.email ?? "--"} />
-            <InfoRow icon="call-outline" label="Contact Number" value={profile?.contactNumber ?? "Not provided"} />
+            <InfoRow
+              icon="people-outline"
+              label="Supervisor"
+              value={profile?.supervisor ? `${profile.supervisor.firstName} ${profile.supervisor.lastName}` : "Unassigned"}
+            />
             <InfoRow icon="business-outline" label="Department" value={profile?.department.name ?? "--"} />
             <InfoRow icon="briefcase-outline" label="Position" value={profile?.position.title ?? "--"} last />
           </View>

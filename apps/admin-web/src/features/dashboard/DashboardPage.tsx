@@ -53,6 +53,9 @@ function fetchDashboardSummary(month: number, year: number) {
 }
 
 const WEEKDAY_ORDER = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+// Sunday is the company-wide rest day: nobody can be absent on it, so the
+// Absence Trends chart labels it "Day off" instead of plotting a zero.
+const REST_DAY = "Sun";
 
 type CalendarDay = {
   day: number;
@@ -344,6 +347,7 @@ export function DashboardPage({
     const departmentWeekdayTotals = new Map<string, Record<string, number>>();
     for (const day of summary.calendar.days) {
       const weekday = WEEKDAY_ORDER[(new Date(day.date).getDay() + 6) % 7];
+      if (weekday === REST_DAY) continue;
       if (departmentFilter === "ALL") {
         weekdayTotals[weekday] += day.absent;
       } else {
@@ -541,25 +545,32 @@ export function DashboardPage({
                           {trendChart.bars.map((bar) => {
                             const heightPct = chartMax > 0 ? (bar.absences / chartMax) * 100 : 0;
                             const isActive = bar.day === activeTrendDay;
+                            const isRestDay = bar.day === REST_DAY;
                             return (
                               <button
                                 type="button"
                                 className="trend-chart-col"
                                 key={bar.day}
                                 onClick={() => setSelectedTrendDay(bar.day)}
-                                title={`${WEEKDAY_FULL_NAME[bar.day] ?? bar.day}: ${bar.absences} absence${bar.absences === 1 ? "" : "s"}`}
+                                title={
+                                  isRestDay
+                                    ? `${WEEKDAY_FULL_NAME[bar.day] ?? bar.day}: Day off`
+                                    : `${WEEKDAY_FULL_NAME[bar.day] ?? bar.day}: ${bar.absences} absence${bar.absences === 1 ? "" : "s"}`
+                                }
                               >
                                 <div className="trend-chart-bar-track">
                                   <span
-                                    className={`trend-chart-value${isActive ? " peak" : ""}`}
+                                    className={`trend-chart-value${isRestDay ? " rest-day" : isActive ? " peak" : ""}`}
                                     style={{ bottom: `calc(${heightPct}% + 3px)` }}
                                   >
-                                    {bar.absences}
+                                    {isRestDay ? "Day off" : bar.absences}
                                   </span>
-                                  <div
-                                    className={`trend-chart-bar${isActive ? " peak" : ""}`}
-                                    style={{ height: `${heightPct}%` }}
-                                  />
+                                  {!isRestDay && (
+                                    <div
+                                      className={`trend-chart-bar${isActive ? " peak" : ""}`}
+                                      style={{ height: `${heightPct}%` }}
+                                    />
+                                  )}
                                 </div>
                               </button>
                             );
@@ -592,15 +603,25 @@ export function DashboardPage({
                         </span>
                         <div className="trend-insight-body">
                           <span className="trend-insight-label">
-                            {activeTrendDay === trendChart.peakDay ? "Highest Absence Day" : "Selected Day"}
+                            {activeTrendDay === REST_DAY
+                              ? "Rest Day"
+                              : activeTrendDay === trendChart.peakDay
+                                ? "Highest Absence Day"
+                                : "Selected Day"}
                           </span>
                           <strong className="trend-insight-value red">
                             {(activeTrendDay && WEEKDAY_FULL_NAME[activeTrendDay]) || "No data"}
                           </strong>
                         </div>
                         <div className="trend-insight-count-block">
-                          <strong className="trend-insight-count-number red">{activeDayTotal}</strong>
-                          <span className="trend-insight-count-label">absence{activeDayTotal === 1 ? "" : "s"}</span>
+                          {activeTrendDay === REST_DAY ? (
+                            <strong className="trend-insight-count-number">Day off</strong>
+                          ) : (
+                            <>
+                              <strong className="trend-insight-count-number red">{activeDayTotal}</strong>
+                              <span className="trend-insight-count-label">absence{activeDayTotal === 1 ? "" : "s"}</span>
+                            </>
+                          )}
                         </div>
                       </div>
                       {trendChart.topDepartment && (

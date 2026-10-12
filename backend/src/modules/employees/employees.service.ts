@@ -248,6 +248,8 @@ export class EmployeesService {
         department: true,
         position: true,
         employeeType: true,
+        // Shown on My Profile — just the name, nothing else of theirs.
+        supervisor: { select: { firstName: true, lastName: true } },
         faceProfiles: { where: { enrollmentStatus: "ACTIVE", isArchived: false }, select: { id: true }, take: 1 },
       },
     });

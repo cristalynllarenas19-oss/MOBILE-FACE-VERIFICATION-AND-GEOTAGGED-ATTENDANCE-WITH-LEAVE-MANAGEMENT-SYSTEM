@@ -469,6 +469,13 @@
   color: #dc2626;
 }
 
+/* Sunday's "Day off" label — muted, since it isn't a count. */
+.trend-chart-value.rest-day {
+  font-size: 8.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
 .trend-chart-bar {
   width: 100%;
   min-height: 2px;

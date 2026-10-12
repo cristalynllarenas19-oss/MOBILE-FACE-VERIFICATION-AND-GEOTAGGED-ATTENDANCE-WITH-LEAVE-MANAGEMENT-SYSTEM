@@ -1,7 +1,7 @@
 import { CSSProperties, FormEvent, ReactNode, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft, Briefcase, Building2, Calendar, Camera, ChevronLeft, ChevronRight,
-  Eye, EyeOff, Info, Lock, Mail, Phone, User,
+  Eye, EyeOff, Info, Lock, Mail, User, Users,
 } from "lucide-react";
 import { EmployeeProfile, MySchedule, getMyProfile, getMySchedules, changePassword, updateMyPhoto } from "./api";
 import { AuthUser, updateDefaultView } from "../../lib/api";
@@ -417,7 +417,7 @@ export function SettingsPage({ user, onDefaultViewChange }: Props) {
                 {[
                   [<User key="i" size={20} color={COLORS.navy} strokeWidth={1.75} />, "Full Name",      `${profile.firstName} ${profile.lastName}`],
                   [<Mail key="i" size={20} color={COLORS.navy} strokeWidth={1.75} />, "Email Address",  profile.user.email],
-                  [<Phone key="i" size={20} color={COLORS.navy} strokeWidth={1.75} />, "Contact Number", profile.contactNumber ?? "Not provided"],
+                  [<Users key="i" size={20} color={COLORS.navy} strokeWidth={1.75} />, "Supervisor", profile.supervisor ? `${profile.supervisor.firstName} ${profile.supervisor.lastName}` : "Unassigned"],
                   [<Building2 key="i" size={20} color={COLORS.navy} strokeWidth={1.75} />, "Department", profile.department.name],
                   [<Briefcase key="i" size={20} color={COLORS.navy} strokeWidth={1.75} />, "Position",   profile.position.title],
                 ].map(([icon, label, value], i, arr) => (

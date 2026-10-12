@@ -141,6 +141,8 @@ export type EmployeeProfile = {
   user: { email: string };
   department: { name: string };
   position: { title: string };
+  // Only present on the GET /employees/me response; null when unassigned.
+  supervisor?: { firstName: string; lastName: string } | null;
 };
 
 export type AttendanceEligibility = {

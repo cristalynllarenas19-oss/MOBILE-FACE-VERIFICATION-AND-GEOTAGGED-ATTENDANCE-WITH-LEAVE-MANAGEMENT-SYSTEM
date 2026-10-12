@@ -5,6 +5,7 @@ import { EmployeeProfile, getMyProfile } from "../../api";
 import { CACHE_KEYS, useCachedData } from "../../utils/dataCache";
 import ViewProfileScreen from "../ViewProfileScreen";
 import ChangePasswordScreen from "../ChangePasswordScreen";
+import HelpScreen from "../HelpScreen";
 import AboutScreen from "../AboutScreen";
 import GeotaggedAreasScreen from "./GeotaggedAreasScreen";
 import SupervisorSchedulesScreen from "./SupervisorSchedulesScreen";
@@ -21,7 +22,7 @@ type Props = {
   onSwitchToEmployeePortal: () => void;
 };
 
-type MoreView = "root" | "profile" | "password" | "geotagging" | "schedules" | "reports" | "about";
+type MoreView = "root" | "profile" | "password" | "geotagging" | "schedules" | "reports" | "help" | "about";
 
 export default function MoreScreen({ roleLabel, onLogout, canSwitchToEmployeePortal, onSwitchToEmployeePortal }: Props) {
   const [view, setView] = useState<MoreView>("root");
@@ -58,6 +59,9 @@ export default function MoreScreen({ roleLabel, onLogout, canSwitchToEmployeePor
   }
   if (view === "reports") {
     return <SupervisorReportsScreen onClose={() => setView("root")} departmentName={profile?.department?.name} />;
+  }
+  if (view === "help") {
+    return <HelpScreen onClose={() => setView("root")} />;
   }
   if (view === "about") {
     return <AboutScreen onClose={() => setView("root")} />;
@@ -98,6 +102,7 @@ export default function MoreScreen({ roleLabel, onLogout, canSwitchToEmployeePor
         {canSwitchToEmployeePortal && (
           <MoreRow icon="swap-horizontal-outline" tint="#DB2777" label="Switch to My Attendance" onPress={onSwitchToEmployeePortal} />
         )}
+        <MoreRow icon="help-circle-outline" tint="#EA580C" label="Help" onPress={() => setView("help")} />
         <MoreRow icon="information-circle-outline" tint="#64748B" label="About" onPress={() => setView("about")} last />
       </View>
 
