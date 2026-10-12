@@ -5,6 +5,7 @@ import { autoTable } from "jspdf-autotable";
 import { StatCard } from "../../components/ui/StatCard";
 import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
+import { EmployeeSearchSelect, matchesEmployeeQuery } from "../../components/ui/EmployeeSearchSelect";
 import { apiRequest } from "../../lib/api";
 import { useActiveDepartments } from "../../lib/departments";
 import { formatEmploymentStatus } from "../../types/employment";
@@ -302,6 +303,11 @@ export function ReportsPage({
     to: new Date().toISOString().slice(0, 10),
     department: "ALL",
   });
+  // Applied client-side on top of the loaded report, and — like the status
+  // tabs — narrows the exports and result count too, not just the tables.
+  const [search, setSearch] = useState("");
+  // Narrows the DTR / Attendance table (and its exports) to one status.
+  const [attendanceStatusFilter, setAttendanceStatusFilter] = useState("ALL");
   const [leaveStatusFilter, setLeaveStatusFilter] = useState<"ALL" | LeaveStatusBucket>("ALL");
   const [undertimeStatusFilter, setUndertimeStatusFilter] = useState<"ALL" | UndertimeStatus>("ALL");
 
@@ -324,9 +330,10 @@ export function ReportsPage({
     return data.attendance.filter((record) => {
       const deptMatch = filters.department === "ALL" || record.employee.department.name === filters.department;
       const dateMatch = isInDateRange(record.attendanceDate, filters.from, filters.to);
-      return deptMatch && dateMatch;
+      const statusMatch = attendanceStatusFilter === "ALL" || record.status === attendanceStatusFilter;
+      return deptMatch && dateMatch && statusMatch && matchesEmployeeQuery(record.employee, search);
     });
-  }, [data, filters]);
+  }, [data, filters, search, attendanceStatusFilter]);
 
   const leavesInRange = useMemo(() => {
     if (!data) return [];
@@ -338,9 +345,9 @@ export function ReportsPage({
       const spanRange =
         new Date(request.startDate).getTime() <= parseLocalDateFilter(filters.to, true) &&
         new Date(request.endDate).getTime() >= parseLocalDateFilter(filters.from);
-      return deptMatch && (startInRange || endInRange || spanRange);
+      return deptMatch && (startInRange || endInRange || spanRange) && matchesEmployeeQuery(request.employee, search);
     });
-  }, [data, filters]);
+  }, [data, filters, search]);
 
   const leaveStatusCounts = useMemo(() => {
     const counts: Record<LeaveStatusBucket, number> = { PENDING: 0, APPROVED: 0, REJECTED: 0, CANCELLED: 0, LAPSED: 0 };
@@ -357,9 +364,13 @@ export function ReportsPage({
     if (!data) return [];
     return (data.undertime ?? []).filter((filing) => {
       const deptMatch = filters.department === "ALL" || filing.employee.department.name === filters.department;
-      return deptMatch && isInDateRange(filing.attendanceRecord.attendanceDate, filters.from, filters.to);
+      return (
+        deptMatch &&
+        isInDateRange(filing.attendanceRecord.attendanceDate, filters.from, filters.to) &&
+        matchesEmployeeQuery(filing.employee, search)
+      );
     });
-  }, [data, filters]);
+  }, [data, filters, search]);
 
   const undertimeStatusCounts = useMemo(() => {
     const counts: Record<UndertimeStatus, number> = { PENDING: 0, APPROVED: 0, REJECTED: 0 };
@@ -385,21 +396,27 @@ export function ReportsPage({
       const active =
         new Date(schedule.startsOn).getTime() <= parseLocalDateFilter(filters.to, true) &&
         (!schedule.endsOn || new Date(schedule.endsOn).getTime() >= parseLocalDateFilter(filters.from));
-      return deptMatch && (startInRange || endsOnOrOngoing || active);
+      return deptMatch && (startInRange || endsOnOrOngoing || active) && matchesEmployeeQuery(schedule.employee, search);
     });
-  }, [data, filters]);
+  }, [data, filters, search]);
 
   // Employee directory / leave balances are point-in-time snapshots, not
   // bounded by the from/to range — only the department filter applies.
   const filteredEmployeesList = useMemo(() => {
     if (!data) return [];
-    return data.employees.filter((e) => filters.department === "ALL" || e.department.name === filters.department);
-  }, [data, filters.department]);
+    return data.employees.filter(
+      (e) => (filters.department === "ALL" || e.department.name === filters.department) && matchesEmployeeQuery(e, search),
+    );
+  }, [data, filters.department, search]);
 
   const filteredLeaveBalances = useMemo(() => {
     if (!data) return [];
-    return data.leaveBalances.filter((b) => filters.department === "ALL" || b.employee.department.name === filters.department);
-  }, [data, filters.department]);
+    return data.leaveBalances.filter(
+      (b) =>
+        (filters.department === "ALL" || b.employee.department.name === filters.department) &&
+        matchesEmployeeQuery(b.employee, search),
+    );
+  }, [data, filters.department, search]);
 
   // Filtered totals for stat cards
   const filteredTotals = useMemo(() => ({
@@ -412,15 +429,6 @@ export function ReportsPage({
   if (!data) {
     return <section className="table-card reports-loading"><span className="reports-loading-dot" />Loading reports…</section>;
   }
-
-  const tabCount =
-    tab === "attendance" ? filteredAttendance.length
-    : tab === "leave" ? filteredLeaves.length
-    : tab === "undertime" ? filteredUndertime.length
-    : tab === "schedules" ? filteredSchedules.length
-    : tab === "employees" ? filteredEmployeesList.length
-    : tab === "leaveBalances" ? filteredLeaveBalances.length
-    : filteredAttendance.length + filteredLeaves.length + filteredUndertime.length + filteredSchedules.length;
 
   const generatedRangeLabel = `Generated: ${filters.from ? formatDate(filters.from) : "—"} to ${filters.to ? formatDate(filters.to) : "—"}`;
 
@@ -595,13 +603,22 @@ export function ReportsPage({
         <div className="reports-toolbar-left">
           <h2 className="reports-title">Reports</h2>
         </div>
-        <div className="reports-result-count">
-          <span>{tabCount} result{tabCount !== 1 ? "s" : ""}</span>
-        </div>
       </div>
 
-      {/* ── Filter Bar ── */}
+      {/* ── Filter Bar + export actions: two cards side by side on one row ── */}
+      <div className="reports-filter-row">
       <div className="reports-filter-bar">
+        <div className="reports-filter-group employee-search-group">
+          <label className="reports-filter-label">Search</label>
+          <EmployeeSearchSelect
+            value={search}
+            onChange={setSearch}
+            options={data.employees.filter(
+              (e) => filters.department === "ALL" || e.department.name === filters.department,
+            )}
+          />
+        </div>
+
         {!isDepartmentLocked && (
           <div className="reports-filter-group">
             <label className="reports-filter-label">Department</label>
@@ -637,6 +654,27 @@ export function ReportsPage({
           />
         </div>
 
+        {/* Only attendance rows carry these statuses, so the filter is
+            hidden on report types it can't affect. */}
+        {(tab === "ALL" || tab === "attendance") && (
+          <div className="reports-filter-group">
+            <label className="reports-filter-label">Status</label>
+            <DropdownFilter
+              className="reports-select"
+              value={attendanceStatusFilter}
+              onChange={setAttendanceStatusFilter}
+              options={[
+                { value: "LATE", label: "Late" },
+                { value: "ABSENT", label: "Absent" },
+                { value: "ON_LEAVE", label: "On Leave" },
+              ]}
+              allLabel="All Status"
+              menuLabel="Filter by attendance status"
+              ariaLabel="Attendance status"
+            />
+          </div>
+        )}
+
         <div className="reports-filter-group">
           <label className="reports-filter-label">From</label>
           <input
@@ -656,8 +694,11 @@ export function ReportsPage({
             aria-label="Report end date"
           />
         </div>
+      </div>
 
         <div className="reports-filter-actions">
+          <span className="reports-filter-label">Actions</span>
+          <div className="reports-filter-actions-buttons">
           <button className="report-export-button" onClick={exportCsv}>
             <Download size={14} />
             <span>Export CSV</span>
@@ -670,6 +711,7 @@ export function ReportsPage({
             <Printer size={14} />
             <span>Print</span>
           </button>
+          </div>
         </div>
       </div>
 

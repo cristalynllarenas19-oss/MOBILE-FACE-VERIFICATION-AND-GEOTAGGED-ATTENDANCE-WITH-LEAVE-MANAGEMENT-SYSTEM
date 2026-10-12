@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, Eye, MapPin, X, XCircle } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
+import { EmployeeSearchSelect, matchesEmployeeQuery, type EmployeeSearchOption } from "../../components/ui/EmployeeSearchSelect";
 import { NotificationModal, type NotificationConfig } from "../../components/ui/NotificationModal";
 import { apiRequest } from "../../lib/api";
 import { useCachedData } from "../../lib/dataCache";
@@ -81,9 +82,7 @@ type FlaggedLog = {
   employee: AttendanceRecord["employee"];
 };
 
-type EmployeeOption = {
-  department: { name: string };
-};
+type EmployeeOption = EmployeeSearchOption;
 
 const statusOptions = ["PRESENT", "LATE", "ABSENT", "ON_LEAVE", "PENDING_REVIEW", "FLAGGED"];
 const recordTypeOptions = ["OFFICE", "FIELD"];
@@ -184,6 +183,10 @@ function photoUri(log?: AttendanceLog | null) {
   return `data:${log.faceImageMimeType ?? "image/jpeg"};base64,${log.faceImageData}`;
 }
 
+function isFailedAttendanceAttempt(log?: AttendanceLog | null) {
+  return log?.verificationStatus === "REJECTED";
+}
+
 function AttendanceDetailsModal({
   record,
   onClose,
@@ -208,6 +211,7 @@ function AttendanceDetailsModal({
   const availablePhotoTabs = photoTabOrder.filter((tab) => record.logs.some((log) => log.logType === tab));
   const [activePhotoTab, setActivePhotoTab] = useState<PhotoLogType>(availablePhotoTabs[0] ?? "TIME_IN");
   const selectedLog = record.logs.find((log) => log.logType === activePhotoTab) ?? record.logs[0];
+  const canApproveFailedAttempt = isFailedAttendanceAttempt(selectedLog);
   const mapQuery = selectedLog ? `${selectedLog.latitude},${selectedLog.longitude}` : "";
 
   const updateStatus = async (action: "approve") => {
@@ -405,7 +409,7 @@ function AttendanceDetailsModal({
                 </button>
               </>
             )}
-            {canWrite && !record.isFlagged && !record.isSynthetic && record.status !== "PRESENT" && (
+            {canWrite && !record.isFlagged && !record.isSynthetic && canApproveFailedAttempt && (
               <button className="primary-button" onClick={() => updateStatus("approve")} disabled={isSaving}>Approve</button>
             )}
             <button className="outline-button" onClick={onClose} disabled={isSaving}>Close</button>
@@ -456,6 +460,7 @@ export function AttendancePage({
   const [recordTypeFilter, setRecordTypeFilter] = useState("ALL");
   const [dateFrom, setDateFrom] = useState(initialFilter?.date ?? "");
   const [dateTo, setDateTo] = useState(initialFilter?.date ?? "");
+  const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(1);
   const [viewRecord, setViewRecord] = useState<AttendanceRecord | null>(null);
   const [notification, setNotification] = useState<NotificationConfig>(null);
@@ -547,11 +552,14 @@ export function AttendancePage({
 
   useEffect(
     () => setPage(1),
-    [departmentFilter, statusFilter, recordTypeFilter, dateFrom, dateTo],
+    [departmentFilter, statusFilter, recordTypeFilter, dateFrom, dateTo, searchQuery],
   );
-  const pageCount = Math.max(1, Math.ceil(records.length / ATTENDANCE_PAGE_SIZE));
+  // Search narrows the already-loaded list client-side, so typing doesn't
+  // refetch (or add a cache entry) per keystroke.
+  const visibleRecords = records.filter((record) => matchesEmployeeQuery(record.employee, searchQuery));
+  const pageCount = Math.max(1, Math.ceil(visibleRecords.length / ATTENDANCE_PAGE_SIZE));
   const pageSafe = Math.min(page, pageCount);
-  const pagedRecords = records.slice((pageSafe - 1) * ATTENDANCE_PAGE_SIZE, pageSafe * ATTENDANCE_PAGE_SIZE);
+  const pagedRecords = visibleRecords.slice((pageSafe - 1) * ATTENDANCE_PAGE_SIZE, pageSafe * ATTENDANCE_PAGE_SIZE);
 
   const employeeOptionsCache = useCachedData<EmployeeOption[]>("employees", () =>
     apiRequest<EmployeeOption[]>("/employees"),
@@ -577,6 +585,17 @@ export function AttendancePage({
       <NotificationModal notification={notification} onClose={() => setNotification(null)} />
 
       <div className="attendance-filter-bar">
+        <div className="attendance-filter-group employee-search-group">
+          <label className="attendance-filter-label">Search</label>
+          <EmployeeSearchSelect
+            value={searchQuery}
+            onChange={setSearchQuery}
+            options={employeeOptions.filter(
+              (employee) => departmentFilter === "ALL" || employee.department.name === departmentFilter,
+            )}
+          />
+        </div>
+
         {!isDepartmentLocked && (
           <div className="attendance-filter-group">
             <label className="attendance-filter-label">Department</label>
@@ -631,7 +650,7 @@ export function AttendancePage({
         <div className="attendance-filter-actions">
           <button
             className="attendance-clear-button"
-            onClick={() => { setDepartmentFilter("ALL"); setStatusFilter("ALL"); setRecordTypeFilter("ALL"); setDateFrom(""); setDateTo(""); }}
+            onClick={() => { setDepartmentFilter("ALL"); setStatusFilter("ALL"); setRecordTypeFilter("ALL"); setDateFrom(""); setDateTo(""); setSearchQuery(""); }}
           >
             <X size={13} /> Clear
           </button>
@@ -657,7 +676,7 @@ export function AttendancePage({
             </tr>
           </thead>
           <tbody>
-            {records.length === 0 ? (
+            {visibleRecords.length === 0 ? (
               <tr><td colSpan={10} className="attendance-empty-state">No attendance records found.</td></tr>
             ) : (
               pagedRecords.map((record) => (

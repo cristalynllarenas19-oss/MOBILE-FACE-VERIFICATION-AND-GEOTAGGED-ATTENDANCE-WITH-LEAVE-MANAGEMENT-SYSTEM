@@ -1236,71 +1236,64 @@ export async function getReportsSummary(params?: { from?: string; to?: string; d
   return apiRequest<ReportsSummary>(`/reports${qs ? `?${qs}` : ""}`);
 }
 
-// ── Probationary evaluations (Supervisor-facing) ────────────────────────────
+// ── Regularization review (probationary employees) ─────────────────────────
 
-export type EvaluationRecommendation = "READY_FOR_CONVERSION" | "NOT_YET_READY" | "NOT_RECOMMENDED";
-
-export type ProbationaryEvaluation = {
-  id: string;
-  employeeId: string;
-  supervisorId: string;
-  workQuality: number | null;
-  productivity: number | null;
-  jobKnowledge: number | null;
-  workAttitude: number | null;
-  communication: number | null;
-  teamwork: number | null;
-  adaptability: number | null;
-  overallRating: number | null;
-  comments: string | null;
-  recommendation: EvaluationRecommendation | null;
-  status: "DRAFT" | "SUBMITTED";
-  submittedAt: string | null;
+export type RegularizationReview = {
+  viewerRole: "ADMIN" | "SUPERVISOR";
+  employee: {
+    id: string;
+    employeeNo: string;
+    firstName: string;
+    lastName: string;
+    email: string | null;
+    department: string | null;
+    position: string | null;
+    employeeType: string | null;
+    supervisorName: string | null;
+    hireDate: string;
+    employmentStatus: string;
+  };
+  // Null once the employee is no longer on probation — nothing left to decide.
+  targetStatus: string | null;
+  attendance: {
+    totalWorkingDays: number;
+    daysPresent: number;
+    absences: number;
+    lateOccurrences: number;
+    undertimeOccurrences: number;
+  };
+  recommendation: {
+    decision: "APPROVE" | "REJECT";
+    remarks: string | null;
+    decidedAt: string | null;
+    supervisorName: string;
+  } | null;
 };
 
-export type EvaluationCriteriaInput = {
-  workQuality?: number;
-  productivity?: number;
-  jobKnowledge?: number;
-  workAttitude?: number;
-  communication?: number;
-  teamwork?: number;
-  adaptability?: number;
-  overallRating?: number;
-  comments?: string;
-  recommendation?: EvaluationRecommendation;
-};
-
-// Null when this Supervisor has never started an evaluation for this
-// employee yet — the form starts blank in that case.
-export async function getEmployeeEvaluation(employeeId: string) {
-  return apiRequest<ProbationaryEvaluation | null>(`/evaluations/employee/${employeeId}`);
+export async function getRegularizationReview(employeeId: string) {
+  return apiRequest<RegularizationReview>(`/evaluations/employee/${employeeId}/review`);
 }
 
-export async function saveEvaluationDraft(employeeId: string, input: EvaluationCriteriaInput) {
-  return apiRequest<ProbationaryEvaluation>(`/evaluations/employee/${employeeId}/draft`, {
-    method: "PATCH",
-    body: JSON.stringify(input),
-  });
-}
-
-export async function submitEvaluation(employeeId: string, input: Required<Omit<EvaluationCriteriaInput, "comments">> & { comments?: string }) {
-  return apiRequest<ProbationaryEvaluation>(`/evaluations/employee/${employeeId}/submit`, {
+// Supervisor's Approve / Reject — a recommendation sent to Admin.
+export async function recommendRegularization(employeeId: string, decision: "APPROVE" | "REJECT", remarks?: string) {
+  return apiRequest(`/evaluations/employee/${employeeId}/recommend`, {
     method: "POST",
-    body: JSON.stringify(input),
+    body: JSON.stringify({ decision, remarks }),
   });
 }
 
-// Evaluation status for each employee on the Supervisor's team, read from the
-// evaluations table (never from notifications) — lets the Team tab open an
-// evaluation even after its "Evaluation Required" notification is gone.
-export type TeamEvaluationStatus = {
-  employeeId: string;
-  status: "COMPLETED" | "IN_PROGRESS" | "PENDING" | "NOT_DUE";
-  dueDate: string | null;
-  submittedAt: string | null;
-};
+// Admin's Approve — the same status change Edit Employee makes on admin-web.
+export async function approveRegularization(employeeId: string, targetStatus: string) {
+  return apiRequest(`/employees/${employeeId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ employmentStatus: targetStatus }),
+  });
+}
 
-export async function getTeamEvaluationStatuses() {
-  return apiRequest<TeamEvaluationStatus[]>("/evaluations/team-status");
+// Admin's Reject — the employee stays on probation.
+export async function rejectRegularization(employeeId: string, remarks?: string) {
+  return apiRequest(`/evaluations/employee/${employeeId}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ remarks }),
+  });
 }

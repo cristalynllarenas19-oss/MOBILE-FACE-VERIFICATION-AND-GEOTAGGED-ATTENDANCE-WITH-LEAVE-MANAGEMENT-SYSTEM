@@ -1,72 +1,47 @@
-import { Controller, ForbiddenException, Get, Body, Param, Patch, Post, Req } from "@nestjs/common";
+import { Body, Controller, ForbiddenException, Get, Param, Post, Req } from "@nestjs/common";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
 import { getAuditContext } from "../../common/utils/audit-context.util";
-import { SaveEvaluationDraftDto, SubmitEvaluationDto } from "./dto/evaluation.dto";
+import { RegularizationDecisionDto, RegularizationRemarksDto } from "./dto/evaluation.dto";
 import { EvaluationsService } from "./evaluations.service";
 
-// Most routes here are Supervisor-facing — ownership (employee.supervisorId
-// === the caller's own employeeId) is enforced in the service, not here,
-// since it needs a DB lookup — same split as EmployeesService.resolveSupervisorId.
-// The one exception is admin-view below, which is Admin-only and read-only.
+// Regularization review of a probationary employee: the Supervisor
+// recommends, the Admin decides. Ownership (employee.supervisorId === the
+// caller's own employeeId) is enforced in the service, not here, since it
+// needs a DB lookup — same split as EmployeesService.resolveSupervisorId.
 @Controller("evaluations")
 export class EvaluationsController {
   constructor(private readonly evaluationsService: EvaluationsService) {}
 
-  // Evaluation status of every employee on the caller's team — the
-  // notification-independent way into each evaluation.
-  @Get("team-status")
-  @RequirePermissions("evaluations:write")
-  findTeamStatuses(@Req() request: Request) {
-    return this.evaluationsService.findTeamStatuses((request as any).user.employeeId);
-  }
-
-  @Get("employee/:employeeId")
-  @RequirePermissions("evaluations:write")
-  findMine(@Param("employeeId") employeeId: string, @Req() request: Request) {
-    const supervisorEmployeeId = (request as any).user.employeeId;
-    return this.evaluationsService.findForSupervisor(employeeId, supervisorEmployeeId);
-  }
-
-  // Read-only, Admin-only — feeds the "View Performance" action on the
-  // existing Employee Details modal. Deliberately gated on the ADMIN role
-  // itself (not just a permission code) so a Supervisor calling this
-  // directly with an arbitrary employeeId can never bypass their own
-  // department scoping via this route — they already have findMine above,
-  // ownership-checked, for their own submissions.
-  @Get("employee/:employeeId/admin-view")
+  // The record both roles see when they open the review — an Admin for any
+  // employee, a Supervisor for their own team only (checked in the service).
+  @Get("employee/:employeeId/review")
   @RequirePermissions("employees:read")
-  async findForAdmin(@Param("employeeId") employeeId: string, @Req() request: Request) {
+  findReview(@Param("employeeId") employeeId: string, @Req() request: Request) {
+    const user = (request as any).user;
+    return this.evaluationsService.findReview(employeeId, {
+      employeeId: user.employeeId,
+      roles: user.roles ?? [user.role],
+    });
+  }
+
+  @Post("employee/:employeeId/recommend")
+  @RequirePermissions("evaluations:write")
+  recommend(@Param("employeeId") employeeId: string, @Body() dto: RegularizationDecisionDto, @Req() request: Request) {
+    const supervisorEmployeeId = (request as any).user.employeeId;
+    return this.evaluationsService.recommend(employeeId, supervisorEmployeeId, dto, getAuditContext(request));
+  }
+
+  // Admin's Reject. Gated on the ADMIN role itself (not just a permission
+  // code) so a Supervisor can never settle a regularization by calling this
+  // directly. The Admin's Approve is the ordinary PATCH /employees/:id.
+  @Post("employee/:employeeId/reject")
+  @RequirePermissions("employees:write")
+  reject(@Param("employeeId") employeeId: string, @Body() dto: RegularizationRemarksDto, @Req() request: Request) {
     const user = (request as any).user;
     const roles: string[] = user.roles ?? [user.role];
     if (!roles.includes("ADMIN")) {
-      throw new ForbiddenException("Only Admin can view a submitted evaluation this way.");
+      throw new ForbiddenException("Only Admin can reject a regularization.");
     }
-    const [evaluation, attendance] = await Promise.all([
-      this.evaluationsService.findLatestSubmitted(employeeId),
-      this.evaluationsService.computeAttendanceSummary(employeeId),
-    ]);
-    return { evaluation, attendance };
-  }
-
-  // Supervisor counterpart of admin-view: read-only, ownership-checked in
-  // the service (own team member + own submitted evaluation only).
-  @Get("employee/:employeeId/performance")
-  @RequirePermissions("evaluations:write")
-  findPerformance(@Param("employeeId") employeeId: string, @Req() request: Request) {
-    return this.evaluationsService.findPerformanceForSupervisor(employeeId, (request as any).user.employeeId);
-  }
-
-  @Patch("employee/:employeeId/draft")
-  @RequirePermissions("evaluations:write")
-  saveDraft(@Param("employeeId") employeeId: string, @Body() dto: SaveEvaluationDraftDto, @Req() request: Request) {
-    const supervisorEmployeeId = (request as any).user.employeeId;
-    return this.evaluationsService.saveDraft(employeeId, supervisorEmployeeId, dto);
-  }
-
-  @Post("employee/:employeeId/submit")
-  @RequirePermissions("evaluations:write")
-  submit(@Param("employeeId") employeeId: string, @Body() dto: SubmitEvaluationDto, @Req() request: Request) {
-    const supervisorEmployeeId = (request as any).user.employeeId;
-    return this.evaluationsService.submit(employeeId, supervisorEmployeeId, dto, getAuditContext(request));
+    return this.evaluationsService.rejectRegularization(employeeId, dto, getAuditContext(request));
   }
 }

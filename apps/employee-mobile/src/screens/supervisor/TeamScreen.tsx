@@ -16,9 +16,7 @@ import AestheticScrollView from "../../components/AestheticScrollView";
 import {
   TeamEmployee,
   PositionOption,
-  TeamEvaluationStatus,
   getPositions,
-  getTeamEvaluationStatuses,
   getTeamEmployees,
 } from "../../api";
 import { useCachedData } from "../../utils/dataCache";
@@ -27,26 +25,13 @@ import { ui } from "../../styles/ui";
 type Props = {
   departmentName?: string;
   currentEmployeeId?: string;
-  // Opens the evaluation form (same one the notification opens) — the only
-  // thing a Supervisor can actually write from this tab.
-  onEvaluateEmployee?: (employeeId: string) => void;
 };
 
 // Read-only by design: adding, editing and archiving an employee record is
 // HR/Admin work, gated on employees:write, which the Supervisor role does
 // not have (see backend/prisma/seed.ts). Every endpoint behind those
 // actions rejects a Supervisor, and admin-web hides the same three controls
-// from them, so this roster shows information and the evaluation action
-// only.
-
-// Shown as a pill on the row — the verb is the action the supervisor can
-// take, and the tone says whether anything is still owed.
-const EVALUATION_ACTION: Record<TeamEvaluationStatus["status"], string> = {
-  PENDING: "Evaluate",
-  IN_PROGRESS: "Continue evaluation",
-  COMPLETED: "View evaluation",
-  NOT_DUE: "",
-};
+// from them, so this roster shows information only.
 
 function getEmployeeTypeLabel(employee: TeamEmployee) {
   return employee.employeeType?.name ?? "—";
@@ -56,22 +41,13 @@ function getName(employee: TeamEmployee) {
   return `${employee.firstName} ${employee.lastName}`;
 }
 
-export default function TeamScreen({ departmentName, currentEmployeeId, onEvaluateEmployee }: Props) {
+export default function TeamScreen({ departmentName, currentEmployeeId }: Props) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [search, setSearch] = useState("");
   const [positionFilter, setPositionFilter] = useState("ALL");
   const [isPositionPickerOpen, setIsPositionPickerOpen] = useState(false);
 
   const { data: roster, isLoading, refresh } = useCachedData<TeamEmployee[]>("team-employees", getTeamEmployees);
-  // From the evaluations table, not notifications — see getTeamEvaluationStatuses.
-  const { data: evaluationStatuses } = useCachedData<TeamEvaluationStatus[]>(
-    "evaluation-team-status",
-    getTeamEvaluationStatuses,
-  );
-  const evaluationByEmployee = useMemo(
-    () => new Map((evaluationStatuses ?? []).map((row) => [row.employeeId, row])),
-    [evaluationStatuses],
-  );
 
   // Every active position from admin-web's Utilities -> Positions — never
   // a list kept in this app or inferred from whoever happens to hold a
@@ -119,11 +95,6 @@ export default function TeamScreen({ departmentName, currentEmployeeId, onEvalua
     [employees, search, activePositionFilter],
   );
 
-  const pendingEvaluations = filtered.filter((employee) => {
-    const status = evaluationByEmployee.get(employee.id)?.status;
-    return status === "PENDING" || status === "IN_PROGRESS";
-  }).length;
-
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={ui.card}>
@@ -136,11 +107,6 @@ export default function TeamScreen({ departmentName, currentEmployeeId, onEvalua
                 {` · ${filtered.length} employee${filtered.length === 1 ? "" : "s"}`}
               </Text>
             </View>
-            {pendingEvaluations > 0 && (
-              <Text style={styles.pendingBadge}>
-                {pendingEvaluations} to evaluate
-              </Text>
-            )}
           </View>
 
           <View style={ui.filterRow}>
@@ -199,12 +165,7 @@ export default function TeamScreen({ departmentName, currentEmployeeId, onEvalua
               </View>
             ) : (
               <View style={styles.rowList}>
-                {filtered.map((employee) => {
-                  const evaluation = evaluationByEmployee.get(employee.id);
-                  const showEvaluation = !!evaluation && evaluation.status !== "NOT_DUE" && !!onEvaluateEmployee;
-                  const isDone = evaluation?.status === "COMPLETED";
-
-                  return (
+                {filtered.map((employee) => (
                     <View key={employee.id} style={[ui.innerCard, styles.row]}>
                       <Avatar firstName={employee.firstName} lastName={employee.lastName} />
                       <View style={styles.rowBody}>
@@ -224,31 +185,10 @@ export default function TeamScreen({ departmentName, currentEmployeeId, onEvalua
                           >
                             {getEmployeeTypeLabel(employee)}
                           </Text>
-                          {showEvaluation && (
-                            <Pressable
-                              style={({ pressed }) => [
-                                styles.evaluationPill,
-                                isDone && styles.evaluationPillDone,
-                                pressed && styles.evaluationPillPressed,
-                              ]}
-                              onPress={() => onEvaluateEmployee?.(employee.id)}
-                              hitSlop={6}
-                            >
-                              <Ionicons
-                                name={isDone ? "checkmark-circle" : "clipboard-outline"}
-                                size={12}
-                                color={isDone ? "#15803D" : "#B45309"}
-                              />
-                              <Text style={[styles.evaluationPillText, isDone && styles.evaluationPillTextDone]}>
-                                {EVALUATION_ACTION[evaluation!.status]}
-                              </Text>
-                            </Pressable>
-                          )}
                         </View>
                       </View>
                     </View>
-                  );
-                })}
+                ))}
               </View>
             )}
           </AestheticScrollView>
@@ -298,16 +238,6 @@ const styles = StyleSheet.create({
   safeArea: { flex: 1 },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 40 },
   titleRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 14 },
-  pendingBadge: {
-    fontSize: 11.5,
-    fontWeight: "800",
-    color: "#B45309",
-    backgroundColor: "#FEF3C7",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    overflow: "hidden",
-  },
   searchBox: {
     flex: 1,
     flexDirection: "row",
@@ -338,19 +268,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   typeChipMuted: { color: "#64748B", backgroundColor: "#E2E8F0" },
-  evaluationPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-    backgroundColor: "#FEF3C7",
-  },
-  evaluationPillDone: { backgroundColor: "#DCFCE7" },
-  evaluationPillPressed: { opacity: 0.7 },
-  evaluationPillText: { fontSize: 10.5, fontWeight: "800", color: "#B45309" },
-  evaluationPillTextDone: { color: "#15803D" },
   pickerRow: {
     flexDirection: "row",
     alignItems: "center",

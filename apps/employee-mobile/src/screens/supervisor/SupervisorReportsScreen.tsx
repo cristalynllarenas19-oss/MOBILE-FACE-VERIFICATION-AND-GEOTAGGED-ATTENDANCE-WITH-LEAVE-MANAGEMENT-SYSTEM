@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { View, Text, Pressable, ScrollView, StyleSheet, SafeAreaView, ActivityIndicator, RefreshControl } from "react-native";
+import { View, Text, TextInput, Pressable, ScrollView, StyleSheet, SafeAreaView, ActivityIndicator, RefreshControl } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { ReportsSummary, getReportsSummary } from "../../api";
 import { useCachedData } from "../../utils/dataCache";
@@ -84,6 +84,16 @@ function employeeName(row: { employee: { firstName: string; lastName: string } }
   return `${row.employee.firstName} ${row.employee.lastName}`;
 }
 
+// Matches on the employee's name, in either order, case-insensitively —
+// same rule as admin-web's Reports search.
+function matchesEmployeeSearch(person: { firstName: string; lastName: string }, query: string) {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return true;
+  return [`${person.firstName} ${person.lastName}`, `${person.lastName} ${person.firstName}`].some((name) =>
+    name.toLowerCase().includes(needle),
+  );
+}
+
 function formatSex(sex?: string | null) {
   if (sex === "MALE") return "Male";
   if (sex === "FEMALE") return "Female";
@@ -158,6 +168,8 @@ export default function SupervisorReportsScreen({ onClose, departmentName }: Pro
   const [dateFrom, setDateFrom] = useState(today);
   const [dateTo, setDateTo] = useState(today);
   const [pickingDate, setPickingDate] = useState<"from" | "to" | null>(null);
+  // Like the status filters, this also narrows what prints and exports.
+  const [search, setSearch] = useState("");
   const [leaveStatusFilter, setLeaveStatusFilter] = useState<"ALL" | LeaveStatusBucket>("ALL");
   const [undertimeStatusFilter, setUndertimeStatusFilter] = useState<"ALL" | UndertimeStatus>("ALL");
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -173,8 +185,12 @@ export default function SupervisorReportsScreen({ onClose, departmentName }: Pro
 
   // --- The same client-side passes admin-web makes over the payload ---
   const attendance = useMemo(
-    () => (data?.attendance ?? []).filter((record) => isInDateRange(record.attendanceDate, dateFrom, dateTo)),
-    [data, dateFrom, dateTo],
+    () =>
+      (data?.attendance ?? []).filter(
+        (record) =>
+          isInDateRange(record.attendanceDate, dateFrom, dateTo) && matchesEmployeeSearch(record.employee, search),
+      ),
+    [data, dateFrom, dateTo, search],
   );
 
   // A leave counts if it overlaps the range at all.
@@ -183,9 +199,10 @@ export default function SupervisorReportsScreen({ onClose, departmentName }: Pro
       (data?.leaves ?? []).filter(
         (request) =>
           new Date(request.startDate).getTime() <= endOfDay(dateTo) &&
-          new Date(request.endDate).getTime() >= startOfDay(dateFrom),
+          new Date(request.endDate).getTime() >= startOfDay(dateFrom) &&
+          matchesEmployeeSearch(request.employee, search),
       ),
-    [data, dateFrom, dateTo],
+    [data, dateFrom, dateTo, search],
   );
   const leaves = useMemo(
     () =>
@@ -197,10 +214,12 @@ export default function SupervisorReportsScreen({ onClose, departmentName }: Pro
 
   const undertimeInRange = useMemo(
     () =>
-      (data?.undertime ?? []).filter((filing) =>
-        isInDateRange(filing.attendanceRecord.attendanceDate, dateFrom, dateTo),
+      (data?.undertime ?? []).filter(
+        (filing) =>
+          isInDateRange(filing.attendanceRecord.attendanceDate, dateFrom, dateTo) &&
+          matchesEmployeeSearch(filing.employee, search),
       ),
-    [data, dateFrom, dateTo],
+    [data, dateFrom, dateTo, search],
   );
   const undertime = useMemo(
     () =>
@@ -216,15 +235,22 @@ export default function SupervisorReportsScreen({ onClose, departmentName }: Pro
       (data?.schedules ?? []).filter(
         (schedule) =>
           new Date(schedule.startsOn).getTime() <= endOfDay(dateTo) &&
-          (!schedule.endsOn || new Date(schedule.endsOn).getTime() >= startOfDay(dateFrom)),
+          (!schedule.endsOn || new Date(schedule.endsOn).getTime() >= startOfDay(dateFrom)) &&
+          matchesEmployeeSearch(schedule.employee, search),
       ),
-    [data, dateFrom, dateTo],
+    [data, dateFrom, dateTo, search],
   );
 
   // The directory and leave balances are point-in-time snapshots, not
   // bounded by the date range.
-  const employees = data?.employees ?? [];
-  const leaveBalances = data?.leaveBalances ?? [];
+  const employees = useMemo(
+    () => (data?.employees ?? []).filter((employee) => matchesEmployeeSearch(employee, search)),
+    [data, search],
+  );
+  const leaveBalances = useMemo(
+    () => (data?.leaveBalances ?? []).filter((balance) => matchesEmployeeSearch(balance.employee, search)),
+    [data, search],
+  );
 
   const sections = useMemo<ScreenSection[]>(() => {
     const attendanceSection: ScreenSection = {
@@ -401,6 +427,19 @@ export default function SupervisorReportsScreen({ onClose, departmentName }: Pro
             </View>
           </View>
 
+          <View style={styles.searchRow}>
+            <View style={styles.searchBox}>
+              <Ionicons name="search-outline" size={16} color="#94A3B8" />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search employees..."
+                placeholderTextColor="#94A3B8"
+                value={search}
+                onChangeText={setSearch}
+              />
+            </View>
+          </View>
+
           <View style={ui.filterRow}>
             <Pressable style={ui.inputBox} onPress={() => setPickingDate("from")}>
               <Text style={[ui.inputBoxText, !!dateFrom && ui.inputBoxTextFilled]} numberOfLines={1}>
@@ -513,7 +552,9 @@ export default function SupervisorReportsScreen({ onClose, departmentName }: Pro
             {resultCount === 0 ? (
               <View style={ui.emptyState}>
                 <Ionicons name="document-text-outline" size={36} color="#CBD5E1" />
-                <Text style={ui.emptyText}>No records for this report and date range.</Text>
+                <Text style={ui.emptyText}>
+                  {search.trim() ? "No employees match your search." : "No records for this report and date range."}
+                </Text>
               </View>
             ) : (
               sections
@@ -608,6 +649,20 @@ const styles = StyleSheet.create({
   headerSpacer: { width: 36 },
   headerTitle: { fontSize: 16, fontWeight: "800", color: "#062B59" },
   titleRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 14 },
+  searchRow: { flexDirection: "row", marginBottom: 14 },
+  searchBox: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    height: 48,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    backgroundColor: "#FFFFFF",
+  },
+  searchInput: { flex: 1, fontSize: 14, fontWeight: "600", color: "#0F172A" },
   chipRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingBottom: 12, paddingRight: 4 },
   subChip: {
     paddingHorizontal: 12,

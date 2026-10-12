@@ -1,0 +1,144 @@
+/* The filter-bar group holding the search: starts narrow and only grows
+   into whatever space the other filters leave, so the bar stays on one row
+   instead of the search pushing it onto a second. */
+.employee-search-group {
+  flex: 1 1 150px;
+  min-width: 0;
+  max-width: 260px;
+}
+
+.employee-search-select {
+  position: relative;
+  width: 100%;
+}
+
+/* Two classes deep so it wins over the filter bars' own `input` rules. */
+.employee-search-select .employee-search-select-input {
+  width: 100%;
+  height: 34px;
+  box-sizing: border-box;
+  border: 1px solid #d4dfe9;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #2d4a65;
+  padding: 0 38px 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.employee-search-select .employee-search-select-input:focus {
+  border-color: #1a3a5c;
+  box-shadow: 0 0 0 3px rgba(26, 58, 92, 0.08);
+}
+
+.employee-search-select-clear {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #41536b;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.employee-search-select-clear:hover {
+  background: #f4f7fb;
+}
+
+.employee-search-select-chevron {
+  position: absolute;
+  top: 50%;
+  right: 11px;
+  color: #41536b;
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition: transform 0.15s;
+}
+
+.employee-search-select-chevron.open {
+  transform: translateY(-50%) rotate(180deg);
+}
+
+/* Floating dropdown under the search box — opens on focus, closes on pick,
+   Escape or clicking away. */
+.employee-search-select-list {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  /* Never narrower than a name needs, even when the box itself is. */
+  min-width: 100%;
+  width: 220px;
+  z-index: 20;
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid #dbe5ef;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.14);
+}
+
+.employee-search-select-option {
+  width: 100%;
+  min-height: 46px;
+  border: 0;
+  border-bottom: 1px solid #edf2f7;
+  background: #ffffff;
+  padding: 9px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.employee-search-select-option:last-child {
+  border-bottom: 0;
+}
+
+.employee-search-select-option:hover {
+  background: #f4f7fb;
+}
+
+.employee-search-select-option.selected {
+  background: #eff6ff;
+}
+
+.employee-search-select-option span {
+  color: #193d69;
+  font-size: 13px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.employee-search-select-empty {
+  padding: 12px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+
+/* Once a filter bar stacks into a column (each at its own breakpoint), the
+   search goes full width with the rest of the filters. */
+@media (max-width: 900px) {
+  .reports-filter-bar .employee-search-group {
+    flex: none;
+    max-width: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .attendance-filter-bar .employee-search-group {
+    flex: none;
+    max-width: none;
+  }
+}

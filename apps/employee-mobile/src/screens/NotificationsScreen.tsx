@@ -67,17 +67,22 @@ type Props = {
   // actions right on a team member's leave notification instead of making the
   // supervisor also open the Leave tab to act on it.
   canReviewTeamRequests?: boolean;
-  // Backs the "Evaluate Employee" button on a SUPERVISOR_EVALUATION_REQUIRED
-  // notification's detail view — opens EvaluationFormScreen for that
-  // employee. Optional since only the Supervisor portal ever receives this
-  // notification type.
-  onEvaluateEmployee?: (employeeId: string) => void;
   // Backs the "View Leave Request" button shown on any LEAVE_* notification
   // — jumps to that request's detail on the Leave tab (employee-mobile) or
   // the team review modal (supervisor portal). Optional since a caller with
   // no leave view to jump into (there isn't one currently) can just omit it.
   onViewLeaveRequest?: (requestId: string) => void;
+  // Backs the "Review Employee" button on the probation notifications —
+  // opens RegularizationReviewScreen for that employee. Optional since only
+  // the management portal ever receives these notification types.
+  onReviewRegularization?: (employeeId: string) => void;
 };
+
+const REGULARIZATION_NOTIFICATION_TYPES = [
+  "PROBATION_REGULARIZATION_DUE",
+  "SUPERVISOR_EVALUATION_REQUIRED",
+  "SUPERVISOR_REGULARIZATION_RECOMMENDATION",
+];
 
 type PickedAttachment = {
   name: string;
@@ -132,6 +137,7 @@ const NOTIFICATION_ICON_MAP: Record<string, { name: keyof typeof Ionicons.glyphM
   ANNOUNCEMENT: { name: "megaphone-outline", category: "announce" },
   PROBATION_REGULARIZATION_DUE: { name: "ribbon-outline", category: "pending" },
   SUPERVISOR_EVALUATION_REQUIRED: { name: "clipboard-outline", category: "pending" },
+  SUPERVISOR_REGULARIZATION_RECOMMENDATION: { name: "clipboard-outline", category: "pending" },
   EVALUATION_CONVERSION_OUTCOME: { name: "ribbon-outline", category: "info" },
   EMPLOYEE_REGULARIZED: { name: "ribbon-outline", category: "success" },
   UNDERTIME_SUBMITTED: { name: "hourglass-outline", category: "pending" },
@@ -330,7 +336,7 @@ function PulsingDot() {
   );
 }
 
-export default function NotificationsScreen({ visible, onClose, onUnreadCountChange, view, employeeId, onLogRealAttendance, canReviewTeamRequests, onEvaluateEmployee, onViewLeaveRequest }: Props) {
+export default function NotificationsScreen({ visible, onClose, onUnreadCountChange, view, employeeId, onLogRealAttendance, canReviewTeamRequests, onViewLeaveRequest, onReviewRegularization }: Props) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   // Percentage heights ("82%") can resolve unreliably for a View rendered
   // inside RN's <Modal> (it isn't always laid out against the full window
@@ -895,6 +901,23 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                   </Pressable>
                 )}
 
+                {!!detailNotification.type &&
+                  REGULARIZATION_NOTIFICATION_TYPES.includes(detailNotification.type) &&
+                  detailNotification.entityId &&
+                  onReviewRegularization && (
+                    <Pressable
+                      style={({ pressed }) => [styles.viewLeaveButton, pressed && styles.viewLeaveButtonPressed]}
+                      onPress={() => {
+                        const targetEmployeeId = detailNotification.entityId!;
+                        handleCloseDetail();
+                        onReviewRegularization(targetEmployeeId);
+                      }}
+                    >
+                      <Ionicons name="person-circle-outline" size={18} color="#1680D8" />
+                      <Text style={styles.viewLeaveButtonText}>Review Employee</Text>
+                    </Pressable>
+                  )}
+
                 {detailTeamRequest && !detailIsOwnRequest && (detailCanReview || detailCanDecideCancellation) && (
                   <View style={styles.reviewPanel}>
                     {reviewAction === null ? (
@@ -948,20 +971,6 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                 )}
                 {detailTeamRequest && !detailIsOwnRequest && !detailCanReview && !detailCanDecideCancellation && (
                   <Text style={styles.reviewAlreadyDecidedText}>This request has already been reviewed.</Text>
-                )}
-
-                {detailNotification.type === "SUPERVISOR_EVALUATION_REQUIRED" && onEvaluateEmployee && detailNotification.entityId && (
-                  <Pressable
-                    style={({ pressed }) => [styles.evaluateButton, pressed && styles.evaluateButtonPressed]}
-                    onPress={() => {
-                      const targetEmployeeId = detailNotification.entityId!;
-                      handleCloseDetail();
-                      onEvaluateEmployee(targetEmployeeId);
-                    }}
-                  >
-                    <Ionicons name="clipboard-outline" size={18} color="#FFFFFF" />
-                    <Text style={styles.evaluateButtonText}>Evaluate Employee</Text>
-                  </Pressable>
                 )}
 
                 {detailNotification.type === "ATTENDANCE_LOCKED" && onLogRealAttendance && (
@@ -1780,24 +1789,6 @@ const styles = StyleSheet.create({
     opacity: 0.85,
   },
   logAttendanceButtonText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  evaluateButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: "#062B59",
-    marginTop: 16,
-  },
-  evaluateButtonPressed: {
-    opacity: 0.85,
-  },
-  evaluateButtonText: {
     color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "700",

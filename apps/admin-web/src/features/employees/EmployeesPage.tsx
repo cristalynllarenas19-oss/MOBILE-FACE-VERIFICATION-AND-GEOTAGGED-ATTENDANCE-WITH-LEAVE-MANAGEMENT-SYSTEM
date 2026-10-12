@@ -1,14 +1,11 @@
 import axios from "axios";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { AlertTriangle, Archive, ChevronsUpDown, ClipboardList, Eye, Pencil, Plus, RotateCcw, ScanFace, Search, UserCheck, X } from "lucide-react";
+import { AlertTriangle, Archive, ChevronsUpDown, Eye, Pencil, Plus, RotateCcw, ScanFace, Search, UserCheck, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { FormSelectDropdown } from "../../components/ui/FormSelectDropdown";
 import { NotificationModal, type NotificationConfig } from "../../components/ui/NotificationModal";
-import { EvaluationModal } from "../evaluations/EvaluationModal";
-import { EvaluationViewModal } from "../evaluations/EvaluationViewModal";
-import { getTeamEvaluationStatuses, type TeamEvaluationStatus } from "../../lib/evaluations";
 import { apiRequest } from "../../lib/api";
 import { CACHE_KEYS, revalidateCached, useCachedData } from "../../lib/dataCache";
 import { useActiveDepartments } from "../../lib/departments";
@@ -164,25 +161,6 @@ function getStatusTone(status: Employee["employmentStatus"]) {
   if (status === "SEPARATED") return "danger";
   return "warning";
 }
-
-const EVALUATION_STATUS_LABEL: Record<TeamEvaluationStatus["status"], string> = {
-  PENDING: "Pending Evaluation",
-  IN_PROGRESS: "In Progress",
-  COMPLETED: "Completed",
-  NOT_DUE: "Not Yet Due",
-};
-const EVALUATION_STATUS_TONE: Record<TeamEvaluationStatus["status"], "warning" | "role" | "success" | "neutral"> = {
-  PENDING: "warning",
-  IN_PROGRESS: "role",
-  COMPLETED: "success",
-  NOT_DUE: "neutral",
-};
-const EVALUATION_ACTION_LABEL: Record<TeamEvaluationStatus["status"], string> = {
-  PENDING: "Evaluate Employee",
-  IN_PROGRESS: "Continue Evaluation",
-  COMPLETED: "View Performance",
-  NOT_DUE: "",
-};
 
 function getAttendanceModeTone(mode: Employee["attendanceMode"]) {
   return mode === "FIELD" ? "role" : "neutral";
@@ -1213,11 +1191,6 @@ function ViewEmployeeModal({
   canWrite,
   canRegisterFace,
   onRegisterFace,
-  canViewPerformance,
-  onViewPerformance,
-  evaluation,
-  onOpenEvaluation,
-  onOpenSupervisorPerformance,
 }: {
   employee: Employee;
   attendanceModeOptions: AttendanceModeOption[];
@@ -1228,15 +1201,6 @@ function ViewEmployeeModal({
   canWrite: boolean;
   canRegisterFace: boolean;
   onRegisterFace?: () => void;
-  canViewPerformance: boolean;
-  onViewPerformance: () => void;
-  // Supervisor only: this employee's evaluation status (from the evaluations
-  // table, not notifications) and the action to open the evaluation form.
-  evaluation?: TeamEvaluationStatus | null;
-  onOpenEvaluation?: () => void;
-  // Supervisor only, for any member of their own team — the read-only
-  // performance view (attendance summary + submitted evaluation if any).
-  onOpenSupervisorPerformance?: () => void;
 }) {
   // Same condition the "Register Face" button below is disabled for — the
   // banner explains why (see FaceRegistrationPage's own "Employee Consent
@@ -1292,26 +1256,6 @@ function ViewEmployeeModal({
             {getAttendanceModeLabel(employee.attendanceMode, attendanceModeOptions)}
           </Badge>
         </div>
-        {onOpenSupervisorPerformance && (
-          <div>
-            <span>Evaluation</span>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-              {evaluation && (
-                <Badge tone={EVALUATION_STATUS_TONE[evaluation.status]}>
-                  {evaluation.status === "NOT_DUE" && evaluation.dueDate
-                    ? `Due ${new Date(evaluation.dueDate).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`
-                    : EVALUATION_STATUS_LABEL[evaluation.status]}
-                </Badge>
-              )}
-              {/* Already offered in the regularization banner below when it's shown. */}
-              {!isDueForRegularizationReview(employee) && (
-                <button type="button" className="employee-view-button" onClick={onOpenSupervisorPerformance}>
-                  View Performance
-                </button>
-              )}
-            </div>
-          </div>
-        )}
         {employee.soloParentStatus && employee.soloParentStatus !== "NOT_APPLICABLE" && (
           <div>
             <span>Solo Parent Status</span>
@@ -1350,18 +1294,6 @@ function ViewEmployeeModal({
               regularization review. Please review their performance and qualifications before converting their
               status to Regular.
             </p>
-            {/* Admin gets the Admin view (with Approve); the employee's own
-                Supervisor gets their read-only view — same button, same place. */}
-            {(canViewPerformance || onOpenSupervisorPerformance) && (
-              <button
-                type="button"
-                className="outline-button"
-                style={{ marginTop: 8 }}
-                onClick={canViewPerformance ? onViewPerformance : onOpenSupervisorPerformance}
-              >
-                View Performance
-              </button>
-            )}
           </div>
         </div>
       )}
@@ -1435,13 +1367,6 @@ function ViewEmployeeModal({
           <button type="button" className="primary-button" onClick={onEdit}>
             <Pencil size={14} />
             Edit Employee
-          </button>
-        )}
-        {/* Supervisor: start/continue this team member's evaluation. */}
-        {evaluation && (evaluation.status === "PENDING" || evaluation.status === "IN_PROGRESS") && onOpenEvaluation && (
-          <button type="button" className="primary-button" onClick={onOpenEvaluation}>
-            <ClipboardList size={14} />
-            {EVALUATION_ACTION_LABEL[evaluation.status]}
           </button>
         )}
         <button type="button" className="outline-button" onClick={onClose}>
@@ -1592,26 +1517,6 @@ export function EmployeesPage({
   const canWrite = user?.permissions.includes(permissions.employeesWrite) ?? true;
   const roles = user?.roles ?? [];
   const isDepartmentLocked = roles.includes("SUPERVISOR") && !roles.includes("ADMIN");
-  // Gates the "View Performance" button — the admin-view evaluation endpoint
-  // is Admin-only server-side, so a Supervisor never even sees the button
-  // (they already have their own submitted-evaluation view via the
-  // notification's "Evaluate Employee" action).
-  const isAdmin = roles.includes("ADMIN");
-  // A Supervisor reaches their team's evaluations right from Employee
-  // Details — the "Evaluation Required" notification is only a reminder.
-  const canEvaluate = roles.includes("SUPERVISOR") && (user?.permissions.includes(permissions.evaluationsWrite) ?? false);
-  const teamEvaluationsCache = useCachedData<TeamEvaluationStatus[]>(
-    canEvaluate ? "evaluation-team-status" : null,
-    getTeamEvaluationStatuses,
-  );
-  const [evaluatingEmployee, setEvaluatingEmployee] = useState<Employee | null>(null);
-  // Evaluation / View Performance only for the Supervisor's own team members
-  // who are still on probation (either track) — not Regular/Seasonal staff.
-  const isEvaluableBySupervisor = (employee: Employee) =>
-    canEvaluate &&
-    employee.supervisor?.id === user?.employeeId &&
-    (employee.employmentStatus === "PROBATIONARY" || employee.employmentStatus === "PROBATIONARY_SEASONAL");
-  const [supervisorPerformanceEmployee, setSupervisorPerformanceEmployee] = useState<Employee | null>(null);
   const lockedDepartmentName = isDepartmentLocked ? user?.department : undefined;
 
   const [departmentFilter, setDepartmentFilter] = useState("ALL");
@@ -1622,7 +1527,6 @@ export function EmployeesPage({
   const [page, setPage] = useState(1);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [viewEmployee, setViewEmployee] = useState<Employee | null>(null);
-  const [viewingPerformanceEmployee, setViewingPerformanceEmployee] = useState<Employee | null>(null);
   const [editEmployee, setEditEmployee] = useState<Employee | null>(null);
   const [archiveEmployee, setArchiveEmployee] = useState<Employee | null>(null);
   const [restoreTarget, setRestoreTarget] = useState<Employee | null>(null);
@@ -1968,46 +1872,6 @@ export function EmployeesPage({
               viewEmployee.employmentStatus !== "SEPARATED",
           )}
           onRegisterFace={onRegisterFace ? () => onRegisterFace(viewEmployee) : undefined}
-          canViewPerformance={isAdmin}
-          onViewPerformance={() => setViewingPerformanceEmployee(viewEmployee)}
-          evaluation={
-            isEvaluableBySupervisor(viewEmployee)
-              ? (teamEvaluationsCache.data ?? []).find((row) => row.employeeId === viewEmployee.id) ?? null
-              : null
-          }
-          onOpenEvaluation={() => setEvaluatingEmployee(viewEmployee)}
-          onOpenSupervisorPerformance={
-            isEvaluableBySupervisor(viewEmployee) ? () => setSupervisorPerformanceEmployee(viewEmployee) : undefined
-          }
-        />
-      )}
-
-      {evaluatingEmployee && (
-        <EvaluationModal
-          employeeId={evaluatingEmployee.id}
-          onClose={() => {
-            setEvaluatingEmployee(null);
-            // Draft saved / submitted → refresh the status shown in Employee Details.
-            teamEvaluationsCache.refresh().catch(() => undefined);
-          }}
-        />
-      )}
-
-      {supervisorPerformanceEmployee && (
-        <EvaluationViewModal
-          employeeId={supervisorPerformanceEmployee.id}
-          employeeName={getEmployeeName(supervisorPerformanceEmployee)}
-          viewer="supervisor"
-          onClose={() => setSupervisorPerformanceEmployee(null)}
-        />
-      )}
-
-      {viewingPerformanceEmployee && (
-        <EvaluationViewModal
-          employeeId={viewingPerformanceEmployee.id}
-          employeeName={getEmployeeName(viewingPerformanceEmployee)}
-          onClose={() => setViewingPerformanceEmployee(null)}
-          onApproved={handleEmployeeUpdated}
         />
       )}
 

@@ -22,24 +22,21 @@
   margin: 0;
 }
 
-.reports-result-count span {
-  display: inline-flex;
-  align-items: center;
-  background: #eef3f8;
-  color: #4a6480;
-  font-size: 11px;
-  font-weight: 700;
-  border-radius: 999px;
-  padding: 3px 10px;
-  letter-spacing: 0.2px;
+/* Holds the filter card and the export-actions card side by side. */
+.reports-filter-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  margin-bottom: 12px;
 }
 
 .reports-filter-bar {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   align-items: flex-end;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 12px;
   padding: 10px 14px;
   background: #f7fafd;
   border: 1px solid #e3eaf2;
@@ -84,12 +81,24 @@
   min-width: 130px;
 }
 
+/* Its own card, matching the filter card: an "Actions" label over the
+   buttons, laid out like a filter group so both cards line up. */
 .reports-filter-actions {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 3px;
+  padding: 10px 14px;
+  background: #f7fafd;
+  border: 1px solid #e3eaf2;
+  border-radius: 12px;
+}
+
+.reports-filter-actions-buttons {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-left: auto;
-  padding-bottom: 1px; 
 }
 
 .report-export-button {
@@ -332,6 +341,10 @@
     flex: 1 1 calc(50% - 4px);
   }
 
+  .reports-filter-row {
+    flex-direction: column;
+  }
+
   .reports-filter-bar {
     flex-direction: column;
     align-items: stretch;
@@ -348,7 +361,7 @@
   }
 
   .reports-filter-actions {
-    margin-left: 0;
+    box-sizing: border-box;
     width: 100%;
   }
 

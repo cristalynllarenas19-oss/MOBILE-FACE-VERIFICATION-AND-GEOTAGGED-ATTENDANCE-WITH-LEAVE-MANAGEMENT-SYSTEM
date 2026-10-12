@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { Eye, Search, X } from "lucide-react";
-import { Badge } from "../../components/ui/Badge";
+import { Search, X } from "lucide-react";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { apiRequest } from "../../lib/api";
 import type { Notification } from "./UtilitiesPage";
@@ -29,8 +28,6 @@ type AuditLogPage = {
   pageSize: number;
 };
 
-type BadgeTone = "neutral" | "success" | "danger" | "warning" | "role";
-
 const AUDIT_PAGE_SIZE = 25;
 
 function formatDateTime(value: string) {
@@ -42,19 +39,6 @@ function formatAction(action: string) {
     .replace(/_/g, " ")
     .toLowerCase()
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-function actorName(log: AuditLog) {
-  if (!log.actor) return "System";
-  if (log.actor.employee) return `${log.actor.employee.firstName} ${log.actor.employee.lastName}`;
-  return log.actor.email;
-}
-
-function actionTone(action: string): BadgeTone {
-  if (/(REJECT|ARCHIVE|DELETE|REMOVE)/.test(action)) return "danger";
-  if (/(CREATE|ADD|APPROVE|RESTORE)/.test(action)) return "success";
-  if (/(MARK|UPDATE|EDIT)/.test(action)) return "role";
-  return "neutral";
 }
 
 function moduleLabel(entityType: string) {
@@ -84,32 +68,6 @@ function actorRoleLabel(log: AuditLog) {
   return roles.length > 0 ? roles.join(", ") : "N/A";
 }
 
-function affectedRecordLabel(log: AuditLog) {
-  // entityName is resolved server-side (AuditLogsService.resolveEntityNames)
-  // for every entity type this app logs — a raw ID here would mean the
-  // referenced record was since deleted, not that resolution is missing.
-  return log.entityName ?? "—";
-}
-
-// Builds a Field / (Previous /) Value table for the "Changes" section of the
-// detail modal — Create actions only have newValues, Update actions have both.
-function buildChangeRows(log: AuditLog) {
-  const oldValues = log.oldValues ?? {};
-  const newValues = log.newValues ?? {};
-  const keys = Array.from(new Set([...Object.keys(oldValues), ...Object.keys(newValues)]));
-  const stringify = (value: unknown) => (value === undefined ? undefined : JSON.stringify(value).replace(/,/g, ", "));
-  return keys.map((key) => {
-    const before = (oldValues as Record<string, unknown>)[key];
-    const after = (newValues as Record<string, unknown>)[key];
-    return {
-      key,
-      before: stringify(before),
-      after: stringify(after),
-      changed: log.oldValues != null && JSON.stringify(before) !== JSON.stringify(after),
-    };
-  });
-}
-
 export function AuditLogsTab({
   notify,
 }: {
@@ -124,7 +82,6 @@ export function AuditLogsTab({
   const [auditSearch, setAuditSearch] = useState("");
   const [auditFrom, setAuditFrom] = useState("");
   const [auditTo, setAuditTo] = useState("");
-  const [viewLog, setViewLog] = useState<AuditLog | null>(null);
 
   const hasActiveAuditFilters =
     auditSearch.trim() !== "" ||
@@ -171,17 +128,11 @@ export function AuditLogsTab({
     loadAuditLogs(1, false);
   };
 
-  const changeRows = viewLog ? buildChangeRows(viewLog).filter((row) => row.key !== "_audit") : [];
-  const hasRawJson = viewLog && (viewLog.oldValues != null || viewLog.newValues != null);
-
   return (
     <>
       <div className="utilities-toolbar-header">
         <div className="utilities-toolbar-header-left">
           <h3 className="utilities-toolbar-title">Audit Logs</h3>
-        </div>
-        <div className="utilities-result-count">
-          <span>{auditTotal} result{auditTotal !== 1 ? "s" : ""}</span>
         </div>
       </div>
 
@@ -243,23 +194,21 @@ export function AuditLogsTab({
             <thead>
               <tr>
                 <th>DATE/TIME</th>
-                <th>ACTOR</th>
                 <th>ROLE</th>
                 <th>MODULE</th>
-                <th>ACTION</th>
-                <th>DETAILS</th>
+                <th>DESCRIPTION</th>
               </tr>
             </thead>
             <tbody>
               {auditLoading ? (
                 <tr>
-                  <td colSpan={6} className="utilities-empty-state">
+                  <td colSpan={4} className="utilities-empty-state">
                     <span className="utilities-loading-dot" /> Loading audit logs…
                   </td>
                 </tr>
               ) : auditLogs.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="utilities-empty-state">
+                  <td colSpan={4} className="utilities-empty-state">
                     {hasActiveAuditFilters
                       ? "No audit log entries match your current filters."
                       : "No audit log entries found."}
@@ -269,18 +218,13 @@ export function AuditLogsTab({
                 auditLogs.map((log) => (
                   <tr key={log.id}>
                     <td data-label="Date/Time">{formatDateTime(log.createdAt)}</td>
-                    <td data-label="Actor">{actorName(log)}</td>
                     <td data-label="Role">{actorRoleLabel(log)}</td>
                     <td data-label="Module">{moduleLabel(log.entityType)}</td>
-                    <td data-label="Action">
-                      <div className="utilities-action-cell">
-                        <Badge tone={actionTone(log.action)}>{formatAction(log.action)}</Badge>
-                      </div>
-                    </td>
-                    <td data-label="Details">
-                      <button type="button" className="utilities-view-button" onClick={() => setViewLog(log)}>
-                        <Eye size={13} /> View
-                      </button>
+                    {/* What was done, spelled out right in the row — the
+                        recorded description, or the bare action name for an
+                        entry logged without one. */}
+                    <td data-label="Description" className="utilities-audit-action">
+                      {auditMeta(log).description ?? formatAction(log.action)}
                     </td>
                   </tr>
                 ))
@@ -300,97 +244,6 @@ export function AuditLogsTab({
           </div>
         )}
       </section>
-
-      {/* ── Audit log detail modal ── */}
-      {viewLog && (
-        <div className="utilities-modal-backdrop" role="presentation">
-          <section className="utilities-modal utilities-modal--audit-view" role="dialog" aria-modal="true" aria-labelledby="audit-view-title">
-            <div className="utilities-modal-header">
-              <div>
-                <h2 id="audit-view-title">Audit Log Detail</h2>
-                <p>{formatDateTime(viewLog.createdAt)}</p>
-              </div>
-              <button className="icon-button" onClick={() => setViewLog(null)} aria-label="Close">
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="utilities-modal-body audit-view-body">
-              {/* Date & time is already the modal subtitle, so it isn't repeated here. */}
-              <div className="utilities-audit-detail-grid utilities-audit-detail-grid--compact">
-                <div>
-                  <span>Actor</span>
-                  <strong>{actorName(viewLog)}</strong>
-                </div>
-                <div>
-                  <span>User Role</span>
-                  <strong>{actorRoleLabel(viewLog)}</strong>
-                </div>
-                <div>
-                  <span>Module</span>
-                  <strong>{moduleLabel(viewLog.entityType)}</strong>
-                </div>
-                <div>
-                  <span>Action</span>
-                  <Badge tone={actionTone(viewLog.action)}>{formatAction(viewLog.action)}</Badge>
-                </div>
-                <div>
-                  <span>Affected Record</span>
-                  <strong>{affectedRecordLabel(viewLog)}</strong>
-                </div>
-                <div>
-                  <span>IP Address</span>
-                  <strong>{viewLog.ipAddress ?? "—"}</strong>
-                </div>
-                <div className="full">
-                  <span>Description</span>
-                  <strong>{auditMeta(viewLog).description ?? "—"}</strong>
-                </div>
-                <div className="full">
-                  <span>Device / Browser</span>
-                  <strong>{auditMeta(viewLog).userAgent ?? "—"}</strong>
-                </div>
-              </div>
-
-              {false && changeRows.length > 0 && (
-                <>
-                  <div className="utilities-audit-section-label">Changes</div>
-                  <div className="utilities-audit-diff-table-wrap">
-                    <table className="utilities-audit-diff-table">
-                      <thead>
-                        <tr>
-                          <th>Field</th>
-                          {viewLog!.oldValues != null && <th>Previous Value</th>}
-                          <th>{viewLog!.oldValues != null ? "New Value" : "Value"}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {changeRows.map((row) => (
-                          <tr key={row.key} className={row.changed ? "changed" : ""}>
-                            <td>{row.key}</td>
-                            {viewLog!.oldValues != null && <td>{row.before ?? "—"}</td>}
-                            <td>{row.after ?? "—"}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </>
-              )}
-
-              {false && changeRows.length === 0 && !hasRawJson && (
-                <p className="utilities-hint">No additional details were recorded for this entry.</p>
-              )}
-            </div>
-
-            <div className="utilities-modal-actions">
-              <button className="outline-button" onClick={() => setViewLog(null)}>
-                Close
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
     </>
   );
 }

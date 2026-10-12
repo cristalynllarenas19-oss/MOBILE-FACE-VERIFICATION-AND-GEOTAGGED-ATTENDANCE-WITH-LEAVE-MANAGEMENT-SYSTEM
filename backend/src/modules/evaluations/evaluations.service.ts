@@ -6,7 +6,7 @@ import { isDayOff } from "../../common/utils/schedule.util";
 import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
 import { dedupeToLatestVisitPerEmployeeDay } from "../attendance/attendance-dedup.util";
 import { NotificationsService } from "../notifications/notifications.service";
-import { SaveEvaluationDraftDto, SubmitEvaluationDto } from "./dto/evaluation.dto";
+import { RegularizationDecision, RegularizationDecisionDto, RegularizationRemarksDto } from "./dto/evaluation.dto";
 
 // Mirrors EmployeesService's own PROBATION_MILESTONE_NOTIFICATION_TYPE/MONTHS
 // pair — kept as a separate constant here (not imported) because that pair is
@@ -15,7 +15,15 @@ import { SaveEvaluationDraftDto, SubmitEvaluationDto } from "./dto/evaluation.dt
 // two milestone checks stay independent and neither can suppress the other.
 const EVALUATION_REQUIRED_NOTIFICATION_TYPE = "SUPERVISOR_EVALUATION_REQUIRED";
 const EVALUATION_OUTCOME_NOTIFICATION_TYPE = "EVALUATION_CONVERSION_OUTCOME";
+// Sent to Admin once the Supervisor has made their recommendation.
+const SUPERVISOR_RECOMMENDATION_NOTIFICATION_TYPE = "SUPERVISOR_REGULARIZATION_RECOMMENDATION";
 const PROBATION_MILESTONE_MONTHS = 6;
+// Same pair EmployeesService keeps privately: what each probationary status
+// converts to. Anything not listed here is not on probation.
+const REGULARIZATION_TARGET_STATUS: Record<string, string> = {
+  PROBATIONARY: "REGULAR",
+  PROBATIONARY_SEASONAL: "PERMANENT_SEASONAL",
+};
 
 @Injectable()
 export class EvaluationsService {
@@ -68,7 +76,7 @@ export class EvaluationsService {
       if (!employee.supervisor?.userId) continue;
       await this.notifications.notifyUsers([employee.supervisor.userId], {
         title: "Probationary Evaluation Required",
-        message: `${employee.firstName} ${employee.lastName} has completed six (6) months of probationary employment. Please complete their performance evaluation.`,
+        message: `${employee.firstName} ${employee.lastName} has completed six (6) months of probationary employment. Please review their record and recommend whether to regularize them.`,
         type: EVALUATION_REQUIRED_NOTIFICATION_TYPE,
         entityId: employee.id,
       });
@@ -78,7 +86,7 @@ export class EvaluationsService {
   private async assertOwnership(employeeId: string, supervisorEmployeeId: string) {
     const employee = await this.prisma.employee.findUniqueOrThrow({
       where: { id: employeeId },
-      select: { id: true, supervisorId: true, firstName: true, lastName: true },
+      select: { id: true, supervisorId: true, firstName: true, lastName: true, employmentStatus: true },
     });
     if (employee.supervisorId !== supervisorEmployeeId) {
       throw new ForbiddenException("You can only evaluate members of your own team.");
@@ -191,140 +199,168 @@ export class EvaluationsService {
     };
   }
 
-  // Admin-view: the most recent SUBMITTED evaluation for this employee, with
-  // the evaluating Supervisor's name attached. Drafts are never returned here
-  // — a Supervisor's in-progress evaluation stays private to them until they
-  // actually submit, same as they're never expected to "notify Admin" before
-  // then.
-  findLatestSubmitted(employeeId: string) {
-    return this.prisma.probationaryEvaluation.findFirst({
-      where: { employeeId, status: "SUBMITTED" },
-      orderBy: { submittedAt: "desc" },
-      include: { supervisor: { select: { firstName: true, lastName: true, department: { select: { name: true } } } } },
+  // Everything the Regularization Review screen shows: the employee's own
+  // record, their attendance over the probation so far, and the Supervisor's
+  // recommendation once there is one. An Admin may open any employee; a
+  // Supervisor only a member of their own team.
+  async findReview(employeeId: string, viewer: { employeeId?: string; roles: string[] }) {
+    const employee = await this.prisma.employee.findUniqueOrThrow({
+      where: { id: employeeId },
+      select: {
+        id: true,
+        employeeNo: true,
+        firstName: true,
+        lastName: true,
+        hireDate: true,
+        employmentStatus: true,
+        supervisorId: true,
+        user: { select: { email: true } },
+        department: { select: { name: true } },
+        position: { select: { title: true } },
+        employeeType: { select: { name: true } },
+        supervisor: { select: { firstName: true, lastName: true } },
+      },
     });
-  }
 
-  // Supervisor's read-only "View Performance" — the same submitted record and
-  // attendance summary the Admin view shows, but only for a member of the
-  // caller's own team and only their own submitted evaluation.
-  async findPerformanceForSupervisor(employeeId: string, supervisorEmployeeId: string) {
-    await this.assertOwnership(employeeId, supervisorEmployeeId);
-    const [evaluation, attendance] = await Promise.all([
-      this.prisma.probationaryEvaluation.findFirst({
-        where: { employeeId, supervisorId: supervisorEmployeeId, status: "SUBMITTED" },
-        include: { supervisor: { select: { firstName: true, lastName: true, department: { select: { name: true } } } } },
-      }),
+    const isAdmin = viewer.roles.includes("ADMIN");
+    if (!isAdmin && employee.supervisorId !== viewer.employeeId) {
+      throw new ForbiddenException("You can only review members of your own team.");
+    }
+
+    const [attendance, evaluation] = await Promise.all([
       this.computeAttendanceSummary(employeeId),
-    ]);
-    return { evaluation, attendance };
-  }
-
-  // Persistent access for the Supervisor (Employee Management → Employee
-  // Details → Evaluation, and the mobile Team list) — derived only from the
-  // probationary_evaluations table + the employee record, never from
-  // notifications, so a dismissed/deleted "Evaluation Required" notification
-  // can't hide an evaluation. One row per relevant employee:
-  //   COMPLETED   — submitted (kept forever as history, even after conversion)
-  //   IN_PROGRESS — draft saved
-  //   PENDING     — probationary, 6+ months in, nothing started yet
-  //   NOT_DUE     — probationary but not at 6 months yet (dueDate says when)
-  // Employees with no evaluation and not on probation are omitted.
-  async findTeamStatuses(supervisorEmployeeId: string) {
-    const [team, evaluations] = await Promise.all([
-      this.prisma.employee.findMany({
-        where: { supervisorId: supervisorEmployeeId },
-        select: { id: true, employmentStatus: true, hireDate: true },
-      }),
-      this.prisma.probationaryEvaluation.findMany({
-        where: { supervisorId: supervisorEmployeeId },
-        select: { employeeId: true, status: true, submittedAt: true },
+      this.prisma.probationaryEvaluation.findFirst({
+        where: { employeeId, status: "SUBMITTED" },
+        orderBy: { submittedAt: "desc" },
+        include: { supervisor: { select: { firstName: true, lastName: true } } },
       }),
     ]);
 
-    const byEmployee = new Map(evaluations.map((evaluation) => [evaluation.employeeId, evaluation]));
-    const rows: { employeeId: string; status: "COMPLETED" | "IN_PROGRESS" | "PENDING" | "NOT_DUE"; dueDate: Date | null; submittedAt: Date | null }[] = [];
-
-    for (const evaluation of evaluations) {
-      rows.push({
-        employeeId: evaluation.employeeId,
-        status: evaluation.status === "SUBMITTED" ? "COMPLETED" : "IN_PROGRESS",
-        dueDate: null,
-        submittedAt: evaluation.submittedAt,
-      });
-    }
-
-    for (const employee of team) {
-      if (byEmployee.has(employee.id)) continue;
-      if (employee.employmentStatus !== "PROBATIONARY" && employee.employmentStatus !== "PROBATIONARY_SEASONAL") continue;
-      const dueDate = new Date(employee.hireDate);
-      dueDate.setMonth(dueDate.getMonth() + PROBATION_MILESTONE_MONTHS);
-      rows.push({
-        employeeId: employee.id,
-        status: dueDate <= new Date() ? "PENDING" : "NOT_DUE",
-        dueDate,
-        submittedAt: null,
-      });
-    }
-
-    return rows;
+    return {
+      viewerRole: isAdmin ? ("ADMIN" as const) : ("SUPERVISOR" as const),
+      employee: {
+        id: employee.id,
+        employeeNo: employee.employeeNo,
+        firstName: employee.firstName,
+        lastName: employee.lastName,
+        email: employee.user?.email ?? null,
+        department: employee.department?.name ?? null,
+        position: employee.position?.title ?? null,
+        employeeType: employee.employeeType?.name ?? null,
+        supervisorName: employee.supervisor ? `${employee.supervisor.firstName} ${employee.supervisor.lastName}` : null,
+        hireDate: employee.hireDate,
+        employmentStatus: employee.employmentStatus,
+      },
+      // Null once the employee is no longer on probation — nothing left to decide.
+      targetStatus: REGULARIZATION_TARGET_STATUS[employee.employmentStatus] ?? null,
+      attendance,
+      recommendation: evaluation
+        ? {
+            decision: evaluation.recommendation === "READY_FOR_CONVERSION" ? ("APPROVE" as const) : ("REJECT" as const),
+            remarks: evaluation.comments,
+            decidedAt: evaluation.submittedAt,
+            supervisorName: `${evaluation.supervisor.firstName} ${evaluation.supervisor.lastName}`,
+          }
+        : null,
+    };
   }
 
-  async findForSupervisor(employeeId: string, supervisorEmployeeId: string) {
-    await this.assertOwnership(employeeId, supervisorEmployeeId);
-    return this.prisma.probationaryEvaluation.findUnique({
-      where: { employeeId_supervisorId: { employeeId, supervisorId: supervisorEmployeeId } },
-    });
-  }
-
-  async saveDraft(employeeId: string, supervisorEmployeeId: string, dto: SaveEvaluationDraftDto) {
-    await this.assertOwnership(employeeId, supervisorEmployeeId);
-
-    const existing = await this.prisma.probationaryEvaluation.findUnique({
-      where: { employeeId_supervisorId: { employeeId, supervisorId: supervisorEmployeeId } },
-    });
-    if (existing?.status === "SUBMITTED") {
-      throw new BadRequestException("This evaluation has already been submitted and can no longer be edited.");
-    }
-
-    return this.prisma.probationaryEvaluation.upsert({
-      where: { employeeId_supervisorId: { employeeId, supervisorId: supervisorEmployeeId } },
-      update: { ...dto },
-      create: { employeeId, supervisorId: supervisorEmployeeId, ...dto },
-    });
-  }
-
-  async submit(
+  // The Supervisor's Approve / Reject. It is only a recommendation: it never
+  // touches Employee.employmentStatus — the Admin's own Approve
+  // (EmployeesService.update) remains the only path off probation.
+  async recommend(
     employeeId: string,
     supervisorEmployeeId: string,
-    dto: SubmitEvaluationDto,
+    dto: RegularizationDecisionDto,
     context: AuditLogContext = {},
   ) {
     const employee = await this.assertOwnership(employeeId, supervisorEmployeeId);
-
-    const existing = await this.prisma.probationaryEvaluation.findUnique({
-      where: { employeeId_supervisorId: { employeeId, supervisorId: supervisorEmployeeId } },
-    });
-    if (existing?.status === "SUBMITTED") {
-      throw new BadRequestException("This evaluation has already been submitted.");
+    if (!REGULARIZATION_TARGET_STATUS[employee.employmentStatus]) {
+      throw new BadRequestException("This employee is no longer on probation.");
     }
 
-    const submitted = await this.prisma.probationaryEvaluation.upsert({
-      where: { employeeId_supervisorId: { employeeId, supervisorId: supervisorEmployeeId } },
-      update: { ...dto, status: "SUBMITTED", submittedAt: new Date() },
-      create: { employeeId, supervisorId: supervisorEmployeeId, ...dto, status: "SUBMITTED", submittedAt: new Date() },
+    const key = { employeeId_supervisorId: { employeeId, supervisorId: supervisorEmployeeId } };
+    const existing = await this.prisma.probationaryEvaluation.findUnique({ where: key });
+    if (existing?.status === "SUBMITTED") {
+      throw new BadRequestException("You have already submitted your recommendation for this employee.");
+    }
+
+    const approved = dto.decision === RegularizationDecision.APPROVE;
+    const remarks = dto.remarks?.trim() || null;
+    const data = {
+      recommendation: approved ? ("READY_FOR_CONVERSION" as const) : ("NOT_RECOMMENDED" as const),
+      comments: remarks,
+      status: "SUBMITTED" as const,
+      submittedAt: new Date(),
+    };
+    const saved = await this.prisma.probationaryEvaluation.upsert({
+      where: key,
+      update: data,
+      create: { employeeId, supervisorId: supervisorEmployeeId, ...data },
     });
 
+    const name = `${employee.firstName} ${employee.lastName}`;
     await this.auditLogs.record({
       ...context,
-      action: "SUBMIT_PROBATIONARY_EVALUATION",
+      action: "RECOMMEND_REGULARIZATION",
       module: "Evaluations",
       entityType: "ProbationaryEvaluation",
-      entityId: submitted.id,
-      description: `Submitted probationary evaluation for ${employee.firstName} ${employee.lastName}.`,
-      newValues: { recommendation: submitted.recommendation, overallRating: submitted.overallRating },
+      entityId: saved.id,
+      description: `Recommended ${approved ? "approving" : "rejecting"} the regularization of ${name}.`,
+      newValues: { recommendation: saved.recommendation, remarks },
     });
 
-    return submitted;
+    await this.notifications.notifyUsers(await this.notifications.adminUserIds(), {
+      title: approved ? "Regularization Recommended" : "Regularization Not Recommended",
+      message: `${name}'s supervisor ${approved ? "recommends approving" : "recommends rejecting"} their regularization.${remarks ? ` Remarks: ${remarks}` : ""} Please review and decide.`,
+      type: SUPERVISOR_RECOMMENDATION_NOTIFICATION_TYPE,
+      entityId: employeeId,
+    });
+
+    return saved;
+  }
+
+  // The Admin's Reject: the employee simply stays on probation, so there is
+  // no status to change — the decision is kept in the audit log and the
+  // Supervisor is told. (The Admin's Approve goes through
+  // EmployeesService.update, which calls notifyOutcome below.)
+  async rejectRegularization(employeeId: string, dto: RegularizationRemarksDto, context: AuditLogContext = {}) {
+    const employee = await this.prisma.employee.findUniqueOrThrow({
+      where: { id: employeeId },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        employmentStatus: true,
+        supervisor: { select: { userId: true } },
+      },
+    });
+    if (!REGULARIZATION_TARGET_STATUS[employee.employmentStatus]) {
+      throw new BadRequestException("This employee is no longer on probation.");
+    }
+
+    const name = `${employee.firstName} ${employee.lastName}`;
+    const remarks = dto.remarks?.trim() || null;
+    await this.auditLogs.record({
+      ...context,
+      action: "REJECT_REGULARIZATION",
+      module: "Evaluations",
+      entityType: "Employee",
+      entityId: employee.id,
+      description: `Rejected the regularization of ${name}; they remain on probation.`,
+      newValues: { remarks },
+    });
+
+    if (employee.supervisor?.userId) {
+      await this.notifications.notifyUsers([employee.supervisor.userId], {
+        title: "Regularization Outcome",
+        message: `${name}'s regularization was not approved; they remain on probationary status.${remarks ? ` Remarks: ${remarks}` : ""}`,
+        type: EVALUATION_OUTCOME_NOTIFICATION_TYPE,
+        entityId: employee.id,
+      });
+    }
+
+    return { employeeId: employee.id, employmentStatus: employee.employmentStatus };
   }
 
   // Called from EmployeesService.update() when Admin changes a Probationary
@@ -356,7 +392,7 @@ export class EvaluationsService {
 
     await this.notifications.notifyUsers([evaluation.supervisor.userId], {
       title: "Evaluation Outcome",
-      message: `${employee.firstName} ${employee.lastName} has been ${outcomeLabel} following your submitted evaluation.`,
+      message: `${employee.firstName} ${employee.lastName} has been ${outcomeLabel} following your recommendation.`,
       type: EVALUATION_OUTCOME_NOTIFICATION_TYPE,
       entityId: employee.id,
     });

@@ -5,7 +5,7 @@ import SupervisorDashboardScreen from "./supervisor/SupervisorDashboardScreen";
 import TeamScreen from "./supervisor/TeamScreen";
 import SupervisorLeaveScreen from "./supervisor/SupervisorLeaveScreen";
 import SupervisorAttendanceScreen from "./supervisor/SupervisorAttendanceScreen";
-import EvaluationFormScreen from "./supervisor/EvaluationFormScreen";
+import RegularizationReviewScreen from "./supervisor/RegularizationReviewScreen";
 import MoreScreen from "./supervisor/MoreScreen";
 import NotificationsScreen from "./NotificationsScreen";
 
@@ -13,7 +13,7 @@ import Header from "../components/Header";
 import BottomTab, { SUPERVISOR_TABS } from "../components/BottomTab";
 
 import { SupervisorTab } from "../types";
-import { EmployeeProfile, MobileUser, TeamEmployee, getMyProfile, getUnreadNotificationCount, getTeamLeaveRequests, getTeamEmployees, getTeamEvaluationStatuses } from "../api";
+import { EmployeeProfile, MobileUser, getMyProfile, getUnreadNotificationCount, getTeamLeaveRequests } from "../api";
 import { managementRoleLabel } from "../utils/roles";
 import { CACHE_KEYS, cacheGet, cacheSet, revalidateCached, useCachedData } from "../utils/dataCache";
 
@@ -31,15 +31,12 @@ export default function SupervisorMainScreen({ user, onLogout, canSwitchToEmploy
 
   const [unreadCount, setUnreadCount] = useState(0);
   const [notificationsVisible, setNotificationsVisible] = useState(false);
-  const [evaluatingEmployeeId, setEvaluatingEmployeeId] = useState<string | null>(null);
+  // Set when "Review Employee" is tapped on a probation notification.
+  const [reviewEmployeeId, setReviewEmployeeId] = useState<string | null>(null);
   // Set when "View Leave Request" is tapped on a leave notification — tells
   // SupervisorLeaveScreen which request to open its review modal for.
   const [focusedLeaveRequestId, setFocusedLeaveRequestId] = useState<string | null>(null);
   const { data: profile } = useCachedData<EmployeeProfile>(CACHE_KEYS.myProfile, getMyProfile);
-  const { data: teamRoster } = useCachedData<TeamEmployee[]>(CACHE_KEYS.teamEmployees, getTeamEmployees);
-
-  const evaluatingEmployee = teamRoster?.find((e) => e.id === evaluatingEmployeeId);
-  const evaluatingEmployeeName = evaluatingEmployee ? `${evaluatingEmployee.firstName} ${evaluatingEmployee.lastName}` : "";
 
   useEffect(() => {
     let lastKnownCount: number | null = cacheGet<{ count: number }>(CACHE_KEYS.notificationsUnreadCount("reviewer"))?.count ?? null;
@@ -91,24 +88,19 @@ export default function SupervisorMainScreen({ user, onLogout, canSwitchToEmploy
         view="reviewer"
         employeeId={user?.employeeId}
         canReviewTeamRequests
-        onEvaluateEmployee={setEvaluatingEmployeeId}
         onViewLeaveRequest={(requestId) => {
           setNotificationsVisible(false);
           setTab("leave");
           setFocusedLeaveRequestId(requestId);
         }}
+        onReviewRegularization={setReviewEmployeeId}
       />
 
-      {evaluatingEmployeeId && (
-        <EvaluationFormScreen
-          visible={!!evaluatingEmployeeId}
-          employeeId={evaluatingEmployeeId}
-          employeeName={evaluatingEmployeeName || "Employee"}
-          onClose={() => {
-            setEvaluatingEmployeeId(null);
-            // Refresh the Team tab's evaluation status after a draft/submit.
-            revalidateCached("evaluation-team-status", getTeamEvaluationStatuses).catch(() => undefined);
-          }}
+      {reviewEmployeeId && (
+        <RegularizationReviewScreen
+          visible={!!reviewEmployeeId}
+          employeeId={reviewEmployeeId}
+          onClose={() => setReviewEmployeeId(null)}
         />
       )}
 
@@ -118,7 +110,6 @@ export default function SupervisorMainScreen({ user, onLogout, canSwitchToEmploy
         {tab === "team" && <TeamScreen
             departmentName={user?.department}
             currentEmployeeId={user?.employeeId}
-            onEvaluateEmployee={setEvaluatingEmployeeId}
           />}
 
         {tab === "leave" && (

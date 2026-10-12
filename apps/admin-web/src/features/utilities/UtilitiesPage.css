@@ -268,7 +268,16 @@
 
 .utilities-audit-table .utilities-table-scroll table {
   min-width: 860px;
+  table-layout: fixed;
 }
+
+/* Fixed shares so the four columns spread evenly across the card — without
+   them the long Description text took most of the width and squeezed
+   Module over to the left. Order: Date/Time, Role, Module, Description. */
+.utilities-audit-table th:nth-child(1) { width: 20%; }
+.utilities-audit-table th:nth-child(2) { width: 24%; }
+.utilities-audit-table th:nth-child(3) { width: 22%; }
+.utilities-audit-table th:nth-child(4) { width: 34%; }
 
 .utilities-table-scroll thead {
   position: sticky;
@@ -1985,6 +1994,15 @@
 .utilities-action-cell {
   display: flex;
   justify-content: center;
+}
+
+/* Audit log's Description column holds a full sentence, so it is allowed
+   to wrap; centered like the other columns. */
+.utilities-audit-table td.utilities-audit-action {
+  min-width: 260px;
+  white-space: normal;
+  text-align: center;
+  line-height: 1.4;
 }
 
 .utilities-action-cell .badge {

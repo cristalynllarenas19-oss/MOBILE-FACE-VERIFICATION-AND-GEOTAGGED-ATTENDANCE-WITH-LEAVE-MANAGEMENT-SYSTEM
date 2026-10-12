@@ -423,17 +423,16 @@ export class EmployeesService {
       await this.leaveAccrual.startAccrualForNewlyPermanentSeasonal(created.id);
     }
 
-    // Delivery failure shouldn't roll back an otherwise-successful hire —
-    // the account and temporary password already exist either way.
-    try {
-      await this.mail.sendNewEmployeeCredentialsEmail(
-        dto.email,
-        temporaryPassword,
-        `${created.firstName} ${created.lastName}`,
-      );
-    } catch (error) {
-      this.logger.error(`Failed to send new-employee credentials email to ${dto.email}`, error instanceof Error ? error.stack : undefined);
-    }
+    // Delivery failure shouldn't roll back or delay an otherwise-successful
+    // hire. Gmail/SMTP can take seconds even when the DB is local.
+    void this.mail
+      .sendNewEmployeeCredentialsEmail(dto.email, temporaryPassword, `${created.firstName} ${created.lastName}`)
+      .catch((error) => {
+        this.logger.error(
+          `Failed to send new-employee credentials email to ${dto.email}`,
+          error instanceof Error ? error.stack : undefined,
+        );
+      });
 
     await this.auditLogs.record({
       ...context,

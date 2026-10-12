@@ -36,6 +36,7 @@ const NOTIFICATION_ICON_MAP: Record<string, { Icon: typeof BellIcon; category: s
   ANNOUNCEMENT: { Icon: Megaphone, category: "announce" },
   PROBATION_REGULARIZATION_DUE: { Icon: UserCheck, category: "pending" },
   SUPERVISOR_EVALUATION_REQUIRED: { Icon: ClipboardList, category: "pending" },
+  SUPERVISOR_REGULARIZATION_RECOMMENDATION: { Icon: ClipboardList, category: "pending" },
   EVALUATION_CONVERSION_OUTCOME: { Icon: UserCheck, category: "info" },
   EMPLOYEE_REGULARIZED: { Icon: UserCheck, category: "success" },
   ATTENDANCE_FLAGGED: { Icon: TriangleAlert, category: "pending" },

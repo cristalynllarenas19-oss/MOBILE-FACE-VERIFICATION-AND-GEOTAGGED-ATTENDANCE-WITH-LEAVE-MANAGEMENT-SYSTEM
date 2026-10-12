@@ -137,7 +137,7 @@ export class UpdateEmployeeDto {
   hireDate?: string;
 
   // See CreateEmployeeDto.employeeTypeId / employmentStatus. employmentStatus
-  // here is also what Approve Regularization (EvaluationViewModal) sends.
+  // here is also what the Admin's Approve in the Regularization Review sends.
   @IsOptional()
   @IsString()
   employeeTypeId?: string;

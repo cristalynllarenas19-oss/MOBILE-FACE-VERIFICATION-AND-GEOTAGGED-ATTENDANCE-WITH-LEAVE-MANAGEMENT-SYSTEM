@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { ReactNode, useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
-import { EvaluationModal } from "../../features/evaluations/EvaluationModal";
+import { RegularizationReviewModal } from "../../features/regularization/RegularizationReviewModal";
 import { PermissionCode, permissions } from "../../types/rbac";
 import { apiRequest } from "../../lib/api";
 import logo from "../../assets/unileaf-logo.png";
@@ -124,8 +124,8 @@ export function AppLayout({
   const [unreadCount, setUnreadCount] = useState(0);
   // Employee-portal-only
   const [detailNotification, setDetailNotification] = useState<AppNotification | null>(null);
+  const [reviewEmployeeId, setReviewEmployeeId] = useState<string | null>(null);
   // Supervisor-portal only
-  const [evaluatingEmployeeId, setEvaluatingEmployeeId] = useState<string | null>(null);
   const notifRef = useRef<HTMLDivElement>(null);
   const switcherRef = useRef<HTMLDivElement>(null);
 
@@ -228,6 +228,13 @@ export function AppLayout({
   };
 
   const ATTENDANCE_NOTIFICATION_TYPES = ["ATTENDANCE_FLAGGED", "FACE_MISMATCH_STREAK", "ATTENDANCE_VALIDATED", "ATTENDANCE_FAKE_ATTEMPT"];
+  // Probation notifications — all open the Regularization Review for the
+  // employee they are about.
+  const REGULARIZATION_NOTIFICATION_TYPES = [
+    "PROBATION_REGULARIZATION_DUE",
+    "SUPERVISOR_EVALUATION_REQUIRED",
+    "SUPERVISOR_REGULARIZATION_RECOMMENDATION",
+  ];
 
  
   const isSupervisorOnly = !user.roles.includes("ADMIN") && user.roles.includes("SUPERVISOR");
@@ -259,20 +266,15 @@ export function AppLayout({
       
       onNavigate("attendance", notification.entityId ?? undefined);
     } else if (
-      notification.type === "PROBATION_REGULARIZATION_DUE" &&
-      activeView === "admin" &&
-      (user.adminPermissions ?? user.permissions).includes(permissions.employeesRead)
-    ) {
-      
-      onNavigate("employees", notification.entityId ?? undefined);
-    } else if (
-      notification.type === "SUPERVISOR_EVALUATION_REQUIRED" &&
+      notification.type &&
+      REGULARIZATION_NOTIFICATION_TYPES.includes(notification.type) &&
       activeView === "admin" &&
       notification.entityId &&
-      (user.adminPermissions ?? user.permissions).includes(permissions.evaluationsWrite)
+      (user.adminPermissions ?? user.permissions).includes(permissions.employeesRead)
     ) {
-      
-      setEvaluatingEmployeeId(notification.entityId);
+      // Admin and Supervisor both land on the same review of the employee's
+      // record; the modal decides which decision each of them can make.
+      setReviewEmployeeId(notification.entityId);
     }
     setNotifOpen(false);
   };
@@ -414,8 +416,8 @@ export function AppLayout({
         />
       )}
 
-      {evaluatingEmployeeId && (
-        <EvaluationModal employeeId={evaluatingEmployeeId} onClose={() => setEvaluatingEmployeeId(null)} />
+      {reviewEmployeeId && (
+        <RegularizationReviewModal employeeId={reviewEmployeeId} onClose={() => setReviewEmployeeId(null)} />
       )}
 
       {detailNotification && (
