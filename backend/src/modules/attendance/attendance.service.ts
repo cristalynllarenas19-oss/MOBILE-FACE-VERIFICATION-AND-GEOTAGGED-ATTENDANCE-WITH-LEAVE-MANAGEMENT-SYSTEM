@@ -63,6 +63,11 @@ function parseLocalDate(value: string | undefined, endOfDay = false): Date | und
 // MISMATCH_NOTIFY_THRESHOLD for the confident-mismatch path.
 const FLAGGED_NOTIFY_THRESHOLD = 3;
 
+// Role codes only, alongside an attendance row's employee — the attendance
+// viewers show a Supervisor/Admin's highest role in place of their position
+// title, since they log attendance like any other employee.
+const EMPLOYEE_ROLE_CODES_SELECT = { userRoles: { select: { role: { select: { code: true } } } } } as const;
+
 const FLAGGED_LOG_TYPE_LABEL: Record<string, string> = {
   TIME_IN: "time in",
   TIME_OUT: "time out",
@@ -137,7 +142,7 @@ export class AttendanceService {
             : {}),
       },
       include: {
-        employee: { include: { department: true, position: { select: { title: true } }, faceProfiles: { orderBy: { enrolledAt: "desc" }, take: 1 } } },
+        employee: { include: { department: true, position: { select: { title: true } }, user: { select: EMPLOYEE_ROLE_CODES_SELECT }, faceProfiles: { orderBy: { enrolledAt: "desc" }, take: 1 } } },
         workLocation: { select: { name: true } },
         logs: { orderBy: { capturedAt: "desc" } },
         shift: { select: { startTime: true, endTime: true, lateThresholdMinutes: true, lunchBreakMinutes: true, breakStartTime: true, breakKind: true } },
@@ -224,6 +229,7 @@ export class AttendanceService {
         hireDate: true,
         department: { select: { name: true } },
         position: { select: { title: true } },
+        user: { select: EMPLOYEE_ROLE_CODES_SELECT },
       },
     });
     const employeeIds = employees.map((e) => e.id);
@@ -326,6 +332,7 @@ export class AttendanceService {
             lastName: employee.lastName,
             department: employee.department,
             position: employee.position,
+            user: employee.user,
             faceProfiles: [],
           },
           logs: [],
@@ -1340,6 +1347,7 @@ export class AttendanceService {
           include: {
             department: true,
             position: { select: { title: true } },
+            user: { select: EMPLOYEE_ROLE_CODES_SELECT },
             faceProfiles: { orderBy: { enrolledAt: "desc" }, take: 1 },
           },
         },

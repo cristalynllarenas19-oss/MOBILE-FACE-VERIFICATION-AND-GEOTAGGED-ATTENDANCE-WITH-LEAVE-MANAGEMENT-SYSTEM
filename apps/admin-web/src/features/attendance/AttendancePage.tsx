@@ -48,6 +48,7 @@ type AttendanceRecord = {
     lastName: string;
     department: { name: string };
     position?: { title: string } | null;
+    user?: { userRoles: { role: { code: string } }[] } | null;
     faceProfiles?: { referenceImageData?: string | null }[];
   };
   logs: AttendanceLog[];
@@ -143,6 +144,16 @@ function formatTime(value: string | null | undefined, status?: AttendanceStatus)
 
 function getName(record: AttendanceRecord) {
   return `${record.employee.firstName} ${record.employee.lastName}`;
+}
+
+// A Supervisor or Admin logs attendance like any other employee, so their
+// highest role is shown rather than their position title; everyone else
+// shows their position, or plain "Employee" when none is assigned.
+function getPositionLabel(employee: AttendanceRecord["employee"]) {
+  const roleCodes = employee.user?.userRoles.map((userRole) => userRole.role.code) ?? [];
+  if (roleCodes.includes("ADMIN")) return "Admin";
+  if (roleCodes.includes("SUPERVISOR")) return "Supervisor";
+  return employee.position?.title ?? "Employee";
 }
 
 function getStatusTone(status: AttendanceStatus) {
@@ -401,7 +412,7 @@ function AttendanceDetailsModal({
             <div className="attendance-section-title">Employee</div>
             <div className="attendance-rows">
               <div><span>Name</span><strong>{getName(record)}</strong></div>
-              <div><span>Position</span><strong>{record.employee.position?.title ?? "—"}</strong></div>
+              <div><span>Position</span><strong>{getPositionLabel(record.employee)}</strong></div>
               <div><span>Department</span><strong>{record.employee.department.name}</strong></div>
             </div>
 
@@ -435,7 +446,11 @@ function AttendanceDetailsModal({
                       <strong>No log</strong>
                     )}
                   </div>
-                  <div><span>Remarks</span><strong>{record.adminRemarks?.remarks ?? "None"}</strong></div>
+                  {/* A flagged attempt has no AttendanceRecord yet, so there is
+                      never a remark to show for it. */}
+                  {!record.isFlagged && (
+                    <div><span>Remarks</span><strong>{record.adminRemarks?.remarks ?? "None"}</strong></div>
+                  )}
                 </>
               )}
             </div>

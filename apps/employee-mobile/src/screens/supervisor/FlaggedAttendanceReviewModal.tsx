@@ -47,6 +47,16 @@ function ordinal(value: number) {
   return `${value}${suffix}`;
 }
 
+// Same rule as admin-web's getPositionLabel: a Supervisor or Admin shows
+// their highest role rather than their position title; everyone else shows
+// their position, or plain "Employee" when none is assigned.
+function positionLabel(employee: FlaggedAttendanceLog["employee"]) {
+  const roleCodes = employee.user?.userRoles.map((userRole) => userRole.role.code) ?? [];
+  if (roleCodes.includes("ADMIN")) return "Admin";
+  if (roleCodes.includes("SUPERVISOR")) return "Supervisor";
+  return employee.position?.title ?? "Employee";
+}
+
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.detailRow}>
@@ -234,7 +244,7 @@ export default function FlaggedAttendanceReviewModal({
               <Text style={styles.sectionTitle}>Employee</Text>
               <View style={styles.detailCard}>
                 <Row label="Name" value={`${log.employee.firstName} ${log.employee.lastName}`} />
-                <Row label="Position" value={log.employee.position?.title ?? "—"} />
+                <Row label="Position" value={positionLabel(log.employee)} />
                 <Row label="Department" value={log.employee.department.name} />
                 <View style={styles.detailRow}>
                   <Text style={styles.detailLabel}>Status</Text>

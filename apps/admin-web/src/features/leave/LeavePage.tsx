@@ -408,6 +408,15 @@ function formatAccrualPeriod(start: string, end: string) {
   return from === to ? from : `${from} – ${to}`;
 }
 
+// When a qualifying period was due to end: one month after it started (the
+// same rule as the backend's addOneMonth). A PERFECT period's cycleEnd is
+// already this date; an absence cuts the period short, so its cycleEnd is
+// the absence day instead.
+function formatPlannedAccrualEnd(start: string) {
+  const from = new Date(start);
+  return formatDate(new Date(from.getFullYear(), from.getMonth() + 1, from.getDate()).toISOString());
+}
+
 function AccrualStatusBadge({ status }: { status: LeaveAccrualHistoryRow["attendanceStatus"] }) {
   return <Badge tone={status === "PERFECT" ? "success" : "danger"}>{status === "PERFECT" ? "Perfect" : "Absent"}</Badge>;
 }
@@ -429,6 +438,34 @@ function AccrualDetailsModal({
     .slice(0, 2)
     .join("")
     .toUpperCase();
+
+  // Everything this employee has accrued so far, across all their periods —
+  // the strip above it only covers the one period that was clicked.
+  const totalSick = history.reduce((sum, entry) => sum + entry.sickLeaveEarned, 0);
+  const totalVacation = history.reduce((sum, entry) => sum + entry.vacationLeaveEarned, 0);
+  const perfectPeriods = history.filter((entry) => entry.attendanceStatus === "PERFECT").length;
+
+  // Today's attendance for this employee, from the same single-day list the
+  // Attendance page shows (real records plus reconstructed Absent / On Leave
+  // rows). undefined = still loading; null = nothing for today yet (not
+  // timed in and not past the absence cutoff, or a day off).
+  const [todayStatus, setTodayStatus] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    let cancelled = false;
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const params = new URLSearchParams({ date: today, department: row.department });
+    apiRequest<{ employeeId: string; status: string }[]>(`/attendance?${params.toString()}`)
+      .then((records) => {
+        if (!cancelled) setTodayStatus(records.find((record) => record.employeeId === row.employeeId)?.status ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setTodayStatus(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [row.employeeId, row.department]);
 
   return createPortal(
     <div className="leave-modal-backdrop" role="presentation" onClick={onClose}>
@@ -467,28 +504,63 @@ function AccrualDetailsModal({
 
           <div className="accrual-summary">
             <div>
-              <span>Qualifying Period</span>
-              <strong>{formatAccrualPeriod(row.cycleStart, row.cycleEnd)}</strong>
+              <span>Start Date</span>
+              <strong>{formatDate(row.cycleStart)}</strong>
             </div>
             <div>
-              <span>Attendance Status</span>
-              <AccrualStatusBadge status={row.attendanceStatus} />
+              <span>End Date</span>
+              <strong>{formatPlannedAccrualEnd(row.cycleStart)}</strong>
             </div>
             <div>
-              <span>Sick Leave Earned</span>
-              <strong>{row.sickLeaveEarned.toFixed(2)}</strong>
-            </div>
-            <div>
-              <span>Vacation Leave Earned</span>
-              <strong>{row.vacationLeaveEarned.toFixed(2)}</strong>
+              <span>Attendance Status Today</span>
+              {todayStatus === undefined ? (
+                <strong>…</strong>
+              ) : todayStatus === null ? (
+                <strong>No record yet</strong>
+              ) : (
+                <Badge tone={todayStatus === "PRESENT" ? "success" : todayStatus === "ABSENT" ? "danger" : "warning"}>
+                  {todayStatus === "PRESENT"
+                    ? "Present"
+                    : todayStatus === "LATE"
+                      ? "Late"
+                      : todayStatus === "ABSENT"
+                        ? "Absent"
+                        : todayStatus === "ON_LEAVE"
+                          ? "On Leave"
+                          : todayStatus.replace(/_/g, " ")}
+                </Badge>
+              )}
             </div>
           </div>
+
+          {row.attendanceStatus !== "PERFECT" && (
+            <p className="accrual-note accrual-note--ended">
+              <Info size={14} />
+              Ended early: absent on {formatDate(row.cycleEnd)}. A new qualifying period started the next day.
+            </p>
+          )}
 
           <p className="accrual-note">
             <Info size={14} />
             Accruals are based on attendance records. A qualifying period with an unexcused absence earns no
             leave credit.
           </p>
+
+          <p className="accrual-section-title">Total Leave Accrued</p>
+          <div className="accrual-summary accrual-summary--totals">
+            <div>
+              <span>Sick Leave</span>
+              <strong>{totalSick.toFixed(2)}</strong>
+            </div>
+            <div>
+              <span>Vacation Leave</span>
+              <strong>{totalVacation.toFixed(2)}</strong>
+            </div>
+            <div>
+              <span>Perfect Months</span>
+              <strong>{perfectPeriods}</strong>
+            </div>
+          </div>
 
           <p className="accrual-section-title">Accrual History</p>
           <div className="accrual-history-scroll">
@@ -497,8 +569,6 @@ function AccrualDetailsModal({
                 <tr>
                   <th>Qualifying Period</th>
                   <th>Attendance Status</th>
-                  <th>Sick Leave</th>
-                  <th>Vacation Leave</th>
                 </tr>
               </thead>
               <tbody>
@@ -506,8 +576,6 @@ function AccrualDetailsModal({
                   <tr key={entry.id} className={entry.id === row.id ? "current" : ""}>
                     <td>{formatAccrualPeriod(entry.cycleStart, entry.cycleEnd)}</td>
                     <td><AccrualStatusBadge status={entry.attendanceStatus} /></td>
-                    <td>{entry.sickLeaveEarned.toFixed(2)}</td>
-                    <td>{entry.vacationLeaveEarned.toFixed(2)}</td>
                   </tr>
                 ))}
               </tbody>

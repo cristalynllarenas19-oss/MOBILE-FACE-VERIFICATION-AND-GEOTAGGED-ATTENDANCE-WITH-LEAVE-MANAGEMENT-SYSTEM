@@ -1965,21 +1965,28 @@
 /* The clicked period's figures as one quiet strip. */
 .accrual-summary {
   display: grid;
-  grid-template-columns: 1.4fr 1fr 1fr 1.2fr;
+  grid-template-columns: repeat(3, 1fr);
   margin-top: 16px;
   padding: 12px 6px;
   border-radius: 10px;
   background: #f5f8fb;
 }
 
+/* Running totals across every period, under their own section title. */
+.accrual-summary--totals {
+  grid-template-columns: repeat(3, 1fr);
+  margin-top: 0;
+}
+
 .accrual-summary > div {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
   gap: 4px;
   min-width: 0;
   padding: 0 12px;
   border-left: 1px solid #e3e9f0;
+  text-align: center;
 }
 
 .accrual-summary > div:first-child {
@@ -1997,6 +2004,12 @@
   color: #1e4f8f;
   font-size: 11.5px;
   font-weight: 500;
+}
+
+/* The period was cut short by an absence before its planned end date. */
+.accrual-note--ended {
+  background: #fef2f2;
+  color: #b91c1c;
 }
 
 .accrual-note svg {
@@ -2037,7 +2050,7 @@
   font-size: 10.5px;
   font-weight: 700;
   letter-spacing: 0.4px;
-  text-align: left;
+  text-align: center;
   text-transform: uppercase;
 }
 
@@ -2047,7 +2060,7 @@
   color: #1a3a5c;
   font-size: 12px;
   font-weight: 500;
-  text-align: left;
+  text-align: center;
 }
 
 .accrual-history-table tr:last-child td {

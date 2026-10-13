@@ -993,6 +993,7 @@ export type FlaggedAttendanceLog = {
     lastName: string;
     department: { name: string };
     position?: { title: string } | null;
+    user?: { userRoles: { role: { code: string } }[] } | null;
     // Newest enrolled profile only (take: 1 server-side) — the "registered
     // face" half of the comparison the reviewer is here to make.
     faceProfiles?: { referenceImageData?: string | null }[];
