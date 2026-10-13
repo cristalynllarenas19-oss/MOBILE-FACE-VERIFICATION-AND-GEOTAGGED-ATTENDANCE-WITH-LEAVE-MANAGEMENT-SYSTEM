@@ -1,5 +1,5 @@
 const FRIENDLY_REASONS: Record<string, string> = {
-  "GPS accuracy is too low": "Your location signal is too weak. Move to an open area and try again.",
+  "GPS accuracy is too low": "Your location signal is too weak. Move near a window or to an open area and try again.",
   "Employee is outside the approved work location": "You're outside your assigned work area. Move closer and try again.",
   "No face detected in the captured photo. Please retake in good lighting.":
     "We couldn't find a face in the photo. Make sure you're well-lit and facing the camera, then try again.",
@@ -23,17 +23,17 @@ export function getFriendlyReason(reason: string | null | undefined, verificatio
   return "Please try again.";
 }
 
-// Copy for a flagged (PENDING_REVIEW — borderline face match) attempt,
+// Copy for a flagged (PENDING_REVIEW — face found but not cleanly matched) attempt,
 // keyed by how many such attempts the employee has had today (including
 // this one). Escalates in tone as the same-day count climbs toward the
 // backend's FLAGGED_NOTIFY_THRESHOLD (3), where the supervisor is actually
 // notified — see AttendanceService.submit()/recordFlaggedAttempt().
-export function getFlaggedAttemptMessage(actionLabel: string, flaggedAttemptCount: number | null | undefined) {
+export function getFlaggedAttemptMessage(flaggedAttemptCount: number | null | undefined) {
   if (flaggedAttemptCount === 2) {
     return {
-      title: "Still Unable to Confirm",
+      title: "Still Unable to Confirm It's You",
       message:
-        "This is your 2nd unclear attempt today. One more, and your supervisor will be notified to review this attendance. Try again in better lighting.",
+        "This is your 2nd unclear attempt today. One more, and your Supervisor will be notified to review this attendance. Try again in better lighting.",
     };
   }
 
@@ -41,12 +41,12 @@ export function getFlaggedAttemptMessage(actionLabel: string, flaggedAttemptCoun
     return {
       title: "Supervisor Notified",
       message:
-        "This is your 3rd unclear attempt today. Your supervisor has been notified and will need to review and approve this attendance manually.",
+        "This is your 3rd unclear attempt today. Your Supervisor has been notified and will need to review and approve this attendance manually.",
     };
   }
 
   return {
-    title: `${actionLabel} Pending Review`,
+    title: "Unable to Confirm It's You",
     message: "We couldn't clearly confirm it's you. Please make sure you're well-lit and facing the camera, then try again.",
   };
 }

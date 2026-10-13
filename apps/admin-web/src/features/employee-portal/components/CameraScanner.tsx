@@ -243,6 +243,9 @@ export default function CameraScanner({ logType, isBreak, onComplete, onCancel }
   const [cameraReady,  setCameraReady]  = useState(false);
   const [faceDetected, setFaceDetected] = useState(false);
   const [faceBox,      setFaceBox]      = useState<FaceBox | null>(null);
+  // False while the detected face is too dark for a reliable match — keeps
+  // the guide from turning green and swaps the prompt for a lighting hint.
+  const [faceWellLit,  setFaceWellLit]  = useState(true);
   const [photoSize,    setPhotoSize]    = useState({ w: 0, h: 0 });
   const [stageSize,    setStageSize]    = useState({ w: 0, h: 0 });
   const [scanProgress, setScanProgress] = useState(0);
@@ -476,6 +479,7 @@ export default function CameraScanner({ logType, isBreak, onComplete, onCancel }
         faceDetRef.current = result.detected;
         setFaceDetected(result.detected);
         setFaceBox(result.detected ? result.box : null);
+        setFaceWellLit(result.wellLit !== false);
         if (result.detected && samplingBlink) registerEyeSample(result.ear);
       } catch (err) {
         if (cancelled) return;
@@ -574,7 +578,9 @@ export default function CameraScanner({ logType, isBreak, onComplete, onCancel }
     : isLocked
       ? "Face locked!"
       : faceDetected
-        ? (livenessVerified ? "Liveness verified — hold steady..." : "Please blink to verify you're not a photo")
+        ? !faceWellLit
+          ? (livenessVerified ? "Too dark — move to a brighter spot" : "Too dark — move to a brighter spot, then blink")
+          : (livenessVerified ? "Liveness verified — hold steady..." : "Please blink to verify you're not a photo")
         : "No face detected — position your face inside the frame";
 
   // ── Error / permission screen ──────────────────────────────────────────────
@@ -671,9 +677,9 @@ export default function CameraScanner({ logType, isBreak, onComplete, onCancel }
               computeFaceGuideRect), so this can never collide with it. */}
           {!frozenSrc && (
             <div style={S.overlayHeader} className="cs-pill">
-              <div style={{ ...S.overlayPill, background: faceDetected ? "rgba(34,197,94,0.85)" : "rgba(15,23,42,0.55)" }}>
+              <div style={{ ...S.overlayPill, background: faceDetected ? (faceWellLit ? "rgba(34,197,94,0.85)" : "rgba(217,119,6,0.9)") : "rgba(15,23,42,0.55)" }}>
                 <ScanFace size={14} color="#EFF6FF" />
-                <span style={S.overlayPillText}>{faceDetected ? "Face detected" : "Position your face"}</span>
+                <span style={S.overlayPillText}>{faceDetected ? (faceWellLit ? "Face detected" : "Too dark") : "Position your face"}</span>
               </div>
               {faceDetected && (
                 <div style={S.overlayHint}>
@@ -713,7 +719,7 @@ export default function CameraScanner({ logType, isBreak, onComplete, onCancel }
                 top:    faceGuideRect.y,
                 width:  faceGuideRect.w,
                 height: faceGuideRect.h,
-                border: `3px dashed ${faceCentered ? LOCKED_COLOR : GUIDE_BOX_COLOR}`,
+                border: `3px dashed ${faceCentered && faceWellLit ? LOCKED_COLOR : GUIDE_BOX_COLOR}`,
                 borderRadius: "50%",
                 background: "rgba(255,255,255,0.03)",
                 pointerEvents: "none",

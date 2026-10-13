@@ -131,6 +131,13 @@ export type TodayAttendance = {
   // away — account-wide, not scoped to whichever specific action was
   // originally flagged.
   hasUnresolvedFlaggedAttempt?: boolean;
+  // The explanation to show while that hold is active — the same text as
+  // the employee's "Attendance Disabled" notification. Null otherwise.
+  flagHoldMessage?: string | null;
+  // Set once a reviewer has rejected a flagged attempt today and attendance
+  // is enabled again, until the employee records an approved scan — the
+  // same text as the "Attendance Rejected" notification. Null otherwise.
+  flagRejectedMessage?: string | null;
   // Set when this working day is covered by an approved leave and nothing
   // has been timed in — attendance can't be recorded while on leave.
   onLeave?: { leaveTypeName: string } | null;
@@ -152,6 +159,9 @@ export type AttendanceSubmitResult = {
   logType: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN";
   geoResult: { reason?: string | null };
   faceResult: { reason?: string | null };
+  // 0-100 match between the captured face and the enrolled one, as scored
+  // by the server. 0 when no face comparison happened at all.
+  similarityScore?: number;
   // How many same-day flagged (PENDING_REVIEW — borderline face match)
   // attempts this employee now has, including this one. Only set when this
   // scan itself was flagged; null otherwise. Lets the modal tell the
@@ -652,7 +662,8 @@ export async function getTodayAttendance(
 export type FaceBox = { x: number; y: number; width: number; height: number };
 
 export async function detectFace(imageBase64: string, precise = false) {
-  return apiRequest<{ detected: boolean; confidence: number; box: FaceBox | null; ear: number | null }>(
+  // wellLit is false when the detected face is too dark for a reliable match.
+  return apiRequest<{ detected: boolean; confidence: number; box: FaceBox | null; ear: number | null; wellLit?: boolean }>(
     "/face/detect",
     {
       method: "POST",

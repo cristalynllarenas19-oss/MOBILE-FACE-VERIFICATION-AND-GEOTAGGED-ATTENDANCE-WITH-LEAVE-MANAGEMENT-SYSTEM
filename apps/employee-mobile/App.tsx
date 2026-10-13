@@ -10,7 +10,6 @@ import {
   getEligibilityMessage,
   getGeofenceMessage,
   getApplicableAction,
-  getUnauthorizedAttemptMessage,
 } from "./src/screens/AttendanceScreen";
 import SupervisorMainScreen from "./src/screens/SupervisorMainScreen";
 import { hasManagementRole, managementRoleLabel } from "./src/utils/roles";
@@ -558,17 +557,7 @@ export default function App() {
     setIsLoggingOut(false);
   }
 
-  // bypassFlagLock is only ever passed true from the "Log Attendance Now"
-  // button on an ATTENDANCE_LOCKED notification (see handleLogRealAttendance
-  // below) — reading and acting on that specific notification is exactly
-  // how an employee is meant to clear the lock (a genuine scan of
-  // themselves), unlike an unprompted retap of the disabled button on the
-  // Attendance screen itself. Every other check (config eligibility,
-  // geofence) still applies even when bypassing this one.
-  async function startScan(
-    type: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN",
-    options: { bypassFlagLock?: boolean } = {},
-  ) {
+  async function startScan(type: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN") {
     if (!user?.employeeId) {
       setResultModal({
         status: "error",
@@ -613,12 +602,14 @@ export default function App() {
         ? { ...eligibility, hasWorkLocation: latestWorkLocations.length > 0 }
         : eligibility;
     const currentGeofenceStatus = computeGeofenceStatus(latestWorkLocations ?? assignedWorkLocations);
-    const eligibilityMessage =
-      getEligibilityMessage(currentEligibility) ??
-      (options.bypassFlagLock
-        ? null
-        : getUnauthorizedAttemptMessage(Boolean(todayAttendance?.hasUnresolvedFlaggedAttempt), applicableAction)) ??
-      getGeofenceMessage(currentGeofenceStatus, applicableAction);
+    const configMessage = getEligibilityMessage(currentEligibility);
+    // The flagged-attempt hold stops the scan without a modal of its own —
+    // the red card on the attendance screen already says why the buttons
+    // are disabled.
+    if (!configMessage && todayAttendance?.hasUnresolvedFlaggedAttempt) {
+      return;
+    }
+    const eligibilityMessage = configMessage ?? getGeofenceMessage(currentGeofenceStatus, applicableAction);
     if (eligibilityMessage) {
       setResultModal({
         status: "error",
@@ -746,7 +737,7 @@ export default function App() {
         setResultModal({
           status: "error",
           title: "No Assigned Sites",
-          message: "You don't have any assigned work sites yet. Contact your supervisor.",
+          message: "You don't have any assigned work sites yet. Contact your Supervisor.",
         });
         return;
       }
@@ -846,7 +837,7 @@ export default function App() {
           message: `Verified at ${timestamp}. Your Daily Time Record has been updated. ${friendlyMessage}`,
         });
       } else if (result.verificationStatus === "PENDING_REVIEW") {
-        const flagged = getFlaggedAttemptMessage(actionLabel, result.flaggedAttemptCount);
+        const flagged = getFlaggedAttemptMessage(result.flaggedAttemptCount);
         setResultModal({
           status: "pending",
           title: flagged.title,
@@ -855,11 +846,7 @@ export default function App() {
       } else {
         setResultModal({
           status: "rejected",
-          // A flat face mismatch (as opposed to no-face-detected, liveness
-          // failure, or being outside the work area — each keeps the
-          // generic title below) gets its own clear title, since this is
-          // the "someone else's face" case specifically.
-          title: reason === "Face does not match enrolled profile" ? "Face Verification Failed" : `${actionLabel} Not Recorded`,
+          title: `${actionLabel} Not Recorded`,
           message: friendlyMessage,
         });
       }
@@ -891,11 +878,11 @@ export default function App() {
     }
   }
 
-  // Backs the "Log Attendance Now" button on an ATTENDANCE_LOCKED
-  // notification — figures out which action is currently applicable the
-  // same way AttendanceScreen's own buttons do, then opens the camera for
-  // it directly, bypassing the account-wide lock this one notification is
-  // specifically the sanctioned way around.
+  // Backs the "Log Attendance Now" button on the notification sent when a
+  // supervisor/admin rejects a flagged attempt (which is also what lifts the
+  // flagged-attempt hold) — figures out which action is currently applicable
+  // the same way AttendanceScreen's own buttons do, then opens the camera
+  // for it. Every usual check still applies.
   function handleLogRealAttendance() {
     if (!user) return;
     const isFieldMode = user.attendanceMode === "FIELD";
@@ -922,10 +909,10 @@ export default function App() {
               ? "LUNCH_IN"
               : null;
     if (!type) return;
-    void startScan(type, { bypassFlagLock: true });
+    void startScan(type);
   }
 
-  function handleOutOfRange() {
+  function handleOutOfRange(reason: "weak-signal" | "outside") {
     const actionLabel = scanType
       ? getActionLabel(scanType, user?.attendanceMode === "FIELD", todayAttendance?.breakKind === "BREAK")
       : "Attendance";
@@ -935,7 +922,10 @@ export default function App() {
     setResultModal({
       status: "rejected",
       title: `${actionLabel} Not Recorded`,
-      message: getFriendlyReason("Employee is outside the approved work location", "REJECTED"),
+      message: getFriendlyReason(
+        reason === "weak-signal" ? "GPS accuracy is too low" : "Employee is outside the approved work location",
+        "REJECTED",
+      ),
     });
   }
 
@@ -1033,6 +1023,9 @@ export default function App() {
         status={resultModal?.status ?? "info"}
         title={resultModal?.title ?? ""}
         message={resultModal?.message ?? ""}
+        // Anything other than a recorded attendance (flagged, rejected,
+        // locked, out of range) is dismissed with "Close", not "Done".
+        buttonLabel={resultModal?.status === "approved" ? "Done" : "Close"}
         onClose={() => setResultModal(null)}
       />
     </SafeAreaProvider>

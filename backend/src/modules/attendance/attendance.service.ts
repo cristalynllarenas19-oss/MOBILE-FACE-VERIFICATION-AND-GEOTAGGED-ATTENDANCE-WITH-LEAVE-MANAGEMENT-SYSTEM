@@ -63,6 +63,35 @@ function parseLocalDate(value: string | undefined, endOfDay = false): Date | und
 // MISMATCH_NOTIFY_THRESHOLD for the confident-mismatch path.
 const FLAGGED_NOTIFY_THRESHOLD = 3;
 
+const FLAGGED_LOG_TYPE_LABEL: Record<string, string> = {
+  TIME_IN: "time in",
+  TIME_OUT: "time out",
+  LUNCH_OUT: "break start",
+  LUNCH_IN: "break end",
+};
+
+// TEMPORARY, for trial runs: employees whose flagged-attempt card and
+// notifications always say "supervisor", even though the normal rule would
+// say "HR/Admin" for them (EMP-1010, Sheena Emperador, is a supervisor with
+// no supervisor of her own). Wording only — who actually gets notified and
+// reviews is unchanged. Empty this list once the trial is over.
+const TRIAL_SUPERVISOR_WORDING_EMPLOYEE_IDS = ["EMP-1010"];
+
+// One wording for the flagged-attempt hold, used by both the employee's
+// "Attendance Disabled" notification and the attendance screen's red card.
+function buildFlagHoldMessage(logType: string, reviewerLabel: string) {
+  const label = FLAGGED_LOG_TYPE_LABEL[logType] ?? "attendance";
+  return `Repeated unauthorized ${label} attempts were detected on your account and your ${reviewerLabel} has been notified. Attendance is disabled until they review it.`;
+}
+
+// One wording for a same-day rejected flagged attempt, used by both the
+// employee's "Attendance Rejected" notification and the attendance screen's
+// card that follows it.
+function buildFlagRejectedMessage(logType: string, reviewerLabel: string) {
+  const label = FLAGGED_LOG_TYPE_LABEL[logType] ?? "attendance";
+  return `Your flagged ${label} attempt was reviewed and rejected. Attendance is enabled again. Log your attendance now to record your ${label} for today, and report to your ${reviewerLabel} immediately.`;
+}
+
 // Longest from/to range findAll() rebuilds Absent/On-Leave rows for, one day
 // at a time. Those rows are never stored, so each day costs its own leave
 // and schedule lookups.
@@ -399,7 +428,10 @@ export class AttendanceService {
     orderBy: { timeInAt: "desc" },
   });
 
-  const hasUnresolvedFlaggedAttempt = await this.hasUnresolvedFlaggedAttempt(employeeId, attendanceDate);
+  const flagHoldMessage = await this.getFlaggedAttemptHoldMessage(employeeId, attendanceDate);
+  const flagRejectedMessage = flagHoldMessage
+    ? null
+    : await this.getFlagRejectedMessage(employeeId, attendanceDate);
 
   // Set when this working day is covered by an approved leave and nothing
   // has been timed in — the client locks its buttons instead of letting the
@@ -433,7 +465,9 @@ export class AttendanceService {
     expectedTimeOutAt: effectiveStart ? computeExpectedTimeOut(effectiveStart, resolvedShift ?? undefined) : null,
     breakKind: resolveBreakKind(breakShift),
     onLeave: approvedLeave ? { leaveTypeName: approvedLeave.leaveTypeName } : null,
-    hasUnresolvedFlaggedAttempt,
+    hasUnresolvedFlaggedAttempt: flagHoldMessage !== null,
+    flagHoldMessage,
+    flagRejectedMessage,
   };
 }
 
@@ -448,39 +482,81 @@ export class AttendanceService {
   // is just as much a reason to double-check the next Time In as it is the
   // next Time Out.
   //
-  // A flagged log staying PENDING_REVIEW forever (until an admin resolves
-  // it) would otherwise keep the lock up even after the employee proves
-  // it's really them with a later successful scan — e.g. three flagged Time
-  // Ins followed by the employee's own genuine Time In should free up Time
-  // Out/Lunch right away, not force them to wait on a supervisor who may
-  // not review the queue until end of day. So the lock only holds while the
-  // *most recent* flagged attempt is still more recent than the *most
-  // recent* approved one — a fresh flag after that later approved scan (say,
-  // on Time Out) re-locks things again, same as the first time.
-  private async hasUnresolvedFlaggedAttempt(employeeId: string, attendanceDate: Date): Promise<boolean> {
+  // Only a supervisor/admin review lifts the hold — the employee can't clear
+  // it themselves with another scan. It holds while the *most recent*
+  // flagged attempt is still newer than the *most recent* review of any of
+  // that day's attempts (validate, reject or archive), so one decision frees
+  // the account without the reviewer having to work through every queued
+  // attempt first, and a fresh flag after that review holds it again.
+  //
+  // Returns the employee-facing explanation while the hold is active (the
+  // same text as the "Attendance Disabled" notification, shown on the
+  // attendance screen's red card), or null when attendance is allowed.
+  private async getFlaggedAttemptHoldMessage(employeeId: string, attendanceDate: Date): Promise<string | null> {
     const employee = await this.prisma.employee.findUnique({
       where: { id: employeeId },
-      select: { flaggedAttemptCount: true, flaggedAttemptCountDate: true },
+      select: { userId: true, supervisorId: true, flaggedAttemptCount: true, flaggedAttemptCountDate: true },
     });
-    if (!employee) return false;
+    if (!employee) return null;
 
     const isSameDay = employee.flaggedAttemptCountDate?.getTime() === attendanceDate.getTime();
-    if (!isSameDay || employee.flaggedAttemptCount < FLAGGED_NOTIFY_THRESHOLD) return false;
+    if (!isSameDay || employee.flaggedAttemptCount < FLAGGED_NOTIFY_THRESHOLD) return null;
 
     const latestUnresolvedFlag = await this.prisma.attendanceLog.findFirst({
       where: { employeeId, attendanceDate, verificationStatus: "PENDING_REVIEW", attendanceRecordId: null },
       orderBy: { capturedAt: "desc" },
-      select: { capturedAt: true },
+      select: { capturedAt: true, logType: true },
     });
-    if (!latestUnresolvedFlag) return false;
+    if (!latestUnresolvedFlag) return null;
 
-    const latestApproved = await this.prisma.attendanceLog.findFirst({
-      where: { employeeId, attendanceDate, verificationStatus: "APPROVED" },
-      orderBy: { capturedAt: "desc" },
-      select: { capturedAt: true },
+    const reviewedSince = await this.prisma.attendanceLog.findFirst({
+      where: { employeeId, attendanceDate, reviewedAt: { gt: latestUnresolvedFlag.capturedAt } },
+      select: { id: true },
     });
+    if (reviewedSince) return null;
 
-    return !latestApproved || latestUnresolvedFlag.capturedAt > latestApproved.capturedAt;
+    return buildFlagHoldMessage(latestUnresolvedFlag.logType, await this.resolveReviewerLabel(employeeId, employee));
+  }
+
+  // The card that replaces the hold once a reviewer has rejected a flagged
+  // attempt for this working day: the same text as the "Attendance
+  // Rejected" notification, shown until the employee records an approved
+  // scan of their own after that rejection. Null otherwise.
+  private async getFlagRejectedMessage(employeeId: string, attendanceDate: Date): Promise<string | null> {
+    const rejected = await this.prisma.attendanceLog.findFirst({
+      where: { employeeId, attendanceDate, verificationStatus: "FAKE_ATTEMPT", reviewedAt: { not: null } },
+      orderBy: { reviewedAt: "desc" },
+      select: { reviewedAt: true, logType: true },
+    });
+    if (!rejected?.reviewedAt) return null;
+
+    const approvedSince = await this.prisma.attendanceLog.findFirst({
+      where: { employeeId, attendanceDate, verificationStatus: "APPROVED", capturedAt: { gt: rejected.reviewedAt } },
+      select: { id: true },
+    });
+    if (approvedSince) return null;
+
+    const employee = await this.prisma.employee.findUnique({
+      where: { id: employeeId },
+      select: { userId: true, supervisorId: true },
+    });
+    if (!employee) return null;
+
+    return buildFlagRejectedMessage(rejected.logType, await this.resolveReviewerLabel(employeeId, employee));
+  }
+
+  // Who an employee is told to report to about a flagged attempt — the same
+  // routing notifyFlaggedAttempt uses for who actually gets notified: their
+  // direct supervisor, or HR/Admin for a supervisor or anyone without one.
+  private async resolveReviewerLabel(
+    employeeId: string,
+    employee: { userId: string | null; supervisorId: string | null },
+  ) {
+    if (TRIAL_SUPERVISOR_WORDING_EMPLOYEE_IDS.includes(employeeId)) return "Supervisor";
+    const isSupervisor = employee.userId
+      ? await this.notifications.userHasRole(employee.userId, "SUPERVISOR")
+      : false;
+    return !isSupervisor && employee.supervisorId ? "Supervisor" : "HR/Admin";
   }
 
   // Resolves the Shift template governing an employee's attendance at a given
@@ -721,6 +797,14 @@ export class AttendanceService {
       ? new Date(now.getFullYear(), now.getMonth(), now.getDate())
       : await this.resolveOfficeAttendanceDate(dto.employeeId, now);
 
+    // Enforced here, not just by the clients disabling their buttons: while
+    // a flagged-attempt hold is active, nothing is recorded until a
+    // supervisor/admin has reviewed it.
+    const holdMessage = await this.getFlaggedAttemptHoldMessage(dto.employeeId, attendanceDate);
+    if (holdMessage) {
+      throw new ForbiddenException(holdMessage);
+    }
+
     // Sunday is a company-wide rest day for every role — employee, supervisor,
     // and admin/HR alike — so no attendance is taken or required from anyone.
     // Checked against the working day, not the clock: a Saturday night shift
@@ -944,17 +1028,23 @@ export class AttendanceService {
     // short-circuit above), so approval now rests solely on the face match.
     const approved = faceResult.status === "APPROVED" && geoResult.approved;
 
-    // Only a genuinely borderline match (evaluateMatch's PENDING_REVIEW —
-    // close enough that bad lighting/angle could explain it) is escalated to
-    // the supervisor/admin for a human decision. A flat mismatch
-    // (evaluateMatch's REJECTED — confidently a different person) is a hard
-    // rejection: it must never become a "Time In Pending Review" record,
-    // never notify a supervisor as if this might be the account owner, and
-    // never leave a path to being approved after review. A geofence failure
-    // is never escalated this way either (wrong location isn't evidence of
+    // Any scan where a face was found but didn't cleanly match the enrolled
+    // one is escalated to the supervisor/admin for a human decision — both a
+    // borderline match (evaluateMatch's PENDING_REVIEW) and a flat mismatch
+    // (its "Face does not match enrolled profile" REJECTED). With a single
+    // enrolled sample, the real employee in poor lighting routinely scores
+    // as a flat mismatch, so rejecting those outright just told a genuine
+    // employee to keep retrying; flagging puts the captured photo in front
+    // of a reviewer instead, who can tell impersonation from a bad scan.
+    // No face found, or a failed liveness check, is still a plain rejection
+    // — there's nothing for a reviewer to judge. A geofence failure is never
+    // escalated this way either (wrong location isn't evidence of
     // impersonation) — geoResult.approved is already guaranteed true here
     // regardless, per the short-circuit above.
-    const shouldFlag = faceResult.status === "PENDING_REVIEW" && geoResult.approved;
+    const faceMismatched =
+      faceResult.status === "PENDING_REVIEW" ||
+      (faceResult.status === "REJECTED" && faceResult.reason === "Face does not match enrolled profile");
+    const shouldFlag = faceMismatched && geoResult.approved;
 
     const verificationStatus = approved ? "APPROVED" : shouldFlag ? "PENDING_REVIEW" : "REJECTED";
 
@@ -1095,10 +1185,8 @@ export class AttendanceService {
         );
         // The account owner gets their own persistent notification too, not
         // just the in-the-moment result modal — so it's still there if they
-        // dismissed that modal without reading it, and it's what the "Log
-        // Attendance Now" button in the mobile app's notification detail
-        // (see NotificationsScreen) reacts to by opening the camera directly.
-        void this.notifyEmployeeOfLock(employee, logType!, logTypeLabel).catch((error) =>
+        // dismissed that modal without reading it.
+        void this.notifyEmployeeOfLock(employee, logType!).catch((error) =>
           console.error("Failed to notify employee of attendance lock", error),
         );
       }
@@ -1120,17 +1208,6 @@ export class AttendanceService {
           deviceId: dto.deviceId,
         },
       });
-    } else if (faceResult.status === "REJECTED" && faceResult.reason === "Face does not match enrolled profile") {
-      // Only reached by a client that skipped (or lied about) the mobile
-      // app's pre-submit /face/match check — that check already stops a
-      // confident mismatch before it ever reaches here in the normal flow —
-      // but it still needs to count toward the same-day strike threshold so
-      // a bypassing client can't dodge the supervisor notification. Not
-      // awaited for the same reason as above: it's bookkeeping the rejected
-      // response doesn't depend on.
-      void this.faceVerification
-        .recordFaceMismatch(dto.employeeId)
-        .catch((error) => console.error("Failed to record face mismatch strike", error));
     }
 
     return {
@@ -1215,18 +1292,17 @@ export class AttendanceService {
   // The account owner's own copy of the same escalation notifyFlaggedAttempt
   // just sent their supervisor — a persistent notification (not just the
   // in-the-moment result modal, which they may have dismissed without
-  // reading) telling them their account is locked, to report to their
-  // supervisor, and that a genuine scan of themselves is what actually
-  // clears the lock. type "ATTENDANCE_LOCKED" is what the mobile app's
-  // NotificationsScreen keys its "Log Attendance Now" button on.
+  // reading) telling them attendance is disabled until it's reviewed, and
+  // who to report to. Same wording as the attendance screen's red card
+  // (see getFlaggedAttemptHoldMessage).
   private async notifyEmployeeOfLock(
-    employee: { userId: string; firstName: string; lastName: string },
+    employee: { id: string; userId: string; supervisorId: string | null },
     logType: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN",
-    logTypeLabel: Record<string, string>,
   ) {
+    const reviewerLabel = await this.resolveReviewerLabel(employee.id, employee);
     await this.notifications.notifyUsers([employee.userId], {
-      title: "Attendance Locked — Report to Your Supervisor",
-      message: `Repeated unauthorized ${logTypeLabel[logType]} attempts were detected on your account and your supervisor has been notified. Please report to your supervisor immediately, then log your real attendance to record your ${logTypeLabel[logType]} for today.`,
+      title: `Attendance Disabled — Report to Your ${reviewerLabel}`,
+      message: buildFlagHoldMessage(logType, reviewerLabel),
       type: "ATTENDANCE_LOCKED",
     });
   }
@@ -1344,7 +1420,7 @@ export class AttendanceService {
   async rejectFlaggedLog(logId: string, remarks: string | undefined, context: AuditLogContext = {}, scopeDepartmentId?: string) {
     const log = await this.prisma.attendanceLog.findUniqueOrThrow({
       where: { id: logId },
-      include: { employee: { select: { departmentId: true, firstName: true, lastName: true, userId: true } } },
+      include: { employee: { select: { departmentId: true, firstName: true, lastName: true, userId: true, supervisorId: true } } },
     });
 
     if (log.verificationStatus !== "PENDING_REVIEW" || log.attendanceRecordId) {
@@ -1377,12 +1453,26 @@ export class AttendanceService {
     });
 
     if (log.employee.userId) {
-      await this.notifications.notifyUsers([log.employee.userId], {
-        title: "Unauthorized Attendance Attempt",
-        message: `A ${log.capturedAt.toLocaleDateString()} attendance attempt on your account did not pass verification and was flagged as unauthorized. Contact HR if this wasn't you.`,
-        type: "ATTENDANCE_FAKE_ATTEMPT",
-        entityId: logId,
-      });
+      // A same-day rejection is also what lifts the flagged-attempt hold
+      // (see getFlaggedAttemptHoldMessage), so it tells the employee to
+      // record their real attendance now. An older attempt rejected after
+      // the fact has no attendance left to record for that day.
+      const isSameDay = log.capturedAt.toDateString() === new Date().toDateString();
+      const label = FLAGGED_LOG_TYPE_LABEL[log.logType] ?? "attendance";
+      const reviewerLabel = await this.resolveReviewerLabel(log.employeeId, log.employee);
+      await this.notifications.notifyUsers([log.employee.userId], isSameDay
+        ? {
+            title: "Attendance Rejected — Log Your Attendance Now",
+            message: buildFlagRejectedMessage(log.logType, reviewerLabel),
+            type: "ATTENDANCE_FAKE_ATTEMPT",
+            entityId: logId,
+          }
+        : {
+            title: "Unauthorized Attendance Attempt",
+            message: `A ${log.capturedAt.toLocaleDateString()} attendance attempt on your account did not pass verification and was flagged as unauthorized. Contact HR if this wasn't you.`,
+            type: "ATTENDANCE_FAKE_ATTEMPT",
+            entityId: logId,
+          });
     }
 
     return updatedLog;

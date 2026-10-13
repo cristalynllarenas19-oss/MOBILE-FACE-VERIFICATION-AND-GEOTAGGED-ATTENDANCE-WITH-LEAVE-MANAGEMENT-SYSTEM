@@ -15,6 +15,12 @@ const MODELS_PATH = path.join(process.cwd(), "models");
 const APPROVE_DISTANCE = 0.45;
 const REVIEW_DISTANCE = 0.6;
 
+// Mean luminance (0-255) of the face region below which a frame counts as
+// too dark to match reliably. Deliberately low so darker skin in ordinary
+// indoor light still passes — this is only meant to catch a genuinely
+// underexposed face. brightenImage()'s own target for a normal photo is 130.
+const MIN_FACE_LUMINANCE = 60;
+
 // A confident, same-day face-mismatch streak reaching this many strikes
 // notifies the employee's supervisor. Chosen so isolated bad-lighting/angle
 // misfires (which land as PENDING_REVIEW anyway, not this path) don't page a
@@ -90,6 +96,10 @@ export class FaceVerificationService implements OnModuleInit {
     // landmarks couldn't be resolved for it (e.g. extreme angle/blur) — the
     // client just skips those frames rather than treating them as a blink.
     ear: number | null;
+    // False when the detected face is too dark for a reliable match, so the
+    // scanner can hold off turning its guide green and ask for more light
+    // instead of looking "all good" right before the match fails.
+    wellLit: boolean;
   }> {
     await this.ensureModelsLoaded();
 
@@ -112,7 +122,7 @@ export class FaceVerificationService implements OnModuleInit {
         .withFaceLandmarks(!precise);
 
       if (!result) {
-        return { detected: false, confidence: 0, box: null, ear: null };
+        return { detected: false, confidence: 0, box: null, ear: null, wellLit: false };
       }
 
       // Box coordinates as fractions (0-1) of the source image, so the
@@ -133,11 +143,36 @@ export class FaceVerificationService implements OnModuleInit {
         confidence: result.detection.score,
         box: { x: relativeBox.x, y: relativeBox.y, width: relativeBox.width, height: relativeBox.height },
         ear,
+        wellLit: this.isFaceWellLit(image, result.detection.box),
       };
     } catch (error) {
       this.logger.warn(`detectFace failed: ${error instanceof Error ? error.message : error}`);
-      return { detected: false, confidence: 0, box: null, ear: null };
+      return { detected: false, confidence: 0, box: null, ear: null, wellLit: false };
     }
+  }
+
+  // Average brightness of just the face region (not the whole frame — a
+  // bright window behind a dark face would otherwise pass). The crop is
+  // drawn down to a tiny canvas first, so this adds almost nothing to the
+  // per-frame cost of detectFace.
+  private isFaceWellLit(image: canvasLib.Image, box: { x: number; y: number; width: number; height: number }) {
+    const x = Math.max(0, box.x);
+    const y = Math.max(0, box.y);
+    const width = Math.min(image.width - x, box.width);
+    const height = Math.min(image.height - y, box.height);
+    if (width <= 0 || height <= 0) return false;
+
+    const size = 24;
+    const canvas = canvasLib.createCanvas(size, size);
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(image as any, x, y, width, height, 0, 0, size, size);
+    const { data } = ctx.getImageData(0, 0, size, size);
+
+    let sum = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      sum += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+    }
+    return sum / (size * size) >= MIN_FACE_LUMINANCE;
   }
 
   // Eye-aspect-ratio (Soukupova & Cech): stays roughly constant while an eye

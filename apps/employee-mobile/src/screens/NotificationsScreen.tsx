@@ -59,7 +59,7 @@ type Props = {
   // fetched, cached, counted and marked read separately.
   view: NotificationView;
   employeeId?: string;
-  // Backs the "Log Attendance Now" button shown on an ATTENDANCE_LOCKED
+  // Backs the "Log Attendance Now" button shown on the "Attendance Rejected"
   // notification's detail view — optional since the supervisor portal's own
   // NotificationsScreen usage has no personal attendance flow to jump into.
   onLogRealAttendance?: () => void;
@@ -973,7 +973,9 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                   <Text style={styles.reviewAlreadyDecidedText}>This request has already been reviewed.</Text>
                 )}
 
-                {detailNotification.type === "ATTENDANCE_LOCKED" && onLogRealAttendance && (
+                {detailNotification.type === "ATTENDANCE_FAKE_ATTEMPT" &&
+                  detailNotification.title.startsWith("Attendance Rejected") &&
+                  onLogRealAttendance && (
                   <Pressable
                     style={({ pressed }) => [styles.logAttendanceButton, pressed && styles.logAttendanceButtonPressed]}
                     onPress={() => {

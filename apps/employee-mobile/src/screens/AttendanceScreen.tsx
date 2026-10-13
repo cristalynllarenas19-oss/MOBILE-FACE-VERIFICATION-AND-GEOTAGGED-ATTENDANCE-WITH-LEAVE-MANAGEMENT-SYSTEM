@@ -32,10 +32,10 @@ export function getEligibilityMessage(eligibility: AttendanceEligibility | null)
     return "Your face is not yet registered for attendance verification. Contact HR to complete your face enrollment.";
   }
   if (!eligibility.hasWorkLocation) {
-    return "You haven't been assigned a work location yet. Contact HR or your supervisor.";
+    return "You haven't been assigned a work location yet. Contact HR or your Supervisor.";
   }
   if (!eligibility.hasScheduleToday) {
-    return "You're not scheduled to work today. Contact HR or your supervisor if this is unexpected.";
+    return "You're not scheduled to work today. Contact HR or your Supervisor if this is unexpected.";
   }
   return null;
 }
@@ -77,9 +77,16 @@ export function getGeofenceMessage(status: GeofenceStatus, action: ApplicableAct
 // account today (see AttendanceService.hasUnresolvedFlaggedAttempt), so
 // every attendance action stays disabled until they review it, regardless
 // of which specific action was originally flagged.
-export function getUnauthorizedAttemptMessage(hasUnresolvedFlaggedAttempt: boolean, action: ApplicableAction | null) {
+//
+// The server supplies the wording (the same text as the employee's
+// "Attendance Disabled" notification); the fallback only covers a backend
+// that doesn't send it yet.
+export function getUnauthorizedAttemptMessage(hasUnresolvedFlaggedAttempt: boolean, flagHoldMessage?: string | null) {
   if (!hasUnresolvedFlaggedAttempt) return null;
-  return `An unauthorized attendance attempt was detected on your account and reported to your supervisor. ${action ?? "Attendance"} is locked until they review it.`;
+  return (
+    flagHoldMessage ??
+    "Repeated unauthorized attendance attempts were detected on your account and your Supervisor has been notified. Attendance is disabled until they review it."
+  );
 }
 
 // Worked time is Official Start Time → Time Out (or now, while still in),
@@ -221,8 +228,12 @@ export default function AttendanceScreen({
   const applicableAction = getApplicableAction({ isField, hasTimedIn, hasTimedOut, hasOpenVisit, isOnLunch, isBreak });
   const eligibilityMessage =
     getEligibilityMessage(eligibility) ??
-    getUnauthorizedAttemptMessage(hasUnresolvedFlaggedAttempt, applicableAction) ??
+    getUnauthorizedAttemptMessage(hasUnresolvedFlaggedAttempt, todayAttendance?.flagHoldMessage) ??
     getGeofenceMessage(geofenceStatus, applicableAction);
+  // What the red card shows: whatever is blocking attendance, or — once a
+  // reviewer has rejected a flagged attempt and attendance is enabled again
+  // — the same text as that "Attendance Rejected" notification.
+  const cardMessage = eligibilityMessage ?? todayAttendance?.flagRejectedMessage ?? null;
 
   // On approved leave with nothing timed in: attendance can't be recorded
   // (enforced server-side in AttendanceService.submit()).
@@ -467,7 +478,7 @@ export default function AttendanceScreen({
         </View>
       )}
 
-      {eligibilityMessage && !(isTodayDayOff && !hasTimedIn) && !onLeaveToday && (
+      {cardMessage && !(isTodayDayOff && !hasTimedIn) && !onLeaveToday && (
         <View style={styles.eligibilityWarningCard}>
           <Ionicons
             name="alert-circle-outline"
@@ -476,7 +487,7 @@ export default function AttendanceScreen({
           />
 
           <Text style={styles.eligibilityWarningText}>
-            {eligibilityMessage}
+            {cardMessage}
           </Text>
         </View>
       )}

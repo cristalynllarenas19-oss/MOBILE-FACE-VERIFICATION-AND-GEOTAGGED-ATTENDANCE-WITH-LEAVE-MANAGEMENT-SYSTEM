@@ -27,6 +27,18 @@ export type TodayAttendance = {
   visitNumber?: number;
   workLocationId?: string | null;
   recordType?: AttendanceRecordType;
+  // True once the same-day flagged-attempt count has already reached the
+  // backend's notify threshold AND at least one of today's flagged attempts
+  // is still unresolved. Locks every attendance button — account-wide, not
+  // scoped to whichever specific action was originally flagged.
+  hasUnresolvedFlaggedAttempt?: boolean;
+  // The explanation to show while that hold is active — the same text as
+  // the employee's "Attendance Disabled" notification. Null otherwise.
+  flagHoldMessage?: string | null;
+  // Set once a reviewer has rejected a flagged attempt today and attendance
+  // is enabled again, until the employee records an approved scan — the
+  // same text as the "Attendance Rejected" notification. Null otherwise.
+  flagRejectedMessage?: string | null;
 };
 
 export type AttendanceLogPhoto = {
@@ -94,6 +106,13 @@ export type AttendanceSubmitResult = {
   logType: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN";
   geoResult: { reason?: string | null };
   faceResult: { reason?: string | null };
+  // 0-100 match between the captured face and the enrolled one, as scored
+  // by the server. 0 when no face comparison happened at all.
+  similarityScore?: number;
+  // How many same-day flagged (PENDING_REVIEW — borderline face match)
+  // attempts this employee now has, including this one. Only set when this
+  // scan itself was flagged; null otherwise.
+  flaggedAttemptCount?: number | null;
   faceImage?: string | null;
   // The server's own timestamp for this scan — exactly what got written to
   // the AttendanceRecord (and therefore the DTR) as timeInAt/timeOutAt/
@@ -295,7 +314,8 @@ export function getAttendanceRecordPhotos(recordId: string) {
 }
 
 export function detectFace(imageBase64: string, precise = false) {
-  return apiRequest<{ detected: boolean; confidence: number; box: FaceBox | null; ear: number | null }>("/face/detect", {
+  // wellLit is false when the detected face is too dark for a reliable match.
+  return apiRequest<{ detected: boolean; confidence: number; box: FaceBox | null; ear: number | null; wellLit?: boolean }>("/face/detect", {
     method: "POST",
     body: JSON.stringify({ imageBase64, precise }),
   });
@@ -454,7 +474,7 @@ export function distanceInMeters(lat1: number, lon1: number, lat2: number, lon2:
 
 // Same FRIENDLY_REASONS map as employee-mobile utils/attendanceMessages.ts
 const FRIENDLY_REASONS: Record<string, string> = {
-  "GPS accuracy is too low": "Your location signal is too weak. Move to an open area and try again.",
+  "GPS accuracy is too low": "Your location signal is too weak. Move near a window or to an open area and try again.",
   "Employee is outside the approved work location": "You're outside your assigned work area. Move closer and try again.",
   "No face detected in the captured photo. Please retake in good lighting.":
     "We couldn't find a face in the photo. Make sure you're well-lit and facing the camera, then try again.",
@@ -470,4 +490,28 @@ export function getFriendlyReason(reason: string | null | undefined, verificatio
   if (reason) return reason;
   if (verificationStatus === "APPROVED") return "Your face was verified and you're within your assigned work area.";
   return "Please try again.";
+}
+
+// Same getFlaggedAttemptMessage as employee-mobile utils/attendanceMessages.ts
+export function getFlaggedAttemptMessage(flaggedAttemptCount: number | null | undefined) {
+  if (flaggedAttemptCount === 2) {
+    return {
+      title: "Still Unable to Confirm It's You",
+      message:
+        "This is your 2nd unclear attempt today. One more, and your Supervisor will be notified to review this attendance. Try again in better lighting.",
+    };
+  }
+
+  if (flaggedAttemptCount && flaggedAttemptCount >= 3) {
+    return {
+      title: "Supervisor Notified",
+      message:
+        "This is your 3rd unclear attempt today. Your Supervisor has been notified and will need to review and approve this attendance manually.",
+    };
+  }
+
+  return {
+    title: "Unable to Confirm It's You",
+    message: "We couldn't clearly confirm it's you. Please make sure you're well-lit and facing the camera, then try again.",
+  };
 }

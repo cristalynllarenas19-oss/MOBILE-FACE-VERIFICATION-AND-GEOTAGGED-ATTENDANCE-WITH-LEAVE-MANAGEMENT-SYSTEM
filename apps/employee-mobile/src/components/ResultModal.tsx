@@ -10,6 +10,8 @@ type Props = {
   title: string;
   message: string;
   photoUri?: string | null;
+  // Defaults to "Done".
+  buttonLabel?: string;
   onClose: () => void;
 };
 
@@ -24,7 +26,7 @@ const STATUS_CONFIG: Record<
   info: { icon: "information-circle", color: "#1680D8", bg: "#EFF6FF" },
 };
 
-export default function ResultModal({ visible, status, title, message, photoUri, onClose }: Props) {
+export default function ResultModal({ visible, status, title, message, photoUri, buttonLabel = "Done", onClose }: Props) {
   const config = STATUS_CONFIG[status];
 
   // No auto-dismiss and no backdrop/back-button dismiss (onRequestClose is a
@@ -50,7 +52,7 @@ export default function ResultModal({ visible, status, title, message, photoUri,
           <Text style={styles.title}>{title}</Text>
           <Text style={styles.message}>{message}</Text>
           <Pressable style={[styles.button, { backgroundColor: config.color }]} onPress={onClose}>
-            <Text style={styles.buttonText}>Done</Text>
+            <Text style={styles.buttonText}>{buttonLabel}</Text>
           </Pressable>
         </View>
       </View>

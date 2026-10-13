@@ -6,7 +6,7 @@ import {
 import {
   TodayAttendance, WorkLocation, AttendanceSubmitResult, AttendanceEligibility, GeofenceStatus,
   getTodayAttendance, submitAttendance, getMyWorkLocation, getMyWorkLocations,
-  distanceInMeters, getFriendlyReason, getMyProfile, getAttendanceHistory,
+  distanceInMeters, getFriendlyReason, getFlaggedAttemptMessage, getMyProfile, getAttendanceHistory,
 } from "./api";
 import CameraScanner, { GeoPoint } from "./components/CameraScanner";
 import type { AuthUser } from "../../lib/api";
@@ -73,10 +73,10 @@ function getEligibilityMessage(eligibility: AttendanceEligibility | null) {
     return "Your face is not yet registered for attendance verification. Contact HR to complete your face enrollment.";
   }
   if (!eligibility.hasWorkLocation) {
-    return "You haven't been assigned a work location yet. Contact HR or your supervisor.";
+    return "You haven't been assigned a work location yet. Contact HR or your Supervisor.";
   }
   if (!eligibility.hasScheduleToday) {
-    return "You're not scheduled to work today. Contact HR or your supervisor if this is unexpected.";
+    return "You're not scheduled to work today. Contact HR or your Supervisor if this is unexpected.";
   }
   return null;
 }
@@ -98,6 +98,20 @@ function getApplicableAction(params: {
   if (isOnLunch) return isBreak ? "End Break" : "End Lunch";
   if (!hasTimedOut) return "Time Out";
   return null;
+}
+
+// Same getUnauthorizedAttemptMessage as employee-mobile's AttendanceScreen.tsx
+// — a supervisor was already notified about an unresolved unauthorized
+// attempt on this account today, so every attendance action stays disabled
+// until they review it. The server supplies the wording (the same text as
+// the employee's "Attendance Disabled" notification); the fallback only
+// covers a backend that doesn't send it yet.
+function getUnauthorizedAttemptMessage(hasUnresolvedFlaggedAttempt: boolean, flagHoldMessage?: string | null) {
+  if (!hasUnresolvedFlaggedAttempt) return null;
+  return (
+    flagHoldMessage ??
+    "Repeated unauthorized attendance attempts were detected on your account and your Supervisor has been notified. Attendance is disabled until they review it."
+  );
 }
 
 function getGeofenceMessage(status: GeofenceStatus, action: ApplicableAction | null) {
@@ -240,7 +254,8 @@ export function AttendancePage({ user }: Props) {
   const isConfigEligible = Boolean(
     eligibility?.faceEnrolled && eligibility?.hasWorkLocation && eligibility?.hasScheduleToday,
   );
-  const isEligible = isConfigEligible && geofenceStatus === "inside";
+  const hasUnresolvedFlaggedAttempt = Boolean(todayAtt?.hasUnresolvedFlaggedAttempt);
+  const isEligible = isConfigEligible && geofenceStatus === "inside" && !hasUnresolvedFlaggedAttempt;
   const hasLunchOut = Boolean(todayAtt?.lunchOutAt);
   const hasLunchIn = Boolean(todayAtt?.lunchInAt);
   const isOnLunch = Boolean(hasOpenVisit && hasLunchOut && !hasLunchIn);
@@ -261,7 +276,14 @@ export function AttendancePage({ user }: Props) {
   }, [isField, hasOpenVisit]);
   const workedMs = todayAtt ? getWorkedMs(todayAtt, nowTick) : 0;
   const applicableAction = getApplicableAction({ isField, hasTimedIn, hasTimedOut, hasOpenVisit, isOnLunch, isBreak });
-  const eligibilityMessage = getEligibilityMessage(eligibility) ?? getGeofenceMessage(geofenceStatus, applicableAction);
+  const eligibilityMessage =
+    getEligibilityMessage(eligibility) ??
+    getUnauthorizedAttemptMessage(hasUnresolvedFlaggedAttempt, todayAtt?.flagHoldMessage) ??
+    getGeofenceMessage(geofenceStatus, applicableAction);
+  // What the red card shows: whatever is blocking attendance, or — once a
+  // reviewer has rejected a flagged attempt and attendance is enabled again
+  // — the same text as that "Attendance Rejected" notification.
+  const cardMessage = eligibilityMessage ?? todayAtt?.flagRejectedMessage ?? null;
   const showLunchSection = !isField && hasTimedIn;
   const lunchCompleted = hasLunchOut && hasLunchIn;
 
@@ -278,10 +300,13 @@ export function AttendancePage({ user }: Props) {
   // ── Handlers ─────────────────────────────────────────────────────────────
   function ensureEligible() {
     if (isEligible) return true;
+    // The flagged-attempt hold has no modal of its own — the red card under
+    // the buttons already says why they're disabled.
+    if (!getEligibilityMessage(eligibility) && hasUnresolvedFlaggedAttempt) return false;
     setResultModal({
       status: "error",
       title: "Attendance Not Available",
-      message: eligibilityMessage ?? "Attendance is not available yet. Contact HR or your supervisor.",
+      message: eligibilityMessage ?? "Attendance is not available yet. Contact HR or your Supervisor.",
     });
     return false;
   }
@@ -334,7 +359,7 @@ export function AttendancePage({ user }: Props) {
     try {
       const sites = await getMyWorkLocations();
       if (sites.length === 0) {
-        setResultModal({ status: "error", title: "No Assigned Sites", message: "You don't have any assigned work sites yet. Contact your supervisor." });
+        setResultModal({ status: "error", title: "No Assigned Sites", message: "You don't have any assigned work sites yet. Contact your Supervisor." });
         return;
       }
       if (sites.length === 1) { await handleSiteSelected(sites[0]); return; }
@@ -404,7 +429,8 @@ export function AttendancePage({ user }: Props) {
       if (result.verificationStatus === "APPROVED") {
         setResultModal({ status: "approved", title: `${actionLabel} Recorded`, message: `Verified at ${ts}. ${msg}` });
       } else if (result.verificationStatus === "PENDING_REVIEW") {
-        setResultModal({ status: "pending", title: `${actionLabel} Pending Review`, message: msg });
+        const flagged = getFlaggedAttemptMessage(result.flaggedAttemptCount);
+        setResultModal({ status: "pending", title: flagged.title, message: flagged.message });
       } else {
         setResultModal({ status: "rejected", title: `${actionLabel} Not Recorded`, message: msg });
       }
@@ -674,7 +700,7 @@ export function AttendancePage({ user }: Props) {
           </button>
         )}
 
-        {(isTodayDayOff && !hasTimedIn) || onLeaveToday ? null : eligibilityMessage ? (
+        {(isTodayDayOff && !hasTimedIn) || onLeaveToday ? null : cardMessage ? (
           <div className="att-info" style={{
             display: "flex", alignItems: "flex-start", gap: 10,
             background: "#FEF2F2", border: "1px solid #FECACA",
@@ -682,7 +708,7 @@ export function AttendancePage({ user }: Props) {
           }}>
             <AlertCircle size={18} color="#DC2626" style={{ flexShrink: 0, marginTop: 1 }} />
             <p style={{ color: "#991B1B", fontSize: 13, margin: 0, lineHeight: "18px" }}>
-              {eligibilityMessage}
+              {cardMessage}
             </p>
           </div>
         ) : (
@@ -827,7 +853,7 @@ export function AttendancePage({ user }: Props) {
                   : "#DC2626",
               }}
             >
-              Done
+              {resultModal.status === "approved" ? "Done" : "Close"}
             </button>
           </div>
         </div>

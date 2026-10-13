@@ -45,7 +45,9 @@ type CameraScannerProps = {
   // employee finds out within a second or two instead of after going
   // through the whole blink-and-hold flow only to be rejected at submission.
   workLocations: WorkLocation[];
-  onOutOfRange: () => void;
+  // "weak-signal" when the GPS fix was too imprecise to trust rather than
+  // actually placing the employee outside every assigned area.
+  onOutOfRange: (reason: "weak-signal" | "outside") => void;
 };
 
 const LOG_TYPE_LABEL: Record<CameraScannerProps["logType"], string> = {
@@ -175,12 +177,16 @@ const SUCCESS_SOUND = require("../../assets/sounds/success.wav");
 // entirely after this component hands off (see finishScan/onComplete),
 // invisibly in the background, rather than being narrated as a processing
 // step on this screen at all.
-function getStageText(faceDetected: boolean, progress: number, blinkCount: number) {
+function getStageText(faceDetected: boolean, progress: number, blinkCount: number, faceWellLit: boolean) {
   if (!faceDetected) return "No face detected — line your face up with the outline";
   if (blinkCount < REQUIRED_BLINKS) {
-    return "Please blink to verify you're not a photo";
+    return faceWellLit
+      ? "Please blink to verify you're not a photo"
+      : "Too dark — move to a brighter spot, then blink";
   }
-  if (progress < 100) return "Liveness verified — hold steady...";
+  if (progress < 100) {
+    return faceWellLit ? "Liveness verified — hold steady..." : "Too dark — move to a brighter spot";
+  }
   return "Captured";
 }
 
@@ -338,6 +344,9 @@ export default function CameraScanner({ logType, isBreak, onComplete, onCancel, 
   const [isScanning, setIsScanning] = useState(false);
   const [faceDetected, setFaceDetected] = useState(false);
   const [faceBox, setFaceBox] = useState<FaceBox | null>(null);
+  // False while the detected face is too dark for a reliable match — keeps
+  // the guide from turning green and swaps the prompt for a lighting hint.
+  const [faceWellLit, setFaceWellLit] = useState(true);
   const [photoSize, setPhotoSize] = useState({ width: 0, height: 0 });
   const [stageSize, setStageSize] = useState({ width: 0, height: 0 });
   const [confidence, setConfidence] = useState(0);
@@ -535,21 +544,27 @@ export default function CameraScanner({ logType, isBreak, onComplete, onCancel, 
         // distance-vs-radius) so this can only disagree with the eventual
         // submission in the direction of catching something earlier, not
         // approving something the backend would reject.
+        const accuracy = location.coords.accuracy ?? Infinity;
+        // Set when the fix was too imprecise to accept for a site the
+        // employee could still actually be inside of (its radius overlaps
+        // the fix's own margin of error) — a weak signal, not a wrong place.
+        let weakSignal = false;
         const isWithinAnyLocation = workLocations.some((site) => {
-          const accuracyAccepted =
-            (location.coords.accuracy ?? Infinity) <= Number(site.allowedAccuracyMeters);
+          const accuracyAccepted = accuracy <= Number(site.allowedAccuracyMeters);
           const distance = distanceInMeters(
             location.coords.latitude,
             location.coords.longitude,
             Number(site.latitude),
             Number(site.longitude),
           );
-          return accuracyAccepted && distance <= Number(site.radiusMeters);
+          const radius = Number(site.radiusMeters);
+          if (!accuracyAccepted && distance - accuracy <= radius) weakSignal = true;
+          return accuracyAccepted && distance <= radius;
         });
 
         if (!isWithinAnyLocation) {
           outOfRangeReportedRef.current = true;
-          onOutOfRange();
+          onOutOfRange(weakSignal ? "weak-signal" : "outside");
         }
       })
       .catch(() => {});
@@ -646,9 +661,11 @@ export default function CameraScanner({ logType, isBreak, onComplete, onCancel, 
       confidence: number;
       box: FaceBox | null;
       ear: number | null;
+      wellLit?: boolean;
     }) {
       faceDetectedRef.current = result.detected;
       setFaceDetected(result.detected);
+      setFaceWellLit(result.wellLit !== false);
       setConfidence(result.detected ? result.confidence : 0);
       // Set the raw detection directly on every tick, same as admin web's
       // tracking loop — no smoothing/interpolation layered on top.
@@ -1217,7 +1234,7 @@ export default function CameraScanner({ logType, isBreak, onComplete, onCancel, 
                 <View style={styles.overlayPill}>
                   <Ionicons name="scan-outline" size={14} color="#EFF6FF" />
                   <Text style={styles.overlayPillText}>
-                    {faceDetected ? "Face detected" : "Position your face"}
+                    {faceDetected ? (faceWellLit ? "Face detected" : "Too dark") : "Position your face"}
                   </Text>
                 </View>
                 <View style={styles.overlayHint}>
@@ -1257,7 +1274,7 @@ export default function CameraScanner({ logType, isBreak, onComplete, onCancel, 
                       top: faceGuideRect.top,
                       width: faceGuideRect.width,
                       height: faceGuideRect.height,
-                      borderColor: faceCentered ? LOCKED_COLOR : GUIDE_BOX_COLOR,
+                      borderColor: faceCentered && faceWellLit ? LOCKED_COLOR : GUIDE_BOX_COLOR,
                     },
                   ]}
                 />
@@ -1326,7 +1343,7 @@ export default function CameraScanner({ logType, isBreak, onComplete, onCancel, 
                         ? "Tracking"
                         : "Preparing"}
               </Text>
-              <Text style={styles.statusText}>{getStageText(faceDetected, scanProgress, blinkCount)}</Text>
+              <Text style={styles.statusText}>{getStageText(faceDetected, scanProgress, blinkCount, faceWellLit)}</Text>
             </View>
           </View>
           {!showSuccessCheck && (
