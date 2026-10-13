@@ -314,6 +314,45 @@
   margin-bottom: 5px;
 }
 
+/* Which same-day failed attempt the capture is ("3rd attempt · Latest") —
+   a badge over the photo's bottom edge rather than a second caption line,
+   which pushed the capture out of line with the registered face. */
+.attendance-compare-photo {
+  position: relative;
+}
+
+.attendance-attempt-label {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(185, 28, 28, 0.88);
+  color: #fff;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 1.5;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+/* One row of equal-width pills, so the attempts never wrap onto a second
+   line the way free-width pills did. */
+.attendance-modal-body .attendance-attempt-tabs {
+  flex-wrap: nowrap;
+  padding-bottom: 8px;
+}
+
+.attendance-attempt-tabs .attendance-photo-tab {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 6px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .attendance-compare-photo {
   display: flex;
   align-items: center;
@@ -553,21 +592,6 @@ button.attendance-compare-photo:hover {
   padding: 4px 20px 12px;
   color: #7b8794;
   font-size: 12px;
-}
-
-.attendance-flagged-banner {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-  margin: 12px 20px 2px;
-  padding: 10px 14px;
-  border: 1.5px solid #fecaca;
-  background: #fee2e2;
-  color: #991b1b;
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 600;
 }
 
 .attendance-face-thumb {

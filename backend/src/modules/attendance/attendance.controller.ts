@@ -69,6 +69,15 @@ export class AttendanceController {
     return this.attendanceService.findFlaggedLogs({ departmentId });
   }
 
+  // The earlier failed attempts the given flagged log superseded — lazily
+  // loaded by the review modal, same gating as the list above.
+  @Get("flagged/:logId/attempts")
+  @RequirePermissions("attendance:write")
+  findPreviousFlaggedAttempts(@Param("logId") logId: string, @Req() request: Request) {
+    const departmentId = getSupervisorDepartmentScope((request as any).user);
+    return this.attendanceService.findPreviousFlaggedAttempts(logId, departmentId);
+  }
+
   @Post("session")
   createSession() {
     return this.attendanceService.createSession();

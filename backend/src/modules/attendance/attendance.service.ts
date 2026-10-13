@@ -1171,6 +1171,23 @@ export class AttendanceService {
         },
       });
 
+      // Only the latest failed attempt is kept in the review queue: any
+      // earlier same-day attempt still awaiting review is superseded by this
+      // one, so the attendance table shows one row per employee instead of
+      // one per retry. reviewedAt is deliberately left null — nobody reviewed
+      // these, and getFlaggedAttemptHoldMessage treats a reviewedAt newer
+      // than the latest flag as the hold being lifted.
+      await this.prisma.attendanceLog.updateMany({
+        where: {
+          employeeId: dto.employeeId,
+          attendanceDate,
+          verificationStatus: "PENDING_REVIEW",
+          attendanceRecordId: null,
+          id: { not: flaggedLog.id },
+        },
+        data: { verificationStatus: "ARCHIVED", reviewRemarks: "Superseded by a later attempt." },
+      });
+
       // recordFlaggedAttempt stays awaited: its return value is the
       // flaggedAttemptCount the mobile client uses to pick its 1st/2nd/3rd
       // modal copy, so it's part of the answer, not a side effect. Sending
@@ -1329,6 +1346,49 @@ export class AttendanceService {
         workLocation: { select: { name: true } },
       },
       orderBy: { capturedAt: "desc" },
+    });
+  }
+
+  // The earlier same-day failed attempts a flagged log superseded (see
+  // submit()'s shouldFlag branch), oldest first, so the reviewer can still
+  // compare them against the latest one. Loaded lazily by the review modal
+  // rather than inlined into findFlaggedLogs(), since each carries a photo.
+  // reviewedAt: null is what tells a superseded attempt apart from one a
+  // reviewer archived by hand.
+  async findPreviousFlaggedAttempts(logId: string, scopeDepartmentId?: string) {
+    const log = await this.prisma.attendanceLog.findUniqueOrThrow({
+      where: { id: logId },
+      select: { employeeId: true, attendanceDate: true, capturedAt: true, employee: { select: { departmentId: true } } },
+    });
+
+    if (scopeDepartmentId && log.employee.departmentId !== scopeDepartmentId) {
+      throw new ForbiddenException("You can only manage attendance records from your own department.");
+    }
+    if (!log.attendanceDate) return [];
+
+    return this.prisma.attendanceLog.findMany({
+      where: {
+        employeeId: log.employeeId,
+        attendanceDate: log.attendanceDate,
+        verificationStatus: "ARCHIVED",
+        attendanceRecordId: null,
+        reviewedAt: null,
+        capturedAt: { lt: log.capturedAt },
+      },
+      select: {
+        id: true,
+        logType: true,
+        capturedAt: true,
+        latitude: true,
+        longitude: true,
+        distanceFromSiteMeters: true,
+        faceSimilarityScore: true,
+        verificationStatus: true,
+        failureReason: true,
+        faceImageData: true,
+        faceImageMimeType: true,
+      },
+      orderBy: { capturedAt: "asc" },
     });
   }
 

@@ -1006,6 +1006,28 @@ export async function getFlaggedAttendanceLogs() {
   return apiRequest<FlaggedAttendanceLog[]>("/attendance/flagged");
 }
 
+// A flagged log's earlier same-day failed attempts (oldest first) — only the
+// latest one is listed in the review queue, the ones it superseded are
+// fetched per log when its review modal opens.
+export type PreviousFlaggedAttempt = Pick<
+  FlaggedAttendanceLog,
+  | "id"
+  | "logType"
+  | "capturedAt"
+  | "latitude"
+  | "longitude"
+  | "distanceFromSiteMeters"
+  | "faceSimilarityScore"
+  | "verificationStatus"
+  | "failureReason"
+  | "faceImageData"
+  | "faceImageMimeType"
+>;
+
+export async function getPreviousFlaggedAttempts(logId: string) {
+  return apiRequest<PreviousFlaggedAttempt[]>(`/attendance/flagged/${logId}/attempts`);
+}
+
 // "validate" records the attempt as genuine attendance; "reject" tags it as
 // a fake attendance attempt. Either way the log leaves the pending-review
 // queue, so the caller refetches afterwards.

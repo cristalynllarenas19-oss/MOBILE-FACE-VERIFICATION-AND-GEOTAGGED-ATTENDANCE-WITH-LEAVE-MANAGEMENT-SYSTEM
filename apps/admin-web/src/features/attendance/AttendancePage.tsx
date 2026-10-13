@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, CheckCircle2, Eye, MapPin, X, XCircle } from "lucide-react";
+import { CheckCircle2, Eye, MapPin, X, XCircle } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { EmployeeSearchSelect, matchesEmployeeQuery, type EmployeeSearchOption } from "../../components/ui/EmployeeSearchSelect";
@@ -183,6 +183,12 @@ function photoUri(log?: AttendanceLog | null) {
   return `data:${log.faceImageMimeType ?? "image/jpeg"};base64,${log.faceImageData}`;
 }
 
+// "1st", "2nd", "3rd" — which same-day failed attempt a flagged capture was.
+function ordinal(value: number) {
+  const suffix = value % 100 >= 11 && value % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][value % 10] ?? "th";
+  return `${value}${suffix}`;
+}
+
 function isFailedAttendanceAttempt(log?: AttendanceLog | null) {
   return log?.verificationStatus === "REJECTED";
 }
@@ -210,7 +216,32 @@ function AttendanceDetailsModal({
   const breakWord = record.breakKind === "BREAK" ? "Break" : "Lunch";
   const availablePhotoTabs = photoTabOrder.filter((tab) => record.logs.some((log) => log.logType === tab));
   const [activePhotoTab, setActivePhotoTab] = useState<PhotoLogType>(availablePhotoTabs[0] ?? "TIME_IN");
-  const selectedLog = record.logs.find((log) => log.logType === activePhotoTab) ?? record.logs[0];
+  const latestLog = record.logs.find((log) => log.logType === activePhotoTab) ?? record.logs[0];
+
+  // A flagged row only carries the latest failed attempt; the earlier
+  // same-day ones it superseded are fetched here (oldest first) so the
+  // reviewer can still flip back to them. null = showing the latest.
+  const [previousAttempts, setPreviousAttempts] = useState<AttendanceLog[]>([]);
+  const [viewedAttempt, setViewedAttempt] = useState<number | null>(null);
+  useEffect(() => {
+    if (!record.flaggedLogId) return;
+    let cancelled = false;
+    apiRequest<AttendanceLog[]>(`/attendance/flagged/${record.flaggedLogId}/attempts`)
+      .then((attempts) => {
+        if (!cancelled) setPreviousAttempts(attempts);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [record.flaggedLogId]);
+  const latestAttemptNumber = previousAttempts.length + 1;
+  const selectedLog = (viewedAttempt !== null ? previousAttempts[viewedAttempt] : undefined) ?? latestLog;
+  const attemptLabel = !record.isFlagged
+    ? ""
+    : viewedAttempt !== null
+      ? `${ordinal(viewedAttempt + 1)} attempt`
+      : `${ordinal(latestAttemptNumber)} attempt · Latest`;
   const canApproveFailedAttempt = isFailedAttendanceAttempt(selectedLog);
   const mapQuery = selectedLog ? `${selectedLog.latitude},${selectedLog.longitude}` : "";
 
@@ -272,20 +303,14 @@ function AttendanceDetailsModal({
           </button>
         </div>
 
-        {record.isFlagged && (
-          <p className="attendance-flagged-banner">
-            <AlertTriangle size={16} />
-            Face did not match the enrolled profile for this account. Compare the registered photo against the
-            captured photo before deciding.
-          </p>
-        )}
-
         {/* Two columns: photo comparison + verification on the left, record
             details on the right — sized to fit without scrolling. */}
         <div className="attendance-modal-body">
           {!record.isSynthetic && (
             <div className="attendance-modal-col">
-              {availablePhotoTabs.length > 0 && (
+              {/* A lone tab has nothing to switch to, and the capture's own
+                  caption already names it. */}
+              {availablePhotoTabs.length > 1 && (
                 <div className="attendance-photo-tabs">
                   {availablePhotoTabs.map((tab) => (
                     <button
@@ -297,6 +322,28 @@ function AttendanceDetailsModal({
                       {photoTabLabel(tab, breakWord)}
                     </button>
                   ))}
+                </div>
+              )}
+
+              {previousAttempts.length > 0 && (
+                <div className="attendance-photo-tabs attendance-attempt-tabs">
+                  {previousAttempts.map((attempt, index) => (
+                    <button
+                      key={attempt.capturedAt}
+                      type="button"
+                      className={`attendance-photo-tab${viewedAttempt === index ? " active" : ""}`}
+                      onClick={() => setViewedAttempt(index)}
+                    >
+                      {ordinal(index + 1)} attempt
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    className={`attendance-photo-tab${viewedAttempt === null ? " active" : ""}`}
+                    onClick={() => setViewedAttempt(null)}
+                  >
+                    {ordinal(latestAttemptNumber)} attempt
+                  </button>
                 </div>
               )}
 
@@ -319,6 +366,7 @@ function AttendanceDetailsModal({
                       className="attendance-compare-photo"
                       onClick={() => setPreviewImage(photoUri(selectedLog))}
                     >
+                      {attemptLabel && <span className="attendance-attempt-label">{attemptLabel}</span>}
                       <img src={photoUri(selectedLog) ?? undefined} alt={`${photoTabLabel(activePhotoTab, breakWord)} capture`} />
                     </button>
                   ) : (
@@ -331,7 +379,7 @@ function AttendanceDetailsModal({
               <div className="attendance-match">
                 <strong>{selectedLog?.faceSimilarityScore ? `${selectedLog.faceSimilarityScore}%` : "N/A"}</strong>
                 <div>
-                  <span>Face match score</span>
+                  <span>Face match score{attemptLabel ? ` · ${attemptLabel}` : ""}</span>
                   <em>{selectedLog?.verificationStatus ? getStatusLabel(selectedLog.verificationStatus) : "No log"}</em>
                 </div>
               </div>

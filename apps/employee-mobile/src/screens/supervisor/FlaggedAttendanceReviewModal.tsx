@@ -16,7 +16,12 @@ import { BlurView } from "expo-blur";
 import AestheticScrollView from "../../components/AestheticScrollView";
 import StatusPill from "../../components/StatusPill";
 import { ZoomableImage } from "../../components/ZoomableImage";
-import { FlaggedAttendanceLog, reviewFlaggedAttendanceLog } from "../../api";
+import {
+  FlaggedAttendanceLog,
+  PreviousFlaggedAttempt,
+  getPreviousFlaggedAttempts,
+  reviewFlaggedAttendanceLog,
+} from "../../api";
 import { ui } from "../../styles/ui";
 
 const LOG_TYPE_LABELS: Record<FlaggedAttendanceLog["logType"], string> = {
@@ -34,6 +39,12 @@ function toImageUri(data?: string | null, mimeType?: string | null) {
   if (!data) return null;
   if (data.startsWith("data:")) return data;
   return `data:${mimeType ?? "image/jpeg"};base64,${data}`;
+}
+
+// "1st", "2nd", "3rd" — which same-day failed attempt a capture was.
+function ordinal(value: number) {
+  const suffix = value % 100 >= 11 && value % 100 <= 13 ? "th" : ["th", "st", "nd", "rd"][value % 10] ?? "th";
+  return `${value}${suffix}`;
 }
 
 function Row({ label, value }: { label: string; value: string }) {
@@ -72,12 +83,39 @@ export default function FlaggedAttendanceReviewModal({
     setError("");
   }, [log?.id]);
 
+  // The queue only lists the latest failed attempt; the earlier same-day
+  // ones it superseded are fetched here (oldest first) so the reviewer can
+  // still flip back to them. null = showing the latest.
+  const [previousAttempts, setPreviousAttempts] = useState<PreviousFlaggedAttempt[]>([]);
+  const [viewedAttempt, setViewedAttempt] = useState<number | null>(null);
+  React.useEffect(() => {
+    setPreviousAttempts([]);
+    setViewedAttempt(null);
+    if (!log?.id) return;
+    let cancelled = false;
+    getPreviousFlaggedAttempts(log.id)
+      .then((attempts) => {
+        if (!cancelled) setPreviousAttempts(attempts);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [log?.id]);
+
   if (!log) return null;
 
+  // Whichever attempt is on screen. The decision buttons always act on the
+  // latest one (`log`) — that is the attempt still awaiting review.
+  const shown = (viewedAttempt !== null ? previousAttempts[viewedAttempt] : undefined) ?? log;
+  const latestAttemptNumber = previousAttempts.length + 1;
+  const attemptLabel =
+    viewedAttempt !== null ? `${ordinal(viewedAttempt + 1)} attempt` : `${ordinal(latestAttemptNumber)} attempt · Latest`;
+
   const registeredUri = toImageUri(log.employee.faceProfiles?.[0]?.referenceImageData);
-  const capturedUri = toImageUri(log.faceImageData, log.faceImageMimeType);
-  const captureLabel = `${LOG_TYPE_LABELS[log.logType]} Capture`;
-  const mapQuery = `${log.latitude},${log.longitude}`;
+  const capturedUri = toImageUri(shown.faceImageData, shown.faceImageMimeType);
+  const captureLabel = `${LOG_TYPE_LABELS[shown.logType]} Capture`;
+  const mapQuery = `${shown.latitude},${shown.longitude}`;
 
   async function decide(decision: "validate" | "reject") {
     if (!log) return;
@@ -121,15 +159,31 @@ export default function FlaggedAttendanceReviewModal({
               </Pressable>
             </View>
 
-            <View style={styles.banner}>
-              <Ionicons name="warning-outline" size={16} color="#B45309" />
-              <Text style={styles.bannerText}>
-                Face did not match the enrolled profile for this account. Compare the registered photo against the
-                captured photo before deciding.
-              </Text>
-            </View>
-
             <AestheticScrollView style={styles.body} contentContainerStyle={styles.bodyContent}>
+              {previousAttempts.length > 0 && (
+                <View style={styles.attemptRow}>
+                  {previousAttempts.map((attempt, index) => (
+                    <Pressable
+                      key={attempt.id}
+                      style={[ui.filterChip, viewedAttempt === index && ui.filterChipActive]}
+                      onPress={() => setViewedAttempt(index)}
+                    >
+                      <Text style={[ui.filterChipText, viewedAttempt === index && ui.filterChipTextActive]}>
+                        {ordinal(index + 1)} attempt
+                      </Text>
+                    </Pressable>
+                  ))}
+                  <Pressable
+                    style={[ui.filterChip, viewedAttempt === null && ui.filterChipActive]}
+                    onPress={() => setViewedAttempt(null)}
+                  >
+                    <Text style={[ui.filterChipText, viewedAttempt === null && ui.filterChipTextActive]}>
+                      {ordinal(latestAttemptNumber)} attempt
+                    </Text>
+                  </Pressable>
+                </View>
+              )}
+
               <View style={styles.compareRow}>
                 <View style={styles.compareItem}>
                   <Text style={styles.compareCaption}>Registered Face</Text>
@@ -160,20 +214,21 @@ export default function FlaggedAttendanceReviewModal({
               {/* The one number the reviewer is here to judge. */}
               <View style={styles.matchCard}>
                 <Text style={styles.matchScore}>
-                  {log.faceSimilarityScore ? `${log.faceSimilarityScore}%` : "N/A"}
+                  {shown.faceSimilarityScore ? `${shown.faceSimilarityScore}%` : "N/A"}
                 </Text>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.matchLabel}>Face match score</Text>
-                  <Text style={styles.matchStatus}>{log.verificationStatus.replace(/_/g, " ")}</Text>
+                  <Text style={styles.matchLabel}>Face match score · {attemptLabel}</Text>
+                  <Text style={styles.matchStatus}>{shown.verificationStatus.replace(/_/g, " ")}</Text>
                 </View>
               </View>
 
               <Text style={styles.sectionTitle}>Attempt</Text>
               <View style={styles.detailCard}>
-                <Row label="Captured at" value={new Date(log.capturedAt).toLocaleString()} />
-                <Row label="Type" value={LOG_TYPE_LABELS[log.logType]} />
+                <Row label="Attempt" value={attemptLabel} />
+                <Row label="Captured at" value={new Date(shown.capturedAt).toLocaleString()} />
+                <Row label="Type" value={LOG_TYPE_LABELS[shown.logType]} />
                 <Row label="Mode" value={log.recordType === "FIELD" ? "Field" : "Non-field"} />
-                <Row label="Failure reason" value={log.failureReason ?? "None"} />
+                <Row label="Failure reason" value={shown.failureReason ?? "None"} />
               </View>
 
               <Text style={styles.sectionTitle}>Employee</Text>
@@ -190,7 +245,7 @@ export default function FlaggedAttendanceReviewModal({
               <Text style={styles.sectionTitle}>Location</Text>
               <View style={styles.detailCard}>
                 <Row label="Site" value={log.workLocation?.name ?? "—"} />
-                <Row label="Distance from site" value={`${Math.round(Number(log.distanceFromSiteMeters))}m`} />
+                <Row label="Distance from site" value={`${Math.round(Number(shown.distanceFromSiteMeters))}m`} />
                 <View style={styles.detailRow}>
                   <Text style={styles.detailLabel}>Coordinates</Text>
                   <Pressable
@@ -201,7 +256,7 @@ export default function FlaggedAttendanceReviewModal({
                   >
                     <Ionicons name="location-outline" size={13} color="#1680D8" />
                     <Text style={styles.mapLinkText} numberOfLines={1}>
-                      {Number(log.latitude).toFixed(5)}, {Number(log.longitude).toFixed(5)}
+                      {Number(shown.latitude).toFixed(5)}, {Number(shown.longitude).toFixed(5)}
                     </Text>
                   </Pressable>
                 </View>
@@ -273,20 +328,9 @@ const styles = StyleSheet.create({
   header: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
   title: { fontSize: 17, fontWeight: "800", color: "#062B59" },
   subtitle: { fontSize: 12, color: "#64748B", marginTop: 2 },
-  banner: {
-    flexDirection: "row",
-    gap: 8,
-    alignItems: "flex-start",
-    backgroundColor: "#FFFBEB",
-    borderColor: "#FDE68A",
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 10,
-    marginTop: 12,
-  },
-  bannerText: { flex: 1, fontSize: 11.5, lineHeight: 16, color: "#92400E" },
   body: { marginTop: 12 },
   bodyContent: { paddingBottom: 8, gap: 10 },
+  attemptRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   compareRow: { flexDirection: "row", gap: 10 },
   compareItem: { flex: 1 },
   compareCaption: { fontSize: 11, fontWeight: "700", color: "#475569", marginBottom: 6 },
