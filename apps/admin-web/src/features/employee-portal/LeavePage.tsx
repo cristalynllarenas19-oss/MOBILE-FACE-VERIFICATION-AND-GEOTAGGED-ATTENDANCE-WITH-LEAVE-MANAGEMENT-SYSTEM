@@ -38,6 +38,15 @@ const STATUS_FILTERS: { key: Exclude<RequestStatusFilter, "ALL">; label: string 
   { key: "LAPSED", label: "Lapsed" },
 ];
 
+// Only the statuses a request on that tab can actually have — an Active
+// request is never Rejected/Cancelled/Lapsed, and a Past one is never
+// Pending, so those chips could only ever produce an empty list (mirrors
+// employee-mobile's LeaveScreen.tsx).
+const STATUS_FILTERS_BY_TAB: Record<"current" | "past", Exclude<RequestStatusFilter, "ALL">[]> = {
+  current: ["PENDING", "APPROVED"],
+  past: ["APPROVED", "REJECTED", "CANCELLED", "LAPSED"],
+};
+
 // Buckets a request's raw status into one of the five filter chips — same
 // grouping as statusTone below (mirrors employee-mobile's LeaveScreen.tsx).
 function statusFilterBucket(status: string): Exclude<RequestStatusFilter, "ALL"> | null {
@@ -319,6 +328,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
   function openPendingModal() {
     setShowPending(true);
     setRequestsListTab("current");
+    setRequestsStatusFilter("ALL");
     setRequestsDateFrom("");
     setRequestsDateTo("");
     requestsCache.refresh().catch(() => undefined);
@@ -426,6 +436,9 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   }
 
+  // The status chips only ever filter the tab being viewed (see the
+  // requestsListTab checks below), so the other tab's count stays its true
+  // total instead of dropping to whatever happens to match this tab's chip.
   function matchesStatusFilter(r: LeaveRequest) {
     if (requestsStatusFilter === "ALL") return true;
     return statusFilterBucket(r.status) === requestsStatusFilter;
@@ -446,9 +459,9 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
     return requests
       .filter((r) => isCurrentLeaveRequest(r, todayStart))
       .filter(matchesDateFilter)
-      .filter(matchesStatusFilter)
+      .filter((r) => requestsListTab !== "current" || matchesStatusFilter(r))
       .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
-  }, [requests, requestsDateFrom, requestsDateTo, requestsStatusFilter]);
+  }, [requests, requestsDateFrom, requestsDateTo, requestsStatusFilter, requestsListTab]);
 
   // History — everything not currently active, most-recently-filed first
   // (mirrors admin-web's own Leave History tab).
@@ -458,9 +471,13 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
     return requests
       .filter((r) => !isCurrentLeaveRequest(r, todayStart))
       .filter(matchesDateFilter)
-      .filter(matchesStatusFilter)
+      .filter((r) => requestsListTab !== "past" || matchesStatusFilter(r))
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [requests, requestsDateFrom, requestsDateTo, requestsStatusFilter]);
+  }, [requests, requestsDateFrom, requestsDateTo, requestsStatusFilter, requestsListTab]);
+  const statusFilterChips: { key: RequestStatusFilter; label: string }[] = [
+    { key: "ALL", label: "All" },
+    ...STATUS_FILTERS.filter((filter) => STATUS_FILTERS_BY_TAB[requestsListTab].includes(filter.key)),
+  ];
   const focusedRequest = useMemo(
     () => requests.find((r) => r.id === focusedRequestId),
     [requests, focusedRequestId],
@@ -1905,40 +1922,41 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
 
             <SegmentedControl
               segments={[
-                { key: "current", label: `Current (${currentRequests.length})` },
+                { key: "current", label: `Active (${currentRequests.length})` },
                 { key: "past", label: `Past (${pastRequests.length})` },
               ]}
               value={requestsListTab}
-              onChange={(key) => setRequestsListTab(key as "current" | "past")}
+              onChange={(key) => {
+                // Each tab has its own set of status chips, so a chip picked
+                // on one may not exist on the other.
+                setRequestsListTab(key as "current" | "past");
+                setRequestsStatusFilter("ALL");
+              }}
               style={{ marginBottom: 16 }}
             />
 
             {/* Same navy-active/grey-inactive colors as every other pill on
-                this page (Balance/Request/Undertime, Current/Past) instead of
-                a third color. Six chips (All + five statuses) in two rows of
-                three, so none of them is squeezed. */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 6, marginBottom: 10 }}>
-              <button
-                type="button"
-                onClick={() => setRequestsStatusFilter("ALL")}
-                style={{
-                  flex: 1, border: "none", borderRadius: 999, padding: "7px 4px", cursor: "pointer",
-                  fontSize: 11, fontWeight: 700,
-                  background: requestsStatusFilter === "ALL" ? "#062B59" : "#F1F5F9",
-                  color: requestsStatusFilter === "ALL" ? "#FFFFFF" : "#64748B",
-                }}
-              >
-                All
-              </button>
-              {STATUS_FILTERS.map((filter) => {
+                this page (Balance/Request/Undertime, Active/Past) instead of
+                a third color. All + the statuses that apply to this tab,
+                three per row so none of them is squeezed. Six half-chip
+                columns with every chip spanning two, so a short last row
+                (Past's Cancelled/Lapsed) keeps the same chip size and can
+                start half a chip in — centered under the row above instead
+                of stretching or leaving an empty cell (same as
+                employee-mobile). */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 6, marginBottom: 10 }}>
+              {statusFilterChips.map((filter, index) => {
                 const active = requestsStatusFilter === filter.key;
+                const lastRowCount = statusFilterChips.length % 3;
+                const startsShortLastRow = lastRowCount > 0 && index === statusFilterChips.length - lastRowCount;
                 return (
                   <button
                     key={filter.key}
                     type="button"
                     onClick={() => setRequestsStatusFilter(filter.key)}
                     style={{
-                      flex: 1, border: "none", borderRadius: 999, padding: "7px 4px", cursor: "pointer",
+                      gridColumn: startsShortLastRow ? `${4 - lastRowCount} / span 2` : "span 2",
+                      border: "none", borderRadius: 999, padding: "7px 4px", cursor: "pointer",
                       fontSize: 11, fontWeight: 700,
                       background: active ? "#062B59" : "#F1F5F9",
                       color: active ? "#FFFFFF" : "#64748B",
@@ -1948,6 +1966,24 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                   </button>
                 );
               })}
+              {/* Active only fills one row of chips where Past fills two —
+                  this invisible chip holds the second row open so the card
+                  stays the same height (and so doesn't shift) when switching
+                  tabs. */}
+              {requestsListTab === "current" && (
+                <button
+                  type="button"
+                  disabled
+                  aria-hidden
+                  tabIndex={-1}
+                  style={{
+                    gridColumn: "1 / -1", visibility: "hidden", border: "none", borderRadius: 999, padding: "7px 4px",
+                    fontSize: 11, fontWeight: 700,
+                  }}
+                >
+                  &nbsp;
+                </button>
+              )}
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
@@ -1988,7 +2024,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                   {requestsDateFrom || requestsDateTo || requestsStatusFilter !== "ALL"
                     ? "No requests match these filters."
                     : requestsListTab === "current"
-                      ? "No ongoing or upcoming filed leave."
+                      ? "No active leave requests."
                       : "No past leave requests."}
                 </p>
               ) : (

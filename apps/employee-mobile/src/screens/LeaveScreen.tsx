@@ -123,6 +123,14 @@ const STATUS_FILTERS: { key: Exclude<RequestStatusFilter, "ALL">; label: string 
   { key: "LAPSED", label: "Lapsed" },
 ];
 
+// Only the statuses a request on that tab can actually have — an Active
+// request is never Rejected/Cancelled/Lapsed, and a Past one is never
+// Pending, so those chips could only ever produce an empty list.
+const STATUS_FILTERS_BY_TAB: Record<"current" | "past", Exclude<RequestStatusFilter, "ALL">[]> = {
+  current: ["PENDING", "APPROVED"],
+  past: ["APPROVED", "REJECTED", "CANCELLED", "LAPSED"],
+};
+
 // Buckets a request's raw status into one of the five filter chips —
 // SUPERVISOR_APPROVED joins APPROVED, and PENDING/NEEDS_REVISION/
 // CANCELLATION_PENDING all join PENDING, same grouping as statusTone below.
@@ -557,6 +565,9 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
     return true;
   }
 
+  // The status chips only ever filter the tab being viewed (see the
+  // requestsListTab checks below), so the other tab's count stays its true
+  // total instead of dropping to whatever happens to match this tab's chip.
   function matchesStatusFilter(r: LeaveRequest) {
     if (requestsStatusFilter === "ALL") return true;
     return statusFilterBucket(r.status) === requestsStatusFilter;
@@ -565,18 +576,32 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
   const currentRequests = useMemo(
     () =>
       requests
-        .filter((r) => isCurrentLeaveRequest(r) && matchesDateFilter(r) && matchesStatusFilter(r))
+        .filter(
+          (r) =>
+            isCurrentLeaveRequest(r) &&
+            matchesDateFilter(r) &&
+            (requestsListTab !== "current" || matchesStatusFilter(r)),
+        )
         .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime()),
-    [requests, todayStart, requestsDateFrom, requestsDateTo, requestsStatusFilter],
+    [requests, todayStart, requestsDateFrom, requestsDateTo, requestsStatusFilter, requestsListTab],
   );
   // History — everything not currently active, most-recently-filed first.
   const pastRequests = useMemo(
     () =>
       requests
-        .filter((r) => !isCurrentLeaveRequest(r) && matchesDateFilter(r) && matchesStatusFilter(r))
+        .filter(
+          (r) =>
+            !isCurrentLeaveRequest(r) &&
+            matchesDateFilter(r) &&
+            (requestsListTab !== "past" || matchesStatusFilter(r)),
+        )
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
-    [requests, todayStart, requestsDateFrom, requestsDateTo, requestsStatusFilter],
+    [requests, todayStart, requestsDateFrom, requestsDateTo, requestsStatusFilter, requestsListTab],
   );
+  const statusFilterChips: { key: RequestStatusFilter; label: string }[] = [
+    { key: "ALL", label: "All" },
+    ...STATUS_FILTERS.filter((filter) => STATUS_FILTERS_BY_TAB[requestsListTab].includes(filter.key)),
+  ];
   const expandedRequest = useMemo(
     () => requests.find((r) => r.id === expandedRequestId),
     [requests, expandedRequestId],
@@ -647,6 +672,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
   function openPendingModal() {
     setShowPending(true);
     setRequestsListTab("current");
+    setRequestsStatusFilter("ALL");
     setRequestsDateFrom(null);
     setRequestsDateTo(null);
     requestsCache.refresh().catch(() => undefined);
@@ -1840,49 +1866,75 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
 
                 <SegmentedControl
                   segments={[
-                    { key: "current", label: `Current (${currentRequests.length})` },
+                    { key: "current", label: `Active (${currentRequests.length})` },
                     { key: "past", label: `Past (${pastRequests.length})` },
                   ]}
                   value={requestsListTab}
-                  onChange={(key) => setRequestsListTab(key as "current" | "past")}
+                  onChange={(key) => {
+                    // Each tab has its own set of status chips, so a chip
+                    // picked on one may not exist on the other.
+                    setRequestsListTab(key as "current" | "past");
+                    setRequestsStatusFilter("ALL");
+                  }}
                   style={styles.requestsTabSwitcher}
                 />
 
-                {/* Six chips (All + five statuses) in two rows of three, so
-                    none of them is squeezed. */}
+                {/* All + the statuses that apply to this tab, three per row
+                    so none of them is squeezed. Every chip is exactly a
+                    third of the row wide; a short last row (Past's
+                    Cancelled/Lapsed) keeps that same chip size and is
+                    centered under the row above instead of stretching. */}
                 <View style={styles.statusFilterGrid}>
-                  <Pressable
-                    style={[styles.statusFilterChip, styles.statusFilterGridChip, requestsStatusFilter === "ALL" && styles.statusFilterChipActive]}
-                    onPress={() => setRequestsStatusFilter("ALL")}
-                  >
-                    <Text
-                      style={[styles.statusFilterChipText, requestsStatusFilter === "ALL" && styles.statusFilterChipTextActive]}
-                      numberOfLines={1}
-                      adjustsFontSizeToFit
-                      minimumFontScale={0.8}
-                    >
-                      All
-                    </Text>
-                  </Pressable>
-                  {STATUS_FILTERS.map((filter) => {
-                    const active = requestsStatusFilter === filter.key;
-                    return (
-                      <Pressable
-                        key={filter.key}
-                        style={[styles.statusFilterChip, styles.statusFilterGridChip, active && styles.statusFilterChipActive]}
-                        onPress={() => setRequestsStatusFilter(filter.key)}
-                      >
-                        <Text
-                          style={[styles.statusFilterChipText, active && styles.statusFilterChipTextActive]}
-                          numberOfLines={1}
-                          adjustsFontSizeToFit
-                          minimumFontScale={0.8}
-                        >
-                          {filter.label}
+                  {[statusFilterChips.slice(0, 3), statusFilterChips.slice(3)]
+                    .filter((row) => row.length > 0)
+                    .map((row, rowIndex) => {
+                      // Each missing chip leaves a chip-width + one 6px gap
+                      // of free space, split evenly between the two edges.
+                      const missing = 3 - row.length;
+                      const edgeStyle = { flexGrow: missing / 2, flexBasis: missing * 3 };
+                      return (
+                        <View key={rowIndex} style={styles.statusFilterGridRow}>
+                          {missing > 0 && <View style={edgeStyle} />}
+                          {row.map((filter, index) => {
+                            const active = requestsStatusFilter === filter.key;
+                            return (
+                              <Pressable
+                                key={filter.key}
+                                style={[
+                                  styles.statusFilterChip,
+                                  index > 0 && styles.statusFilterGridChipGap,
+                                  active && styles.statusFilterChipActive,
+                                ]}
+                                onPress={() => setRequestsStatusFilter(filter.key)}
+                              >
+                                <Text
+                                  style={[styles.statusFilterChipText, active && styles.statusFilterChipTextActive]}
+                                  numberOfLines={1}
+                                  adjustsFontSizeToFit
+                                  minimumFontScale={0.8}
+                                >
+                                  {filter.label}
+                                </Text>
+                              </Pressable>
+                            );
+                          })}
+                          {missing > 0 && <View style={edgeStyle} />}
+                        </View>
+                      );
+                    })}
+                  {/* Active only fills one row of chips where Past fills
+                      two — this invisible chip holds the second row open so
+                      the card stays the same height (and so doesn't shift)
+                      when switching tabs. */}
+                  {requestsListTab === "current" && (
+                    <View style={[styles.statusFilterGridRow, styles.statusFilterRowSpacer]} pointerEvents="none">
+                      <View style={styles.statusFilterChip}>
+                        <Text style={styles.statusFilterChipText} numberOfLines={1}>
+                          {" "}
                         </Text>
-                      </Pressable>
-                    );
-                  })}
+                      </View>
+                    </View>
+                  )}
                 </View>
 
                 <View style={styles.filedDateRow}>
@@ -1927,7 +1979,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                       {requestsDateFrom || requestsDateTo || requestsStatusFilter !== "ALL"
                         ? "No requests match these filters."
                         : requestsListTab === "current"
-                          ? "No ongoing or upcoming filed leave."
+                          ? "No active leave requests."
                           : "No past leave requests."}
                     </Text>
                   ) : (
@@ -2708,8 +2760,10 @@ const styles = StyleSheet.create({
   },
   statusFilterRow: { flexDirection: "row", gap: 5, marginBottom: 10 },
   // Wrapping variant for the leave-request filters: three chips per row.
-  statusFilterGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 10 },
-  statusFilterGridChip: { flexGrow: 1, flexShrink: 0, flexBasis: "30%" },
+  statusFilterGrid: { gap: 6, marginBottom: 10 },
+  statusFilterGridRow: { flexDirection: "row" },
+  statusFilterGridChipGap: { marginLeft: 6 },
+  statusFilterRowSpacer: { opacity: 0 },
   filedDateRow: { flexDirection: "row", gap: 8, marginBottom: 12 },
   filedDateBox: {
     flex: 1,
