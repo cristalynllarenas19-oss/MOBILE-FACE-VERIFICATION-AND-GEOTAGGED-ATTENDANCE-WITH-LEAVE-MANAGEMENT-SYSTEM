@@ -82,6 +82,9 @@ type Props = {
   logType: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN";
   // True on a shift whose break isn't a lunch (night/evening shifts).
   isBreak?: boolean;
+  // Field employees record visits, not a shift — the title and photo stamp
+  // read Start Visit/End Visit instead of Time In/Time Out.
+  isField?: boolean;
   onComplete: (location: GeoPoint, faceBase64: string) => void;
   onCancel: () => void;
 };
@@ -213,19 +216,19 @@ function playSuccessChime() {
   }
 }
 
-function logTypeTitle(logType: Props["logType"], isBreak = false) {
-  if (logType === "TIME_IN") return "Time In";
-  if (logType === "TIME_OUT") return "Time Out";
+function logTypeTitle(logType: Props["logType"], isBreak = false, isField = false) {
+  if (logType === "TIME_IN") return isField ? "Start Visit" : "Time In";
+  if (logType === "TIME_OUT") return isField ? "End Visit" : "Time Out";
   if (logType === "LUNCH_OUT") return isBreak ? "Break Start" : "Lunch Out";
   return isBreak ? "Break End" : "Lunch In";
 }
 
-function logTypeLabel(logType: Props["logType"], isBreak = false) {
-  return logTypeTitle(logType, isBreak).toUpperCase();
+function logTypeLabel(logType: Props["logType"], isBreak = false, isField = false) {
+  return logTypeTitle(logType, isBreak, isField).toUpperCase();
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
-export default function CameraScanner({ logType, isBreak, onComplete, onCancel }: Props) {
+export default function CameraScanner({ logType, isBreak, isField, onComplete, onCancel }: Props) {
   const videoRef       = useRef<HTMLVideoElement>(null);
   const streamRef      = useRef<MediaStream | null>(null);
   const stageRef       = useRef<HTMLDivElement>(null);
@@ -617,7 +620,7 @@ export default function CameraScanner({ logType, isBreak, onComplete, onCancel }
         <div style={S.topBarTextWrap}>
           <div style={S.titleRow}>
             <ShieldCheck size={14} color="#2563EB" />
-            <span style={S.title}>{logTypeTitle(logType, isBreak)} Verification</span>
+            <span style={S.title}>{logTypeTitle(logType, isBreak, isField)} Verification</span>
           </div>
           <span style={S.subtitle}>Secure face check with location confirmation</span>
         </div>
@@ -769,7 +772,7 @@ export default function CameraScanner({ logType, isBreak, onComplete, onCancel }
               </div>
               <div style={S.gpsTextCol}>
                 <div style={S.dateBadge}>
-                  {logTypeLabel(logType, isBreak)} · {formatStampDate(overlayDate)}
+                  {logTypeLabel(logType, isBreak, isField)} · {formatStampDate(overlayDate)}
                 </div>
                 <div style={S.addressText}>{overlayAddress ?? "Locating…"}</div>
               </div>

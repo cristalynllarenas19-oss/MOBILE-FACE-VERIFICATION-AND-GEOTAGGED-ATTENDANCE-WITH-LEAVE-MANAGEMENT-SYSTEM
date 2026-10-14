@@ -144,6 +144,9 @@ export type WorkLocation = {
   longitude: string | number;
   radiusMeters: string | number;
   allowedAccuracyMeters: string | number;
+  // Office or Field area — any Field area makes the employee a FIELD
+  // employee (see GeolocationService.syncAttendanceModes on the backend).
+  type?: "OFFICE" | "FIELD";
 };
 
 export type EmployeeProfile = {
@@ -157,6 +160,9 @@ export type EmployeeProfile = {
   // Only present on the GET /employees/me response — whether this employee
   // has an active EmployeeSchedule assignment whose workingDays include today.
   hasScheduleToday?: boolean;
+  // The live value — follows the employee's assigned geotagged area, so it
+  // can differ from the attendanceMode saved with the login session.
+  attendanceMode?: string;
   user: { email: string };
   department: { name: string };
   position: { title: string };

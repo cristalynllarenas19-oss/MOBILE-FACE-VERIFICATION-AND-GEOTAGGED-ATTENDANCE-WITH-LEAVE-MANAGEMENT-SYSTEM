@@ -22,6 +22,9 @@ type CameraScannerProps = {
   logType: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN";
   // True on a shift whose break isn't a lunch (night/evening shifts).
   isBreak?: boolean;
+  // Field employees record visits, not a shift — the title and photo stamp
+  // read Start Visit/End Visit instead of Time In/Time Out.
+  isField?: boolean;
   // Called the instant the liveness-verified photo is captured — not once
   // identity/geofence/submission are known. locationPromise is still in
   // flight (started right after capture, not awaited here) so the caller
@@ -57,7 +60,9 @@ const LOG_TYPE_LABEL: Record<CameraScannerProps["logType"], string> = {
   LUNCH_IN: "Lunch End",
 };
 
-function logTypeLabel(logType: CameraScannerProps["logType"], isBreak?: boolean) {
+function logTypeLabel(logType: CameraScannerProps["logType"], isBreak?: boolean, isField?: boolean) {
+  if (isField && logType === "TIME_IN") return "Start Visit";
+  if (isField && logType === "TIME_OUT") return "End Visit";
   if (isBreak && logType === "LUNCH_OUT") return "Break Start";
   if (isBreak && logType === "LUNCH_IN") return "Break End";
   return LOG_TYPE_LABEL[logType];
@@ -334,7 +339,7 @@ function createDeferred() {
 }
 
 
-export default function CameraScanner({ logType, isBreak, onComplete, onCancel, workLocations, onOutOfRange }: CameraScannerProps) {
+export default function CameraScanner({ logType, isBreak, isField, onComplete, onCancel, workLocations, onOutOfRange }: CameraScannerProps) {
   const cameraRef = useRef<CameraView | null>(null);
   const shotRef = useRef<View>(null);
   const mainImageReadyRef = useRef<(() => void) | null>(null);
@@ -1204,7 +1209,7 @@ export default function CameraScanner({ logType, isBreak, onComplete, onCancel, 
         <View style={styles.topBarTextWrap}>
           <View style={styles.titleRow}>
             <Ionicons name="shield-checkmark" size={14} color="#2563EB" />
-            <Text style={styles.title}>{logTypeLabel(logType, isBreak)} Verification</Text>
+            <Text style={styles.title}>{logTypeLabel(logType, isBreak, isField)} Verification</Text>
           </View>
           <Text style={styles.subtitle}>Secure face check with location confirmation</Text>
         </View>
@@ -1305,7 +1310,7 @@ export default function CameraScanner({ logType, isBreak, onComplete, onCancel, 
                   <View style={styles.gpsTextColumn}>
                     <View style={styles.dateBadge}>
                       <Text style={styles.dateBadgeText}>
-                        {logTypeLabel(logType, isBreak).toUpperCase()} · {formatStampDate(overlayDate)}
+                        {logTypeLabel(logType, isBreak, isField).toUpperCase()} · {formatStampDate(overlayDate)}
                       </Text>
                     </View>
                     <Text style={styles.addressText} numberOfLines={2}>{overlayAddress ?? "Locating..."}</Text>

@@ -30,6 +30,7 @@ import {
   login,
   logout,
   restoreSession,
+  saveSessionAttendanceMode,
   getTodayAttendance,
   submitAttendance,
   getMyWorkLocation,
@@ -107,7 +108,7 @@ type ResultModalState = {
 // rejected, out-of-range, or gated behind the unauthorized-attempt warning).
 function getActionLabel(type: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN", isFieldMode: boolean, isBreak = false) {
   if (isFieldMode) {
-    return type === "TIME_IN" ? "Visit Start" : "Visit End";
+    return type === "TIME_IN" ? "Start Visit" : "End Visit";
   }
   switch (type) {
     case "TIME_IN":
@@ -427,6 +428,17 @@ export default function App() {
           ? revalidateCached(CACHE_KEYS.workArea(employeeId, "field"), getMyWorkLocations)
           : revalidateCached(CACHE_KEYS.workArea(employeeId, "fixed"), getMyWorkLocation).then((location) => (location ? [location] : [])),
       ]);
+      // The backend switches attendance mode whenever the employee's
+      // assigned area changes type (Office <-> Field). Adopt the live value
+      // and redo this with it, so the work locations above, the Time In/Out
+      // vs Start/End Visit buttons, and the saved session all follow along
+      // without the employee having to log out and back in.
+      if (profile.attendanceMode && profile.attendanceMode !== attendanceMode) {
+        const latestMode = profile.attendanceMode;
+        setUser((current) => (current ? { ...current, attendanceMode: latestMode } : current));
+        void saveSessionAttendanceMode(latestMode);
+        return refreshEligibility(employeeId, latestMode);
+      }
       setAssignedWorkLocations(workLocations);
       const nextEligibility = {
         faceEnrolled: Boolean(profile.hasActiveFaceEnrollment),
@@ -462,6 +474,21 @@ export default function App() {
           ? current
           : { ...current, hasWorkLocation: latest.length > 0 },
       );
+      // The areas' types say which mode the backend will have put the
+      // employee in (any Field area = FIELD, otherwise FIXED). When that
+      // disagrees with the mode in use, refreshEligibility confirms it
+      // against the profile and switches over — so a move between an Office
+      // and a Field area shows up while the app stays open, not only on the
+      // next reopen. Costs no extra request on an ordinary tick.
+      const impliedMode =
+        latest.length === 0 || latest.some((location) => !location.type)
+          ? null
+          : latest.some((location) => location.type === "FIELD")
+            ? "FIELD"
+            : "FIXED";
+      if (impliedMode && impliedMode !== attendanceMode) {
+        void refreshEligibility(employeeId, attendanceMode);
+      }
       return latest;
     } catch (error) {
       console.warn("Failed to sync work locations", error);
@@ -969,6 +996,7 @@ export default function App() {
         <CameraScanner
           logType={scanType}
           isBreak={todayAttendance?.breakKind === "BREAK"}
+          isField={user.attendanceMode === "FIELD"}
           onComplete={handleScanComplete}
           onCancel={() => {
             setScanType(null);

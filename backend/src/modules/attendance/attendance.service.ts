@@ -227,6 +227,7 @@ export class AttendanceService {
         firstName: true,
         lastName: true,
         hireDate: true,
+        attendanceMode: true,
         department: { select: { name: true } },
         position: { select: { title: true } },
         user: { select: EMPLOYEE_ROLE_CODES_SELECT },
@@ -254,12 +255,17 @@ export class AttendanceService {
 
     const now = new Date();
     const wantsStatus = (status: "ABSENT" | "ON_LEAVE") => !filters.status || filters.status === "ALL" || filters.status === status;
-    // Synthetic Absent/On-Leave rows always carry recordType OFFICE (no real
-    // visit happened), so a FIELD-only filter should exclude them entirely.
-    const wantsSyntheticRecordType = !filters.recordType || filters.recordType === "ALL" || filters.recordType === "OFFICE";
+    // No real visit happened, so a synthetic Absent/On-Leave row takes its
+    // recordType from the employee's attendance mode (which follows their
+    // assigned area) — a Field employee's missed day sits with their Field
+    // records rather than always under Office.
+    const syntheticRecordType = (employee: { attendanceMode: string }): "OFFICE" | "FIELD" =>
+      employee.attendanceMode === "FIELD" ? "FIELD" : "OFFICE";
+    const wantsSyntheticRecordType = (recordType: "OFFICE" | "FIELD") =>
+      !filters.recordType || filters.recordType === "ALL" || filters.recordType === recordType;
 
     const syntheticRows = [];
-    for (const syntheticDay of wantsSyntheticRecordType ? syntheticDays : []) {
+    for (const syntheticDay of syntheticDays) {
       const onLeaveByEmployee = await getApprovedLeaveByEmployee(this.prisma, employeeIds, syntheticDay);
 
       // Whichever schedule was actually active for each employee ON
@@ -309,11 +315,13 @@ export class AttendanceService {
 
       for (const employee of employees) {
         if (recordedKeys.has(`${employee.id}::${syntheticDay.toDateString()}`)) continue;
+        const recordType = syntheticRecordType(employee);
+        if (!wantsSyntheticRecordType(recordType)) continue;
         const onLeave = onLeaveByEmployee.get(employee.id);
         const base = {
           id: `${onLeave ? "leave" : "absent"}-${employee.id}-${dayKey}`,
           attendanceDate: syntheticDay,
-          recordType: "OFFICE" as const,
+          recordType,
           visitNumber: 1,
           workLocationId: null,
           workLocation: null,
@@ -599,15 +607,11 @@ export class AttendanceService {
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
 
-    const previous = await this.prisma.attendanceRecord.findUnique({
-      where: {
-        employeeId_attendanceDate_recordType_visitNumber: {
-          employeeId,
-          attendanceDate: yesterday,
-          recordType: "OFFICE",
-          visitNumber: 1,
-        },
-      },
+    // Looked up by day alone — a FIXED employee's record is OFFICE or FIELD
+    // depending on the area they timed in at (see submit()).
+    const previous = await this.prisma.attendanceRecord.findFirst({
+      where: { employeeId, attendanceDate: yesterday },
+      orderBy: { timeInAt: "desc" },
       include: { shift: true },
     });
     if (
@@ -820,13 +824,14 @@ export class AttendanceService {
       throw new BadRequestException("Today is a scheduled day off (Sunday). Attendance is not required.");
     }
 
-    // For a FIXED employee, recordType is always OFFICE. For a FIELD
-    // employee, recordType is auto-detected per visit from the classification
-    // of the WorkLocation they actually checked into (see WorkLocation.type)
-    // — a field technician who visits an office-classified area is recorded
-    // as an OFFICE visit rather than always being tagged FIELD. Kept as its
-    // own column (rather than derived on read) so the DTR screen's
-    // Office/Field tabs are a simple query.
+    // recordType follows the classification of the WorkLocation the scan is
+    // made at (see WorkLocation.type), whatever the employee's attendance
+    // mode — a field technician who visits an office-classified area is
+    // recorded as an OFFICE visit, and a FIXED employee assigned to a
+    // field-classified area is recorded as FIELD. Attendance mode still
+    // decides everything else (single shift-based record per day vs. several
+    // visits). Kept as its own column (rather than derived on read) so the
+    // DTR screen's Office/Field tabs are a simple query.
     let recordType: "OFFICE" | "FIELD" = isField ? "FIELD" : "OFFICE";
 
     let existingRecord: AttendanceRecord | null;
@@ -868,15 +873,12 @@ export class AttendanceService {
         visitNumber = (latestVisitOfType?.visitNumber ?? 0) + 1;
       }
     } else {
-      existingRecord = await this.prisma.attendanceRecord.findUnique({
-        where: {
-          employeeId_attendanceDate_recordType_visitNumber: {
-            employeeId: dto.employeeId,
-            attendanceDate,
-            recordType: "OFFICE",
-            visitNumber: 1,
-          },
-        },
+      // A FIXED employee has a single record per day, of whichever type the
+      // area they timed in at is classified as — so it's looked up by day
+      // alone, not by a fixed recordType.
+      existingRecord = await this.prisma.attendanceRecord.findFirst({
+        where: { employeeId: dto.employeeId, attendanceDate },
+        orderBy: { timeInAt: "desc" },
       });
 
       // The server, not the button the employee tapped, is the authority on whether
@@ -906,13 +908,17 @@ export class AttendanceService {
       } else {
         logType = "TIME_OUT";
       }
-      visitNumber = 1;
+      visitNumber = existingRecord?.visitNumber ?? 1;
 
       if (!logType) {
         throw new BadRequestException("You have already completed your attendance for today.");
       }
 
       location = await this.geolocation.getLocationForEmployee(dto.employeeId);
+      // An already-open record keeps the type it was opened with, same as a
+      // field visit — its break punches and Time Out must land on that row
+      // even if the area was reclassified or reassigned in between.
+      recordType = (existingRecord?.recordType as "OFFICE" | "FIELD" | undefined) ?? location?.type ?? "OFFICE";
     }
 
     // An employee on approved leave can't record attendance for that day.
@@ -1717,7 +1723,13 @@ export class AttendanceService {
       schedules,
     });
 
-    const recordType: "OFFICE" | "FIELD" = employee.attendanceMode === "FIELD" ? "FIELD" : "OFFICE";
+    // A missed day has no visited area to take its type from: a FIELD
+    // employee's stays FIELD, a FIXED employee's follows their one assigned
+    // area, so it lands on the same tab their real records do.
+    const assignedLocation =
+      employee.attendanceMode === "FIELD" ? null : await this.geolocation.getLocationForEmployee(employeeId);
+    const recordType: "OFFICE" | "FIELD" =
+      employee.attendanceMode === "FIELD" ? "FIELD" : ((assignedLocation as any)?.type ?? "OFFICE");
     return missedDays.map((missed) => ({
       id: `${missed.status.toLowerCase()}-${employeeId}-${missed.date.getTime()}`,
       employeeId,

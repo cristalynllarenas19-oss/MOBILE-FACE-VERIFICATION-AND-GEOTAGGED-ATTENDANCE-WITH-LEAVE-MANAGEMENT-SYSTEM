@@ -19,7 +19,9 @@ type EmployeeOption = {
   firstName: string;
   lastName: string;
   employeeNo?: string;
-  department: { id: string; name: string };
+  // attendanceMode is the department's own setting (FIXED/FIELD/BOTH) —
+  // a FIXED department can't be put on a Field area.
+  department: { id: string; name: string; attendanceMode?: string };
   position?: { title: string };
   user?: { email?: string };
   attendanceMode?: string;
@@ -356,6 +358,12 @@ function GeotaggingPageContent({
 
   const currentLocationAssignedIds = useMemo(() => new Set(form.employeeIds), [form.employeeIds]);
 
+  // Field areas are reserved for employees whose department is Field or
+  // Both — a Fixed department is office-only. The backend enforces this too
+  // (GeolocationService.assertFieldAreaRoster); this just greys them out.
+  const isBlockedFromFieldArea = (employee?: EmployeeOption) =>
+    form.type === "FIELD" && employee?.department?.attendanceMode === "FIXED";
+
   const editingLocation = useMemo(
     () => locations.find((location) => location.id === editingLocationId) ?? null,
     [editingLocationId, locations],
@@ -412,13 +420,13 @@ function GeotaggingPageContent({
         const rank = (employee: EmployeeOption) => {
           if (currentLocationAssignedIds.has(employee.id)) return 0;
           const isAssignedElsewhere = assignedEmployees.has(employee.id) && employee.attendanceMode !== "FIELD";
-          return isAssignedElsewhere ? 2 : 1;
+          return isAssignedElsewhere || isBlockedFromFieldArea(employee) ? 2 : 1;
         };
         const rankDiff = rank(a) - rank(b);
         if (rankDiff !== 0) return rankDiff;
         return `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`);
       });
-  }, [assignedEmployees, currentLocationAssignedIds, departmentFilter, employeeSearch, employees]);
+  }, [assignedEmployees, currentLocationAssignedIds, departmentFilter, employeeSearch, employees, form.type]);
 
   const employeeModeCounts = useMemo(
     () => ({
@@ -441,9 +449,13 @@ function GeotaggingPageContent({
   const selectableEmployeeIds = useMemo(
     () =>
       employeeRows
-        .filter((e) => currentLocationAssignedIds.has(e.id) || !assignedEmployees.has(e.id) || e.attendanceMode === "FIELD")
+        .filter(
+          (e) =>
+            currentLocationAssignedIds.has(e.id) ||
+            (!isBlockedFromFieldArea(e) && (!assignedEmployees.has(e.id) || e.attendanceMode === "FIELD")),
+        )
         .map((e) => e.id),
-    [employeeRows, currentLocationAssignedIds, assignedEmployees],
+    [employeeRows, currentLocationAssignedIds, assignedEmployees, form.type],
   );
 
   const allSelectableSelected = useMemo(
@@ -894,6 +906,9 @@ function GeotaggingPageContent({
     // employees on Fixed attendance are restricted to a single site.
     const isField = employeesById.get(employeeId)?.attendanceMode === "FIELD";
     if (assignedEmployees.has(employeeId) && !isField) {
+      return;
+    }
+    if (isBlockedFromFieldArea(employeesById.get(employeeId))) {
       return;
     }
 
@@ -1433,6 +1448,10 @@ function GeotaggingPageContent({
                   const isSelected = currentLocationAssignedIds.has(employee.id);
                   const isAssignedElsewhere =
                     assignedEmployees.has(employee.id) && !isSelected && employee.attendanceMode !== "FIELD";
+                  // Still shown (and removable) when already selected — e.g.
+                  // the area was just switched from Office to Field.
+                  const isFixedDepartmentOnField = isBlockedFromFieldArea(employee);
+                  const isDisabled = isAssignedElsewhere || (isFixedDepartmentOnField && !isSelected);
 
                   if (!canWrite) {
                     if (!isSelected) return null;
@@ -1470,7 +1489,7 @@ function GeotaggingPageContent({
                     ) : (
                       <label
                         key={employee.id}
-                        className={`employee-checklist-item${isSelected ? " selected" : ""}${isAssignedElsewhere ? " disabled" : ""}`}
+                        className={`employee-checklist-item${isSelected ? " selected" : ""}${isDisabled ? " disabled" : ""}`}
                       >
                         <span className="employee-checklist-main">
                           <span className="employee-checklist-name">
@@ -1485,11 +1504,16 @@ function GeotaggingPageContent({
                               Already assigned to another geotagged area
                             </span>
                           )}
+                          {isFixedDepartmentOnField && (
+                            <span className="employee-assigned-note">
+                              Fixed department — only Field or Both departments can be assigned to a field area
+                            </span>
+                          )}
                         </span>
                         <input
                           type="checkbox"
                           checked={isSelected}
-                          disabled={isAssignedElsewhere || (loading && employees.length === 0)}
+                          disabled={isDisabled || (loading && employees.length === 0)}
                           onChange={() => toggleEmployee(employee.id)}
                         />
                       </label>

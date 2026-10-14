@@ -516,11 +516,11 @@ function AddEmployeeModal({
               options={attendanceModeOptions.map((option) => ({ value: option.code, label: option.label }))}
               placeholder="Select attendance mode…"
               ariaLabel="Attendance Mode"
-              disabled={isModeLocked || attendanceModeOptions.length === 0}
+              // Always set by the backend from the employee's assigned
+              // geotagged area — see GeolocationService.syncAttendanceModes.
+              disabled
             />
-            {!isModeLocked && attendanceModeOptions.length === 0 && (
-              <span className="employee-form-hint">Unable to load attendance modes.</span>
-            )}
+            <span className="employee-form-hint">Set automatically from the assigned geotagged area.</span>
           </label>
         </div>
 
@@ -975,11 +975,11 @@ function EditEmployeeModal({
               options={attendanceModeOptions.map((option) => ({ value: option.code, label: option.label }))}
               placeholder="Select attendance mode…"
               ariaLabel="Attendance Mode"
-              disabled={isModeLocked || attendanceModeOptions.length === 0}
+              // Always set by the backend from the employee's assigned
+              // geotagged area — see GeolocationService.syncAttendanceModes.
+              disabled
             />
-            {!isModeLocked && attendanceModeOptions.length === 0 && (
-              <span className="employee-form-hint">Unable to load attendance modes.</span>
-            )}
+            <span className="employee-form-hint">Set automatically from the assigned geotagged area.</span>
           </label>
         </div>
 

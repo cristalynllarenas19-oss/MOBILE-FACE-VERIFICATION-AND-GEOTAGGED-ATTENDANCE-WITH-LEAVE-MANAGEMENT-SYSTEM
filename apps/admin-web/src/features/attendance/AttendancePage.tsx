@@ -182,9 +182,9 @@ function formatTodayLabel(date: Date) {
 
 const photoTabOrder: PhotoLogType[] = ["TIME_IN", "TIME_OUT", "LUNCH_OUT", "LUNCH_IN"];
 
-function photoTabLabel(tab: PhotoLogType, breakWord = "Lunch") {
-  if (tab === "TIME_IN") return "Time In";
-  if (tab === "TIME_OUT") return "Time Out";
+function photoTabLabel(tab: PhotoLogType, breakWord = "Lunch", isField = false) {
+  if (tab === "TIME_IN") return isField ? "Start Visit" : "Time In";
+  if (tab === "TIME_OUT") return isField ? "End Visit" : "Time Out";
   if (tab === "LUNCH_OUT") return `Start ${breakWord}`;
   return `End ${breakWord}`;
 }
@@ -225,6 +225,8 @@ function AttendanceDetailsModal({
   const registeredFace = record.employee.faceProfiles?.[0]?.referenceImageData;
 
   const breakWord = record.breakKind === "BREAK" ? "Break" : "Lunch";
+  // A field visit is a Start/End Visit pair with no lunch/break punches.
+  const isFieldRecord = record.recordType === "FIELD";
   const availablePhotoTabs = photoTabOrder.filter((tab) => record.logs.some((log) => log.logType === tab));
   const [activePhotoTab, setActivePhotoTab] = useState<PhotoLogType>(availablePhotoTabs[0] ?? "TIME_IN");
   const latestLog = record.logs.find((log) => log.logType === activePhotoTab) ?? record.logs[0];
@@ -330,7 +332,7 @@ function AttendanceDetailsModal({
                       className={`attendance-photo-tab${activePhotoTab === tab ? " active" : ""}`}
                       onClick={() => setActivePhotoTab(tab)}
                     >
-                      {photoTabLabel(tab, breakWord)}
+                      {photoTabLabel(tab, breakWord, isFieldRecord)}
                     </button>
                   ))}
                 </div>
@@ -370,7 +372,7 @@ function AttendanceDetailsModal({
                   )}
                 </figure>
                 <figure className="attendance-compare-item">
-                  <figcaption>{photoTabLabel(activePhotoTab, breakWord)} Capture</figcaption>
+                  <figcaption>{photoTabLabel(activePhotoTab, breakWord, isFieldRecord)} Capture</figcaption>
                   {photoUri(selectedLog) ? (
                     <button
                       type="button"
@@ -378,7 +380,7 @@ function AttendanceDetailsModal({
                       onClick={() => setPreviewImage(photoUri(selectedLog))}
                     >
                       {attemptLabel && <span className="attendance-attempt-label">{attemptLabel}</span>}
-                      <img src={photoUri(selectedLog) ?? undefined} alt={`${photoTabLabel(activePhotoTab, breakWord)} capture`} />
+                      <img src={photoUri(selectedLog) ?? undefined} alt={`${photoTabLabel(activePhotoTab, breakWord, isFieldRecord)} capture`} />
                     </button>
                   ) : (
                     <div className="attendance-compare-photo attendance-photo-empty">No photo captured</div>
@@ -423,12 +425,19 @@ function AttendanceDetailsModal({
                 <div><span>Leave type</span><strong>{record.leaveTypeName ?? "—"}</strong></div>
               )}
             </div>
-            <div className="attendance-times">
-              <div><span>Time In</span><strong>{formatTime(record.timeInAt, record.status)}</strong></div>
-              <div><span>{breakWord} Out</span><strong>{formatTime(record.lunchOutAt, record.status)}</strong></div>
-              <div><span>{breakWord} In</span><strong>{formatTime(record.lunchInAt, record.status)}</strong></div>
-              <div><span>Time Out</span><strong>{formatTime(record.timeOutAt, record.status)}</strong></div>
-            </div>
+            {isFieldRecord ? (
+              <div className="attendance-times attendance-times--visit">
+                <div><span>Start Visit</span><strong>{formatTime(record.timeInAt, record.status)}</strong></div>
+                <div><span>End Visit</span><strong>{formatTime(record.timeOutAt, record.status)}</strong></div>
+              </div>
+            ) : (
+              <div className="attendance-times">
+                <div><span>Time In</span><strong>{formatTime(record.timeInAt, record.status)}</strong></div>
+                <div><span>{breakWord} Out</span><strong>{formatTime(record.lunchOutAt, record.status)}</strong></div>
+                <div><span>{breakWord} In</span><strong>{formatTime(record.lunchInAt, record.status)}</strong></div>
+                <div><span>Time Out</span><strong>{formatTime(record.timeOutAt, record.status)}</strong></div>
+              </div>
+            )}
 
             <div className="attendance-section-title">Location</div>
             <div className="attendance-rows">
@@ -731,8 +740,10 @@ export function AttendancePage({
               <th>SITE</th>
               <th>MODE</th>
               <th>DATE</th>
-              <th>TIME IN</th>
-              <th>TIME OUT</th>
+              {/* Office rows are Time In/Out, field rows Start/End Visit —
+                  a mixed list names both. */}
+              <th>{recordTypeFilter === "FIELD" ? "START VISIT" : recordTypeFilter === "OFFICE" ? "TIME IN" : "TIME IN / START"}</th>
+              <th>{recordTypeFilter === "FIELD" ? "END VISIT" : recordTypeFilter === "OFFICE" ? "TIME OUT" : "TIME OUT / END"}</th>
               <th>LUNCH / BREAK</th>
               <th>STATUS</th>
               <th>ACTION</th>
@@ -751,8 +762,8 @@ export function AttendancePage({
                     <Badge tone="neutral">{getRecordTypeLabel(record.recordType ?? "OFFICE")}</Badge>
                   </td>
                   <td data-label="Date">{formatDate(record.attendanceDate)}</td>
-                  <td data-label="Time In">{formatTime(record.timeInAt, record.status)}</td>
-                  <td data-label="Time Out">{formatTime(record.timeOutAt, record.status)}</td>
+                  <td data-label={record.recordType === "FIELD" ? "Start Visit" : "Time In"}>{formatTime(record.timeInAt, record.status)}</td>
+                  <td data-label={record.recordType === "FIELD" ? "End Visit" : "Time Out"}>{formatTime(record.timeOutAt, record.status)}</td>
                   <td data-label={record.breakKind === "BREAK" ? "Break" : "Lunch Break"}>
                     {record.lunchOutAt ? `${record.breakKind === "BREAK" ? "Break " : ""}${formatTime(record.lunchOutAt)} – ${formatTime(record.lunchInAt)}` : "—"}
                   </td>

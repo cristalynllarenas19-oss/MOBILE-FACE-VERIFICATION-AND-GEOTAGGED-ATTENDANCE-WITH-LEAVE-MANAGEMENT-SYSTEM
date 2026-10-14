@@ -103,6 +103,66 @@ export default function App() {
     });
   }, []);
 
+  // The backend switches attendance mode whenever the employee's assigned
+  // area changes type (Office <-> Field), but authUser is the copy saved at
+  // login. Re-read it on load, whenever the tab comes back into view, and
+  // when the 30s area check below spots a different kind of area, so
+  // the Attendance page's Time In/Out vs Start/End Visit buttons, DTR and
+  // Work Area follow along without logging out — mirrors employee-mobile's
+  // refreshEligibility.
+  useEffect(() => {
+    const employeeId = authUser?.employeeId;
+    const currentMode = authUser?.attendanceMode;
+    if (!employeeId) return;
+
+    function syncAttendanceMode() {
+      getMyProfile()
+        .then((profile) => {
+          const latestMode = profile.attendanceMode;
+          if (!latestMode) return;
+          setAuthUser((u) => {
+            if (!u || u.employeeId !== employeeId || u.attendanceMode === latestMode) return u;
+            const next = { ...u, attendanceMode: latestMode };
+            localStorage.setItem("authUser", JSON.stringify(next));
+            return next;
+          });
+        })
+        .catch(() => {
+          // Best-effort — the saved mode stays in use until the next check.
+        });
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") syncAttendanceMode();
+    }
+
+    // Also while the page just stays open, on the same 30s cadence as
+    // employee-mobile's work-location sync. Polls the light area list rather
+    // than the profile (which carries the base64 profile photo): the areas'
+    // types imply the mode (any Field area = FIELD), and only a mismatch
+    // goes on to confirm against the profile.
+    function checkAssignedAreas() {
+      if (document.visibilityState !== "visible") return;
+      getMyWorkLocations()
+        .then((locations) => {
+          if (locations.length === 0 || locations.some((location) => !location.type)) return;
+          const impliedMode = locations.some((location) => location.type === "FIELD") ? "FIELD" : "FIXED";
+          if (impliedMode !== currentMode) syncAttendanceMode();
+        })
+        .catch(() => {
+          // Best-effort — retried on the next tick.
+        });
+    }
+
+    syncAttendanceMode();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    const interval = setInterval(checkAssignedAreas, 30000);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      clearInterval(interval);
+    };
+  }, [authUser?.employeeId, authUser?.attendanceMode]);
+
   // Warm every read-only page's cache right after sign-in/reload — mirrors
   // employee-mobile's App.tsx. Split into two waves so the landing page
   // doesn't have to fight its own prefetch for the browser's limited

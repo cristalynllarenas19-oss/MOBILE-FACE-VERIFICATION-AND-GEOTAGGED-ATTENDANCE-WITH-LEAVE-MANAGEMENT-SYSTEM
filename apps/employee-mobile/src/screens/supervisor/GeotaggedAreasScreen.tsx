@@ -220,6 +220,12 @@ export default function GeotaggedAreasScreen({ onClose }: Props) {
 
   const managingIsGlobalZone = isGlobalZoneLocation(managingLocation);
 
+  // Field areas are reserved for employees whose department is Field or
+  // Both — a Fixed department is office-only. The backend enforces this too
+  // (GeolocationService.assertFieldAreaRoster); this just locks the row.
+  const isBlockedFromFieldArea = (employee: TeamEmployee) =>
+    managingLocation?.type === "FIELD" && employee.department?.attendanceMode === "FIXED";
+
   const employeeRowsBeforeModeFilter = useMemo(() => {
     const query = employeeSearch.trim().toLowerCase();
     return employees
@@ -234,7 +240,7 @@ export default function GeotaggedAreasScreen({ onClose }: Props) {
         const rank = (employee: TeamEmployee) => {
           if (managingLocation && isAssigned(managingLocation, employee.id)) return 0;
           const isAssignedElsewhere = assignedEmployees.has(employee.id) && employee.attendanceMode !== "FIELD";
-          return isAssignedElsewhere ? 2 : 1;
+          return isAssignedElsewhere || isBlockedFromFieldArea(employee) ? 2 : 1;
         };
         const rankDiff = rank(a) - rank(b);
         if (rankDiff !== 0) return rankDiff;
@@ -266,8 +272,8 @@ export default function GeotaggedAreasScreen({ onClose }: Props) {
       .filter(
         (employee) =>
           isAssigned(managingLocation, employee.id) ||
-          !assignedEmployees.has(employee.id) ||
-          employee.attendanceMode === "FIELD",
+          (!isBlockedFromFieldArea(employee) &&
+            (!assignedEmployees.has(employee.id) || employee.attendanceMode === "FIELD")),
       )
       .map((employee) => employee.id);
   }, [assignedEmployees, employeeRows, managingLocation]);
@@ -600,6 +606,9 @@ export default function GeotaggedAreasScreen({ onClose }: Props) {
                   // many sites (the same rule GeotaggingPage.tsx enforces).
                   const isAssignedElsewhere =
                     assignedEmployees.has(employee.id) && !assigned && employee.attendanceMode !== "FIELD";
+                  // Still shown (and removable) when already assigned.
+                  const isFixedDepartmentOnField = !assigned && isBlockedFromFieldArea(employee);
+                  const isLocked = isAssignedElsewhere || isFixedDepartmentOnField;
 
                   return (
                     <Pressable
@@ -607,10 +616,10 @@ export default function GeotaggedAreasScreen({ onClose }: Props) {
                       style={({ pressed }) => [
                         styles.employeeRow,
                         assigned && styles.employeeRowAssigned,
-                        pressed && !isAssignedElsewhere && styles.employeeRowPressed,
-                        isAssignedElsewhere && styles.employeeRowDisabled,
+                        pressed && !isLocked && styles.employeeRowPressed,
+                        isLocked && styles.employeeRowDisabled,
                       ]}
-                      disabled={isSaving || isAssignedElsewhere}
+                      disabled={isSaving || isLocked}
                       onPress={() => managingLocation && toggleAssignment(managingLocation, employee.id)}
                     >
                       <Avatar firstName={employee.firstName} lastName={employee.lastName} size={34} />
@@ -625,8 +634,13 @@ export default function GeotaggedAreasScreen({ onClose }: Props) {
                         {isAssignedElsewhere && (
                           <Text style={styles.employeeNote}>Already assigned to another geotagged area</Text>
                         )}
+                        {isFixedDepartmentOnField && (
+                          <Text style={styles.employeeNote}>
+                            Fixed department — only Field or Both departments can be assigned to a field area
+                          </Text>
+                        )}
                       </View>
-                      {isAssignedElsewhere ? (
+                      {isLocked ? (
                         <Ionicons name="lock-closed-outline" size={18} color="#94A3B8" />
                       ) : (
                         <View style={[styles.rowAction, assigned && styles.rowActionAssigned]}>

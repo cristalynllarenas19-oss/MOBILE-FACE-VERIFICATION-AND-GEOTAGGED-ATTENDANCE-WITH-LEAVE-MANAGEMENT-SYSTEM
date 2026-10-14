@@ -258,6 +258,9 @@ export type WorkLocation = {
   longitude: string | number;
   radiusMeters: string | number;
   allowedAccuracyMeters: string | number;
+  // Office or Field area — any Field area makes the employee a FIELD
+  // employee (see GeolocationService.syncAttendanceModes on the backend).
+  type?: "OFFICE" | "FIELD";
 };
 
 export type EmployeeProfile = {
@@ -274,6 +277,9 @@ export type EmployeeProfile = {
   // has an active EmployeeSchedule assignment whose workingDays include today.
   hasScheduleToday?: boolean;
   sex?: "MALE" | "FEMALE";
+  // The live value — follows the employee's assigned geotagged area, so it
+  // can differ from the attendanceMode saved with the login session.
+  attendanceMode?: AttendanceMode;
   user: { email: string };
   department: { name: string };
   position: { title: string };
@@ -585,6 +591,23 @@ export async function acceptFaceConsent(): Promise<string> {
     }
   }
   return result.faceConsentAcceptedAt;
+}
+
+// Keeps the saved session's attendanceMode in step with the backend, which
+// changes it whenever the employee is assigned to a different kind of
+// geotagged area — otherwise the next restoreSession() would bring back the
+// mode from login time (Time In/Out for someone now on Start/End Visit).
+export async function saveSessionAttendanceMode(attendanceMode: AttendanceMode) {
+  const savedUser = await SecureStore.getItemAsync("sessionUser");
+  if (!savedUser) return;
+  try {
+    const parsed = JSON.parse(savedUser) as MobileUser;
+    parsed.attendanceMode = attendanceMode;
+    await SecureStore.setItemAsync("sessionUser", JSON.stringify(parsed));
+  } catch {
+    // Best-effort, same as acceptFaceConsent above — the in-memory user
+    // update in App.tsx is what drives the UI for this session.
+  }
 }
 
 // Restores the last logged-in user so the app opens straight to their
@@ -912,7 +935,9 @@ export type TeamEmployee = {
   attendanceMode?: AttendanceMode;
   sex?: "MALE" | "FEMALE";
   hireDate?: string;
-  department?: { id: string; name: string } | null;
+  // attendanceMode is the department's own setting (FIXED/FIELD/BOTH) —
+  // a FIXED department can't be put on a Field area.
+  department?: { id: string; name: string; attendanceMode?: string } | null;
   positionId?: string | null;
   position?: { title: string } | null;
   supervisorId?: string | null;

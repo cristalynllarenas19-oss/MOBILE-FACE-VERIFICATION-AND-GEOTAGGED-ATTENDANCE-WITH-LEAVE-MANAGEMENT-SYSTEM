@@ -1,9 +1,13 @@
 import { BadRequestException, ConflictException, Injectable } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
+import { GeolocationService } from "../geolocation/geolocation.service";
 
 @Injectable()
 export class DepartmentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly geolocation: GeolocationService,
+  ) {}
 
   findAttendanceModes() {
     return this.prisma.attendanceMode.findMany({
@@ -76,6 +80,20 @@ export class DepartmentsService {
       ? await this.resolveDepartmentAttendanceMode(dto.attendanceMode)
       : undefined;
 
+    // A FIXED department is office-only — field areas are reserved for
+    // Field/Both departments (see GeolocationService.assertFieldAreaRoster),
+    // so it can't become FIXED while any of its employees is still on one.
+    if (attendanceMode === "FIXED" && existing.attendanceMode !== "FIXED") {
+      const onFieldAreas = await this.prisma.employee.count({
+        where: { departmentId: id, workLocations: { some: { workLocation: { type: "FIELD" } } } },
+      });
+      if (onFieldAreas > 0) {
+        throw new BadRequestException(
+          `${onFieldAreas} employee(s) in this department are assigned to a field area. Remove them from field areas in Geotagging before setting the department to Fixed.`,
+        );
+      }
+    }
+
     // A department's restriction (anything other than "BOTH") forces every
     // employee currently in it to that same mode — done in the same
     // transaction as the department update itself. Moving TO "BOTH" doesn't
@@ -90,6 +108,13 @@ export class DepartmentsService {
         ? [this.prisma.employee.updateMany({ where: { departmentId: id }, data: { attendanceMode } })]
         : []),
     ]);
+
+    // Anyone with an assigned area goes straight back to the mode that area
+    // dictates — see GeolocationService.syncAttendanceModes.
+    if (attendanceMode && attendanceMode !== "BOTH" && attendanceMode !== existing.attendanceMode) {
+      const employees = await this.prisma.employee.findMany({ where: { departmentId: id }, select: { id: true } });
+      await this.geolocation.syncAttendanceModes(employees.map((employee) => employee.id), { actorUserId });
+    }
 
     await this.prisma.auditLog.create({
       data: {

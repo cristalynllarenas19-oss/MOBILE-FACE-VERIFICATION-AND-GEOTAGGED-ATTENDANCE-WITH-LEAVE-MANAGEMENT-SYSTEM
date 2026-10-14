@@ -17,7 +17,7 @@ describe("AttendanceService.resolveOfficeAttendanceDate", () => {
 
   beforeEach(() => {
     prisma = {
-      attendanceRecord: { findUnique: jest.fn().mockResolvedValue(null) },
+      attendanceRecord: { findFirst: jest.fn().mockResolvedValue(null) },
       employeeSchedule: { findFirst: jest.fn().mockResolvedValue(null) },
     };
     service = new AttendanceService(prisma, {} as any, {} as any, {} as any, {} as any);
@@ -31,7 +31,7 @@ describe("AttendanceService.resolveOfficeAttendanceDate", () => {
   });
 
   it("files an after-midnight break or Time Out under the day the shift started", async () => {
-    prisma.attendanceRecord.findUnique.mockResolvedValue({
+    prisma.attendanceRecord.findFirst.mockResolvedValue({
       timeInAt: new Date(2026, 8, 28, 22, 0),
       timeOutAt: null,
       shift: overnightShift,
@@ -43,7 +43,7 @@ describe("AttendanceService.resolveOfficeAttendanceDate", () => {
   });
 
   it("still closes last night's record on a late Time Out after the shift ended", async () => {
-    prisma.attendanceRecord.findUnique.mockResolvedValue({
+    prisma.attendanceRecord.findFirst.mockResolvedValue({
       timeInAt: new Date(2026, 8, 28, 22, 0),
       timeOutAt: null,
       shift: overnightShift,
@@ -53,7 +53,7 @@ describe("AttendanceService.resolveOfficeAttendanceDate", () => {
   });
 
   it("treats a scan near the next shift as tonight's Time In even if last night was never timed out", async () => {
-    prisma.attendanceRecord.findUnique.mockResolvedValue({
+    prisma.attendanceRecord.findFirst.mockResolvedValue({
       timeInAt: new Date(2026, 8, 28, 22, 0),
       timeOutAt: null,
       shift: overnightShift,
@@ -74,7 +74,7 @@ describe("AttendanceService.resolveOfficeAttendanceDate", () => {
   });
 
   it("starts a new day once last night's shift is finished and timed out", async () => {
-    prisma.attendanceRecord.findUnique.mockResolvedValue({
+    prisma.attendanceRecord.findFirst.mockResolvedValue({
       timeInAt: new Date(2026, 8, 28, 22, 0),
       timeOutAt: new Date(2026, 8, 29, 7, 0),
       shift: overnightShift,
@@ -84,7 +84,7 @@ describe("AttendanceService.resolveOfficeAttendanceDate", () => {
   });
 
   it("never carries a daytime shift's forgotten Time Out into the next morning", async () => {
-    prisma.attendanceRecord.findUnique.mockResolvedValue({
+    prisma.attendanceRecord.findFirst.mockResolvedValue({
       timeInAt: new Date(2026, 8, 28, 8, 0),
       timeOutAt: null,
       shift: dayShift,

@@ -276,15 +276,9 @@ export class EmployeesService {
         isInsidePreviousDayShift(activeSchedule.shift, now) &&
         !isNonWorkingDay(yesterday, activeSchedule.workingDays),
     );
-    const openOvernightRecord = await this.prisma.attendanceRecord.findUnique({
-      where: {
-        employeeId_attendanceDate_recordType_visitNumber: {
-          employeeId,
-          attendanceDate: yesterday,
-          recordType: "OFFICE",
-          visitNumber: 1,
-        },
-      },
+    const openOvernightRecord = await this.prisma.attendanceRecord.findFirst({
+      where: { employeeId, attendanceDate: yesterday },
+      orderBy: { timeInAt: "desc" },
       select: { timeInAt: true, timeOutAt: true, shift: { select: { startTime: true, endTime: true, lateThresholdMinutes: true } } },
     });
     const canCloseOvernightRecord = Boolean(
@@ -418,6 +412,10 @@ export class EmployeesService {
     // to be assigned one manually just to become eligible for attendance.
     await this.assignDefaultScheduleIfMissing(created.id);
     await this.geolocation.assignDefaultOfficeLocation(created.id, created.departmentId, context);
+    // The assigned area, not the submitted/department mode, has the final
+    // say — see GeolocationService.syncAttendanceModes.
+    created.attendanceMode =
+      (await this.geolocation.syncAttendanceModes([created.id], context)).get(created.id) ?? created.attendanceMode;
 
     await this.assignGenderLeaveType(created.id, dto.sex, created.employmentStatus);
 
@@ -604,13 +602,24 @@ export class EmployeesService {
       resolvedSupervisorId = null;
     }
 
-
-    let resolvedAttendanceMode: string | undefined;
-    if (dto.attendanceMode !== undefined || (department && department.id !== employee.departmentId)) {
-      const targetDepartmentAttendanceMode = department?.attendanceMode ?? employee.department.attendanceMode;
-      resolvedAttendanceMode = await this.resolveAttendanceMode(targetDepartmentAttendanceMode, dto.attendanceMode);
+    // A FIXED department is office-only — field areas are reserved for
+    // Field/Both departments (see GeolocationService.assertFieldAreaRoster).
+    if (department && department.id !== employee.departmentId && department.attendanceMode === "FIXED") {
+      const onFieldArea = await this.prisma.workLocationEmployee.count({
+        where: { employeeId: id, workLocation: { type: "FIELD" } },
+      });
+      if (onFieldArea > 0) {
+        throw new BadRequestException(
+          `${department.name} is a Fixed (non-field) department. Remove this employee from their field area(s) in Geotagging before moving them there.`,
+        );
+      }
     }
 
+
+    // dto.attendanceMode is deliberately ignored: an employee's mode is
+    // decided by their assigned geotagged area alone (synced below), and
+    // honouring the form's/department's mode here used to wipe a Field
+    // employee's sites the moment their profile was saved as FIXED.
     const updated = await this.prisma.employee.update({
       where: { id },
       data: {
@@ -628,7 +637,6 @@ export class EmployeesService {
         ...(nextStatus === "PERMANENT_SEASONAL" && employee.employmentStatus !== "PERMANENT_SEASONAL"
           ? { permanentSeasonalSince: new Date() }
           : {}),
-        ...(resolvedAttendanceMode !== undefined ? { attendanceMode: resolvedAttendanceMode } : {}),
         ...(dto.soloParentStatus ? { soloParentStatus: dto.soloParentStatus } : {}),
         ...(dto.civilStatus ? { civilStatus: dto.civilStatus } : {}),
         ...(dto.spouseEmployerName !== undefined ? { spouseEmployerName: dto.spouseEmployerName || null } : {}),
@@ -638,13 +646,12 @@ export class EmployeesService {
       include: { user: true, department: true, position: true, supervisor: true, employeeType: true },
     });
 
-   
-    if (resolvedAttendanceMode === "FIXED" && employee.attendanceMode !== "FIXED") {
-      await this.assignDefaultScheduleIfMissing(id);
-      await this.geolocation.assignDefaultOfficeLocation(id, updated.departmentId, context);
-    }
+    // The assigned area, not the submitted/department mode, has the final
+    // say — see GeolocationService.syncAttendanceModes.
+    updated.attendanceMode =
+      (await this.geolocation.syncAttendanceModes([id], context)).get(id) ?? updated.attendanceMode;
 
-  
+
     if (nextStatus && nextStatus !== employee.employmentStatus) {
       await this.evaluations.notifyOutcome(updated);
 

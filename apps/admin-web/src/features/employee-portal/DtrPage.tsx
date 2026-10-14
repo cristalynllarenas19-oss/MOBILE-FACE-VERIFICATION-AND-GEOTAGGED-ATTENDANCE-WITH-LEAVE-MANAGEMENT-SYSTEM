@@ -30,8 +30,8 @@ function fmtTime(v: string | null) {
 function photoTabLabel(tab: PhotoTab, isOffice: boolean, breakWord = "Lunch") {
   if (tab === "LUNCH_OUT") return `Start ${breakWord}`;
   if (tab === "LUNCH_IN") return `End ${breakWord}`;
-  if (tab === "TIME_IN") return isOffice ? "Time In" : "Visit Start";
-  return isOffice ? "Time Out" : "Visit End";
+  if (tab === "TIME_IN") return isOffice ? "Time In" : "Start Visit";
+  return isOffice ? "Time Out" : "End Visit";
 }
 function fmtHours(mins: number) {
   if (!mins) return null;
@@ -365,7 +365,7 @@ export function DtrPage({ user }: Props) {
               elapsed time isn't tracked here). */}
           <div className="dtr-dense-head">
             <span>Date</span>
-            <span>{isOffice ? "Time In → Out" : "Visit Start → End"}</span>
+            <span>{isOffice ? "Time In → Out" : "Start Visit → End Visit"}</span>
             <span style={{ textAlign: "center" }}>Lunch / Break</span>
             <span>Hours Rendered</span>
             <span />

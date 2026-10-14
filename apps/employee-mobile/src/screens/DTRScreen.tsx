@@ -190,8 +190,8 @@ function photoTabLabel(
 ) {
   if (tab === "LUNCH_OUT") return `Start ${breakWord}`;
   if (tab === "LUNCH_IN") return `End ${breakWord}`;
-  if (tab === "TIME_IN") return isOfficeTab ? "Time In" : "Visit Start";
-  return isOfficeTab ? "Time Out" : "Visit End";
+  if (tab === "TIME_IN") return isOfficeTab ? "Time In" : "Start Visit";
+  return isOfficeTab ? "Time Out" : "End Visit";
 }
 
 // What to tell the employee about a day with no attendance record — an
@@ -577,12 +577,12 @@ export default function DTRScreen({ employeeId, attendanceMode }: Props) {
               <View style={styles.accDetail}>
                 <View style={styles.rowBody}>
                   <View style={styles.timeBlock}>
-                    <Text style={styles.timeLabel}>{isOfficeTab ? "Time In" : "Visit Start"}</Text>
+                    <Text style={styles.timeLabel}>{isOfficeTab ? "Time In" : "Start Visit"}</Text>
                     <Text style={styles.timeValue}>{formatTime(item.timeInAt)}</Text>
                   </View>
                   <Ionicons name="arrow-forward" size={14} color="#CBD5E1" />
                   <View style={styles.timeBlock}>
-                    <Text style={styles.timeLabel}>{isOfficeTab ? "Time Out" : "Visit End"}</Text>
+                    <Text style={styles.timeLabel}>{isOfficeTab ? "Time Out" : "End Visit"}</Text>
                     <Text style={styles.timeValue}>{formatTime(item.timeOutAt)}</Text>
                   </View>
                   {isOfficeTab && item.lunchOutAt && (

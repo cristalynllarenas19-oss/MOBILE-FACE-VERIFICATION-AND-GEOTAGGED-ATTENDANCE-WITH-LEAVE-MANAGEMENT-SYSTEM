@@ -424,6 +424,10 @@ button.attendance-compare-photo:hover {
   background: #f5f8fb;
 }
 
+.attendance-times--visit {
+  grid-template-columns: repeat(2, 1fr);
+}
+
 .attendance-times > div {
   display: flex;
   flex-direction: column;

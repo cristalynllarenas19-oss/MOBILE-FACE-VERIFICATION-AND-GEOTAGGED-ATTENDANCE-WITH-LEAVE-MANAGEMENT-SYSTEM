@@ -348,7 +348,7 @@ export default function AttendanceScreen({
             </View>
 
             <Text style={styles.timeLabel}>
-              {isField ? "Visit Start" : "Time In"}
+              {isField ? "Start Visit" : "Time In"}
             </Text>
 
             <Text style={styles.timeValue}>
@@ -368,7 +368,7 @@ export default function AttendanceScreen({
             </View>
 
             <Text style={styles.timeLabel}>
-              {isField ? "Visit End" : "Time Out"}
+              {isField ? "End Visit" : "Time Out"}
             </Text>
 
             <Text style={styles.timeValue}>

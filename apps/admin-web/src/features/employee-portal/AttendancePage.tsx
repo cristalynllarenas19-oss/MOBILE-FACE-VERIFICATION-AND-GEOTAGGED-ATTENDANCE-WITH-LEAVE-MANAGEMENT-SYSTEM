@@ -412,7 +412,7 @@ export function AttendancePage({ user }: Props) {
 
       const actionLabel =
         isField
-          ? result.logType === "TIME_IN" ? "Visit Start" : "Visit End"
+          ? result.logType === "TIME_IN" ? "Start Visit" : "End Visit"
           : result.logType === "TIME_IN" ? "Time In"
             : result.logType === "TIME_OUT" ? "Time Out"
               : result.logType === "LUNCH_OUT" ? `${breakWord} Break Start`
@@ -468,6 +468,7 @@ export function AttendancePage({ user }: Props) {
       <CameraScanner
         logType={scanType}
         isBreak={isBreak}
+        isField={isField}
         onComplete={handleScanComplete}
         onCancel={() => { setScanType(null); setSelectedSite(null); }}
       />
@@ -543,7 +544,7 @@ export function AttendancePage({ user }: Props) {
               <div style={{ width: 36, height: 36, borderRadius: 18, background: "#EFF6FF", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 8 }}>
                 <LogIn size={18} color="#1680D8" />
               </div>
-              <p style={{ color: "#64748B", fontSize: 13, marginBottom: 4 }}>{isField ? "Visit Start" : "Time In"}</p>
+              <p style={{ color: "#64748B", fontSize: 13, marginBottom: 4 }}>{isField ? "Start Visit" : "Time In"}</p>
               <p className="att-time-val" style={{ color: "#062B59", fontWeight: 700, fontSize: 16, margin: 0 }}>
                 {fmtTime(todayAtt?.timeInAt)}
               </p>
@@ -555,7 +556,7 @@ export function AttendancePage({ user }: Props) {
               <div style={{ width: 36, height: 36, borderRadius: 18, background: "#F0FDF4", display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 8 }}>
                 <LogOut size={18} color="#17A34A" />
               </div>
-              <p style={{ color: "#64748B", fontSize: 13, marginBottom: 4 }}>{isField ? "Visit End" : "Time Out"}</p>
+              <p style={{ color: "#64748B", fontSize: 13, marginBottom: 4 }}>{isField ? "End Visit" : "Time Out"}</p>
               <p className="att-time-val" style={{ color: "#062B59", fontWeight: 700, fontSize: 16, margin: 0 }}>
                 {fmtTime(todayAtt?.timeOutAt)}
               </p>

@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, ForbiddenException } from "@nestjs/common";
+import { Injectable, BadRequestException, ForbiddenException, Logger, OnApplicationBootstrap } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
@@ -21,7 +21,9 @@ export type GeofenceInput = {
 };
 
 @Injectable()
-export class GeolocationService {
+export class GeolocationService implements OnApplicationBootstrap {
+  private readonly logger = new Logger(GeolocationService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLogs: AuditLogsService,
@@ -132,6 +134,7 @@ export class GeolocationService {
         joinTableAvailable,
         scope.departmentId,
       );
+      if (joinTableAvailable) await this.assertFieldAreaRoster(tx, workLocation.id);
 
       return this.loadLocationById(tx, workLocation.id, joinTableAvailable);
     });
@@ -145,6 +148,8 @@ export class GeolocationService {
       description: `Created geotagged area ${created.name}.`,
       newValues: { ...data, employeeIds: data.employeeIds ?? [] },
     });
+
+    await this.syncAttendanceModes(data.employeeIds ?? [], context);
 
     return created;
   }
@@ -202,6 +207,7 @@ export class GeolocationService {
       if (data.employeeIds !== undefined) {
         await this.replaceAssignments(tx, id, data.employeeIds, joinTableAvailable, scope.departmentId);
       }
+      if (joinTableAvailable) await this.assertFieldAreaRoster(tx, id);
 
       return this.loadLocationById(tx, id, joinTableAvailable);
     });
@@ -226,11 +232,22 @@ export class GeolocationService {
       newValues: { ...data },
     });
 
+    // Both the previous and the current roster — a type or active change
+    // affects everyone still assigned, and anyone just removed may no longer
+    // have a Field area left.
+    await this.syncAttendanceModes(
+      [
+        ...(before?.employees ?? []).map((entry) => entry.employeeId),
+        ...((updated as any).employees ?? []).map((entry: { employeeId: string }) => entry.employeeId),
+      ],
+      context,
+    );
+
     return this.scopeLocationEmployees(updated, scope.departmentId);
   }
 
   async removeLocation(id: string, context: AuditLogContext = {}, scope: DepartmentScope = {}) {
-    const before = await this.prisma.workLocation.findUnique({ where: { id } });
+    const before = await this.prisma.workLocation.findUnique({ where: { id }, include: { employees: true } });
 
     if (scope.departmentId && (!before || before.departmentId !== scope.departmentId)) {
       throw new ForbiddenException("You can only manage geotagged areas in your own department.");
@@ -250,6 +267,8 @@ export class GeolocationService {
       oldValues: before ? { name: before.name, isActive: before.isActive } : null,
     });
 
+    await this.syncAttendanceModes((before?.employees ?? []).map((entry) => entry.employeeId), context);
+
     return removed;
   }
 
@@ -267,6 +286,7 @@ export class GeolocationService {
         await tx.workLocationEmployee.create({
           data: { workLocationId: locationId, employeeId },
         });
+        await this.assertFieldAreaRoster(tx, locationId);
       } else {
         const existingAssignment = await tx.$queryRaw<Array<{ id: string }>>`
           SELECT id
@@ -300,6 +320,8 @@ export class GeolocationService {
       description: `Assigned employee to geotagged area ${updated.name}.`,
       newValues: { locationId, employeeId },
     });
+
+    await this.syncAttendanceModes([employeeId], context);
 
     return this.scopeLocationEmployees(updated, scope.departmentId);
   }
@@ -340,6 +362,8 @@ export class GeolocationService {
       description: `Removed employee assignment from geotagged area ${updated.name}.`,
       oldValues: { locationId, employeeId },
     });
+
+    await this.syncAttendanceModes([employeeId], context);
 
     return this.scopeLocationEmployees(updated, scope.departmentId);
   }
@@ -505,6 +529,93 @@ export class GeolocationService {
     if (!employee || employee.departmentId !== scope.departmentId) {
       throw new ForbiddenException("You can only assign employees from your own department.");
     }
+  }
+
+  // An employee's attendance mode follows the areas they're assigned to:
+  // any active Field-classified area makes them FIELD (Start/End Visit,
+  // several visits a day); Office areas only make them FIXED (Time In/Out on
+  // their shift). Left alone when they have no active area at all. This is
+  // the only thing that decides an employee's mode — called after every
+  // geotag change here, after EmployeesService create/update, after a
+  // department mode change, and once for everyone at startup (see
+  // onApplicationBootstrap). Omit employeeIds to sync every employee.
+  // Returns the new mode of each employee that changed.
+  async syncAttendanceModes(employeeIds?: Iterable<string>, context: AuditLogContext = {}) {
+    const changed = new Map<string, "FIELD" | "FIXED">();
+    if (!(await this.hasJoinTable())) return changed;
+
+    const employees = await this.prisma.employee.findMany({
+      where: employeeIds ? { id: { in: [...new Set(employeeIds)] } } : undefined,
+      select: {
+        id: true,
+        attendanceMode: true,
+        firstName: true,
+        lastName: true,
+        workLocations: { where: { workLocation: { isActive: true } }, select: { workLocation: { select: { type: true } } } },
+      },
+    });
+
+    for (const employee of employees) {
+      if (employee.workLocations.length === 0) continue;
+
+      const mode = employee.workLocations.some((entry) => entry.workLocation.type === "FIELD") ? "FIELD" : "FIXED";
+      if (mode === employee.attendanceMode) continue;
+
+      const employeeId = employee.id;
+      await this.prisma.employee.update({ where: { id: employeeId }, data: { attendanceMode: mode } });
+      changed.set(employeeId, mode);
+
+      await this.auditLogs.record({
+        ...context,
+        action: "AUTO_UPDATE_ATTENDANCE_MODE",
+        module: "Geotagging",
+        entityType: "Employee",
+        entityId: employeeId,
+        description: `Set ${employee.firstName} ${employee.lastName}'s attendance mode to ${mode === "FIELD" ? "Field" : "Fixed"} to match their assigned geotagged area.`,
+        oldValues: { attendanceMode: employee.attendanceMode },
+        newValues: { attendanceMode: mode },
+      });
+    }
+
+    return changed;
+  }
+
+  // Brings every existing employee in line with their assigned areas once
+  // per boot — covers anyone assigned before this rule existed, or changed
+  // directly in the DB. Never blocks startup: a failure is only logged, and
+  // the next geotag/employee change re-syncs whoever it touches anyway.
+  async onApplicationBootstrap() {
+    try {
+      const changed = await this.syncAttendanceModes();
+      if (changed.size > 0) {
+        this.logger.log(`Synced attendance mode to assigned area for ${changed.size} employee(s).`);
+      }
+    } catch (error) {
+      this.logger.error("Failed to sync attendance modes at startup", error instanceof Error ? error.stack : undefined);
+    }
+  }
+
+  // Only employees whose department allows field work (attendance mode FIELD
+  // or BOTH) may be on a Field-classified area — a FIXED department is
+  // office-only. Checked against the area's final roster inside the same
+  // transaction as the change, so it also covers an area being switched from
+  // Office to Field with such employees already on it.
+  private async assertFieldAreaRoster(tx: Prisma.TransactionClient, locationId: string) {
+    const location = await tx.workLocation.findUnique({ where: { id: locationId }, select: { type: true } });
+    if (location?.type !== "FIELD") return;
+
+    const blocked = await tx.workLocationEmployee.findMany({
+      where: { workLocationId: locationId, employee: { department: { attendanceMode: "FIXED" } } },
+      select: { employee: { select: { firstName: true, lastName: true, department: { select: { name: true } } } } },
+    });
+    if (blocked.length === 0) return;
+
+    const names = blocked
+      .map(({ employee }) => `${employee.firstName} ${employee.lastName} (${employee.department.name})`)
+      .join(", ");
+    throw new BadRequestException(
+      `Only employees in a Field or Both department can be assigned to a field area. Not allowed: ${names}.`,
+    );
   }
 
   private async replaceAssignments(
