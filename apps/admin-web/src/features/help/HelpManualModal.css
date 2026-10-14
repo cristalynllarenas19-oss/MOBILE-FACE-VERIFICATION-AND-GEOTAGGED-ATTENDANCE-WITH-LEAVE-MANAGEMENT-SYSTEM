@@ -1,0 +1,368 @@
+/* Same backdrop and layer as ConfirmDialog, so it covers the sidebar too. */
+.help-manual-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1300;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+}
+
+.help-manual {
+  width: min(1120px, 100%);
+  height: min(100%, 900px);
+  display: flex;
+  flex-direction: column;
+  background: #ffffff;
+  border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.24);
+  overflow: hidden;
+}
+
+.help-manual-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  background: #1a3a5c;
+  color: #ffffff;
+  flex-shrink: 0;
+}
+
+.help-manual-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.help-manual-header p {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  color: #c7d6e8;
+  font-weight: 600;
+}
+
+.help-manual-close {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.help-manual-close:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.help-manual-close:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+
+.help-manual-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 250px minmax(0, 1fr);
+}
+
+/* ---- Contents ---- */
+.help-manual-toc {
+  overflow-y: auto;
+  padding: 14px 10px 18px;
+  border-right: 1px solid #dbe5f0;
+  background: #f8fafc;
+}
+
+.help-manual-toc-caption {
+  margin: 0 8px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: #7b8794;
+}
+
+.help-manual-toc-link {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #193d69;
+  font-size: 12.5px;
+  font-weight: 650;
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+}
+
+.help-manual-toc-link:hover {
+  background: #dbeafe;
+}
+
+.help-manual-toc-link.level-1 {
+  margin-top: 8px;
+  font-weight: 800;
+}
+
+.help-manual-toc-link.figure {
+  padding-left: 18px;
+  color: #41536b;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+/* Narrow screens swap the sidebar list for a select. */
+.help-manual-jump {
+  display: none;
+}
+
+/* ---- Content ---- */
+.help-manual-content {
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px 28px 32px;
+  color: #193d69;
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.help-manual-h1,
+.help-manual-h2 {
+  scroll-margin-top: 12px;
+  color: #1a3a5c;
+}
+
+.help-manual-h1 {
+  margin: 26px 0 10px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #dbe5f0;
+  font-size: 19px;
+  font-weight: 800;
+}
+
+.help-manual-h2 {
+  margin: 24px 0 8px;
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.help-manual-h3 {
+  margin: 16px 0 4px;
+  font-size: 14px;
+  font-weight: 750;
+  color: #1a3a5c;
+}
+
+.help-manual-paragraph {
+  margin: 6px 0;
+  color: #41536b;
+}
+
+.help-manual-list {
+  margin: 6px 0;
+  padding-left: 20px;
+  color: #41536b;
+}
+
+.help-manual-list li + li {
+  margin-top: 4px;
+}
+
+.help-manual-list strong {
+  color: #193d69;
+}
+
+.help-manual-note {
+  margin: 10px 0 14px;
+  padding: 10px 14px;
+  border: 1px solid #93c5fd;
+  border-left-width: 4px;
+  border-radius: 8px;
+  background: #eff6ff;
+  color: #41536b;
+}
+
+.help-manual-note strong {
+  color: #1a3a5c;
+}
+
+.help-manual-figure {
+  scroll-margin-top: 12px;
+  margin: 22px 0 10px;
+}
+
+.help-manual-figure-open {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: zoom-in;
+}
+
+.help-manual-figure-open + .help-manual-figure-open {
+  margin-top: 8px;
+}
+
+/* Enlarged screenshot, above the manual. */
+.help-manual-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1310;
+  display: grid;
+  place-items: center;
+  padding: 56px 16px 16px;
+  background: rgba(15, 23, 42, 0.82);
+}
+
+.help-manual-lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+}
+
+.help-manual-lightbox-close {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  cursor: pointer;
+}
+
+.help-manual-lightbox-close:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.help-manual-lightbox-close:focus-visible {
+  outline: 2px solid #93c5fd;
+  outline-offset: 2px;
+}
+
+.help-manual-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid #dbe5f0;
+  border-radius: 10px;
+  background: #f0f4f8;
+}
+
+.help-manual-figure figcaption {
+  margin-top: 6px;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #1a3a5c;
+  text-align: center;
+}
+
+.help-manual-callouts {
+  list-style: none;
+  margin: 6px 0 12px;
+  padding: 0;
+  border: 1px solid #dbe5f0;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.help-manual-callouts > li {
+  display: flex;
+  gap: 12px;
+  padding: 10px 14px;
+}
+
+.help-manual-callouts > li + li {
+  border-top: 1px solid #dbe5f0;
+}
+
+/* Red, like the numbered markers drawn on the screenshots. */
+.help-manual-callout-number {
+  flex: 0 0 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.help-manual-callouts strong {
+  color: #1a3a5c;
+}
+
+.help-manual-callouts p {
+  margin: 2px 0 0;
+  color: #41536b;
+}
+
+.help-manual-callouts ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  color: #41536b;
+}
+
+@media (max-width: 900px) {
+  .help-manual-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .help-manual-toc {
+    display: none;
+  }
+
+  .help-manual-jump {
+    display: block;
+    margin: 10px 14px 0;
+    padding: 8px 10px;
+    border: 1px solid #dbe5f0;
+    border-radius: 8px;
+    background: #ffffff;
+    color: #193d69;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .help-manual-content {
+    padding: 4px 14px 24px;
+  }
+}
+
+@media (max-width: 600px) {
+  .help-manual-backdrop {
+    padding: 0;
+  }
+
+  .help-manual {
+    height: 100%;
+    height: 100dvh;
+    border-radius: 0;
+  }
+}

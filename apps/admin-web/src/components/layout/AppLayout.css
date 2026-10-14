@@ -282,6 +282,27 @@
   margin-top: auto;
   padding-top: 10px;
   border-top: 1px solid var(--line);
+  /* Logout and Help side by side, Help on the right. */
+  display: flex;
+  gap: 16px;
+}
+
+/* .nav-link's fixed 42px flex-basis is for the vertical nav; in this row
+   the two buttons split the width instead. */
+.sidebar-footer .nav-link {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+  height: 42px;
+}
+
+.help-link {
+  color: #41536b !important;
+}
+
+.help-link:hover {
+  background: #f4f7fb !important;
+  color: #41536b !important;
 }
 
 .logout-link {

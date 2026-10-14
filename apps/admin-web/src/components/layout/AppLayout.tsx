@@ -5,6 +5,7 @@ import {
   CheckSquare,
   ChevronDown,
   ChevronUp,
+  CircleHelp,
   ClipboardList,
   LayoutDashboard,
   LogOut,
@@ -16,7 +17,7 @@ import {
   Settings2,
   Settings,
 } from "lucide-react";
-import { ReactNode, useEffect, useRef, useState } from "react";
+import { ReactNode, Suspense, lazy, useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { RegularizationReviewModal } from "../../features/regularization/RegularizationReviewModal";
 import { PermissionCode, permissions } from "../../types/rbac";
@@ -34,8 +35,12 @@ import { EmployeeProfile, getLeaveRequests, getLeaveBalances, getMyProfile } fro
 import { NotificationPanel } from "./NotificationPanel";
 import { NotificationDetailModal } from "./NotificationDetailModal";
 import { UTILITY_TABS } from "../../features/utilities/UtilitiesPage";
+import type { ManualAudience } from "../../features/help/HelpManualModal";
 import "./AppLayout.css";
 import "./NotificationPanel.css";
+
+// The manual is ~100 kB of text, so it loads only when Help is first opened.
+const HelpManualModal = lazy(() => import("../../features/help/HelpManualModal"));
 
 const NOTIFICATION_POLL_MS = 5000;
 // Stable fallback so downstream filters don't recompute on every render
@@ -115,6 +120,7 @@ export function AppLayout({
   const [notifOpen, setNotifOpen] = useState(false);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [utilitiesOpen, setUtilitiesOpen] = useState(activePage === "utilities");
   // Cache-first 
   const notificationsCache = useCachedData<AppNotification[]>(CACHE_KEYS.notifications, fetchNotifications);
@@ -147,6 +153,12 @@ export function AppLayout({
   const profilePhotoUri = myProfile?.profilePhotoData
     ? `data:${myProfile.profilePhotoMimeType ?? "image/jpeg"};base64,${myProfile.profilePhotoData}`
     : null;
+
+  // Help opens the part of the user manual for the side being used: the
+  // employee portal gets the employee part, an ADMIN the administrator part,
+  // a supervisor-only account the supervisor part.
+  const helpAudience: ManualAudience =
+    activeView === "employee" ? "employee" : user.roles.includes("ADMIN") ? "admin" : "supervisor";
 
   const profileRoleLabel =
     activeView === "employee"
@@ -400,8 +412,25 @@ export function AppLayout({
             <LogOut size={17} />
             <span>Logout</span>
           </button>
+          <button
+            className="nav-link help-link"
+            title="User manual"
+            onClick={() => {
+              setMenuOpen(false);
+              setHelpOpen(true);
+            }}
+          >
+            <CircleHelp size={17} />
+            <span>Help</span>
+          </button>
         </div>
       </aside>
+
+      {helpOpen && (
+        <Suspense fallback={null}>
+          <HelpManualModal audience={helpAudience} onClose={() => setHelpOpen(false)} />
+        </Suspense>
+      )}
 
       {showLogoutConfirm && (
         <ConfirmDialog
