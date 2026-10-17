@@ -25,6 +25,18 @@ function notifySubscribers(key: string, value: unknown) {
   subscribers.get(key)?.forEach((listener) => listener(value));
 }
 
+// Listen for every cacheSet on `key` outside of useCachedData — e.g. App.tsx
+// keeping its geofence state in step with whatever the Work Area screen just
+// fetched. Returns the unsubscribe function.
+export function subscribeCache(key: string, listener: (value: unknown) => void) {
+  if (!subscribers.has(key)) subscribers.set(key, new Set());
+  subscribers.get(key)!.add(listener);
+  return () => {
+    subscribers.get(key)?.delete(listener);
+    if (subscribers.get(key)?.size === 0) subscribers.delete(key);
+  };
+}
+
 export const CACHE_KEYS = {
   myProfile: "my-profile",
   // Keyed by portal view so the supervisor and employee inboxes never share
@@ -155,13 +167,7 @@ export function useCachedData<T>(key: string | null, fetcher: () => Promise<T>) 
 
   useEffect(() => {
     if (!key) return;
-    const listener = (value: unknown) => setDataState(value as T);
-    if (!subscribers.has(key)) subscribers.set(key, new Set());
-    subscribers.get(key)!.add(listener);
-    return () => {
-      subscribers.get(key)?.delete(listener);
-      if (subscribers.get(key)?.size === 0) subscribers.delete(key);
-    };
+    return subscribeCache(key, (value) => setDataState(value as T));
   }, [key]);
 
   // For optimistic local updates (e.g. marking a notification read) — keeps

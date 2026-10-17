@@ -56,7 +56,7 @@ import {
   markAppActive,
   hasIdleTimedOut,
 } from "./src/api";
-import { CACHE_KEYS, cacheGet, cacheSet, prefetchCached, revalidateCached } from "./src/utils/dataCache";
+import { CACHE_KEYS, cacheGet, cacheSet, prefetchCached, revalidateCached, subscribeCache } from "./src/utils/dataCache";
 import { getFriendlyReason, getFlaggedAttemptMessage } from "./src/utils/attendanceMessages";
 import { distanceInMeters } from "./src/utils/geofence";
 import { Portal, GeofenceStatus } from "./src/types";
@@ -340,6 +340,30 @@ export default function App() {
       void syncWorkLocations(employeeId, user.attendanceMode);
     }, WORK_LOCATION_SYNC_MS);
     return () => clearInterval(interval);
+  }, [user?.employeeId, user?.attendanceMode]);
+
+  // Any fetch of the work area — the Work Area tab's own faster poll
+  // included — lands in the shared cache; adopt it here too, so the Time
+  // In/Out geofence never disagrees with the area the map is showing.
+  useEffect(() => {
+    const employeeId = user?.employeeId;
+    if (!employeeId) return;
+    const isField = user.attendanceMode === "FIELD";
+    return subscribeCache(CACHE_KEYS.workArea(employeeId, isField ? "field" : "fixed"), (value) => {
+      const latest = isField
+        ? (Array.isArray(value) ? (value as WorkLocation[]) : [])
+        : value && !Array.isArray(value)
+          ? [value as WorkLocation]
+          : [];
+      setAssignedWorkLocations((current) =>
+        workLocationsSignature(current) === workLocationsSignature(latest) ? current : latest,
+      );
+      setEligibility((current) =>
+        !current || current.hasWorkLocation === latest.length > 0
+          ? current
+          : { ...current, hasWorkLocation: latest.length > 0 },
+      );
+    });
   }, [user?.employeeId, user?.attendanceMode]);
 
   // "checking" until a fix comes back, "unavailable" when permission is

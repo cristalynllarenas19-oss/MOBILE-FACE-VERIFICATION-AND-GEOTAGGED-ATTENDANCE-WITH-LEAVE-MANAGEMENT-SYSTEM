@@ -1,10 +1,10 @@
-import React, { useCallback, useEffect, useState } from "react";
-import { View, Text, StyleSheet, ActivityIndicator, RefreshControl, Pressable } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { View, Text, StyleSheet, ActivityIndicator, RefreshControl, Pressable, AppState } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { WebView } from "react-native-webview";
 import * as Location from "expo-location";
 import { WorkLocation, getMyWorkLocation, getMyWorkLocations } from "../api";
-import { CACHE_KEYS, cacheGet, cacheSet } from "../utils/dataCache";
+import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
 import { distanceInMeters } from "../utils/geofence";
 import AestheticScrollView from "../components/AestheticScrollView";
 import EmptyState from "../components/EmptyState";
@@ -14,11 +14,26 @@ type Props = {
   attendanceMode?: string;
 };
 
-function buildMapHtml(location: WorkLocation, userLat: number | null, userLon: number | null) {
-  const lat = Number(location.latitude);
-  const lon = Number(location.longitude);
-  const radius = Number(location.radiusMeters);
+// How often the open Work Area tab re-checks the assigned area, so an HR
+// edit (coordinates, radius, name) shows up on the map while the employee is
+// just looking at it. Only runs while this tab is mounted and the app is in
+// the foreground; App.tsx's slower WORK_LOCATION_SYNC_MS covers the rest.
+const WORK_AREA_POLL_MS = 10000;
 
+// Everything the map draws. Pushed into the already-loaded WebView with
+// injectJavaScript on every change, so the marker, circle and centre move in
+// place instead of the whole Leaflet page being torn down and reloaded.
+type MapState = {
+  site: { name: string; lat: number; lon: number; radius: number };
+  user: { lat: number; lon: number } | null;
+};
+
+// "<" escaped so a site name can never close the inline <script> early.
+function toScriptJson(value: unknown) {
+  return JSON.stringify(value).replace(/</g, "\\u003c");
+}
+
+function buildMapHtml(initialState: MapState) {
   return `
 <!DOCTYPE html>
 <html>
@@ -85,7 +100,7 @@ function buildMapHtml(location: WorkLocation, userLat: number | null, userLon: n
   <div id="map"></div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    const map = L.map('map').setView([${lat}, ${lon}], 16);
+    const map = L.map('map');
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
@@ -102,26 +117,72 @@ function buildMapHtml(location: WorkLocation, userLat: number | null, userLon: n
       popupAnchor: [1, -34],
     });
 
-    L.marker([${lat}, ${lon}], { icon: siteIcon }).addTo(map).bindPopup(
-      '<div class="site-popup-title">' + ${JSON.stringify(location.name)} + '</div><div class="site-popup-meta">Radius: ${radius}m</div>',
-      // minWidth stops a short name (e.g. "SLC") from shrinking the whole
-      // bubble down to it — "Radius: 120m" then has nowhere to go but
-      // wrap/overlap the close button. Not so wide that it dwarfs the map.
-      { className: 'site-popup', minWidth: 130 }
-    );
-    L.circle([${lat}, ${lon}], { radius: ${radius}, color: '#1680D8', fillColor: '#1680D8', fillOpacity: 0.15 }).addTo(map);
-
-    ${
-      userLat !== null && userLon !== null
-        ? `
-    const userMarker = L.circleMarker([${userLat}, ${userLon}], {
-      radius: 8, color: '#FFFFFF', weight: 2, fillColor: '#17A34A', fillOpacity: 1
-    }).addTo(map).bindPopup('You are here', { className: 'you-popup' });
-    const bounds = L.latLngBounds([[${lat}, ${lon}], [${userLat}, ${userLon}]]);
-    map.fitBounds(bounds, { padding: [40, 40] });
-    `
-        : ""
+    function escapeHtml(text) {
+      return String(text).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
     }
+
+    let siteMarker = null;
+    let siteCircle = null;
+    let userMarker = null;
+    let lastSiteKey = null;
+
+    // Called once below with the initial state, then again by the app via
+    // injectJavaScript whenever the area or the GPS fix changes.
+    window.applyMapState = function (state) {
+      const site = state.site;
+      const sitePos = [site.lat, site.lon];
+      const popupHtml =
+        '<div class="site-popup-title">' + escapeHtml(site.name) + '</div>' +
+        '<div class="site-popup-meta">Radius: ' + site.radius + 'm</div>';
+
+      if (!siteMarker) {
+        siteMarker = L.marker(sitePos, { icon: siteIcon }).addTo(map).bindPopup(popupHtml, {
+          // minWidth stops a short name (e.g. "SLC") from shrinking the whole
+          // bubble down to it — "Radius: 120m" then has nowhere to go but
+          // wrap/overlap the close button. Not so wide that it dwarfs the map.
+          className: 'site-popup', minWidth: 130
+        });
+        siteCircle = L.circle(sitePos, {
+          radius: site.radius, color: '#1680D8', fillColor: '#1680D8', fillOpacity: 0.15
+        }).addTo(map);
+      } else {
+        siteMarker.setLatLng(sitePos).setPopupContent(popupHtml);
+        siteCircle.setLatLng(sitePos);
+        siteCircle.setRadius(site.radius);
+      }
+
+      const hadUser = userMarker !== null;
+      if (state.user) {
+        const userPos = [state.user.lat, state.user.lon];
+        if (userMarker) {
+          userMarker.setLatLng(userPos);
+        } else {
+          userMarker = L.circleMarker(userPos, {
+            radius: 8, color: '#FFFFFF', weight: 2, fillColor: '#17A34A', fillOpacity: 1
+          }).addTo(map).bindPopup('You are here', { className: 'you-popup' });
+        }
+      } else if (userMarker) {
+        map.removeLayer(userMarker);
+        userMarker = null;
+      }
+
+      // Re-frame only when the area itself moved/resized (or a GPS fix first
+      // appears) — a routine GPS update shouldn't yank the view away from
+      // wherever the employee has panned/zoomed to.
+      const siteKey = site.lat + ',' + site.lon + ',' + site.radius;
+      if (siteKey !== lastSiteKey || (!hadUser && userMarker)) {
+        lastSiteKey = siteKey;
+        if (state.user) {
+          map.fitBounds(L.latLngBounds([sitePos, [state.user.lat, state.user.lon]]), { padding: [40, 40] });
+        } else {
+          map.setView(sitePos, 16);
+        }
+      }
+    };
+
+    window.applyMapState(${toScriptJson(initialState)});
   </script>
 </body>
 </html>`;
@@ -130,74 +191,105 @@ function buildMapHtml(location: WorkLocation, userLat: number | null, userLon: n
 export default function WorkAreaScreen({ employeeId, attendanceMode }: Props) {
   const isField = attendanceMode === "FIELD";
   const cacheKey = employeeId ? CACHE_KEYS.workArea(employeeId, isField ? "field" : "fixed") : null;
-  const cachedArea = cacheKey ? cacheGet<WorkLocation[] | WorkLocation | null>(cacheKey) : null;
-  const hasInitialCachedArea = cachedArea !== null;
 
-  const [workLocation, setWorkLocation] = useState<WorkLocation | null>(
-    () => (!isField && cachedArea && !Array.isArray(cachedArea) ? cachedArea : null),
+  // Subscribed to the shared cache entry, so this screen re-renders whenever
+  // *any* fetch of it lands — its own poll below, App.tsx's background sync,
+  // or the foreground/Time-In refreshes — not just the one fetch it made on
+  // mount. Failed fetches leave the last good copy in place.
+  const { data: area, isLoading, error, refresh } = useCachedData<WorkLocation[] | WorkLocation | null>(
+    cacheKey,
+    isField ? getMyWorkLocations : getMyWorkLocation,
   );
-  const [workLocations, setWorkLocations] = useState<WorkLocation[]>(
-    () => (isField && Array.isArray(cachedArea) ? cachedArea : []),
-  );
-  const [selectedSiteId, setSelectedSiteId] = useState<string | null>(
-    () => (isField && Array.isArray(cachedArea) ? cachedArea[0]?.id ?? null : null),
-  );
+  const workLocations = isField && Array.isArray(area) ? area : [];
+  const workLocation = !isField && area && !Array.isArray(area) ? area : null;
+
+  const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
   const [userLocation, setUserLocation] = useState<Location.LocationObjectCoords | null>(null);
-  const [isLoading, setIsLoading] = useState(!hasInitialCachedArea);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    setError(null);
-    try {
-      if (cacheKey) {
-        const cached = cacheGet<WorkLocation[] | WorkLocation | null>(cacheKey);
-        if (isField && Array.isArray(cached)) {
-          setWorkLocations(cached);
-          setSelectedSiteId((current) => (current && cached.some((s) => s.id === current) ? current : cached[0]?.id ?? null));
-        } else if (!isField && cached && !Array.isArray(cached)) {
-          setWorkLocation(cached);
-        }
-      }
-
-      const locations = await (isField ? getMyWorkLocations() : getMyWorkLocation());
-
-      if (isField) {
-        const sites = locations as WorkLocation[];
-        setWorkLocations(sites);
-        setSelectedSiteId((current) => (current && sites.some((s) => s.id === current) ? current : sites[0]?.id ?? null));
-        if (cacheKey) cacheSet(cacheKey, sites);
-      } else {
-        const site = locations as WorkLocation | null;
-        setWorkLocation(site);
-        if (cacheKey) cacheSet(cacheKey, site);
-      }
-      // GPS is useful for the distance badge, not for rendering the assigned
-      // work area. Load it in the background so the map is never held up.
-      void Location.requestForegroundPermissionsAsync()
-        .then((permission) => permission.granted
-          ? Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
-          : null)
-        .then((position) => position && setUserLocation(position.coords))
-        .catch(() => undefined);
-    } catch (err) {
-      if (!cacheKey || cacheGet<WorkLocation[] | WorkLocation | null>(cacheKey) === null) {
-        setError(err instanceof Error ? err.message : "Failed to load your work area.");
-      }
-    }
-  }, [cacheKey, isField]);
+  // GPS is useful for the distance badge, not for rendering the assigned
+  // work area. Load it in the background so the map is never held up.
+  const refreshUserLocation = useCallback(() => {
+    void Location.requestForegroundPermissionsAsync()
+      .then((permission) => permission.granted
+        ? Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
+        : null)
+      .then((position) => position && setUserLocation(position.coords))
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
-    const cached = cacheKey ? cacheGet<WorkLocation[] | WorkLocation | null>(cacheKey) : null;
-    setIsLoading(cached === null);
-    load().finally(() => setIsLoading(false));
-  }, [cacheKey, load]);
+    refreshUserLocation();
+  }, [refreshUserLocation]);
+
+  // Poll while this tab is open, and re-check the moment the app returns to
+  // the foreground (timers are suspended in the background, so that's when a
+  // missed edit is most likely). revalidateCached shares one in-flight
+  // request per key, so this never stacks on top of App.tsx's own sync; a
+  // failed tick just retries on the next one once connectivity is back.
+  useEffect(() => {
+    if (!cacheKey) return;
+    const tick = () => {
+      if (AppState.currentState !== "active") return;
+      refresh().catch(() => undefined);
+    };
+    const interval = setInterval(tick, WORK_AREA_POLL_MS);
+    const appStateSub = AppState.addEventListener("change", (state) => {
+      if (state !== "active") return;
+      tick();
+      refreshUserLocation();
+    });
+    return () => {
+      clearInterval(interval);
+      appStateSub.remove();
+    };
+  }, [cacheKey, refresh, refreshUserLocation]);
 
   async function handleRefresh() {
     setIsRefreshing(true);
-    await load();
+    await refresh().catch(() => undefined);
+    refreshUserLocation();
     setIsRefreshing(false);
   }
+
+  const selectedSite = isField
+    ? workLocations.find((site) => site.id === selectedSiteId) ?? workLocations[0] ?? null
+    : workLocation;
+
+  const mapState: MapState | null = selectedSite
+    ? {
+        site: {
+          name: selectedSite.name,
+          lat: Number(selectedSite.latitude),
+          lon: Number(selectedSite.longitude),
+          radius: Number(selectedSite.radiusMeters),
+        },
+        user: userLocation ? { lat: userLocation.latitude, lon: userLocation.longitude } : null,
+      }
+    : null;
+  const mapStateJson = mapState ? toScriptJson(mapState) : null;
+
+  // The HTML is built once from the first state and then left alone — a new
+  // `source` would reload the page (blank flash, lost zoom). Every later
+  // change goes through applyMapState instead.
+  const webViewRef = useRef<WebView | null>(null);
+  const isMapReadyRef = useRef(false);
+  const [mapHtml, setMapHtml] = useState<string | null>(null);
+  useEffect(() => {
+    if (mapState && mapHtml === null) setMapHtml(buildMapHtml(mapState));
+  }, [mapStateJson, mapHtml]);
+  const mapSource = useMemo(() => (mapHtml ? { html: mapHtml } : null), [mapHtml]);
+
+  const pushMapState = useCallback(() => {
+    if (!isMapReadyRef.current || !mapStateJson) return;
+    webViewRef.current?.injectJavaScript(
+      `window.applyMapState && window.applyMapState(${mapStateJson}); true;`,
+    );
+  }, [mapStateJson]);
+
+  useEffect(() => {
+    pushMapState();
+  }, [pushMapState]);
 
   if (isLoading) {
     return (
@@ -207,15 +299,15 @@ export default function WorkAreaScreen({ employeeId, attendanceMode }: Props) {
     );
   }
 
-  if (error) {
+  // Only when there's nothing at all to show — with a last known area on
+  // screen, a failed refresh stays silent and the poll keeps retrying.
+  if (error && area === null) {
     return (
       <View style={styles.centered}>
-        <EmptyState icon="warning-outline" title={error} />
+        <EmptyState icon="warning-outline" title={error.message || "Failed to load your work area."} />
       </View>
     );
   }
-
-  const selectedSite = isField ? workLocations.find((site) => site.id === selectedSiteId) ?? null : workLocation;
 
   if (isField && workLocations.length === 0) {
     return (
@@ -274,7 +366,7 @@ export default function WorkAreaScreen({ employeeId, attendanceMode }: Props) {
           contentContainerStyle={styles.siteChipRowContent}
         >
           {workLocations.map((site) => {
-            const isSelected = site.id === selectedSiteId;
+            const isSelected = site.id === selectedSite?.id;
             return (
               <Pressable
                 key={site.id}
@@ -349,11 +441,24 @@ export default function WorkAreaScreen({ employeeId, attendanceMode }: Props) {
           </View>
 
           <View style={styles.mapWrapper}>
-            <WebView
-              originWhitelist={["*"]}
-              source={{ html: buildMapHtml(selectedSite, userLocation?.latitude ?? null, userLocation?.longitude ?? null) }}
-              style={styles.map}
-            />
+            {mapSource && (
+              <WebView
+                ref={(instance) => {
+                  webViewRef.current = instance;
+                }}
+                originWhitelist={["*"]}
+                source={mapSource}
+                style={styles.map}
+                onLoadStart={() => {
+                  isMapReadyRef.current = false;
+                }}
+                onLoadEnd={() => {
+                  // Catch up on anything that changed while the page loaded.
+                  isMapReadyRef.current = true;
+                  pushMapState();
+                }}
+              />
+            )}
           </View>
 
           <View style={styles.mapLegendRow}>
