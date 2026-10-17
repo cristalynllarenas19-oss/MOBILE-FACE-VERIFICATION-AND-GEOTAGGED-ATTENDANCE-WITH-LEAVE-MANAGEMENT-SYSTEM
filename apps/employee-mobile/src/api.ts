@@ -2,7 +2,7 @@ import * as SecureStore from "expo-secure-store";
 import Constants from "expo-constants";
 import { clearDataCache } from "./utils/dataCache";
 
-const DEFAULT_API_BASE_URL = "https://backend-production-etala.up.railway.app/api/v1";
+const DEFAULT_API_BASE_URL = "https://backend-production-b9de.up.railway.app/api/v1";
 // "http://localhost:3001/api/v1"
 function getMetroHost() {
   const metroHost = (
