@@ -59,6 +59,14 @@ export class AttendanceController {
     return this.attendanceService.getRecordPhotos(id);
   }
 
+  // Lazily loaded by Attendance Management's detail modal — capture photos
+  // plus the registered face, which findAll() leaves out of the list.
+  @Get("records/:id/review-photos")
+  getRecordReviewPhotos(@Param("id") id: string, @Req() request: Request) {
+    const departmentId = getSupervisorDepartmentScope((request as any).user);
+    return this.attendanceService.getRecordReviewPhotos(id, departmentId);
+  }
+
   // Face-mismatch attempts awaiting an admin/supervisor decision. Gated the
   // same as approve below since it surfaces a captured
   // "this might not be you" photo per attempt.

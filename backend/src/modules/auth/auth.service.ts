@@ -6,6 +6,7 @@ import { randomInt } from "crypto";
 import { PrismaService } from "../../prisma/prisma.service";
 import { MailService } from "../mail/mail.service";
 import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
+import { canSignIn, effectiveRoles } from "./account-access";
 
 const RESET_PURPOSE = "password_reset";
 const OTP_TTL_MS = 10 * 60 * 1000;
@@ -51,7 +52,7 @@ export class AuthService {
       },
     });
 
-    if (!user || user.status !== "ACTIVE") {
+    if (!user || !canSignIn(user)) {
       throw new UnauthorizedException("Invalid credentials");
     }
 
@@ -64,7 +65,7 @@ export class AuthService {
       }
     }
 
-    const roleObjs = user.userRoles.map((userRole) => userRole.role);
+    const roleObjs = await effectiveRoles(this.prisma, user, user.userRoles.map((userRole) => userRole.role));
     const roles = roleObjs.map((role) => role.code);
     const primaryRole = roleObjs[0]?.code;
     const permissions = [
@@ -106,7 +107,7 @@ export class AuthService {
     // evicted, so the outgoing admin logging back in first evicts nobody and
     // can never take the role away from the new appointee.
     const adminRole = user.userRoles.find((userRole) => userRole.role.code === "ADMIN");
-    if (adminRole) {
+    if (adminRole && user.status === "ACTIVE") {
       await this.evictOutrankedAdmins(user.id, adminRole.assignedAt, displayName, context);
     }
 
@@ -165,9 +166,9 @@ export class AuthService {
     // administrator changes its roles/permissions.
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
-      select: { status: true, tokenVersion: true },
+      select: { status: true, tokenVersion: true, employee: { select: { employmentStatus: true } } },
     });
-    if (!user || user.status !== "ACTIVE" || user.tokenVersion !== payload.tokenVersion) {
+    if (!user || !canSignIn(user) || user.tokenVersion !== payload.tokenVersion) {
       throw new UnauthorizedException("Session is no longer valid.");
     }
 

@@ -105,6 +105,8 @@ const MAX_RECONSTRUCTED_DAYS = 31;
 const DEFAULT_RECONSTRUCTED_DAYS = 14;
 // Row cap on real records per findAll() call.
 const MAX_LISTED_RECORDS = 100;
+// Row cap on the flagged-attempt review queue (newest first).
+const MAX_LISTED_FLAGGED_LOGS = 100;
 
 @Injectable()
 export class AttendanceService {
@@ -141,10 +143,13 @@ export class AttendanceService {
             ? { employee: { department: { name: filters.department } } }
             : {}),
       },
+      // No base64 photos in the list (log captures, registered face, profile
+      // photo) — inlining them made this response many MB. The Attendance
+      // Management modal fetches them per record via getRecordReviewPhotos().
       include: {
-        employee: { include: { department: true, position: { select: { title: true } }, user: { select: EMPLOYEE_ROLE_CODES_SELECT }, faceProfiles: { orderBy: { enrolledAt: "desc" }, take: 1 } } },
+        employee: { omit: { profilePhotoData: true }, include: { department: true, position: { select: { title: true } }, user: { select: EMPLOYEE_ROLE_CODES_SELECT } } },
         workLocation: { select: { name: true } },
-        logs: { orderBy: { capturedAt: "desc" } },
+        logs: { orderBy: { capturedAt: "desc" }, omit: { faceImageData: true } },
         shift: { select: { startTime: true, endTime: true, lateThresholdMinutes: true, lunchBreakMinutes: true, breakStartTime: true, breakKind: true } },
       },
       orderBy: [{ attendanceDate: "desc" }, { visitNumber: "asc" }],
@@ -264,33 +269,66 @@ export class AttendanceService {
     const wantsSyntheticRecordType = (recordType: "OFFICE" | "FIELD") =>
       !filters.recordType || filters.recordType === "ALL" || filters.recordType === recordType;
 
+    // Approved leaves and schedules overlapping the whole reconstructed span,
+    // fetched once and narrowed per day in memory below — a query pair per
+    // day added up to dozens of sequential round trips.
+    const firstDay = syntheticDays[0];
+    const lastDay = syntheticDays[syntheticDays.length - 1];
+    const lastDayEnd = new Date(lastDay.getFullYear(), lastDay.getMonth(), lastDay.getDate(), 23, 59, 59, 999);
+    const [approvedLeaves, schedulesInSpan] =
+      employeeIds.length === 0
+        ? [[], []]
+        : await Promise.all([
+            this.prisma.leaveRequest.findMany({
+              where: {
+                employeeId: { in: employeeIds },
+                status: "APPROVED",
+                startDate: { lte: lastDayEnd },
+                endDate: { gte: firstDay },
+              },
+              select: { employeeId: true, startDate: true, endDate: true, leaveType: { select: { name: true } } },
+            }),
+            this.prisma.employeeSchedule.findMany({
+              where: {
+                employeeId: { in: employeeIds },
+                startsOn: { lte: lastDay },
+                OR: [{ endsOn: null }, { endsOn: { gte: firstDay } }],
+              },
+              orderBy: { startsOn: "desc" },
+              select: {
+                employeeId: true,
+                startsOn: true,
+                endsOn: true,
+                workingDays: true,
+                shift: { select: { startTime: true, endTime: true, lateThresholdMinutes: true } },
+              },
+            }),
+          ]);
+
     const syntheticRows = [];
     for (const syntheticDay of syntheticDays) {
-      const onLeaveByEmployee = await getApprovedLeaveByEmployee(this.prisma, employeeIds, syntheticDay);
+      // Same "on approved leave that day" rule as getApprovedLeaveByEmployee().
+      const dayEnd = new Date(syntheticDay.getFullYear(), syntheticDay.getMonth(), syntheticDay.getDate(), 23, 59, 59, 999);
+      const onLeaveByEmployee = new Map<string, { leaveTypeName: string }>();
+      for (const leave of approvedLeaves) {
+        if (leave.startDate <= dayEnd && leave.endDate >= syntheticDay && !onLeaveByEmployee.has(leave.employeeId)) {
+          onLeaveByEmployee.set(leave.employeeId, { leaveTypeName: leave.leaveType.name });
+        }
+      }
 
       // Whichever schedule was actually active for each employee ON
       // syntheticDay (not "today", unless that's what syntheticDay is) — same
       // rule the Dashboard uses, but resolved per the specific day being
       // reconstructed so browsing a past date stays historically accurate even
-      // if the employee's shift has since changed.
-      const schedulesOnDay = await this.prisma.employeeSchedule.findMany({
-        where: {
-          employeeId: { in: employeeIds },
-          startsOn: { lte: syntheticDay },
-          OR: [{ endsOn: null }, { endsOn: { gte: syntheticDay } }],
-        },
-        orderBy: { startsOn: "desc" },
-        select: {
-          employeeId: true,
-          workingDays: true,
-          shift: { select: { startTime: true, endTime: true, lateThresholdMinutes: true } },
-        },
-      });
+      // if the employee's shift has since changed. schedulesInSpan is newest
+      // startsOn first, so the first match per employee wins.
       const scheduleByEmployee = new Map<
         string,
         { workingDays: number[]; shift: { startTime: string; endTime: string; lateThresholdMinutes: number } }
       >();
-      for (const schedule of schedulesOnDay) {
+      for (const schedule of schedulesInSpan) {
+        if (schedule.startsOn > syntheticDay) continue;
+        if (schedule.endsOn && schedule.endsOn < syntheticDay) continue;
         if (!scheduleByEmployee.has(schedule.employeeId)) {
           scheduleByEmployee.set(schedule.employeeId, schedule);
         }
@@ -1348,18 +1386,24 @@ export class AttendanceService {
         attendanceRecordId: null,
         ...(filters.departmentId ? { employee: { departmentId: filters.departmentId } } : {}),
       },
+      // The capture photo and registered face stay inline — both review
+      // modals (admin-web and mobile) read them straight from this list.
+      // Only the fields nothing reads (profile photo, face descriptors) are
+      // left out.
       include: {
         employee: {
+          omit: { profilePhotoData: true },
           include: {
             department: true,
             position: { select: { title: true } },
             user: { select: EMPLOYEE_ROLE_CODES_SELECT },
-            faceProfiles: { orderBy: { enrolledAt: "desc" }, take: 1 },
+            faceProfiles: { orderBy: { enrolledAt: "desc" }, take: 1, omit: { descriptors: true } },
           },
         },
         workLocation: { select: { name: true } },
       },
       orderBy: { capturedAt: "desc" },
+      take: MAX_LISTED_FLAGGED_LOGS,
     });
   }
 
@@ -1766,6 +1810,33 @@ export class AttendanceService {
       where: { attendanceRecordId: recordId },
       select: { id: true, faceImageData: true, faceImageMimeType: true },
     });
+  }
+
+  // Everything Attendance Management's detail modal shows that findAll()
+  // leaves out of the list: each log's capture photo plus the employee's
+  // registered face. Fetched only when that record's modal is opened.
+  async getRecordReviewPhotos(recordId: string, scopeDepartmentId?: string) {
+    const record = await this.prisma.attendanceRecord.findUniqueOrThrow({
+      where: { id: recordId },
+      select: {
+        employee: {
+          select: {
+            departmentId: true,
+            faceProfiles: { orderBy: { enrolledAt: "desc" }, take: 1, select: { referenceImageData: true } },
+          },
+        },
+        logs: { select: { id: true, faceImageData: true, faceImageMimeType: true } },
+      },
+    });
+
+    if (scopeDepartmentId && record.employee.departmentId !== scopeDepartmentId) {
+      throw new ForbiddenException("You can only manage attendance records from your own department.");
+    }
+
+    return {
+      registeredFace: record.employee.faceProfiles[0]?.referenceImageData ?? null,
+      logs: record.logs,
+    };
   }
 
   private decodeImageBase64(imageData: string) {

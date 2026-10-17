@@ -828,6 +828,108 @@
   gap: 10px;
 }
 
+/* Location name + 🔍 place search (Add mode only) */
+.place-search-wrap {
+  position: relative;
+}
+
+.place-search-wrap input {
+  padding-right: 42px;
+}
+
+.place-search-button {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 30px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 6px;
+  background: #1a3a5c;
+  color: #ffffff;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.place-search-button:hover:not(:disabled) {
+  background: #24507d;
+}
+
+.place-search-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Absolute dropdown — out of document flow, so it overlays the fields below
+   instead of growing the form (which stretched the grid row and the map panel). */
+.place-search-results {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 30;
+  border: 1px solid #e2eaf4;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(23, 50, 82, 0.14);
+  overflow: hidden;
+  /* The wrapper sits inside an uppercase/bold <label> — reset that here. */
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+}
+
+.place-search-results ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.place-search-results li + li {
+  border-top: 1px solid #eef2f7;
+}
+
+.place-search-results li button {
+  width: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  color: #193d69;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+}
+
+.place-search-results li button:hover,
+.place-search-results li button:focus-visible {
+  background: #f1f6fc;
+  outline: none;
+}
+
+.place-search-results li button svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: #3b82f6;
+}
+
+.place-search-message {
+  margin: 0;
+  padding: 8px 10px;
+  color: #64748b;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
 .radius-input-wrap {
   position: relative;
 }

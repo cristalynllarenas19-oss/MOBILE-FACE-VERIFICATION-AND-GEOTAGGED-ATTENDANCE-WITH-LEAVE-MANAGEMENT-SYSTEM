@@ -3,6 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import { PassportStrategy } from "@nestjs/passport";
 import { ExtractJwt, Strategy } from "passport-jwt";
 import { PrismaService } from "../../prisma/prisma.service";
+import { canSignIn, effectiveRoles } from "./account-access";
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -36,6 +37,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       select: {
+        status: true,
         tokenVersion: true,
         userRoles: {
           include: {
@@ -44,15 +46,16 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
             },
           },
         },
-        employee: { select: { id: true, departmentId: true } },
+        employee: { select: { id: true, departmentId: true, employmentStatus: true } },
       },
     });
 
-    if (!user || user.tokenVersion !== payload.tokenVersion) {
+    if (!user || !canSignIn(user) || user.tokenVersion !== payload.tokenVersion) {
       throw new UnauthorizedException("Session is no longer valid.");
     }
 
-    const roleObjs = user.userRoles.map((userRole) => userRole.role);
+    // A deactivated Supervisor/HR Admin is left with EMPLOYEE only.
+    const roleObjs = await effectiveRoles(this.prisma, user, user.userRoles.map((userRole) => userRole.role));
     const roles = roleObjs.map((role) => role.code);
     const permissions = [
       ...new Set(roleObjs.flatMap((role) => role.permissions.map((item) => item.permission.code))),

@@ -44,7 +44,7 @@ export class AnnouncementsService {
               OR: [
                 ...(targetDepartmentIds.length ? [{ departmentId: { in: targetDepartmentIds } }] : []),
                 ...(targetSupervisorsOnly
-                  ? [{ user: { userRoles: { some: { role: { code: "SUPERVISOR" as const } } } } }]
+                  ? [{ user: { status: "ACTIVE" as const, userRoles: { some: { role: { code: "SUPERVISOR" as const } } } } }]
                   : []),
                 ...(targetEmployeeIds.length ? [{ id: { in: targetEmployeeIds } }] : []),
               ] satisfies Prisma.EmployeeWhereInput["OR"],

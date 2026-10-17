@@ -1,4 +1,5 @@
 import { ReactNode, createElement } from "react";
+import { AnnouncementFile } from "../components/ui/AnnouncementFile";
 import { AnnouncementImage } from "../components/ui/AnnouncementImage";
 import "./richText.css";
 
@@ -30,6 +31,8 @@ function renderInline(line: string): ReactNode[] {
     const [, imgAlt, imgUrl, linkText, linkUrl, bold, underline, strike, code, italic] = match;
     if (imgUrl !== undefined) {
       nodes.push(createElement(AnnouncementImage, { key: key++, src: imgUrl, alt: imgAlt }));
+    } else if (linkUrl !== undefined && linkUrl.startsWith("data:")) {
+      nodes.push(createElement(AnnouncementFile, { key: key++, src: linkUrl, name: linkText }));
     } else if (linkUrl !== undefined) {
       nodes.push(
         createElement(
@@ -76,6 +79,7 @@ export function renderFormattedText(message: string): ReactNode {
 export function stripFormattingTokens(message: string) {
   return message
     .replace(/!\[[^\]]*\]\([^)\s]+\)/g, "[Image]")
+    .replace(/\[([^\]]*)\]\(data:[^)\s]+\)/g, "[File: $1]")
     .replace(/\[([^\]]*)\]\([^)\s]+\)/g, "$1")
     .replace(/\*\*([^*]+)\*\*/g, "$1")
     .replace(/__([^_]+)__/g, "$1")

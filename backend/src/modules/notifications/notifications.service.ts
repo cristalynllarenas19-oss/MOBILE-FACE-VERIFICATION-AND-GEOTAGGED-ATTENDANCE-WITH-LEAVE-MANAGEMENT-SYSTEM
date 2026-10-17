@@ -145,7 +145,12 @@ export class NotificationsService {
   async userHasRole(userId: string | null | undefined, roleCode: "ADMIN" | "SUPERVISOR" | "EMPLOYEE") {
     if (!userId) return false;
     const match = await this.prisma.user.findFirst({
-      where: { id: userId, userRoles: { some: { role: { code: roleCode } } } },
+      where: {
+        id: userId,
+        userRoles: { some: { role: { code: roleCode } } },
+        // A deactivated account keeps its role row but not the role's access.
+        ...(roleCode !== "EMPLOYEE" ? { status: "ACTIVE" as const } : {}),
+      },
       select: { id: true },
     });
     return Boolean(match);

@@ -1,8 +1,9 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { AlertTriangle, ChevronDown, Plus, X } from "lucide-react";
+import { AlertTriangle, ChevronDown, Plus, Search, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { NotificationModal, type NotificationConfig } from "../../components/ui/NotificationModal";
 import { apiRequest } from "../../lib/api";
+import "../employees/EmployeesPage.css";
 import "./UsersPage.css";
 
 type UserRow = {
@@ -58,6 +59,7 @@ function getUserDisplayName(user: UserRow) {
 export function UsersPage() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [filter, setFilter] = useState<UserFilter>("ALL");
+  const [search, setSearch] = useState("");
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [form, setForm] = useState(initialForm);
   const [employeeSearch, setEmployeeSearch] = useState("");
@@ -93,9 +95,15 @@ export function UsersPage() {
 
   const activeCount = users.filter((user) => user.status === "ACTIVE").length;
   const inactiveCount = users.length - activeCount;
+  // Deactivated accounts live only under the Inactive tab — All Users leaves them out.
+  const allUsersCount = users.filter((user) => user.status !== "INACTIVE").length;
+  const searchQuery = search.trim().toLowerCase();
   const visibleUsers = users.filter((user) => {
-    if (filter === "ALL") return true;
-    return user.status === filter;
+    if (filter === "ALL" ? user.status === "INACTIVE" : user.status !== filter) return false;
+    if (!searchQuery) return true;
+    return [getUserDisplayName(user), user.email, getRoleLabel(user)].some((value) =>
+      value.toLowerCase().includes(searchQuery),
+    );
   });
 
   const closeAddUser = () => {
@@ -110,8 +118,12 @@ export function UsersPage() {
 
   // /users only returns ADMIN/SUPERVISOR accounts, so an employee whose login
   // email is in that list already holds a role — shown greyed out, not hidden.
+  // A deactivated one is labelled Inactive (reactivate them instead of re-adding).
   const assignedRoleByEmail = new Map(
-    users.map((user) => [user.email.toLowerCase(), getRoleLabel(user)] as const),
+    users.map((user) => [
+      user.email.toLowerCase(),
+      user.status === "INACTIVE" ? `Inactive · ${getRoleLabel(user)}` : getRoleLabel(user),
+    ] as const),
   );
   const getAssignedRole = (employee: EmployeeOption) => {
     const email = employee.user?.email?.toLowerCase();
@@ -239,13 +251,31 @@ export function UsersPage() {
         <div className="users-filter-group">
           <span className="users-filter-label">View</span>
           <div className="filter-tabs">
-            <button className={filter === "ALL" ? "active" : ""} onClick={() => setFilter("ALL")}>All Users ({users.length})</button>
+            <button className={filter === "ALL" ? "active" : ""} onClick={() => setFilter("ALL")}>All Users ({allUsersCount})</button>
             <button className={filter === "ACTIVE" ? "active" : ""} onClick={() => setFilter("ACTIVE")}>Active ({activeCount})</button>
             <button className={filter === "INACTIVE" ? "active" : ""} onClick={() => setFilter("INACTIVE")}>Inactive ({inactiveCount})</button>
           </div>
         </div>
 
         <div className="users-filter-actions">
+          <div className="users-filter-group users-filter-search-group">
+            <span className="users-filter-label">Search</span>
+            <div className="employee-search">
+              <Search size={14} className="employee-search-icon" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search name, email, or role..."
+                aria-label="Search users by name, email, or role"
+              />
+              {search && (
+                <button type="button" className="employee-search-clear" onClick={() => setSearch("")} aria-label="Clear search">
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+          </div>
           <button className="add-user-button" onClick={() => setIsAddOpen(true)}>
             <Plus size={15} />
             Add User
@@ -385,7 +415,11 @@ export function UsersPage() {
                             role="option"
                           >
                             <span>{employee.firstName} {employee.lastName}</span>
-                            <small>{assignedRole ? `Assigned · ${assignedRole}` : employee.department.name}</small>
+                            <small>
+                              {assignedRole
+                                ? assignedRole.startsWith("Inactive") ? assignedRole : `Assigned · ${assignedRole}`
+                                : employee.department.name}
+                            </small>
                           </button>
                         );
                       })}
@@ -537,6 +571,9 @@ export function UsersPage() {
             <p className="confirm-modal-copy">
               Are you sure you want to {confirmUser.status === "ACTIVE" ? "deactivate" : "activate"}{" "}
               <strong>{confirmUser.email}</strong>?
+              {confirmUser.status === "ACTIVE"
+                ? ` Their ${getRoleLabel(confirmUser)} access will be removed, but they can still log in as an employee.`
+                : ` Their ${getRoleLabel(confirmUser)} access will be restored.`}
             </p>
 
             {error && <p className="user-form-error confirm-error">{error}</p>}

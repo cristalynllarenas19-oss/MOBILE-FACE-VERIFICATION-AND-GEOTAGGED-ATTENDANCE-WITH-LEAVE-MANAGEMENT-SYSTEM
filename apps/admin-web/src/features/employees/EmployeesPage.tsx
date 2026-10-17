@@ -24,6 +24,14 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3001
 
 const EMPLOYEES_PAGE_SIZE = 10;
 
+// Upper bound on the Add Employee request. The backend answers within ~15s
+// even when Gmail is unreachable, so this only trips if the server itself
+// stops responding — the spinner can never run forever.
+const CREATE_EMPLOYEE_TIMEOUT_MS = 45_000;
+
+// Returned by POST /employees alongside the created employee.
+type CredentialsEmailStatus = { status: "SENT" | "FAILED" | "PENDING"; reason?: string };
+
 // NestJS error responses are JSON bodies ({ statusCode, message, error }), not
 // raw strings — message is a string[] when it comes from the validation
 // pipe. Falls back to fallback when nothing usable is found.
@@ -307,6 +315,9 @@ function AddEmployeeModal({
   }));
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
+  // Set when the employee was created but the login email wasn't confirmed
+  // sent — shown before moving on so it can't be missed.
+  const [unsentEmail, setUnsentEmail] = useState<{ employee: Employee; email: CredentialsEmailStatus } | null>(null);
   const { options: employeeTypeOptions } = useEmployeeTypes();
 
   // Preselect the first active type (the list is oldest-first) once loaded,
@@ -374,7 +385,7 @@ function AddEmployeeModal({
 
     try {
       const token = localStorage.getItem("accessToken");
-      const response = await axios.post<Employee>(
+      const response = await axios.post<Employee & { credentialsEmail?: CredentialsEmailStatus }>(
         `${API_BASE_URL}/employees`,
         {
           firstName: form.firstName.trim(),
@@ -390,6 +401,7 @@ function AddEmployeeModal({
           ...(autoSupervisor ? { supervisorId: autoSupervisor.id } : {}),
         },
         {
+          timeout: CREATE_EMPLOYEE_TIMEOUT_MS,
           headers: {
             "Content-Type": "application/json",
             ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -397,13 +409,48 @@ function AddEmployeeModal({
         },
       );
 
-      onCreated(response.data);
+      const { credentialsEmail, ...employee } = response.data;
+      if (credentialsEmail && credentialsEmail.status !== "SENT") {
+        setUnsentEmail({ employee, email: credentialsEmail });
+        return;
+      }
+      onCreated(employee);
     } catch (err) {
-      setError(extractErrorMessage(err, "Unable to add employee."));
+      setError(
+        axios.isAxiosError(err) && err.code === "ECONNABORTED"
+          ? "The server did not respond in time. The employee may already have been added — check the employee list before trying again."
+          : extractErrorMessage(err, "Unable to add employee."),
+      );
     } finally {
       setIsSaving(false);
     }
   };
+
+  if (unsentEmail) {
+    const { employee, email } = unsentEmail;
+    return (
+      <EmployeeModal title="Employee Added" onClose={() => onCreated(employee)}>
+        <p>
+          {employee.firstName} {employee.lastName} ({employee.employeeNo}) was added successfully.
+        </p>
+        <p className="employee-form-error">
+          {email.status === "PENDING"
+            ? "The login email with the temporary password is still being sent and could not be confirmed yet."
+            : "The login email with the temporary password was NOT sent."}
+          {email.reason ? ` ${email.reason}` : ""}
+        </p>
+        <p className="employee-form-hint">
+          The employee cannot log in until they receive their temporary password. This has been recorded in Audit Logs
+          (Credentials Email Failed) for follow-up — see the backend terminal's [MAILER] logs for the exact error.
+        </p>
+        <div className="employee-form-actions">
+          <button type="button" className="primary-button" onClick={() => onCreated(employee)}>
+            Continue
+          </button>
+        </div>
+      </EmployeeModal>
+    );
+  }
 
   return (
     <EmployeeModal

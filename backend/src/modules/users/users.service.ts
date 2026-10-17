@@ -156,9 +156,12 @@ export class UsersService {
       where: { id },
       select: { id: true, email: true, status: true },
     });
+    // Bumping tokenVersion signs the person out of any open session so they
+    // log back in with their new access (employee-only while INACTIVE —
+    // see auth/account-access.ts) instead of keeping it for up to 12h.
     const updated = await this.prisma.user.update({
       where: { id },
-      data: { status },
+      data: { status, ...(status !== before.status ? { tokenVersion: { increment: 1 } } : {}) },
       select: { id: true, email: true, status: true },
     });
 

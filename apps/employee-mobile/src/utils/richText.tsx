@@ -1,6 +1,7 @@
 import React from "react";
-import { Image, Linking, Pressable, StyleSheet, Text, TextStyle, View } from "react-native";
+import { Alert, Image, Linking, Pressable, StyleSheet, Text, TextStyle, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { openDataUriFile } from "./openDataUriFile";
 
 // Mirrors apps/admin-web/src/lib/richText.ts — the AnnouncementsTab compose
 // toolbar writes this same small custom syntax (not full Markdown) into the
@@ -13,6 +14,14 @@ import { Ionicons } from "@expo/vector-icons";
 const INLINE_TOKEN_REGEX =
   /!\[([^\]]*)\]\(([^)\s]+)\)|\[([^\]]*)\]\(([^)\s]+)\)|\*\*([^*]+)\*\*|__([^_]+)__|~~([^~]+)~~|`([^`]+)`|\*([^*]+)\*/g;
 const IMAGE_ONLY_REGEX = /^!\[([^\]]*)\]\(([^)\s]+)\)$/;
+// An attached document (PDF, Word, …) — a link whose target is a data: URI.
+const FILE_ONLY_REGEX = /^\[([^\]]*)\]\((data:[^)\s]+)\)$/;
+
+function openFile(url: string, name: string) {
+  openDataUriFile(url, name).catch((err) =>
+    Alert.alert("Couldn't open file", err instanceof Error ? err.message : "Please try again."),
+  );
+}
 
 function renderInlineSegments(line: string, baseKey: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
@@ -32,7 +41,15 @@ function renderInlineSegments(line: string, baseKey: string): React.ReactNode[] 
       );
     } else if (linkUrl !== undefined) {
       nodes.push(
-        <Text key={`${baseKey}-l${key++}`} style={styles.link} onPress={() => Linking.openURL(linkUrl).catch(() => undefined)}>
+        <Text
+          key={`${baseKey}-l${key++}`}
+          style={styles.link}
+          onPress={() =>
+            linkUrl.startsWith("data:")
+              ? openFile(linkUrl, linkText)
+              : Linking.openURL(linkUrl).catch(() => undefined)
+          }
+        >
           {linkText || linkUrl}
         </Text>,
       );
@@ -107,6 +124,19 @@ export function FormattedAnnouncementText({
             </Pressable>
           );
         }
+        const fileMatch = line.trim().match(FILE_ONLY_REGEX);
+        if (fileMatch) {
+          const fileName = fileMatch[1] || "Attachment";
+          return (
+            <Pressable key={index} style={styles.fileChip} onPress={() => openFile(fileMatch[2], fileName)}>
+              <Ionicons name="document-text-outline" size={18} color="#1A3A5C" />
+              <Text style={styles.fileChipName} numberOfLines={1}>
+                {fileName}
+              </Text>
+              <Ionicons name="download-outline" size={16} color="#1680D8" />
+            </Pressable>
+          );
+        }
         if (line.startsWith("# ")) {
           return (
             <Text key={index} style={[textStyle, styles.heading]}>
@@ -131,6 +161,7 @@ export function FormattedAnnouncementText({
 export function stripFormattingTokens(message: string) {
   return message
     .replace(/!\[[^\]]*\]\([^)\s]+\)/g, "[Image]")
+    .replace(/\[([^\]]*)\]\(data:[^)\s]+\)/g, "[File: $1]")
     .replace(/\[([^\]]*)\]\([^)\s]+\)/g, "$1")
     .replace(/\*\*([^*]+)\*\*/g, "$1")
     .replace(/__([^_]+)__/g, "$1")
@@ -156,6 +187,19 @@ const styles = StyleSheet.create({
   link: { color: "#1680D8", fontWeight: "700", textDecorationLine: "underline" },
   heading: { fontWeight: "700", fontSize: 16 },
   imagePlaceholder: { color: "#94A3B8", fontStyle: "italic" },
+  fileChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginVertical: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#DBE5EF",
+    backgroundColor: "#F6F9FC",
+  },
+  fileChipName: { flex: 1, color: "#1A3A5C", fontSize: 13, fontWeight: "700" },
   image: {
     width: "100%",
     height: 180,

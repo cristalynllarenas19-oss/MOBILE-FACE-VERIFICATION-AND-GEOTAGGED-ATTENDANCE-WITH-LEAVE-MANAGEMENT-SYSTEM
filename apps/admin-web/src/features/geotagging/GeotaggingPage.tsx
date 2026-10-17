@@ -54,6 +54,39 @@ function isDefaultOfficeLocation(location?: GeotaggedLocation | null) {
   return location?.name === "Universal Leaf Philippines Inc. - Agoo";
 }
 
+type PlaceResult = {
+  place_id: number;
+  lat: string;
+  lon: string;
+  display_name: string;
+};
+
+// Nominatim forward search — free, no API key. Its usage policy forbids
+// search-as-you-type and allows at most 1 request/second, so this only runs
+// from the explicit 🔍 button. Philippines-only, biased toward Agoo.
+async function searchPlaces(query: string, signal: AbortSignal): Promise<PlaceResult[]> {
+  const params = new URLSearchParams({
+    q: query,
+    format: "jsonv2",
+    countrycodes: "ph",
+    limit: "5",
+    viewbox: "120.20,16.50,120.55,16.15",
+  });
+  const response = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, {
+    headers: { "Accept-Language": "en" },
+    signal,
+  });
+  if (!response.ok) throw new Error(`Place search failed (${response.status})`);
+  const data = (await response.json()) as PlaceResult[];
+  return Array.isArray(data) ? data : [];
+}
+
+// Camera-only fallback for "return to default" — the coordinates seed.ts
+// gives "Universal Leaf Philippines Inc. - Agoo" (the canonical live
+// record). The loaded area's own coordinates are preferred when present.
+const DEFAULT_OFFICE_CENTER: [number, number] = [16.358048, 120.353511];
+const DEFAULT_MAP_ZOOM = 15;
+
 const initialForm = {
   name: "",
   latitude: "16.3222",
@@ -265,6 +298,37 @@ function GeotaggingPageContent({
   const [loadIssues, setLoadIssues] = useState<string[]>([]);
   const [savingAssignments, setSavingAssignments] = useState(false);
   const [confirmConfig, setConfirmConfig] = useState<ConfirmDialogConfig | null>(null);
+  const [placeResults, setPlaceResults] = useState<PlaceResult[] | null>(null);
+  const [placeSearching, setPlaceSearching] = useState(false);
+  const [placeSearchMessage, setPlaceSearchMessage] = useState("");
+  const lastPlaceSearchAtRef = useRef(0);
+  const placeSearchRef = useRef<HTMLDivElement | null>(null);
+  // Bumped on every new search and every edit of the name, so a slow
+  // response for an older query is ignored instead of reopening the list.
+  const placeSearchSeqRef = useRef(0);
+  const placeSearchAbortRef = useRef<AbortController | null>(null);
+  // True once a search has run (and no manual map click since) — only then
+  // does clearing the name send the camera back to the default office.
+  const placeSearchUsedRef = useRef(false);
+  const placeSearchOpen = placeSearching || Boolean(placeResults?.length) || Boolean(placeSearchMessage);
+
+  function closePlaceSearch() {
+    // Also drops an in-flight search so its late response can't reopen the list.
+    invalidatePlaceSearch();
+  }
+
+  // Close the floating suggestions on any click outside the search field
+  // (including a manual map click), like a normal dropdown.
+  useEffect(() => {
+    if (!placeSearchOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (placeSearchRef.current && !placeSearchRef.current.contains(event.target as Node)) {
+        closePlaceSearch();
+      }
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [placeSearchOpen]);
 
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -594,7 +658,7 @@ function GeotaggingPageContent({
 
     const map = L.map(mapElementRef.current, {
       center: previewPosition,
-      zoom: 15,
+      zoom: DEFAULT_MAP_ZOOM,
       scrollWheelZoom: true,
     });
 
@@ -609,6 +673,9 @@ function GeotaggingPageContent({
     draftMarkerRef.current.bindPopup("Draft location");
 
     map.on("click", (event) => {
+      // A manual pin takes over from any search, so clearing the name
+      // afterwards won't pull the camera away from it.
+      placeSearchUsedRef.current = false;
       setForm((current) => ({
         ...current,
         latitude: event.latlng.lat.toFixed(6),
@@ -624,7 +691,11 @@ function GeotaggingPageContent({
       draftCircleRef.current = null;
       savedLayerRef.current = null;
     };
-  }, [previewPosition]);
+    // Create the map once. Pin/circle/view updates for later coordinate
+    // changes are handled by the effect below — re-running this one tore
+    // down the whole map on every click (zoom reset, saved areas vanished).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -735,6 +806,90 @@ function GeotaggingPageContent({
         error instanceof Error ? error.message : "Failed to save geotagged area";
       setAssignmentError(message);
     }
+  }
+
+  // Only fills the draft coordinates (same as a map click) — nothing is
+  // saved until Add New Area, and the typed name is left as-is.
+  async function handlePlaceSearch() {
+    const query = form.name.trim();
+    if (!query || placeSearching) return;
+    if (Date.now() - lastPlaceSearchAtRef.current < 1000) return;
+    lastPlaceSearchAtRef.current = Date.now();
+
+    const seq = ++placeSearchSeqRef.current;
+    const controller = new AbortController();
+    placeSearchAbortRef.current = controller;
+    placeSearchUsedRef.current = true;
+    const timeout = window.setTimeout(() => controller.abort(), 8000);
+    setPlaceSearching(true);
+    setPlaceResults(null);
+    setPlaceSearchMessage("");
+    try {
+      const results = await searchPlaces(query, controller.signal);
+      if (seq !== placeSearchSeqRef.current) return; // superseded / cleared
+      setPlaceResults(results);
+      if (results.length === 0) {
+        setPlaceSearchMessage("No match found — click the map to pin it manually.");
+      }
+    } catch (error) {
+      if (seq !== placeSearchSeqRef.current) return;
+      console.error("Place search failed", error);
+      setPlaceSearchMessage("Search unavailable — click the map instead.");
+    } finally {
+      window.clearTimeout(timeout);
+      if (seq === placeSearchSeqRef.current) {
+        placeSearchAbortRef.current = null;
+        setPlaceSearching(false);
+      }
+    }
+  }
+
+  // Drops any in-flight search and its pending results (typing or clearing
+  // the name makes them stale).
+  function invalidatePlaceSearch() {
+    placeSearchSeqRef.current += 1;
+    placeSearchAbortRef.current?.abort();
+    placeSearchAbortRef.current = null;
+    setPlaceSearching(false);
+    setPlaceResults(null);
+    setPlaceSearchMessage("");
+  }
+
+  // Camera only: pans/zooms back to the default office. The form's
+  // latitude/longitude and the draft pin are intentionally left untouched.
+  function returnMapToDefaultOffice() {
+    const map = mapRef.current;
+    if (!map) return;
+    const defaultArea = locations.find(isDefaultOfficeLocation);
+    const areaLatitude = Number(defaultArea?.latitude);
+    const areaLongitude = Number(defaultArea?.longitude);
+    const center: [number, number] =
+      Number.isFinite(areaLatitude) && Number.isFinite(areaLongitude)
+        ? [areaLatitude, areaLongitude]
+        : DEFAULT_OFFICE_CENTER;
+    map.setView(center, DEFAULT_MAP_ZOOM, { animate: true });
+  }
+
+  function handleLocationNameChange(value: string) {
+    setForm((current) => ({ ...current, name: value }));
+    invalidatePlaceSearch();
+    if (!value.trim() && placeSearchUsedRef.current) {
+      placeSearchUsedRef.current = false;
+      returnMapToDefaultOffice();
+    }
+  }
+
+  function selectPlaceResult(result: PlaceResult) {
+    const nextLatitude = Number(result.lat);
+    const nextLongitude = Number(result.lon);
+    if (!Number.isFinite(nextLatitude) || !Number.isFinite(nextLongitude)) return;
+    setForm((current) => ({
+      ...current,
+      latitude: nextLatitude.toFixed(6),
+      longitude: nextLongitude.toFixed(6),
+    }));
+    setPlaceResults(null);
+    setPlaceSearchMessage("Pin moved — check it on the map and adjust before saving.");
   }
 
   async function handleSaveAssignments() {
@@ -885,6 +1040,8 @@ function GeotaggingPageContent({
       departmentId: scopedDepartmentId ?? "",
     }));
     setAssignmentError("");
+    invalidatePlaceSearch();
+    placeSearchUsedRef.current = false;
   }
 
   function toggleEmployee(employeeId: string) {
@@ -990,13 +1147,67 @@ function GeotaggingPageContent({
 
                 <label>
                   Location name
-                  <input
-                    type="text"
-                    value={form.name}
-                    onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-                    placeholder="e.g., Leaf buying station"
-                    required
-                  />
+                  {editingLocationId ? (
+                    <input
+                      type="text"
+                      value={form.name}
+                      onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+                      placeholder="e.g., Leaf buying station"
+                      required
+                    />
+                  ) : (
+                    <div className="place-search-wrap" ref={placeSearchRef}>
+                      <input
+                        type="text"
+                        value={form.name}
+                        onChange={(event) => handleLocationNameChange(event.target.value)}
+                        onKeyDown={(event) => {
+                          // Enter here searches instead of triggering the
+                          // browser's implicit form submit (which saved the
+                          // area). Saving is only via the Add New Area button.
+                          if (event.key === "Enter" && !event.nativeEvent.isComposing) {
+                            event.preventDefault();
+                            void handlePlaceSearch();
+                            return;
+                          }
+                          if (event.key === "Escape" && placeSearchOpen) closePlaceSearch();
+                        }}
+                        placeholder="e.g., Leaf buying station"
+                        required
+                      />
+                      <button
+                        type="button"
+                        className="place-search-button"
+                        onClick={handlePlaceSearch}
+                        disabled={placeSearching || !form.name.trim()}
+                        aria-label="Search this place on the map"
+                        title="Search this place on the map"
+                      >
+                        <Search size={14} />
+                      </button>
+
+                      {/* Floats over the form (not in flow) so opening it never
+                          grows the form — which used to stretch the map panel. */}
+                      {placeSearchOpen && (
+                        <div className="place-search-results" aria-live="polite">
+                          {placeSearching && <p className="place-search-message">Searching…</p>}
+                          {placeResults && placeResults.length > 0 && (
+                            <ul>
+                              {placeResults.map((result) => (
+                                <li key={result.place_id}>
+                                  <button type="button" onClick={() => selectPlaceResult(result)}>
+                                    <MapPin size={13} />
+                                    <span>{result.display_name}</span>
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                          {placeSearchMessage && <p className="place-search-message">{placeSearchMessage}</p>}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </label>
 
                 <label>

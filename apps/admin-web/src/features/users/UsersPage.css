@@ -31,8 +31,13 @@
 
 .users-filter-actions {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
+  gap: 10px;
   margin-left: auto;
+}
+
+.users-filter-search-group {
+  width: 260px;
 }
 
 .add-user-button {
@@ -649,6 +654,12 @@
 
   .users-filter-actions {
     margin-left: 0;
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .users-filter-search-group {
     width: 100%;
   }
 

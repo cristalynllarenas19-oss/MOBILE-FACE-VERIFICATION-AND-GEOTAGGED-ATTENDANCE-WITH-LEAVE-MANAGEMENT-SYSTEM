@@ -21,6 +21,49 @@
   margin-bottom: 12px;
 }
 
+/* One toolbar row: Active | Archived | Date on the left; Search | New
+   Announcement grouped on the right. */
+.announcement-filter-bar {
+  align-items: flex-end;
+}
+
+.announcement-filter-bar .announcement-archive-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 0;
+  flex-shrink: 0;
+}
+
+.announcement-filter-bar .announcement-filter-date-preset {
+  margin-left: 4px;
+}
+
+.announcement-filter-bar .employees-filter-search-group {
+  flex: 0 1 260px;
+  margin-left: auto;
+}
+
+/* Keeps the tabs' original padding over the shared filter-bar tab style. */
+.announcement-filter-bar .filter-tabs.announcement-archive-tabs > button {
+  padding: 9px 15px;
+}
+
+@media (max-width: 640px) {
+  .announcement-filter-bar .filter-tabs.announcement-archive-tabs {
+    display: flex;
+  }
+
+  .announcement-filter-bar .announcement-filter-date-preset {
+    margin-left: 0;
+  }
+
+  .announcement-filter-bar .employees-filter-search-group {
+    flex: 1 1 auto;
+    margin-left: 0;
+  }
+}
+
 .announcement-archive-tabs button {
   border: 1px solid transparent;
   background: #ffffff;
@@ -2904,6 +2947,14 @@
   border-radius: 6px;
   object-fit: cover;
   flex-shrink: 0;
+}
+
+.announcement-attachment-file-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #e6eef6;
+  color: #1a3a5c;
 }
 
 .announcement-attachment-name {

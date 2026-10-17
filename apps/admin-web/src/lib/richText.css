@@ -7,3 +7,42 @@
 .announcement-link:hover {
   color: #0f5ea8;
 }
+
+/* Attached document (AnnouncementFile) — click to download. */
+.announcement-file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  margin: 4px 0;
+  padding: 8px 12px;
+  background: #f6f9fc;
+  border: 1px solid #dbe5ef;
+  border-radius: 10px;
+  color: #1a3a5c;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.announcement-file-chip:hover {
+  background: #eaf1f8;
+  border-color: #c3d4e6;
+}
+
+.announcement-file-chip:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.announcement-file-chip-icon,
+.announcement-file-chip-download {
+  flex-shrink: 0;
+}
+
+.announcement-file-chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -10,7 +10,8 @@ import { EmployeeTypesService } from "../employee-types/employee-types.service";
 import { EvaluationsService } from "../evaluations/evaluations.service";
 import { GeolocationService } from "../geolocation/geolocation.service";
 import { LeaveAccrualService } from "../leave/leave-accrual.service";
-import { MailService } from "../mail/mail.service";
+import { maskEmail, summarizeSmtpError } from "../mail/mail-transport";
+import { MailNotConfiguredError, MailService } from "../mail/mail.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { PositionsService } from "../positions/positions.service";
 import { CreateEmployeeDto, UpdateEmployeeDto } from "./dto/create-employee.dto";
@@ -51,6 +52,17 @@ const GENDER_LEAVE_TYPE_KIND: Record<string, LeaveTypeKind> = {
 // moment someone is promoted into one of these, so the correct sex-linked
 // leave type still lands the moment they become entitled to it.
 const ENTITLED_TO_LEAVE_STATUSES = new Set(["REGULAR", "PERMANENT_SEASONAL"]);
+
+// How long the Add Employee request waits on Gmail before answering with
+// PENDING. The send itself keeps going (bounded by SMTP_TIMEOUTS) and its
+// final outcome is still logged and, on failure, audit-logged.
+const CREDENTIALS_EMAIL_WAIT_MS = 15_000;
+
+export type CredentialsEmailStatus = {
+  status: "SENT" | "FAILED" | "PENDING";
+  // Safe for display — never contains the password or SMTP credentials.
+  reason?: string;
+};
 
 @Injectable()
 export class EmployeesService {
@@ -198,7 +210,8 @@ export class EmployeesService {
       where: {
         employmentStatus: { not: "SEPARATED" },
         ...(departmentId ? { departmentId } : {}),
-        user: { userRoles: { some: { role: { code: "SUPERVISOR" } } } },
+        // Deactivated supervisors (User Management) aren't offered as supervisors.
+        user: { status: "ACTIVE", userRoles: { some: { role: { code: "SUPERVISOR" } } } },
       },
       select: { id: true, firstName: true, lastName: true, employeeNo: true, department: { select: { name: true } } },
       orderBy: { lastName: "asc" },
@@ -338,6 +351,25 @@ export class EmployeesService {
   }
 
   async create(dto: CreateEmployeeDto, context: AuditLogContext = {}, scopeDepartmentId?: string) {
+    const startedAt = Date.now();
+    const recipient = maskEmail(dto.email);
+    this.logger.log(`[EMPLOYEE] Employee creation started (${recipient})`);
+    try {
+      const result = await this.createEmployee(dto, context, scopeDepartmentId, recipient);
+      this.logger.log(
+        `[EMPLOYEE] Employee creation completed — ${result.employeeNo} in ${Date.now() - startedAt}ms total, credentials email ${result.credentialsEmail.status}`,
+      );
+      return result;
+    } catch (error) {
+      this.logger.warn(
+        `[EMPLOYEE] Employee creation FAILED (${recipient}) after ${Date.now() - startedAt}ms — ` +
+          (error instanceof Error ? `${error.name}: ${error.message}` : String(error)).replace(/[^\s"<>]+@[^\s"<>]+/g, recipient),
+      );
+      throw error;
+    }
+  }
+
+  private async createEmployee(dto: CreateEmployeeDto, context: AuditLogContext, scopeDepartmentId: string | undefined, recipient: string) {
     const existingUser = await this.prisma.user.findUnique({ where: { email: dto.email } });
     if (existingUser) throw new ConflictException(`An account with the email "${dto.email}" already exists.`);
 
@@ -368,19 +400,26 @@ export class EmployeesService {
     const hireDate = dto.hireDate ? new Date(dto.hireDate) : new Date();
     const attendanceMode = await this.resolveAttendanceMode(department.attendanceMode, dto.attendanceMode);
 
-    const user = await this.prisma.user.create({
-      data: {
-        email: dto.email,
-        passwordHash: await argon2.hash(temporaryPassword),
-        mustChangePassword: true,
-        userRoles: { create: { roleId: role.id } },
-      },
-    });
+    // Hashed and numbered before the transaction so it only holds the two
+    // inserts. One transaction so a failed employee insert can't leave an
+    // orphan User behind that blocks the retry with "email already exists".
+    const passwordHash = await argon2.hash(temporaryPassword);
+    const employeeNo = await this.generateEmployeeNo(hireDate);
+    let stepAt = Date.now();
+    const created = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          email: dto.email,
+          passwordHash,
+          mustChangePassword: true,
+          userRoles: { create: { roleId: role.id } },
+        },
+      });
 
-    const created = await this.prisma.employee.create({
+      return tx.employee.create({
       data: {
         userId: user.id,
-        employeeNo: await this.generateEmployeeNo(hireDate),
+        employeeNo,
         firstName: dto.firstName,
         lastName: dto.lastName,
         departmentId: department.id,
@@ -404,7 +443,10 @@ export class EmployeesService {
         ...(resolvedSupervisorId !== undefined ? { supervisorId: resolvedSupervisorId } : {}),
       },
       include: { user: true, department: true, position: true, supervisor: true, employeeType: true },
+      });
     });
+    this.logger.log(`[DATABASE] Employee saved — ${created.employeeNo} (${created.id}) in ${Date.now() - stepAt}ms`);
+    stepAt = Date.now();
 
     // Every new hire gets a starting Standard Shift + Office geotag,
     // regardless of attendance mode — Field employees can add/replace sites
@@ -422,17 +464,7 @@ export class EmployeesService {
     if (created.employmentStatus === "PERMANENT_SEASONAL") {
       await this.leaveAccrual.startAccrualForNewlyPermanentSeasonal(created.id);
     }
-
-    // Delivery failure shouldn't roll back or delay an otherwise-successful
-    // hire. Gmail/SMTP can take seconds even when the DB is local.
-    void this.mail
-      .sendNewEmployeeCredentialsEmail(dto.email, temporaryPassword, `${created.firstName} ${created.lastName}`)
-      .catch((error) => {
-        this.logger.error(
-          `Failed to send new-employee credentials email to ${dto.email}`,
-          error instanceof Error ? error.stack : undefined,
-        );
-      });
+    this.logger.log(`[EMPLOYEE] Post-create setup (schedule, geotag, leave) done in ${Date.now() - stepAt}ms`);
 
     await this.auditLogs.record({
       ...context,
@@ -454,7 +486,64 @@ export class EmployeesService {
       },
     });
 
-    return created;
+    // Never rolls back the hire: the account exists either way, and a failed
+    // email is reported back (and audit-logged) so it can be resent.
+    stepAt = Date.now();
+    const credentialsEmail = await this.sendCredentialsEmail(created, dto.email, temporaryPassword, context, recipient);
+    this.logger.log(`[EMPLOYEE] Credentials email step finished in ${Date.now() - stepAt}ms — ${credentialsEmail.status}`);
+
+    return { ...created, credentialsEmail };
+  }
+
+  // Waits up to CREDENTIALS_EMAIL_WAIT_MS for Gmail so the response can say
+  // SENT/FAILED; past that it answers PENDING and lets the send finish in the
+  // background. Never throws.
+  private async sendCredentialsEmail(
+    employee: { id: string; employeeNo: string; firstName: string; lastName: string },
+    email: string,
+    temporaryPassword: string,
+    context: AuditLogContext,
+    recipient = maskEmail(email),
+  ): Promise<CredentialsEmailStatus> {
+    const outcome = this.mail
+      .sendNewEmployeeCredentialsEmail(email, temporaryPassword, `${employee.firstName} ${employee.lastName}`)
+      .then(
+        (): CredentialsEmailStatus => ({ status: "SENT" }),
+        async (error): Promise<CredentialsEmailStatus> => {
+          const summary = summarizeSmtpError(error);
+          const reason =
+            error instanceof MailNotConfiguredError
+              ? "The email service is not configured on the server (GMAIL_USER / GMAIL_APP_PASSWORD)."
+              : summary.hint ?? `The email server returned an error${summary.code ? ` (${summary.code})` : ""}.`;
+          // The flag for manual follow-up: Audit Logs → CREDENTIALS_EMAIL_FAILED.
+          await this.auditLogs.record({
+            ...context,
+            action: "CREDENTIALS_EMAIL_FAILED",
+            module: "Employees",
+            entityType: "Employee",
+            entityId: employee.id,
+            description: `Login credentials email to ${employee.firstName} ${employee.lastName} (${recipient}) was not sent.`,
+            newValues: { employeeNo: employee.employeeNo, code: summary.code, responseCode: summary.responseCode, timedOut: summary.timedOut },
+          });
+          return { status: "FAILED", reason };
+        },
+      );
+
+    let timer: NodeJS.Timeout | undefined;
+    const waitLimit = new Promise<CredentialsEmailStatus>((resolve) => {
+      timer = setTimeout(() => {
+        this.logger.warn(
+          `[MAILER] Email for ${employee.employeeNo} still sending after ${CREDENTIALS_EMAIL_WAIT_MS / 1000}s — responding PENDING; the outcome will be logged when it settles.`,
+        );
+        resolve({ status: "PENDING", reason: "The email server is responding slowly. The email is still being sent." });
+      }, CREDENTIALS_EMAIL_WAIT_MS);
+    });
+
+    try {
+      return await Promise.race([outcome, waitLimit]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   
@@ -699,10 +788,8 @@ export class EmployeesService {
           `${updated.firstName} ${updated.lastName}`,
         );
       } catch (error) {
-        this.logger.error(
-          `Failed to send updated credentials email to ${updated.user.email}`,
-          error instanceof Error ? error.stack : undefined,
-        );
+        // Details were already logged by MailService ([MAILER] …FAILED).
+        this.logger.error(`[EMPLOYEE] Updated credentials email to ${maskEmail(updated.user.email)} was not sent.`);
       }
     }
 

@@ -52,11 +52,16 @@ export class ReportsService {
     // "to" filter (defaulting to the current year) same as the Leave page.
     const balanceYear = endDate.getFullYear();
 
+    // No base64 blobs anywhere in this report (profile photos repeated on
+    // every row, leave attachments) — neither Reports screen (admin-web or
+    // mobile) shows them, and they made the response many times larger.
+    const employeeWithoutPhoto = { omit: { profilePhotoData: true } } as const;
+
     const [attendanceRecords, leaves, schedules, employees, leaveTypes, leaveBalanceRows, approvedLeaveRequests] = await Promise.all([
       this.prisma.attendanceRecord.findMany({
         where: { attendanceDate: { gte: monthStart, lte: endDate }, ...departmentWhere },
         include: {
-          employee: { include: { department: true } },
+          employee: { ...employeeWithoutPhoto, include: { department: true } },
           workLocation: true,
           shift: { select: { startTime: true, endTime: true, lateThresholdMinutes: true, lunchBreakMinutes: true, breakStartTime: true, breakKind: true } },
         },
@@ -64,16 +69,18 @@ export class ReportsService {
       }),
       this.prisma.leaveRequest.findMany({
         where: { startDate: { gte: monthStart, lte: endDate }, ...departmentWhere },
-        include: { employee: { include: { department: true } }, leaveType: true },
+        omit: { attachmentData: true },
+        include: { employee: { ...employeeWithoutPhoto, include: { department: true } }, leaveType: true },
         orderBy: { startDate: "desc" },
       }),
       this.prisma.employeeSchedule.findMany({
         where: departmentWhere,
-        include: { employee: { include: { department: true, position: true } }, shift: true },
+        include: { employee: { ...employeeWithoutPhoto, include: { department: true, position: true } }, shift: true },
         orderBy: { startsOn: "desc" },
       }),
       this.prisma.employee.findMany({
         where: employeeWhere,
+        omit: { profilePhotoData: true },
         include: { department: true },
         orderBy: { lastName: "asc" },
       }),

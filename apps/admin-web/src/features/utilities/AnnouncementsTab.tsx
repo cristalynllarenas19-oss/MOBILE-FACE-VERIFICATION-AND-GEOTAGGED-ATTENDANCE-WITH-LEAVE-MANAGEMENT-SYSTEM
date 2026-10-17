@@ -10,10 +10,12 @@ import {
   Flag,
   Image as ImageIcon,
   IndentIncrease,
+  FileText,
   Link2,
   List,
   ListOrdered,
   Megaphone,
+  Paperclip,
   Pin,
   Redo2,
   Search,
@@ -90,8 +92,14 @@ const PAGE_SIZE = 10;
 // Same cap as the leave-request attachment flow (leave.service.ts) — the
 // image is embedded as a base64 data: URI directly in the message text.
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+// Everything attached rides inside one JSON request body, which the backend
+// caps at 10mb (main.ts) — base64 adds ~33%, so keep a margin under that.
+const MAX_TOTAL_ATTACHMENT_CHARS = 9 * 1024 * 1024;
+const FILE_ACCEPT = ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv";
 
-type DateFilterPreset = "ALL" | "WEEK" | "MONTH" | "SIX_MONTHS" | "YEAR" | "CUSTOM";
+type AttachedItem = { id: string; name: string; dataUrl: string; isFile?: boolean };
+
+type DateFilterPreset ="ALL" | "WEEK" | "MONTH" | "SIX_MONTHS" | "YEAR" | "CUSTOM";
 
 const DATE_FILTER_OPTIONS: { value: DateFilterPreset; label: string }[] = [
   { value: "WEEK", label: "Older than a week" },
@@ -180,10 +188,13 @@ export function AnnouncementsTab({
   // Attached images never appear as text in the textarea (no raw base64,
   // no placeholder token either) — they're tracked separately and shown as
   // thumbnail chips, then appended to the message as data: URIs on save.
-  const [attachedImages, setAttachedImages] = useState<{ id: string; name: string; dataUrl: string }[]>([]);
+  // isFile = a document (PDF, Word, …) saved as a `[name](data:...)` link
+  // line instead of an `![name](data:...)` image line.
+  const [attachedImages, setAttachedImages] = useState<AttachedItem[]>([]);
 
   const messageRef = useRef<HTMLTextAreaElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const historyRef = useRef<string[]>([""]);
   const historyIndexRef = useRef(0);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -452,12 +463,16 @@ export function AnnouncementsTab({
   // (e.g. reopening a draft saved before this fix, or a prior edit session)
   // into the attachedImages list, leaving the text clean of both raw
   // base64 and placeholder tokens.
-  function extractImagesFromMessage(raw: string): { text: string; images: { id: string; name: string; dataUrl: string }[] } {
-    const images: { id: string; name: string; dataUrl: string }[] = [];
+  function extractImagesFromMessage(raw: string): { text: string; images: AttachedItem[] } {
+    const images: AttachedItem[] = [];
     imageIdCounterRef.current = 0;
     const text = raw
       .replace(/!\[([^\]]*)\]\((data:[^)]+)\)\n?/g, (_match, alt: string, dataUrl: string) => {
         images.push({ id: `img${imageIdCounterRef.current++}`, name: alt || "image", dataUrl });
+        return "";
+      })
+      .replace(/\[([^\]]*)\]\((data:[^)]+)\)\n?/g, (_match, name: string, dataUrl: string) => {
+        images.push({ id: `img${imageIdCounterRef.current++}`, name: name || "file", dataUrl, isFile: true });
         return "";
       })
       .replace(/\n{3,}/g, "\n\n")
@@ -470,7 +485,7 @@ export function AnnouncementsTab({
   // before this fix — only the compose UI itself no longer shows the
   // base64 text while editing.
   function composeFinalMessage(text: string): string {
-    const imageLines = attachedImages.map((img) => `![${img.name}](${img.dataUrl})`);
+    const imageLines = attachedImages.map((img) => `${img.isFile ? "" : "!"}[${img.name}](${img.dataUrl})`);
     return [text, ...imageLines].filter((part) => part.length > 0).join("\n\n");
   }
 
@@ -483,21 +498,28 @@ export function AnnouncementsTab({
   // modules/leave/leave.service.ts), so no separate file storage/upload
   // endpoint is needed for something this small. It's kept out of the
   // textarea entirely and shown as a thumbnail chip instead.
-  function handleImageFileSelected(event: React.ChangeEvent<HTMLInputElement>) {
+  function handleImageFileSelected(event: React.ChangeEvent<HTMLInputElement>, isFile = false) {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
 
     if (file.size > MAX_IMAGE_BYTES) {
-      setFormError("Image is too large. Please choose a file under 5MB.");
+      setFormError(`${isFile ? "File" : "Image"} is too large. Please choose a file under 5MB.`);
       return;
     }
 
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = reader.result as string;
+      const usedChars = attachedImages.reduce((sum, img) => sum + img.dataUrl.length, 0);
+      if (usedChars + dataUrl.length > MAX_TOTAL_ATTACHMENT_CHARS) {
+        setFormError("Attachments are too large altogether. Remove one or choose a smaller file.");
+        return;
+      }
       const id = `img${imageIdCounterRef.current++}`;
-      setAttachedImages((current) => [...current, { id, name: file.name, dataUrl }]);
+      // Square brackets would break the `[name](...)` token the name is saved in.
+      const name = file.name.replace(/\[/g, "(").replace(/\]/g, ")");
+      setAttachedImages((current) => [...current, { id, name, dataUrl, isFile }]);
     };
     reader.readAsDataURL(file);
   }
@@ -820,34 +842,17 @@ export function AnnouncementsTab({
 
   return (
     <>
-      <div className="filter-tabs announcement-archive-tabs">
-        <button className={!showArchived ? "active" : ""} onClick={() => setShowArchived(false)}>
-          Active
-        </button>
-        <button className={showArchived ? "active" : ""} onClick={() => setShowArchived(true)}>
-          Archived
-        </button>
-      </div>
-
-      <div className="employees-filter-bar">
-        <div className="employees-filter-group employees-filter-search-group">
-          <label className="employees-filter-label">Search</label>
-          <div className="employee-search">
-            <Search size={14} className="employee-search-icon" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search announcements..."
-              aria-label="Search announcements by title"
-            />
-            <button type="button" className="employee-search-clear" onClick={() => setSearch("")} aria-label="Clear search">
-              <X size={13} />
-            </button>
-          </div>
+      <div className="employees-filter-bar announcement-filter-bar">
+        <div className="filter-tabs announcement-archive-tabs">
+          <button className={!showArchived ? "active" : ""} onClick={() => setShowArchived(false)}>
+            Active
+          </button>
+          <button className={showArchived ? "active" : ""} onClick={() => setShowArchived(true)}>
+            Archived
+          </button>
         </div>
 
-        <div className="employees-filter-group">
+        <div className="employees-filter-group announcement-filter-date-preset">
           <label className="employees-filter-label">Date</label>
           <DropdownFilter
             className="announcement-date-filter"
@@ -873,6 +878,23 @@ export function AnnouncementsTab({
             </div>
           </>
         )}
+
+        <div className="employees-filter-group employees-filter-search-group">
+          <label className="employees-filter-label">Search</label>
+          <div className="employee-search">
+            <Search size={14} className="employee-search-icon" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search announcements..."
+              aria-label="Search announcements by title"
+            />
+            <button type="button" className="employee-search-clear" onClick={() => setSearch("")} aria-label="Clear search">
+              <X size={13} />
+            </button>
+          </div>
+        </div>
 
         <div className="employees-filter-actions">
           {canManage && (
@@ -1126,7 +1148,17 @@ export function AnnouncementsTab({
                   ref={imageInputRef}
                   type="file"
                   accept="image/*"
-                  onChange={handleImageFileSelected}
+                  onChange={(e) => handleImageFileSelected(e)}
+                  style={{ display: "none" }}
+                />
+                <button type="button" aria-label="Attach file" title="Attach file (PDF, Word, Excel…)" onClick={() => fileInputRef.current?.click()}>
+                  <Paperclip size={15} />
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept={FILE_ACCEPT}
+                  onChange={(e) => handleImageFileSelected(e, true)}
                   style={{ display: "none" }}
                 />
                 <button type="button" aria-label="Indent" onClick={() => prefixLines(() => "\t")}><IndentIncrease size={15} /></button>
@@ -1150,7 +1182,11 @@ export function AnnouncementsTab({
                 <div className="announcement-attachment-list">
                   {attachedImages.map((img) => (
                     <div key={img.id} className="announcement-attachment-chip">
-                      <img src={img.dataUrl} alt={img.name} className="announcement-attachment-thumb" />
+                      {img.isFile ? (
+                        <span className="announcement-attachment-thumb announcement-attachment-file-icon"><FileText size={16} /></span>
+                      ) : (
+                        <img src={img.dataUrl} alt={img.name} className="announcement-attachment-thumb" />
+                      )}
                       <span className="announcement-attachment-name" title={img.name}>{img.name}</span>
                       <button
                         type="button"

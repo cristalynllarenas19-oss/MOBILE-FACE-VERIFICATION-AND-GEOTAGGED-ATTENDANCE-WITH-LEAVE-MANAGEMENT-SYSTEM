@@ -17,6 +17,7 @@ const ATTENDANCE_PAGE_SIZE = 10;
 type PhotoLogType = "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN";
 
 type AttendanceLog = {
+  id?: string;
   logType: PhotoLogType;
   latitude: string;
   longitude: string;
@@ -61,6 +62,13 @@ type AttendanceRecord = {
   // the review actions (validate/reject) act on.
   isFlagged?: boolean;
   flaggedLogId?: string;
+};
+
+// Shape of GET /attendance/records/:id/review-photos — the photos GET
+// /attendance leaves out of the list, loaded when a record's modal opens.
+type RecordReviewPhotos = {
+  registeredFace: string | null;
+  logs: { id: string; faceImageData: string | null; faceImageMimeType: string | null }[];
 };
 
 // Shape of GET /attendance/flagged — raw AttendanceLog rows awaiting an
@@ -222,14 +230,40 @@ function AttendanceDetailsModal({
   const [error, setError] = useState("");
   // Enlarged view of whichever photo was clicked (registered or captured).
   const [previewImage, setPreviewImage] = useState<string | null>(null);
-  const registeredFace = record.employee.faceProfiles?.[0]?.referenceImageData;
+
+  // A real record's photos aren't in the list response — fetch them now.
+  // Flagged rows still carry theirs inline; synthetic rows have none.
+  const needsPhotos = !record.isFlagged && !record.isSynthetic;
+  const [reviewPhotos, setReviewPhotos] = useState<RecordReviewPhotos | null>(null);
+  useEffect(() => {
+    if (!needsPhotos) return;
+    let cancelled = false;
+    apiRequest<RecordReviewPhotos>(`/attendance/records/${record.id}/review-photos`)
+      .then((photos) => {
+        if (!cancelled) setReviewPhotos(photos);
+      })
+      .catch(() => {
+        if (!cancelled) setReviewPhotos({ registeredFace: null, logs: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [record.id, needsPhotos]);
+  const isLoadingPhotos = needsPhotos && reviewPhotos === null;
+  const logs = reviewPhotos
+    ? record.logs.map((log) => {
+        const photo = reviewPhotos.logs.find((item) => item.id === log.id);
+        return photo ? { ...log, faceImageData: photo.faceImageData, faceImageMimeType: photo.faceImageMimeType } : log;
+      })
+    : record.logs;
+  const registeredFace = reviewPhotos ? reviewPhotos.registeredFace : record.employee.faceProfiles?.[0]?.referenceImageData;
 
   const breakWord = record.breakKind === "BREAK" ? "Break" : "Lunch";
   // A field visit is a Start/End Visit pair with no lunch/break punches.
   const isFieldRecord = record.recordType === "FIELD";
-  const availablePhotoTabs = photoTabOrder.filter((tab) => record.logs.some((log) => log.logType === tab));
+  const availablePhotoTabs = photoTabOrder.filter((tab) => logs.some((log) => log.logType === tab));
   const [activePhotoTab, setActivePhotoTab] = useState<PhotoLogType>(availablePhotoTabs[0] ?? "TIME_IN");
-  const latestLog = record.logs.find((log) => log.logType === activePhotoTab) ?? record.logs[0];
+  const latestLog = logs.find((log) => log.logType === activePhotoTab) ?? logs[0];
 
   // A flagged row only carries the latest failed attempt; the earlier
   // same-day ones it superseded are fetched here (oldest first) so the
@@ -368,7 +402,7 @@ function AttendanceDetailsModal({
                       <img src={registeredFace} alt="Registered face" />
                     </button>
                   ) : (
-                    <div className="attendance-compare-photo attendance-photo-empty">Not stored</div>
+                    <div className="attendance-compare-photo attendance-photo-empty">{isLoadingPhotos ? "Loading…" : "Not stored"}</div>
                   )}
                 </figure>
                 <figure className="attendance-compare-item">
@@ -383,7 +417,7 @@ function AttendanceDetailsModal({
                       <img src={photoUri(selectedLog) ?? undefined} alt={`${photoTabLabel(activePhotoTab, breakWord, isFieldRecord)} capture`} />
                     </button>
                   ) : (
-                    <div className="attendance-compare-photo attendance-photo-empty">No photo captured</div>
+                    <div className="attendance-compare-photo attendance-photo-empty">{isLoadingPhotos ? "Loading…" : "No photo captured"}</div>
                   )}
                 </figure>
               </div>

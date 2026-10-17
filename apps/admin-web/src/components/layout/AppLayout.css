@@ -497,17 +497,40 @@
   }
 
   .topbar {
-    padding: 0 14px;
-    min-height: 72px !important; 
+    padding: 8px max(14px, env(safe-area-inset-right)) 8px max(14px, env(safe-area-inset-left));
+    padding-top: max(8px, env(safe-area-inset-top));
+    min-height: 72px !important;
     display: flex !important;
     align-items: center !important;
     justify-content: space-between !important;
+    gap: 10px;
+  }
+
+  /* Let the brand block shrink instead of pushing the bell off-screen:
+     every flex ancestor of the title needs min-width: 0. */
+  .topbar-left {
+    flex: 1 1 auto;
+    min-width: 0;
+    max-width: none;
+    gap: 10px;
+  }
+
+  .brand {
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: 10px;
+  }
+
+  .brand > div {
+    flex: 1 1 auto;
+    min-width: 0;
   }
 
   .topbar-actions {
     display: flex !important;
     align-items: center !important;
     height: 100% !important;
+    flex-shrink: 0;
   }
 
   .bell-button {
@@ -524,16 +547,49 @@
 
   .brand h1 {
     font-size: 13px !important;
-    line-height: 1.35;
-    margin-top: 0px !important; 
+    line-height: 1.3;
+    margin: 0 !important;
+    /* Wrap the long title over a few lines instead of one clipped line. */
+    white-space: normal;
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
   }
 
-  .brand p { display: none !important; } 
+  .brand p {
+    margin: 3px 0 0 !important;
+    font-size: 11px !important;
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   .page-content { padding: 14px; }
 }
 
 @media (max-width: 480px) {
-  .topbar { min-height: 68px !important; }
+  .topbar {
+    min-height: 64px !important;
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+  }
+  .topbar-left,
+  .brand { gap: 8px; }
   .brand h1 { font-size: 11.5px !important; }
-  .brand-logo-img { height: 32px; }
+  .brand p { font-size: 10.5px !important; }
+  .brand-logo-img { height: 30px; }
+}
+
+/* Extremely narrow phones: the title gets the room, the org line yields. */
+@media (max-width: 360px) {
+  .brand h1 {
+    font-size: 10.5px !important;
+    -webkit-line-clamp: 4;
+    line-clamp: 4;
+  }
+  .brand p { display: none !important; }
+  .brand-logo-img { height: 26px; }
 }

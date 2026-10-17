@@ -292,6 +292,8 @@ export function ReportsPage({
   const isDepartmentLocked = roles.includes("SUPERVISOR") && !roles.includes("ADMIN");
 
   const [data, setData] = useState<ReportData | null>(null);
+  // Shown instead of the endless "Loading reports…" when /reports fails.
+  const [loadError, setLoadError] = useState("");
   const [tab, setTab] = useState<ReportTab>("ALL");
   // Both default to today (not month-start) — a same-day From/To range is
   // what lets the backend reconstruct Absent/On-Leave rows (see
@@ -317,7 +319,13 @@ export function ReportsPage({
     if (filters.to) params.set("to", filters.to);
     if (filters.department !== "ALL") params.set("department", filters.department);
     const query = params.toString();
-    apiRequest<ReportData>(`/reports${query ? `?${query}` : ""}`).then(setData).catch(() => undefined);
+    setLoadError("");
+    apiRequest<ReportData>(`/reports${query ? `?${query}` : ""}`)
+      .then(setData)
+      .catch((error) => {
+        console.error("[REPORTS] Failed to load /reports", error);
+        setLoadError(error instanceof Error && error.message ? error.message : "Unable to load reports.");
+      });
   };
 
   useEffect(loadReport, [filters.from, filters.to, filters.department]);
@@ -425,6 +433,17 @@ export function ReportsPage({
     pendingLeaves: filteredLeaves.filter((l) => l.status === "PENDING").length,
     activeSchedules: filteredSchedules.filter((s) => !s.endsOn).length,
   }), [filteredAttendance, filteredLeaves, filteredSchedules]);
+
+  if (!data && loadError) {
+    return (
+      <section className="table-card reports-loading">
+        Couldn't load reports: {loadError}{" "}
+        <button type="button" className="outline-button" onClick={loadReport}>
+          Retry
+        </button>
+      </section>
+    );
+  }
 
   if (!data) {
     return <section className="table-card reports-loading"><span className="reports-loading-dot" />Loading reports…</section>;
@@ -664,6 +683,7 @@ export function ReportsPage({
               value={attendanceStatusFilter}
               onChange={setAttendanceStatusFilter}
               options={[
+                { value: "PRESENT", label: "Present" },
                 { value: "LATE", label: "Late" },
                 { value: "ABSENT", label: "Absent" },
                 { value: "ON_LEAVE", label: "On Leave" },
