@@ -1728,6 +1728,8 @@
 }
 
 .announcement-priority-row {
+  /* Hidden: priority isn't saved or used anywhere yet. */
+  display: none;
   align-items: flex-start;
   padding-top: 14px;
 }
