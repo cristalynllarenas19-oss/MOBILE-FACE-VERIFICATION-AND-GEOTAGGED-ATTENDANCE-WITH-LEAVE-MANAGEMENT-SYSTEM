@@ -21,7 +21,6 @@ type Shift = {
   roundingIntervalMinutes: number;
   lateThresholdMinutes: number;
   undertimeThresholdMinutes: number;
-  autoShiftAdjustment: boolean;
   workingDays: number[];
   isActive: boolean;
   createdAt: string;
@@ -163,7 +162,6 @@ const emptyForm = {
   lateThresholdMinutes: "0",
   undertimeThresholdMinutes: "0",
   workingDays: [1, 2, 3, 4, 5] as number[],
-  autoShiftAdjustment: false,
 };
 
 export function ShiftsTab({
@@ -230,7 +228,6 @@ export function ShiftsTab({
       roundingIntervalMinutes: String(shift.roundingIntervalMinutes),
       lateThresholdMinutes: String(shift.lateThresholdMinutes),
       undertimeThresholdMinutes: String(shift.undertimeThresholdMinutes),
-      autoShiftAdjustment: shift.autoShiftAdjustment,
       workingDays: shift.workingDays,
     });
     setNameError(null);
@@ -279,7 +276,6 @@ export function ShiftsTab({
         roundingIntervalMinutes: Number(form.roundingIntervalMinutes || 15),
         lateThresholdMinutes: Number(form.lateThresholdMinutes || 0),
         undertimeThresholdMinutes: Number(form.undertimeThresholdMinutes || 0),
-        autoShiftAdjustment: form.autoShiftAdjustment,
         workingDays: form.workingDays,
       };
 
@@ -647,15 +643,6 @@ export function ShiftsTab({
                     />
                   </label>
                 </div>
-
-                <label className="utilities-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={form.autoShiftAdjustment}
-                    onChange={(e) => setForm((c) => ({ ...c, autoShiftAdjustment: e.target.checked }))}
-                  />
-                  <span>Auto shift adjustment</span>
-                </label>
               </div>
 
               <div className="utilities-modal-actions">
@@ -743,11 +730,6 @@ export function ShiftsTab({
                   <strong>Rounding rules</strong>
                   <em>{viewShift.enableRounding ? `Every ${viewShift.roundingIntervalMinutes} min` : "Disabled"}</em>
                 </div>
-                <div className="shift-view-check-row">
-                  <span className={viewShift.autoShiftAdjustment ? "checked" : ""} />
-                  <strong>Auto shift adjustment</strong>
-                  <em>{viewShift.autoShiftAdjustment ? "Enabled" : "Disabled"}</em>
-                </div>
               </div>
 
               <div className="shift-view-meta-grid">
@@ -807,12 +789,6 @@ export function ShiftsTab({
                 <div>
                   <span>Undertime Threshold</span>
                   <strong>{viewShift.undertimeThresholdMinutes} minutes</strong>
-                </div>
-                <div>
-                  <span>Auto Shift Adjustment</span>
-                  <Badge tone={viewShift.autoShiftAdjustment ? "success" : "neutral"}>
-                    {viewShift.autoShiftAdjustment ? "Enabled" : "Disabled"}
-                  </Badge>
                 </div>
                 <div>
                   <span>Working Days</span>

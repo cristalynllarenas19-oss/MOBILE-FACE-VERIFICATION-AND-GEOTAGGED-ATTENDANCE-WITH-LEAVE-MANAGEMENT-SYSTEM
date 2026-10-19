@@ -468,6 +468,7 @@ export default function App() {
         faceEnrolled: Boolean(profile.hasActiveFaceEnrollment),
         hasWorkLocation: workLocations.length > 0,
         hasScheduleToday: Boolean(profile.hasScheduleToday),
+        shiftEndsAt: profile.shiftEndsAt ?? null,
       };
       setEligibility(nextEligibility);
       cacheSet(eligibilityCacheKey(employeeId), nextEligibility);

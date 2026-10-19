@@ -10,7 +10,6 @@ import {
   computeShiftSpanMinutes,
   defaultBreakKind,
   defaultBreakStartTime,
-  findBestMatchingShift,
   isInsidePreviousDayShift,
   isOnShiftAt,
   resolveBreakKind,
@@ -342,31 +341,5 @@ describe("roundToInterval", () => {
 
     const date2 = new Date(2026, 8, 27, 8, 8); // nearer to 08:15 than 08:00
     expect(roundToInterval(date2, 15)).toEqual(new Date(2026, 8, 27, 8, 15));
-  });
-});
-
-describe("findBestMatchingShift", () => {
-  const shiftA = { id: "a", startTime: "08:00", endTime: "17:00", lateThresholdMinutes: 10 };
-  const shiftB = { id: "b", startTime: "09:00", endTime: "18:00", lateThresholdMinutes: 10 };
-
-  it("returns null when no candidate's window covers the arrival", () => {
-    const arrival = new Date(2026, 8, 27, 20, 0);
-    expect(findBestMatchingShift([shiftA, shiftB], arrival, attendanceDate)).toBeNull();
-  });
-
-  it("picks the candidate whose start is closest to (but not after) the arrival", () => {
-    // 09:05 falls within both A's (08:00-08:10 grace... no, past it) and B's window.
-    // A's cutoff is 08:10, so only B's 09:00-09:10 window actually covers 09:05.
-    const arrival = new Date(2026, 8, 27, 9, 5);
-    const best = findBestMatchingShift([shiftA, shiftB], arrival, attendanceDate);
-    expect(best?.id).toBe("b");
-  });
-
-  it("prefers the later-starting shift when both windows cover the arrival", () => {
-    const shiftC = { id: "c", startTime: "08:50", endTime: "17:50", lateThresholdMinutes: 20 };
-    // 09:05 is within A's 08:00+20=08:20 grace? No — still only C (08:50-09:10) and B (09:00-09:10) cover it.
-    const arrival = new Date(2026, 8, 27, 9, 5);
-    const best = findBestMatchingShift([shiftC, shiftB], arrival, attendanceDate);
-    expect(best?.id).toBe("b"); // B starts later (09:00) than C (08:50)
   });
 });

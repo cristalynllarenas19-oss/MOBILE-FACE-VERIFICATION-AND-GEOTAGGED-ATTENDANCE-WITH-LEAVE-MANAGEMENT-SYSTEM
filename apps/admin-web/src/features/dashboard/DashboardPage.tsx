@@ -402,7 +402,11 @@ export function DashboardPage({
 
       <div className="stats-grid">
         <StatCard label="Total Employees"  value={summary.stats.totalEmployees}  icon={Users}         tone="blue"   />
-        <StatCard label="Present Today"    value={summary.stats.presentToday}    icon={CheckCircle2}  tone="green"  />
+        {/* Everyone who reported for work today — late arrivals included, since
+            they still came in. Late Today is the late subset of this number.
+            (The API's presentToday is on-time only, which the breakdown charts
+            here and on mobile need as a separate, non-overlapping slice.) */}
+        <StatCard label="Present Today"    value={summary.stats.presentToday + summary.stats.lateToday} icon={CheckCircle2}  tone="green"  />
         <StatCard label="Late Today"       value={summary.stats.lateToday}       icon={Clock}         tone="yellow" />
         <StatCard label="Absent Today"     value={summary.stats.absentToday}     icon={AlertTriangle} tone="red"    />
         <StatCard label="On Leave Today"   value={onLeaveToday}                  icon={CalendarOff}   tone="pink"   />

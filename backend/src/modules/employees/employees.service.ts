@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger } from "@nestjs/common";
-import { canContinueOvernightRecord, isInsidePreviousDayShift } from "../attendance/attendance-shift.util";
+import { canContinueOvernightRecord, computeShiftEnd, isInsidePreviousDayShift } from "../attendance/attendance-shift.util";
 import { isNonWorkingDay } from "../../common/utils/schedule.util";
 import { LeaveTypeKind } from "@prisma/client";
 import * as argon2 from "argon2";
@@ -53,10 +53,16 @@ const GENDER_LEAVE_TYPE_KIND: Record<string, LeaveTypeKind> = {
 // leave type still lands the moment they become entitled to it.
 const ENTITLED_TO_LEAVE_STATUSES = new Set(["REGULAR", "PERMANENT_SEASONAL"]);
 
+// Just enough of the linked spouse (see Employee.spouseEmployeeId) for the
+// admin-web View/Edit Employee modals to show their name.
+const SPOUSE_EMPLOYEE_SELECT = { select: { id: true, firstName: true, lastName: true, employeeNo: true } } as const;
+
 // How long the Add Employee request waits on Gmail before answering with
 // PENDING. The send itself keeps going (bounded by SMTP_TIMEOUTS) and its
 // final outcome is still logged and, on failure, audit-logged.
-const CREDENTIALS_EMAIL_WAIT_MS = 15_000;
+// A pooled (already-connected) send normally lands in ~1s, so 5s still
+// confirms SENT in the common case without stalling the form on a slow network.
+const CREDENTIALS_EMAIL_WAIT_MS = 5_000;
 
 export type CredentialsEmailStatus = {
   status: "SENT" | "FAILED" | "PENDING";
@@ -108,23 +114,32 @@ export class EmployeesService {
   }
 
   async findAll(departmentId?: string) {
-    await this.checkProbationaryMilestones();
-
-    await this.evaluations.checkEvaluationsDue();
-    const employees = await this.prisma.employee.findMany({
-      where: departmentId ? { departmentId } : undefined,
-      include: {
-        user: true,
-        department: true,
-        position: true,
-        supervisor: true,
-        employeeType: true,
-        // The current (not yet restored) archive, if any — see EmployeeArchive.
-        archives: { where: { restoredAt: null }, orderBy: { archivedAt: "desc" }, take: 1 },
-      },
-      // Newest-added employee first (LIFO), matching leave requests.
-      orderBy: { createdAt: "desc" },
-    });
+    // The milestone checks only write notifications — nothing they do changes
+    // the list below — so they run alongside it instead of in front of it.
+    const [, , employees] = await Promise.all([
+      this.checkProbationaryMilestones(),
+      this.evaluations.checkEvaluationsDue(),
+      this.prisma.employee.findMany({
+        where: departmentId ? { departmentId } : undefined,
+        // Every admin page that lists employees hits this endpoint, and none
+        // of them show the photo (that comes from /employees/me) — inlining
+        // each employee's base64 photo made every one of those pages slow.
+        omit: { profilePhotoData: true },
+        include: {
+          // Never ship password hashes to the browser.
+          user: { omit: { passwordHash: true } },
+          department: true,
+          position: true,
+          supervisor: { omit: { profilePhotoData: true } },
+          employeeType: true,
+          spouseEmployee: SPOUSE_EMPLOYEE_SELECT,
+          // The current (not yet restored) archive, if any — see EmployeeArchive.
+          archives: { where: { restoredAt: null }, orderBy: { archivedAt: "desc" }, take: 1 },
+        },
+        // Newest-added employee first (LIFO), matching leave requests.
+        orderBy: { createdAt: "desc" },
+      }),
+    ]);
 
     return employees.map(({ archives, ...employee }) => ({
       ...employee,
@@ -218,6 +233,46 @@ export class EmployeesService {
     });
   }
 
+  findSpouseCandidates(sex?: string) {
+    if (sex !== "MALE" && sex !== "FEMALE") {
+      throw new BadRequestException('sex must be "MALE" or "FEMALE".');
+    }
+    return this.prisma.employee.findMany({
+      where: { sex, employmentStatus: { not: "SEPARATED" } },
+      select: { id: true, firstName: true, lastName: true, employeeNo: true, department: { select: { name: true } } },
+      orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+    });
+  }
+
+  // Same undefined/""/id convention as resolveSupervisorId: undefined = leave
+  // unchanged, "" = clear, otherwise must be an active employee of the
+  // opposite sex who isn't this employee.
+  private async resolveSpouseEmployeeId(
+    spouseEmployeeId: string | undefined,
+    ownSex: string | null | undefined,
+    selfEmployeeId?: string,
+  ) {
+    if (spouseEmployeeId === undefined) return undefined;
+    if (!spouseEmployeeId) return null;
+
+    if (spouseEmployeeId === selfEmployeeId) {
+      throw new BadRequestException("An employee cannot be their own spouse.");
+    }
+
+    const spouse = await this.prisma.employee.findUnique({
+      where: { id: spouseEmployeeId },
+      select: { sex: true, employmentStatus: true },
+    });
+    if (!spouse || spouse.employmentStatus === "SEPARATED") {
+      throw new BadRequestException("Selected spouse was not found among active employees.");
+    }
+    if (!ownSex || !spouse.sex || spouse.sex === ownSex) {
+      throw new BadRequestException("The selected spouse must be an employee of the opposite sex.");
+    }
+
+    return spouseEmployeeId;
+  }
+
 
   private async resolveSupervisorId(
     supervisorId: string | undefined,
@@ -303,7 +358,20 @@ export class EmployeesService {
     const hasScheduleToday =
       Boolean(activeSchedule?.workingDays.includes(now.getDay())) || insideOvernightShift || canCloseOvernightRecord;
 
-    return { ...employee, hasActiveFaceEnrollment: faceProfiles.length > 0, hasScheduleToday };
+    // When the shift a Time In made now would be filed under ends — yesterday's
+    // overnight shift while it's still running, otherwise today's. The apps
+    // disable Time In from this moment (AttendanceService.submit refuses it
+    // too); null when there's no shift today.
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const shiftEndsAt = !activeSchedule
+      ? null
+      : insideOvernightShift
+        ? computeShiftEnd(activeSchedule.shift, yesterday)
+        : activeSchedule.workingDays.includes(now.getDay())
+          ? computeShiftEnd(activeSchedule.shift, today)
+          : null;
+
+    return { ...employee, hasActiveFaceEnrollment: faceProfiles.length > 0, hasScheduleToday, shiftEndsAt };
   }
 
   updateMyPhoto(employeeId: string, profilePhotoData: string, profilePhotoMimeType: string) {
@@ -396,6 +464,7 @@ export class EmployeesService {
 
     
     const resolvedSupervisorId = await this.resolveSupervisorId(dto.supervisorId, department.id);
+    const resolvedSpouseEmployeeId = await this.resolveSpouseEmployeeId(dto.spouseEmployeeId, dto.sex);
     const temporaryPassword = generateTemporaryPassword();
     const hireDate = dto.hireDate ? new Date(dto.hireDate) : new Date();
     const attendanceMode = await this.resolveAttendanceMode(department.attendanceMode, dto.attendanceMode);
@@ -436,30 +505,47 @@ export class EmployeesService {
         sex: dto.sex,
         soloParentStatus: dto.soloParentStatus ?? "NOT_APPLICABLE",
         civilStatus: dto.civilStatus ?? "SINGLE",
-        spouseEmployerName: dto.spouseEmployerName,
+        spouseEmployerName: dto.spouseEmployerName || null,
         spouseUnemployed: dto.spouseUnemployed ?? false,
+        ...(resolvedSpouseEmployeeId ? { spouseEmployeeId: resolvedSpouseEmployeeId } : {}),
 
         requiresFaceConsent: true,
         ...(resolvedSupervisorId !== undefined ? { supervisorId: resolvedSupervisorId } : {}),
       },
-      include: { user: true, department: true, position: true, supervisor: true, employeeType: true },
+      include: {
+        user: true,
+        department: true,
+        position: true,
+        supervisor: true,
+        employeeType: true,
+        spouseEmployee: SPOUSE_EMPLOYEE_SELECT,
+      },
       });
     });
     this.logger.log(`[DATABASE] Employee saved — ${created.employeeNo} (${created.id}) in ${Date.now() - stepAt}ms`);
     stepAt = Date.now();
 
-    // Every new hire gets a starting Standard Shift + Office geotag,
-    // regardless of attendance mode — Field employees can add/replace sites
-    // via Geotagging afterward same as anyone else, but they shouldn't have
-    // to be assigned one manually just to become eligible for attendance.
+    // Every new hire gets a starting Standard Shift. A Non-field hire also
+    // gets the default Office geotag so they can record attendance right
+    // away; a Field hire (mode taken from their department — see
+    // resolveAttendanceMode) does not, since syncAttendanceModes below would
+    // read that Office area and flip them to FIXED. Field employees get their
+    // sites assigned in Geotagging.
     await this.assignDefaultScheduleIfMissing(created.id);
-    await this.geolocation.assignDefaultOfficeLocation(created.id, created.departmentId, context);
+    if (created.attendanceMode !== "FIELD") {
+      await this.geolocation.assignDefaultOfficeLocation(created.id, created.departmentId, context);
+    }
     // The assigned area, not the submitted/department mode, has the final
     // say — see GeolocationService.syncAttendanceModes.
     created.attendanceMode =
       (await this.geolocation.syncAttendanceModes([created.id], context)).get(created.id) ?? created.attendanceMode;
 
     await this.assignGenderLeaveType(created.id, dto.sex, created.employmentStatus);
+    // Overrides the default allotment assignGenderLeaveType just wrote — never
+    // for a probationary hire, who isn't entitled to that balance yet.
+    if (dto.leaveAllocationDays !== undefined && ENTITLED_TO_LEAVE_STATUSES.has(created.employmentStatus)) {
+      await this.updateGenderLeaveAllocation(created.id, dto.sex, dto.leaveAllocationDays);
+    }
 
     if (created.employmentStatus === "PERMANENT_SEASONAL") {
       await this.leaveAccrual.startAccrualForNewlyPermanentSeasonal(created.id);
@@ -691,6 +777,12 @@ export class EmployeesService {
       resolvedSupervisorId = null;
     }
 
+    // Same no-op skip as supervisorId — the edit form always resubmits it.
+    const resolvedSpouseEmployeeId =
+      dto.spouseEmployeeId !== undefined && dto.spouseEmployeeId !== (employee.spouseEmployeeId ?? "")
+        ? await this.resolveSpouseEmployeeId(dto.spouseEmployeeId, employee.sex, id)
+        : undefined;
+
     // A FIXED department is office-only — field areas are reserved for
     // Field/Both departments (see GeolocationService.assertFieldAreaRoster).
     if (department && department.id !== employee.departmentId && department.attendanceMode === "FIXED") {
@@ -730,9 +822,17 @@ export class EmployeesService {
         ...(dto.civilStatus ? { civilStatus: dto.civilStatus } : {}),
         ...(dto.spouseEmployerName !== undefined ? { spouseEmployerName: dto.spouseEmployerName || null } : {}),
         ...(dto.spouseUnemployed !== undefined ? { spouseUnemployed: dto.spouseUnemployed } : {}),
+        ...(resolvedSpouseEmployeeId !== undefined ? { spouseEmployeeId: resolvedSpouseEmployeeId } : {}),
         ...(resolvedSupervisorId !== undefined ? { supervisorId: resolvedSupervisorId } : {}),
       },
-      include: { user: true, department: true, position: true, supervisor: true, employeeType: true },
+      include: {
+        user: true,
+        department: true,
+        position: true,
+        supervisor: true,
+        employeeType: true,
+        spouseEmployee: SPOUSE_EMPLOYEE_SELECT,
+      },
     });
 
     // The assigned area, not the submitted/department mode, has the final

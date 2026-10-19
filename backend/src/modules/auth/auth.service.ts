@@ -289,7 +289,11 @@ export class AuthService {
         },
       });
 
-      await this.mail.sendOtpEmail(user.email, otp);
+      // Not awaited: the response is generic either way, so waiting on Gmail
+      // only made the request slow — and slow only for registered emails,
+      // which leaked which addresses have accounts. MailService logs the
+      // outcome ([MAILER]) including failures.
+      void this.mail.sendOtpEmail(user.email, otp).catch(() => undefined);
     }
 
     return { message: GENERIC_FORGOT_PASSWORD_MESSAGE };

@@ -420,6 +420,24 @@ function GeotaggingPageContent({
     [locations, activeEmployeeIds],
   );
 
+  // Same as assignedEmployees but leaving out the area being edited — what
+  // the picker means by "assigned to another area". Using assignedEmployees
+  // there treated an employee just unchecked from this area as taken
+  // elsewhere: greyed out, sunk to the bottom, and impossible to re-check.
+  const assignedToOtherAreas = useMemo(
+    () =>
+      new Set(
+        locations
+          .filter((location) => location.id !== editingLocationId)
+          .flatMap(
+            (location) =>
+              location.employees?.map((entry) => entry.employee.id) ?? (location.employeeId ? [location.employeeId] : []),
+          )
+          .filter((employeeId) => activeEmployeeIds.has(employeeId)),
+      ),
+    [locations, activeEmployeeIds, editingLocationId],
+  );
+
   const currentLocationAssignedIds = useMemo(() => new Set(form.employeeIds), [form.employeeIds]);
 
   // Field areas are reserved for employees whose department is Field or
@@ -433,6 +451,20 @@ function GeotaggingPageContent({
     [editingLocationId, locations],
   );
   const editingIsGlobalZone = isGlobalZoneLocation(editingLocation);
+
+  // Who's saved to the area being edited — the picker's sort key. Deliberately
+  // the saved assignment, not the live checkboxes (form.employeeIds), so a row
+  // stays put while it's checked/unchecked instead of jumping out of view.
+  const savedAssignedIds = useMemo(
+    () =>
+      new Set(
+        editingLocation
+          ? editingLocation.employees?.map((entry) => entry.employee.id) ??
+              (editingLocation.employeeId ? [editingLocation.employeeId] : [])
+          : [],
+      ),
+    [editingLocation],
+  );
 
   const viewingLocation = useMemo(
     () => locations.find((location) => location.id === viewingLocationId) ?? null,
@@ -478,19 +510,19 @@ function GeotaggingPageContent({
         return fullName.includes(query) || department.includes(query);
       })
       .sort((a, b) => {
-        // Assigned to this area first, then everyone who can still be
+        // Saved to this area first, then everyone who can still be
         // assigned, then the greyed-out "already assigned to another area"
         // rows last — so the pickable employees are never buried.
         const rank = (employee: EmployeeOption) => {
-          if (currentLocationAssignedIds.has(employee.id)) return 0;
-          const isAssignedElsewhere = assignedEmployees.has(employee.id) && employee.attendanceMode !== "FIELD";
+          if (savedAssignedIds.has(employee.id)) return 0;
+          const isAssignedElsewhere = assignedToOtherAreas.has(employee.id) && employee.attendanceMode !== "FIELD";
           return isAssignedElsewhere || isBlockedFromFieldArea(employee) ? 2 : 1;
         };
         const rankDiff = rank(a) - rank(b);
         if (rankDiff !== 0) return rankDiff;
         return `${a.firstName} ${a.lastName}`.localeCompare(`${b.firstName} ${b.lastName}`);
       });
-  }, [assignedEmployees, currentLocationAssignedIds, departmentFilter, employeeSearch, employees, form.type]);
+  }, [assignedToOtherAreas, savedAssignedIds, departmentFilter, employeeSearch, employees, form.type]);
 
   const employeeModeCounts = useMemo(
     () => ({
@@ -516,10 +548,10 @@ function GeotaggingPageContent({
         .filter(
           (e) =>
             currentLocationAssignedIds.has(e.id) ||
-            (!isBlockedFromFieldArea(e) && (!assignedEmployees.has(e.id) || e.attendanceMode === "FIELD")),
+            (!isBlockedFromFieldArea(e) && (!assignedToOtherAreas.has(e.id) || e.attendanceMode === "FIELD")),
         )
         .map((e) => e.id),
-    [employeeRows, currentLocationAssignedIds, assignedEmployees, form.type],
+    [employeeRows, currentLocationAssignedIds, assignedToOtherAreas, form.type],
   );
 
   const allSelectableSelected = useMemo(
@@ -1062,7 +1094,7 @@ function GeotaggingPageContent({
     // Field technicians may be assigned to many sites at once — only
     // employees on Fixed attendance are restricted to a single site.
     const isField = employeesById.get(employeeId)?.attendanceMode === "FIELD";
-    if (assignedEmployees.has(employeeId) && !isField) {
+    if (assignedToOtherAreas.has(employeeId) && !isField) {
       return;
     }
     if (isBlockedFromFieldArea(employeesById.get(employeeId))) {
@@ -1658,7 +1690,7 @@ function GeotaggingPageContent({
                 employeeRows.map((employee) => {
                   const isSelected = currentLocationAssignedIds.has(employee.id);
                   const isAssignedElsewhere =
-                    assignedEmployees.has(employee.id) && !isSelected && employee.attendanceMode !== "FIELD";
+                    assignedToOtherAreas.has(employee.id) && !isSelected && employee.attendanceMode !== "FIELD";
                   // Still shown (and removable) when already selected — e.g.
                   // the area was just switched from Office to Field.
                   const isFixedDepartmentOnField = isBlockedFromFieldArea(employee);

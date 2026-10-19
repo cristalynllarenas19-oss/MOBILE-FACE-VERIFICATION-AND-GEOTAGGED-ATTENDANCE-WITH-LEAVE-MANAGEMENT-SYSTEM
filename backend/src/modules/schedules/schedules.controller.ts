@@ -93,7 +93,6 @@ export class SchedulesController {
       roundingIntervalMinutes?: number;
       lateThresholdMinutes?: number;
       undertimeThresholdMinutes?: number;
-      autoShiftAdjustment?: boolean;
       workingDays?: number[];
     },
     @Req() request: Request,
@@ -117,7 +116,6 @@ export class SchedulesController {
       roundingIntervalMinutes?: number;
       lateThresholdMinutes?: number;
       undertimeThresholdMinutes?: number;
-      autoShiftAdjustment?: boolean;
       workingDays?: number[];
     },
     @Req() request: Request,

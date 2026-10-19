@@ -16,7 +16,7 @@ import {
   computeMinutesOvertime,
   computeMinutesUndertime,
   computeRenderTimeIn,
-  findBestMatchingShift,
+  hasShiftEnded,
   isInsidePreviousDayShift,
   resolveBreakKind,
   roundToInterval,
@@ -74,6 +74,12 @@ const FLAGGED_LOG_TYPE_LABEL: Record<string, string> = {
   LUNCH_OUT: "break start",
   LUNCH_IN: "break end",
 };
+
+// A shift's "HH:mm" as the employee reads it, e.g. "17:00" → "5:00 PM".
+function formatShiftTime(hhmm: string): string {
+  const [hours, minutes] = hhmm.split(":").map(Number);
+  return `${hours % 12 || 12}:${String(minutes).padStart(2, "0")} ${hours < 12 ? "AM" : "PM"}`;
+}
 
 // TEMPORARY, for trial runs: employees whose flagged-attempt card and
 // notifications always say "supervisor", even though the normal rule would
@@ -619,10 +625,13 @@ export class AttendanceService {
     return (await this.resolveActiveSchedule(employeeId, at))?.shift ?? null;
   }
 
+  // An archived assignment (Schedule Management → Archive) never counts, same
+  // as EmployeesService.findMe's hasScheduleToday.
   private async resolveActiveSchedule(employeeId: string, at: Date) {
     return this.prisma.employeeSchedule.findFirst({
       where: {
         employeeId,
+        isActive: true,
         startsOn: { lte: at },
         OR: [{ endsOn: null }, { endsOn: { gte: at } }],
       },
@@ -711,24 +720,12 @@ export class AttendanceService {
           const arrivalForRules = shift.enableRounding
             ? roundToInterval(effectiveTime, shift.roundingIntervalMinutes)
             : effectiveTime;
-          let effectiveShift = shift;
-          let minutesLate = computeMinutesLate(shift, arrivalForRules, attendanceDate);
+          const minutesLate = computeMinutesLate(shift, arrivalForRules, attendanceDate);
 
-          if (minutesLate > 0 && shift.autoShiftAdjustment) {
-            const otherShifts = await this.prisma.shift.findMany({
-              where: { isActive: true, id: { not: shift.id } },
-            });
-            const matched = findBestMatchingShift(otherShifts, arrivalForRules, attendanceDate);
-            if (matched) {
-              effectiveShift = matched;
-              minutesLate = computeMinutesLate(matched, arrivalForRules, attendanceDate);
-            }
-          }
-
-          resolvedShiftId = effectiveShift.id;
+          resolvedShiftId = shift.id;
           lateMinutes = minutesLate;
           attendanceStatus = minutesLate > 0 ? "LATE" : "PRESENT";
-          renderTimeInValue = computeRenderTimeIn(effectiveShift, effectiveTime, attendanceDate);
+          renderTimeInValue = computeRenderTimeIn(shift, effectiveTime, attendanceDate);
         }
       } else if (logType === "TIME_OUT" && existingRecord?.shiftId) {
         const shift = await this.prisma.shift.findUnique({ where: { id: existingRecord.shiftId } });
@@ -969,6 +966,22 @@ export class AttendanceService {
       if (onLeave) {
         throw new BadRequestException(
           `You are on approved ${onLeave.leaveTypeName} today. Attendance can't be recorded while on leave.`,
+        );
+      }
+
+      // Enforced here, not just by the clients disabling Time In (an older
+      // app build doesn't): a Time In / Start Visit needs an active schedule
+      // assignment covering this working day — not ended (past its End Date)
+      // or archived — and must come before that day's shift is over.
+      const schedule = await this.resolveActiveSchedule(dto.employeeId, now);
+      if (!schedule || isNonWorkingDay(attendanceDate, schedule.workingDays)) {
+        throw new BadRequestException(
+          "You're not scheduled to work today. Contact HR or your Supervisor if this is unexpected.",
+        );
+      }
+      if (hasShiftEnded(schedule.shift, attendanceDate, now)) {
+        throw new BadRequestException(
+          `Your shift today ended at ${formatShiftTime(schedule.shift.endTime)}. Time In is no longer available.`,
         );
       }
     }

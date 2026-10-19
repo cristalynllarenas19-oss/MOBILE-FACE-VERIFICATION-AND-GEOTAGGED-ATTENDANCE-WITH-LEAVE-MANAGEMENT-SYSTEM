@@ -178,6 +178,26 @@ export default function AttendanceScreen({
     return () => clearInterval(interval);
   }, [isField, hasOpenVisit]);
 
+  // Today's shift is over: no new Time In / Start Visit (AttendanceService.
+  // submit refuses it too). Flipped by a timer at the exact end moment, not
+  // only on the next eligibility refresh. Time Out and breaks are unaffected,
+  // so someone still clocked in can close out (and overtime still records).
+  const shiftEndsAtMs = eligibility?.shiftEndsAt ? Date.parse(eligibility.shiftEndsAt) : NaN;
+  const [hasShiftEnded, setHasShiftEnded] = useState(false);
+  useEffect(() => {
+    if (!Number.isFinite(shiftEndsAtMs)) {
+      setHasShiftEnded(false);
+      return;
+    }
+    const remainingMs = shiftEndsAtMs - Date.now();
+    setHasShiftEnded(remainingMs <= 0);
+    if (remainingMs <= 0) return;
+    // setTimeout's delay is a 32-bit int; a shift ends within a day anyway.
+    const timer = setTimeout(() => setHasShiftEnded(true), Math.min(remainingMs, 2_000_000_000));
+    return () => clearTimeout(timer);
+  }, [shiftEndsAtMs]);
+  const isPastShiftForTimeIn = hasShiftEnded && (isField ? !hasOpenVisit : !hasTimedIn);
+
   const workedMs = todayAttendance ? getWorkedMs(todayAttendance, now) : 0;
   const isOnLunch = Boolean(
     hasOpenVisit && todayAttendance?.lunchOutAt && !todayAttendance?.lunchInAt,
@@ -226,9 +246,13 @@ export default function AttendanceScreen({
   const hasUnresolvedFlaggedAttempt = Boolean(todayAttendance?.hasUnresolvedFlaggedAttempt);
   const isEligible = isConfigEligible && geofenceStatus === "inside" && !hasUnresolvedFlaggedAttempt;
   const applicableAction = getApplicableAction({ isField, hasTimedIn, hasTimedOut, hasOpenVisit, isOnLunch, isBreak });
+  const shiftEndedMessage = isPastShiftForTimeIn
+    ? `Your shift today ended at ${formatTime(eligibility?.shiftEndsAt)}. ${isField ? "Start Visit" : "Time In"} is no longer available.`
+    : null;
   const eligibilityMessage =
     getEligibilityMessage(eligibility) ??
     getUnauthorizedAttemptMessage(hasUnresolvedFlaggedAttempt, todayAttendance?.flagHoldMessage) ??
+    shiftEndedMessage ??
     getGeofenceMessage(geofenceStatus, applicableAction);
   // What the red card shows: whatever is blocking attendance, or — once a
   // reviewer has rejected a flagged attempt and attendance is enabled again
@@ -239,7 +263,12 @@ export default function AttendanceScreen({
   // (enforced server-side in AttendanceService.submit()).
   const onLeaveToday = !hasTimedIn ? todayAttendance?.onLeave ?? null : null;
   const timeInDisabled =
-    isLoading || !isEligible || isTodayDayOff || Boolean(onLeaveToday) || (isField ? hasOpenVisit : hasTimedIn);
+    isLoading ||
+    !isEligible ||
+    isTodayDayOff ||
+    Boolean(onLeaveToday) ||
+    isPastShiftForTimeIn ||
+    (isField ? hasOpenVisit : hasTimedIn);
   const timeOutDisabled = isField
     ? isLoading || !isEligible || isTodayDayOff || !hasOpenVisit
     : isLoading || !isEligible || isTodayDayOff || !hasTimedIn || hasTimedOut;

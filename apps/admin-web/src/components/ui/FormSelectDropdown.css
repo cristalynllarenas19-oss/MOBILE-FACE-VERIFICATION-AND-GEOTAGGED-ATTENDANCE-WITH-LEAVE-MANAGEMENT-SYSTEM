@@ -110,3 +110,56 @@
 .form-select-dropdown-option:disabled:hover {
   background: none;
 }
+
+.form-select-dropdown-empty {
+  margin: 0;
+  padding: 8px 10px;
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+/* Searchable variant: the trigger is a box holding a text input. Mirrors the
+   plain trigger's focus and disabled looks. */
+.form-select-dropdown-combobox {
+  cursor: text;
+}
+
+.form-select-dropdown-combobox:focus-within {
+  border-color: #1a3a5c;
+  box-shadow: 0 0 0 3px rgba(26, 58, 92, 0.1);
+}
+
+.form-select-dropdown-combobox.disabled {
+  background: #f4f7fb;
+  cursor: not-allowed;
+}
+
+/* Scoped under .form-select-dropdown so it out-ranks host form rules such as
+   .employee-form input, which would otherwise draw a second border/ring
+   inside the trigger. */
+.form-select-dropdown .form-select-dropdown-input,
+.form-select-dropdown .form-select-dropdown-input:focus,
+.form-select-dropdown .form-select-dropdown-input:disabled {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  outline: none;
+  color: #0f172a;
+  font-size: 13px;
+  font-family: inherit;
+}
+
+.form-select-dropdown .form-select-dropdown-input:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.form-select-dropdown .form-select-dropdown-input::placeholder {
+  color: #94a3b8;
+}

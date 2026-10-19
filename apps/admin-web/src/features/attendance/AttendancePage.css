@@ -25,12 +25,13 @@
   padding-left: 4px;
 }
 
+/* Pill-shaped, matching the bar's DropdownFilter triggers. */
 .attendance-filter-bar input {
   min-width: 132px;
   height: 34px;
   box-sizing: border-box;
   border: 1px solid #d4dfe9;
-  border-radius: 8px;
+  border-radius: 999px;
   background: #ffffff;
   color: #2d4a65;
   padding: 0 12px;
@@ -79,6 +80,13 @@
 .attendance-filter-bar input:focus {
   border-color: #1a3a5c;
   box-shadow: 0 0 0 3px rgba(26, 58, 92, 0.08);
+}
+
+/* The employee search's own (more specific) input rule in
+   EmployeeSearchSelect.css would otherwise keep its square-ish 8px corners. */
+.attendance-filter-bar .employee-search-select .employee-search-select-input {
+  border-radius: 999px;
+  padding-left: 14px;
 }
 
 .attendance-today-badge {

@@ -60,6 +60,8 @@ async function main() {
     console.log(
       `[MAILER] Test email accepted in ${Date.now() - startedAt}ms → ${maskEmail(to)} — messageId ${info.messageId}, accepted ${info.accepted.length}, rejected ${info.rejected.length}`,
     );
+    // The transport is pooled — without this the open connection keeps the script alive.
+    transport.close();
   } catch (error) {
     const summary = summarizeSmtpError(error);
     console.error(`[MAILER] Test email ${summary.timedOut ? "TIMED OUT" : "FAILED"} after ${Date.now() - startedAt}ms`, summary);

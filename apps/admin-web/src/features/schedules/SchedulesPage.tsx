@@ -3,6 +3,7 @@ import { Archive, ChevronDown, Eye, Pencil, RotateCcw, Plus, Search, X } from "l
 import { apiRequest } from "../../lib/api";
 import { Badge } from "../../components/ui/Badge";
 import { ConfirmDialog, type ConfirmDialogConfig } from "../../components/ui/ConfirmDialog";
+import { EmployeeSearchSelect, matchesEmployeeQuery } from "../../components/ui/EmployeeSearchSelect";
 import { NotificationModal, type NotificationConfig } from "../../components/ui/NotificationModal";
 import { useActiveDepartments } from "../../lib/departments";
 import { PermissionCode, permissions } from "../../types/rbac";
@@ -38,6 +39,123 @@ type Schedule = {
 
 function getName(employee: Employee) {
   return `${employee.firstName} ${employee.lastName}`;
+}
+
+// The Assign Shift form's Employee field: type straight into the field to
+// filter, click a name to pick that employee. Same look as the Employee search
+// on Attendance/Reports (EmployeeSearchSelect's styles), but it selects an
+// employee id rather than filtering by free text. While open, the current pick
+// stays visible as the placeholder.
+function EmployeePickerField({
+  value,
+  onChange,
+  employees,
+  assignedEmployeeIds,
+}: {
+  value: string;
+  onChange: (employeeId: string) => void;
+  employees: Employee[];
+  assignedEmployeeIds: Set<string>;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const selected = employees.find((employee) => employee.id === value);
+  const visibleEmployees = employees.filter((employee) => matchesEmployeeQuery(employee, query));
+
+  const close = () => {
+    setIsOpen(false);
+    setQuery("");
+  };
+  const pick = (employee: Employee) => {
+    onChange(employee.id);
+    close();
+  };
+
+  return (
+    <div className="schedule-field">
+      <label className="schedule-field-label">Employee</label>
+      <div
+        className="employee-search-select schedule-employee-picker"
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget)) close();
+        }}
+      >
+        <input
+          type="text"
+          role="combobox"
+          className="employee-search-select-input"
+          aria-expanded={isOpen}
+          aria-label="Employee"
+          value={isOpen ? query : selected ? getName(selected) : ""}
+          placeholder={isOpen && selected ? getName(selected) : "Search employee"}
+          onFocus={() => setIsOpen(true)}
+          onClick={() => setIsOpen(true)}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setIsOpen(true);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Escape" && isOpen) {
+              event.stopPropagation();
+              close();
+            } else if (event.key === "Enter") {
+              // Picks the first match instead of submitting the form.
+              event.preventDefault();
+              if (isOpen && visibleEmployees[0]) pick(visibleEmployees[0]);
+            }
+          }}
+          autoComplete="off"
+        />
+        {selected && !isOpen ? (
+          <button
+            type="button"
+            className="employee-search-select-clear"
+            onClick={() => onChange("")}
+            aria-label="Clear employee"
+          >
+            <X size={14} />
+          </button>
+        ) : (
+          <ChevronDown
+            size={15}
+            className={`employee-search-select-chevron${isOpen ? " open" : ""}`}
+            aria-hidden="true"
+          />
+        )}
+
+        {isOpen && (
+          <div
+            className="employee-search-select-list"
+            role="listbox"
+            // Keeps focus in the field, so clicking the scrollbar doesn't close the list.
+            onMouseDown={(event) => event.preventDefault()}
+          >
+            {visibleEmployees.length === 0 ? (
+              <div className="employee-search-select-empty">No matching employees found.</div>
+            ) : (
+              visibleEmployees.map((employee) => (
+                <button
+                  type="button"
+                  key={employee.id}
+                  role="option"
+                  aria-selected={employee.id === value}
+                  className={`employee-search-select-option${employee.id === value ? " selected" : ""}`}
+                  onClick={() => pick(employee)}
+                >
+                  <span>{getName(employee)}</span>
+                  {/* Already has an active schedule — so the admin can spot
+                      who's still unassigned without opening each one. */}
+                  {assignedEmployeeIds.has(employee.id) && (
+                    <span className="schedule-employee-assigned">Assigned</span>
+                  )}
+                </button>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function formatDate(value?: string | null) {
@@ -349,6 +467,8 @@ export function SchedulesPage({
   const [statusFilter, setStatusFilter] = useState("ACTIVE");
   const [showArchived, setShowArchived] = useState(false);
   const [modeFilter, setModeFilter] = useState<"ALL" | "FIELD" | "NON_FIELD">("ALL");
+  // Employee name filter for the table — same search box as Attendance/Reports.
+  const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(1);
   const [viewSchedule, setViewSchedule] = useState<Schedule | null>(null);
   const [editSchedule, setEditSchedule] = useState<Schedule | null>(null);
@@ -393,9 +513,10 @@ export function SchedulesPage({
   };
 
   useEffect(loadData, [departmentFilter, shiftFilter, statusFilter, showArchived]);
-  useEffect(() => setPage(1), [departmentFilter, shiftFilter, statusFilter, showArchived, modeFilter]);
+  useEffect(() => setPage(1), [departmentFilter, shiftFilter, statusFilter, showArchived, modeFilter, searchQuery]);
 
   const visibleSchedules = schedules.filter((schedule) => {
+    if (!matchesEmployeeQuery(schedule.employee, searchQuery)) return false;
     if (modeFilter === "FIELD") return schedule.employee.attendanceMode === "FIELD";
     if (modeFilter === "NON_FIELD") return schedule.employee.attendanceMode !== "FIELD";
     return true;
@@ -538,18 +659,11 @@ export function SchedulesPage({
           </div>
 
           <form className="schedule-form" onSubmit={createSchedule}>
-            <FormDropdown
-              label="Employee"
-              placeholder="Select employee…"
+            <EmployeePickerField
               value={form.employeeId}
               onChange={(v) => setForm((c) => ({ ...c, employeeId: v }))}
-              required
-              options={employees.map((emp) => ({
-                value: emp.id,
-                label: getName(emp),
-                sub: `${emp.department.name} · ${emp.position.title}`,
-                badge: assignedEmployeeIds.has(emp.id) ? "Assigned" : undefined,
-              }))}
+              employees={employees}
+              assignedEmployeeIds={assignedEmployeeIds}
             />
 
             <FormDropdown
@@ -608,14 +722,25 @@ export function SchedulesPage({
       {/* ── Toolbar with panel-style dropdowns ── */}
       <div className="schedules-toolbar">
         <div className="filter-tabs">
+          <div className="employee-search-group schedules-employee-search">
+            <EmployeeSearchSelect
+              value={searchQuery}
+              onChange={setSearchQuery}
+              options={employees.filter(
+                (employee) => departmentFilter === "ALL" || employee.department.name === departmentFilter,
+              )}
+            />
+          </div>
+
           <button
-            className={isAllActive && !showArchived ? "active" : ""}
+            className={isAllActive && !showArchived && !searchQuery ? "active" : ""}
             onClick={() => {
               setDepartmentFilter("ALL");
               setShiftFilter("ALL");
               setStatusFilter("ALL");
               setShowArchived(false);
               setModeFilter("ALL");
+              setSearchQuery("");
             }}
           >
             All Schedules

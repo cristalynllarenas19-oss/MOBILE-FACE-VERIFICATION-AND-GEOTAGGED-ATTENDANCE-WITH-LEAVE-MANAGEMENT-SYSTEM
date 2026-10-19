@@ -50,7 +50,6 @@ describe("SchedulesService", () => {
             lateThresholdMinutes: 0,
             undertimeThresholdMinutes: 0,
             enableRounding: false,
-            autoShiftAdjustment: false,
             workingDays: [1, 2, 3, 4, 5],
           }),
         }),
@@ -92,7 +91,7 @@ describe("SchedulesService", () => {
 
     it("creates the shift and writes a CREATE_SHIFT audit log on success", async () => {
       prisma.shift.findFirst.mockResolvedValue(null);
-      const created = { id: "shift-1", ...validShiftDto, lunchBreakMinutes: 60, enableRounding: false, roundingIntervalMinutes: 15, lateThresholdMinutes: 0, undertimeThresholdMinutes: 0, autoShiftAdjustment: false, workingDays: [1, 2, 3, 4, 5] };
+      const created = { id: "shift-1", ...validShiftDto, lunchBreakMinutes: 60, enableRounding: false, roundingIntervalMinutes: 15, lateThresholdMinutes: 0, undertimeThresholdMinutes: 0, workingDays: [1, 2, 3, 4, 5] };
       prisma.shift.create.mockResolvedValue(created);
 
       const result = await service.createShift(validShiftDto, "actor-1");
@@ -128,7 +127,6 @@ describe("SchedulesService", () => {
       roundingIntervalMinutes: 15,
       lateThresholdMinutes: 0,
       undertimeThresholdMinutes: 0,
-      autoShiftAdjustment: false,
       workingDays: [1, 2, 3, 4, 5],
     };
 

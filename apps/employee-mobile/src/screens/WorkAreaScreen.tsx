@@ -6,6 +6,7 @@ import * as Location from "expo-location";
 import { WorkLocation, getMyWorkLocation, getMyWorkLocations } from "../api";
 import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
 import { distanceInMeters } from "../utils/geofence";
+import { LEAFLET_ICONS, MAP_WEBVIEW_CACHE_MODE, OSM_TILE_URL, leafletHeadHtml } from "../utils/leafletHtml";
 import AestheticScrollView from "../components/AestheticScrollView";
 import EmptyState from "../components/EmptyState";
 
@@ -39,7 +40,7 @@ function buildMapHtml(initialState: MapState) {
 <html>
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  ${leafletHeadHtml()}
   <style>
     html, body, #map { height: 100%; margin: 0; padding: 0; }
 
@@ -98,10 +99,9 @@ function buildMapHtml(initialState: MapState) {
 </head>
 <body>
   <div id="map"></div>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
     const map = L.map('map');
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    L.tileLayer('${OSM_TILE_URL}', {
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
 
@@ -110,8 +110,8 @@ function buildMapHtml(initialState: MapState) {
     // which read as "the pointer isn't aligned" (mirrors admin-web's
     // WorkAreaPage.tsx). A plain pin reads cleaner.
     const siteIcon = L.icon({
-      iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-      iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+      iconUrl: ${JSON.stringify(LEAFLET_ICONS.marker)},
+      iconRetinaUrl: ${JSON.stringify(LEAFLET_ICONS.marker2x)},
       iconSize: [25, 41],
       iconAnchor: [12, 41],
       popupAnchor: [1, -34],
@@ -208,13 +208,18 @@ export default function WorkAreaScreen({ employeeId, attendanceMode }: Props) {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // GPS is useful for the distance badge, not for rendering the assigned
-  // work area. Load it in the background so the map is never held up.
+  // work area. Load it in the background so the map is never held up. The
+  // phone's last known fix (instant, no satellite wait) is shown first, then
+  // replaced by a fresh one — a cold GPS fix can otherwise take 10s+ indoors.
   const refreshUserLocation = useCallback(() => {
     void Location.requestForegroundPermissionsAsync()
-      .then((permission) => permission.granted
-        ? Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
-        : null)
-      .then((position) => position && setUserLocation(position.coords))
+      .then(async (permission) => {
+        if (!permission.granted) return;
+        const cached = await Location.getLastKnownPositionAsync().catch(() => null);
+        if (cached) setUserLocation(cached.coords);
+        const fresh = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        setUserLocation(fresh.coords);
+      })
       .catch(() => undefined);
   }, []);
 
@@ -448,6 +453,7 @@ export default function WorkAreaScreen({ employeeId, attendanceMode }: Props) {
                 }}
                 originWhitelist={["*"]}
                 source={mapSource}
+                cacheMode={MAP_WEBVIEW_CACHE_MODE}
                 style={styles.map}
                 onLoadStart={() => {
                   isMapReadyRef.current = false;

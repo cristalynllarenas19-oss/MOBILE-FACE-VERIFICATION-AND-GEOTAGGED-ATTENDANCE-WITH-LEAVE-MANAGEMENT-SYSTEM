@@ -32,6 +32,11 @@ export function createGmailTransport({ user, pass }: GmailCredentials) {
     port: SMTP_PORT,
     secure: true,
     auth: { user, pass },
+    // Reuses an already-authenticated connection instead of paying DNS + TCP
+    // + TLS + AUTH (several seconds to Gmail) on every single email.
+    // Nodemailer reopens it transparently after Gmail drops an idle one.
+    pool: true,
+    maxConnections: 2,
     ...SMTP_TIMEOUTS,
   });
 }

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Req } from "@nestjs/common";
+import { Body, Controller, Get, Param, Patch, Post, Query, Req } from "@nestjs/common";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
 import { getAuditContext } from "../../common/utils/audit-context.util";
 import { getSupervisorDepartmentScope } from "../../common/utils/supervisor-scope.util";
@@ -32,6 +32,15 @@ export class EmployeesController {
   findSupervisors(@Req() request: Request) {
     const departmentId = getSupervisorDepartmentScope((request as any).user);
     return this.employeesService.findSupervisors(departmentId);
+  }
+
+  // Candidates for the "Spouse works at ULPI" picker on Add/Edit Employee —
+  // every active employee of the given sex, deliberately NOT department-
+  // scoped, since a spouse usually works in another department.
+  @Get("spouse-candidates")
+  @RequirePermissions("employees:write")
+  findSpouseCandidates(@Query("sex") sex?: string) {
+    return this.employeesService.findSpouseCandidates(sex);
   }
 
   @Patch("me/photo")

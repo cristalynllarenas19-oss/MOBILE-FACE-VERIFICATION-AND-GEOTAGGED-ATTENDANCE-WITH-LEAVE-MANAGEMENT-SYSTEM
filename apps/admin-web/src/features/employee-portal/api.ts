@@ -160,6 +160,9 @@ export type EmployeeProfile = {
   // Only present on the GET /employees/me response — whether this employee
   // has an active EmployeeSchedule assignment whose workingDays include today.
   hasScheduleToday?: boolean;
+  // Only present on the GET /employees/me response — when today's shift ends
+  // (ISO), or null when there's no shift today. See AttendanceEligibility.
+  shiftEndsAt?: string | null;
   // The live value — follows the employee's assigned geotagged area, so it
   // can differ from the attendanceMode saved with the login session.
   attendanceMode?: string;
@@ -174,6 +177,9 @@ export type AttendanceEligibility = {
   faceEnrolled: boolean;
   hasWorkLocation: boolean;
   hasScheduleToday: boolean;
+  // ISO time today's shift ends — Time In / Start Visit is disabled from then
+  // on. null = no cutoff known.
+  shiftEndsAt?: string | null;
 };
 
 // Live, continuously-recomputed status of whether the employee's current GPS

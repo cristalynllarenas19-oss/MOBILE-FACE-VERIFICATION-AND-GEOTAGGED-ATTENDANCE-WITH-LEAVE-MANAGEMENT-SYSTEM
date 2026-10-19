@@ -255,7 +255,6 @@ export class SchedulesService {
     roundingIntervalMinutes: number;
     lateThresholdMinutes: number;
     undertimeThresholdMinutes: number;
-    autoShiftAdjustment: boolean;
     workingDays: number[];
   }) {
     return {
@@ -269,7 +268,6 @@ export class SchedulesService {
       roundingIntervalMinutes: shift.roundingIntervalMinutes,
       lateThresholdMinutes: shift.lateThresholdMinutes,
       undertimeThresholdMinutes: shift.undertimeThresholdMinutes,
-      autoShiftAdjustment: shift.autoShiftAdjustment,
       workingDays: shift.workingDays,
     };
   }
@@ -286,7 +284,6 @@ export class SchedulesService {
       roundingIntervalMinutes?: number;
       lateThresholdMinutes?: number;
       undertimeThresholdMinutes?: number;
-      autoShiftAdjustment?: boolean;
       workingDays?: number[];
     },
     actorUserId?: string,
@@ -319,7 +316,6 @@ export class SchedulesService {
         roundingIntervalMinutes,
         lateThresholdMinutes,
         undertimeThresholdMinutes,
-        autoShiftAdjustment: dto.autoShiftAdjustment ?? false,
         workingDays,
         createdBy: actorUserId,
       },
@@ -351,7 +347,6 @@ export class SchedulesService {
       roundingIntervalMinutes?: number;
       lateThresholdMinutes?: number;
       undertimeThresholdMinutes?: number;
-      autoShiftAdjustment?: boolean;
       workingDays?: number[];
     },
     actorUserId?: string,
@@ -393,7 +388,6 @@ export class SchedulesService {
         roundingIntervalMinutes,
         lateThresholdMinutes,
         undertimeThresholdMinutes,
-        autoShiftAdjustment: dto.autoShiftAdjustment,
         workingDays: dto.workingDays,
         updatedBy: actorUserId,
       },

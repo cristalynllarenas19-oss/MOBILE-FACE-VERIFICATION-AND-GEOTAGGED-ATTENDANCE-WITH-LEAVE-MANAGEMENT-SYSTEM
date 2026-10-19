@@ -33,7 +33,7 @@ describe("AuthService", () => {
     };
     jwtService = { signAsync: jest.fn(), verifyAsync: jest.fn() };
     config = { get: jest.fn().mockReturnValue(undefined) };
-    mail = { sendOtpEmail: jest.fn() };
+    mail = { sendOtpEmail: jest.fn().mockResolvedValue(undefined) };
     auditLogs = { record: jest.fn() };
 
     service = new AuthService(prisma, jwtService, config, mail, auditLogs);

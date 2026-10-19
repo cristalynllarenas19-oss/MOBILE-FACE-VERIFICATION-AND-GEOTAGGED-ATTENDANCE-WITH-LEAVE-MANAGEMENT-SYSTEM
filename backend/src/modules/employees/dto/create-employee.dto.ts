@@ -95,6 +95,19 @@ export class CreateEmployeeDto {
   @IsBoolean()
   spouseUnemployed?: boolean;
 
+  // Set only when the spouse is also a ULPI employee — must be an active
+  // employee of the opposite sex (validated in EmployeesService).
+  @IsOptional()
+  @IsString()
+  spouseEmployeeId?: string;
+
+  // Same as UpdateEmployeeDto.leaveAllocationDays — only applied when the new
+  // hire's Employment Status is already entitled to that leave.
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  leaveAllocationDays?: number;
+
   // Must be the id of an existing Employee who carries the SUPERVISOR role in
   // the same department — validated in EmployeesService, not here, since it
   // needs a DB lookup. Omit to leave unassigned; not present on this DTO
@@ -168,6 +181,12 @@ export class UpdateEmployeeDto {
   @IsOptional()
   @IsBoolean()
   spouseUnemployed?: boolean;
+
+  // See CreateEmployeeDto.spouseEmployeeId. An empty string clears it;
+  // omitting the field leaves it unchanged.
+  @IsOptional()
+  @IsString()
+  spouseEmployeeId?: string;
 
   // Earned days for the employee's gender-linked leave type (Paternity for
   // MALE, Maternity for FEMALE) for the current year — set from Edit Employee.

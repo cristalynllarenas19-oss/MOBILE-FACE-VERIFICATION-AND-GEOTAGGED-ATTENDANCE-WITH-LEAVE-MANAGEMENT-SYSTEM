@@ -147,6 +147,24 @@ function previousDay(date: Date): Date {
 
 // True while `now` still falls inside the overnight shift that started on
 // the previous calendar day (e.g. 1:00 AM during a 22:00-07:00 shift).
+// The moment the shift worked on attendanceDate ends — the next morning for
+// an overnight shift.
+export function computeShiftEnd(shift: Pick<ShiftTimeFields, "startTime" | "endTime">, attendanceDate: Date): Date {
+  return resolveShiftEndOnDate({ ...shift, lateThresholdMinutes: 0 }, attendanceDate);
+}
+
+// Whether that shift is already over at `now`. A Time In is refused from then
+// on (there's no shift left to report for); Time Out, breaks and closing a
+// field visit stay allowed for someone already clocked in, so overtime is
+// still recorded.
+export function hasShiftEnded(
+  shift: Pick<ShiftTimeFields, "startTime" | "endTime">,
+  attendanceDate: Date,
+  now: Date,
+): boolean {
+  return now.getTime() >= computeShiftEnd(shift, attendanceDate).getTime();
+}
+
 export function isInsidePreviousDayShift(shift: ShiftTimeFields, now: Date): boolean {
   if (!shiftCrossesMidnight(shift)) return false;
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -286,30 +304,4 @@ export function computeMinutesOvertime(
 ): number {
   const shiftEnd = resolveShiftEndOnDate(shift, attendanceDate);
   return Math.max(0, Math.round((departureTime.getTime() - shiftEnd.getTime()) / 60000));
-}
-
-// Used by auto-shift-adjustment: among other active shifts whose own
-// start+late-threshold window covers the actual arrival time, picks the one with the
-// latest start time (closest match to the actual arrival) rather than the
-// earliest, since an earlier-starting shift would tolerate the lateness by
-// coincidence rather than actually describing when the employee arrived.
-export function findBestMatchingShift<T extends ShiftTimeFields & { id: string }>(
-  candidates: T[],
-  arrivalTime: Date,
-  attendanceDate: Date,
-): T | null {
-  let best: T | null = null;
-  let bestStart: number | null = null;
-
-  for (const candidate of candidates) {
-    const start = parseTimeOnDate(attendanceDate, candidate.startTime).getTime();
-    const cutoff = start + candidate.lateThresholdMinutes * 60000;
-    const arrival = arrivalTime.getTime();
-    if (arrival >= start && arrival <= cutoff && (bestStart === null || start > bestStart)) {
-      best = candidate;
-      bestStart = start;
-    }
-  }
-
-  return best;
 }

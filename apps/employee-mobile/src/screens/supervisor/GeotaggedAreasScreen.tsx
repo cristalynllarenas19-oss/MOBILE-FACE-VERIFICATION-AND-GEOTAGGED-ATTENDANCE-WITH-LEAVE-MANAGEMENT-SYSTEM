@@ -25,6 +25,7 @@ import {
   unassignEmployeeFromLocation,
 } from "../../api";
 import { useCachedData } from "../../utils/dataCache";
+import { MAP_WEBVIEW_CACHE_MODE, OSM_TILE_URL, leafletHeadHtml } from "../../utils/leafletHtml";
 import { ui } from "../../styles/ui";
 
 type Props = {
@@ -68,7 +69,7 @@ function buildAreasMapHtml(locations: GeotaggedLocation[]) {
 <html>
 <head>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  ${leafletHeadHtml()}
   <style>
     html, body, #map { height: 100%; margin: 0; padding: 0; }
     .area-popup { font-family: -apple-system, Roboto, sans-serif; }
@@ -77,11 +78,10 @@ function buildAreasMapHtml(locations: GeotaggedLocation[]) {
 </head>
 <body>
   <div id="map"></div>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
     const map = L.map('map', { zoomControl: false }).setView([${center.lat}, ${center.lon}], 15);
     L.control.zoom({ position: 'bottomright' }).addTo(map);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    L.tileLayer('${OSM_TILE_URL}', {
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
 
@@ -138,6 +138,14 @@ export default function GeotaggedAreasScreen({ onClose }: Props) {
   const locations = locationsCache.data ?? [];
   const employees = employeesCache.data ?? [];
   const isLoading = locationsCache.isLoading || employeesCache.isLoading;
+
+  // A new `source` object reloads the whole WebView (re-parse Leaflet,
+  // re-fetch tiles, lose zoom), so it must only change when the map content
+  // does — not on every keystroke in the search boxes or filter tap. Keyed on
+  // the HTML string itself so a background refresh with identical data
+  // doesn't reload it either.
+  const mapHtml = useMemo(() => buildAreasMapHtml(locationsCache.data ?? []), [locationsCache.data]);
+  const mapSource = useMemo(() => ({ html: mapHtml }), [mapHtml]);
 
   const managingLocation = useMemo(
     () => locations.find((location) => location.id === managingLocationId) ?? null,
@@ -383,7 +391,8 @@ export default function GeotaggedAreasScreen({ onClose }: Props) {
                       webViewRef.current = instance;
                     }}
                     originWhitelist={["*"]}
-                    source={{ html: buildAreasMapHtml(locations) }}
+                    source={mapSource}
+                    cacheMode={MAP_WEBVIEW_CACHE_MODE}
                     style={styles.map}
                     onMessage={(event) => {
                       const id = event.nativeEvent.data;

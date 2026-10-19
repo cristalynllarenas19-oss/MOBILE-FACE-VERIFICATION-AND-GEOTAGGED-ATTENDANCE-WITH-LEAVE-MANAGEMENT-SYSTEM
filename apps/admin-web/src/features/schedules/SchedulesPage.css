@@ -314,6 +314,35 @@
   padding: 2px 7px;
 }
 
+/* Assign Shift's Employee field (EmployeePickerField) — EmployeeSearchSelect's
+   look, sized to this form's 38px pill fields. Three classes deep so it wins
+   over EmployeeSearchSelect.css's own input rule. */
+.schedule-form .schedule-employee-picker .employee-search-select-input {
+  height: 38px;
+  border-color: #dbe5ef;
+  border-radius: 999px;
+  color: #1a3a5c;
+  padding: 0 38px 0 14px;
+  font-weight: 700;
+}
+
+.schedule-form .schedule-employee-picker .employee-search-select-input:focus {
+  border-color: #2979d0;
+  box-shadow: 0 0 0 3px rgba(41, 121, 208, 0.14);
+}
+
+.employee-search-select-option .schedule-employee-assigned {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #92400e;
+  background: #fef3c7;
+  border-radius: 999px;
+  padding: 2px 7px;
+}
+
 .sfd-option.selected .sfd-option-badge {
   color: #ffffff;
   background: rgba(255, 255, 255, 0.22);
@@ -485,6 +514,12 @@
 
 .schedules-toolbar .schedule-field .schedule-field-label {
   display: none;
+}
+
+/* Employee search (shared EmployeeSearchSelect) — first in the toolbar row. */
+.schedules-toolbar .schedules-employee-search {
+  flex: 0 1 220px;
+  min-width: 180px;
 }
 
 
@@ -840,9 +875,11 @@
     align-items: stretch;
   }
 
-  .schedules-toolbar .schedule-field {
+  .schedules-toolbar .schedule-field,
+  .schedules-toolbar .schedules-employee-search {
     min-width: 0;
     width: 100%;
+    max-width: none;
   }
 }
 

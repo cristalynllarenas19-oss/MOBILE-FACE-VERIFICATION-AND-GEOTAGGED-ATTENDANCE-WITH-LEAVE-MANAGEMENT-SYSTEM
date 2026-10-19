@@ -440,10 +440,35 @@
   width: min(380px, 100%);
 }
 
-/* Add Employee — a little more room per column so the Supervisor field's
-   message fits on one line. */
-.employee-modal--wide {
-  width: min(710px, 100%);
+/* Add/Edit Employee — employee details and Additional Leave Types on the
+   left (two fields per row); Paternity/Maternity allocation, Civil Status
+   and spouse details on the right, one field per row. */
+.employee-modal--split {
+  width: min(1060px, 100%);
+}
+
+.employee-form-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 18px;
+  align-items: start;
+}
+
+.employee-form-details,
+.employee-form-side {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.employee-form-side .employee-form-grid {
+  grid-template-columns: 1fr;
+}
+
+@media (max-width: 900px) {
+  .employee-form-columns {
+    grid-template-columns: 1fr;
+  }
 }
 
 .employee-modal-header {
@@ -518,10 +543,13 @@
   grid-template-columns: 1fr 1fr;
 }
 
+/* Top-aligned: a neighbour with a hint under its input (e.g. Attendance
+   Mode) makes the row taller, and bottom-aligning pushed this side's label
+   and input down, leaving a gap above them. */
 .employee-form label {
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 4px;
   color: #334155;
   font-size: 12px;
@@ -621,6 +649,16 @@
   accent-color: #2563eb;
   cursor: pointer;
   margin: 0;
+}
+
+/* Civil Status isn't Married — shown greyed out rather than removed. */
+.employee-spouse-checkbox-row--disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.employee-spouse-checkbox-row--disabled input[type="checkbox"] {
+  cursor: not-allowed;
 }
 
 .employee-solo-parent-ineligible {

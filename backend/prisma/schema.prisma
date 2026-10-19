@@ -398,6 +398,13 @@ model Employee {
   // in the admin-web form (EmployeesPage.tsx), not enforced at this layer.
   spouseEmployerName   String?                @map("spouse_employer_name")
   spouseUnemployed     Boolean                @default(false) @map("spouse_unemployed")
+  // Set only when the spouse is also a ULPI employee (picked from the
+  // opposite-sex employee list in Add/Edit Employee). Mutually exclusive with
+  // spouseEmployerName/spouseUnemployed in the admin-web form. One-way link:
+  // the spouse's own record is not updated.
+  spouseEmployeeId     String?                @map("spouse_employee_id")
+  spouseEmployee       Employee?              @relation("SpouseEmployee", fields: [spouseEmployeeId], references: [id], onDelete: SetNull)
+  spouseOf             Employee[]             @relation("SpouseEmployee")
   // Confident face-mismatch strikes ("this is a different person," not a
   // borderline match or a geofence failure) for the current calendar day —
   // see FaceVerificationService.matchEmployeeFace. Resets to 1 the first
@@ -900,7 +907,6 @@ model Shift {
   roundingIntervalMinutes   Int                @default(15) @map("rounding_interval_minutes")
   lateThresholdMinutes      Int                @default(0) @map("late_threshold_minutes")
   undertimeThresholdMinutes Int                @default(0) @map("undertime_threshold_minutes")
-  autoShiftAdjustment       Boolean            @default(false) @map("auto_shift_adjustment")
   // Days this shift runs, 0=Sunday..6=Saturday (matches JS Date.getDay()).
   // Mon-Fri by default.
   workingDays               Int[]              @default([1, 2, 3, 4, 5]) @map("working_days")

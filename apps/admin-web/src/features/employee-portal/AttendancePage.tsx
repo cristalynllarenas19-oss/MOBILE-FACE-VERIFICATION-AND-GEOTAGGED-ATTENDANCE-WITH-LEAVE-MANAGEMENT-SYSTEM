@@ -152,6 +152,7 @@ export function AttendancePage({ user }: Props) {
         faceEnrolled: Boolean(profileCache.data.hasActiveFaceEnrollment),
         hasWorkLocation,
         hasScheduleToday: Boolean(profileCache.data.hasScheduleToday),
+        shiftEndsAt: profileCache.data.shiftEndsAt ?? null,
       }
     : null;
   const isLoading = todayCache.isLoading || profileCache.isLoading
@@ -275,10 +276,34 @@ export function AttendancePage({ user }: Props) {
     return () => clearInterval(interval);
   }, [isField, hasOpenVisit]);
   const workedMs = todayAtt ? getWorkedMs(todayAtt, nowTick) : 0;
+
+  // Today's shift is over: no new Time In / Start Visit (AttendanceService.
+  // submit refuses it too). Flipped by a timer at the exact end moment.
+  // Mirrors employee-mobile's AttendanceScreen.tsx.
+  const shiftEndsAtMs = eligibility?.shiftEndsAt ? Date.parse(eligibility.shiftEndsAt) : NaN;
+  const [hasShiftEnded, setHasShiftEnded] = useState(false);
+  useEffect(() => {
+    if (!Number.isFinite(shiftEndsAtMs)) {
+      setHasShiftEnded(false);
+      return;
+    }
+    const remainingMs = shiftEndsAtMs - Date.now();
+    setHasShiftEnded(remainingMs <= 0);
+    if (remainingMs <= 0) return;
+    // setTimeout's delay is a 32-bit int; a shift ends within a day anyway.
+    const timer = setTimeout(() => setHasShiftEnded(true), Math.min(remainingMs, 2_000_000_000));
+    return () => clearTimeout(timer);
+  }, [shiftEndsAtMs]);
+  const isPastShiftForTimeIn = hasShiftEnded && (isField ? !hasOpenVisit : !hasTimedIn);
+  const shiftEndedMessage = isPastShiftForTimeIn
+    ? `Your shift today ended at ${new Date(shiftEndsAtMs).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}. ${isField ? "Start Visit" : "Time In"} is no longer available.`
+    : null;
+
   const applicableAction = getApplicableAction({ isField, hasTimedIn, hasTimedOut, hasOpenVisit, isOnLunch, isBreak });
   const eligibilityMessage =
     getEligibilityMessage(eligibility) ??
     getUnauthorizedAttemptMessage(hasUnresolvedFlaggedAttempt, todayAtt?.flagHoldMessage) ??
+    shiftEndedMessage ??
     getGeofenceMessage(geofenceStatus, applicableAction);
   // What the red card shows: whatever is blocking attendance, or — once a
   // reviewer has rejected a flagged attempt and attendance is enabled again
@@ -290,7 +315,7 @@ export function AttendancePage({ user }: Props) {
   // On approved leave with nothing timed in: attendance can't be recorded
   // (enforced server-side in AttendanceService.submit()).
   const onLeaveToday = !hasTimedIn ? todayAtt?.onLeave ?? null : null;
-  const timeInDisabled  = isSubmitting || isLoading || isTodayDayOff || Boolean(onLeaveToday) || !isEligible || (isField ? hasOpenVisit : hasTimedIn);
+  const timeInDisabled  = isSubmitting || isLoading || isTodayDayOff || Boolean(onLeaveToday) || !isEligible || isPastShiftForTimeIn || (isField ? hasOpenVisit : hasTimedIn);
   const timeOutDisabled = isField
     ? isSubmitting || isLoading || isTodayDayOff || !isEligible || !hasOpenVisit
     : isSubmitting || isLoading || isTodayDayOff || !isEligible || !hasTimedIn || hasTimedOut;
