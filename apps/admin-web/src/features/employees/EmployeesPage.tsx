@@ -628,7 +628,9 @@ function AdditionalLeaveGrants({
               />
               <span>
                 {type.name} <span className="grant-days">({type.defaultDays} day{Number(type.defaultDays) === 1 ? "" : "s"})</span>
-                {type.isTransferable && <span className="grant-days"> — spouse must work at ULPI</span>}
+                {type.isTransferable && (
+                  <span className="grant-days"> — spouse must work at ULPI; deducted from her Maternity Leave</span>
+                )}
               </span>
             </label>
             {isSoloParentLeave && (
@@ -747,12 +749,10 @@ function AddEmployeeModal({
   const genderLeaveLabel = getGenderLeaveLabel(form.sex);
   // Whether the chosen Employee Type gets Paternity/Maternity leave — driven by
   // that leave type's Applicable Statuses (Utilities → Leave Types), not a
-  // hardcoded list. Only gates the allocation field.
+  // hardcoded list. Only decides what the allocation field shows.
   const isEntitledToParentalLeave = Boolean(
     selectedEmploymentStatus && genderLeaveType?.applicableStatuses.includes(selectedEmploymentStatus),
   );
-  // Blank = the leave type's default allotment (shown as the placeholder).
-  const [leaveAllocation, setLeaveAllocation] = useState("");
 
   const adminGrantTypes = useMemo(() => getAdminGrantTypes(leaveTypesCache.data, form.sex), [leaveTypesCache.data, form.sex]);
   const [grantedTypeIds, setGrantedTypeIds] = useState<Set<string>>(new Set());
@@ -766,11 +766,10 @@ function AddEmployeeModal({
     setForm,
   });
 
-  // Switching Sex/Gender flips which employees can be the spouse (and which
-  // leave type the allocation is for), so a previous pick no longer applies.
+  // Switching Sex/Gender flips which employees can be the spouse, so a
+  // previous pick no longer applies.
   useEffect(() => {
     setForm((current) => (current.spouseEmployeeId ? { ...current, spouseEmployeeId: "" } : current));
-    setLeaveAllocation("");
   }, [form.sex]);
 
   const updateField =
@@ -830,7 +829,6 @@ function AddEmployeeModal({
           soloParentStatus: isRegular ? form.soloParentStatus : "NOT_APPLICABLE",
           civilStatus: form.civilStatus,
           ...getSpousePayload(form),
-          ...(isEntitledToParentalLeave && leaveAllocation !== "" ? { leaveAllocationDays: Number(leaveAllocation) } : {}),
           ...(form.hireDate ? { hireDate: form.hireDate } : {}),
           ...(form.supervisorId ? { supervisorId: form.supervisorId } : {}),
         },
@@ -1049,23 +1047,22 @@ function AddEmployeeModal({
               spouse details they reveal. */}
           <aside className="employee-form-side">
             <div className="employee-form-grid">
-              {/* Always shown so the column never jumps; disabled when the
-                  chosen Employee Type isn't entitled to this leave. */}
+              {/* Always shown so the column never jumps; says "Not applicable"
+                  when the chosen Employee Type isn't entitled to this leave. */}
               {genderLeaveLabel && genderLeaveType && (
                 <label>
                   {genderLeaveLabel}
+                  {/* Read-only: a new hire gets the leave type's default
+                      allotment from Utilities → Leave Types. */}
                   <input
-                    type="number"
-                    min={0}
-                    step={1}
-                    value={isEntitledToParentalLeave ? leaveAllocation : ""}
-                    onChange={(event) => setLeaveAllocation(event.target.value)}
-                    placeholder={
+                    type="text"
+                    value={
                       isEntitledToParentalLeave
-                        ? `${Number(genderLeaveType.defaultDays)} (default)`
+                        ? String(Number(genderLeaveType.defaultDays))
                         : "Not applicable to this Employee Type"
                     }
-                    disabled={!isEntitledToParentalLeave}
+                    disabled
+                    readOnly
                   />
                 </label>
               )}
@@ -1181,7 +1178,6 @@ function EditEmployeeModal({
       setForm((current) => ({ ...current, attendanceMode: departmentMode }));
     }
   }, [isModeLocked, departmentMode]);
-  const [leaveAllocation, setLeaveAllocation] = useState("");
   const [grantedTypeIds, setGrantedTypeIds] = useState<Set<string>>(new Set());
   const [initialGrantedTypeIds, setInitialGrantedTypeIds] = useState<Set<string>>(new Set());
 
@@ -1210,6 +1206,11 @@ function EditEmployeeModal({
     [employee.sex, leaveTypesCache.data],
   );
   const genderLeaveTypeId = genderLeaveType?.id ?? null;
+  // This year's earned days (live from the balances cache, so an Added
+  // Paternity transfer shows up on the wife's side). Undefined = the type
+  // doesn't apply to this employee's Employee Type.
+  const genderLeaveBalance = balancesCache.data?.find((b) => b.leaveTypeId === genderLeaveTypeId);
+  const genderLeaveAllocation = genderLeaveBalance ? String(genderLeaveBalance.earnedDays) : undefined;
 
   const adminGrantTypes = useMemo(
     () => getAdminGrantTypes(leaveTypesCache.data, employee.sex),
@@ -1226,11 +1227,6 @@ function EditEmployeeModal({
     if (!leaveTypesCache.data || !balancesCache.data) return;
     seededRef.current = true;
 
-    if (genderLeaveTypeId) {
-      const match = balancesCache.data.find((b) => b.leaveTypeId === genderLeaveTypeId);
-      setLeaveAllocation(match ? String(match.earnedDays) : "");
-    }
-
     const granted = new Set(
       balancesCache.data
         .filter((b) => b.earnedDays > 0 && adminGrantTypes.some((t) => t.id === b.leaveTypeId))
@@ -1238,7 +1234,7 @@ function EditEmployeeModal({
     );
     setGrantedTypeIds(granted);
     setInitialGrantedTypeIds(granted);
-  }, [leaveTypesCache.data, balancesCache.data, genderLeaveTypeId, adminGrantTypes]);
+  }, [leaveTypesCache.data, balancesCache.data, adminGrantTypes]);
 
   // Declared after the seeding effect above so, on the render the caches
   // load, its revocations run last and win.
@@ -1341,7 +1337,6 @@ function EditEmployeeModal({
         ...spousePayload,
         supervisorId: form.supervisorId,
         ...(form.hireDate ? { hireDate: form.hireDate } : {}),
-        ...(employee.sex && leaveAllocation !== "" ? { leaveAllocationDays: Number(leaveAllocation) } : {}),
       },
       {
         headers: {
@@ -1355,37 +1350,42 @@ function EditEmployeeModal({
       .filter((t) => grantedTypeIds.has(t.id) !== initialGrantedTypeIds.has(t.id))
       .map((t) => t.id);
 
-    // Independent writes (employee fields vs. leave-balance grants) fire
-    // concurrently instead of one-after-another.
-    const grantsPromise =
-      changedTypeIds.length > 0
-        ? Promise.all(
-            changedTypeIds.map((typeId) => {
-              const type = adminGrantTypes.find((t) => t.id === typeId)!;
-              const isGranted = grantedTypeIds.has(typeId);
-              return apiRequest(`/leave-balances/${employee.id}/grant`, {
-                method: "POST",
-                body: JSON.stringify({
-                  leaveTypeId: typeId,
-                  earnedDays: isGranted ? Number(type.defaultDays) : 0,
-                }),
-              });
+    // Grants run only after the employee save lands: an Added Paternity grant
+    // takes its days from whichever wife the server has linked at that
+    // moment, so it must see the spouse picked in this same save.
+    const runGrants = () =>
+      Promise.all(
+        changedTypeIds.map((typeId) => {
+          const type = adminGrantTypes.find((t) => t.id === typeId)!;
+          const isGranted = grantedTypeIds.has(typeId);
+          return apiRequest(`/leave-balances/${employee.id}/grant`, {
+            method: "POST",
+            body: JSON.stringify({
+              leaveTypeId: typeId,
+              earnedDays: isGranted ? Number(type.defaultDays) : 0,
             }),
-          )
-        : Promise.resolve(null);
+          });
+        }),
+      );
 
-    Promise.all([patchPromise, grantsPromise])
-      .then(([response]) => {
+    // Wives whose Maternity balance this save may have moved (old and new link).
+    const spouseChanged = (employee.spouseEmployeeId ?? "") !== spousePayload.spouseEmployeeId;
+    const affectedSpouseIds =
+      spouseChanged || changedTypeIds.length > 0
+        ? [employee.spouseEmployeeId, spousePayload.spouseEmployeeId].filter((id): id is string => Boolean(id))
+        : [];
+
+    patchPromise
+      .then(async (response) => {
+        if (changedTypeIds.length > 0) await runGrants();
         onSynced(response.data);
         // The grant POST above writes straight to the server, bypassing the
         // shared leave-balances cache — without this, reopening Edit
         // Employee (or the employee's own Leave page) would keep reading the
         // pre-grant snapshot and show the checkbox unchecked even though
         // soloParentStatus already says Eligible.
-        if (changedTypeIds.length > 0) {
-          revalidateCached(CACHE_KEYS.leaveBalances(employee.id), () =>
-            apiRequest(`/leave-balances/${employee.id}`),
-          ).catch(() => undefined);
+        for (const id of changedTypeIds.length > 0 ? [employee.id, ...affectedSpouseIds] : affectedSpouseIds) {
+          revalidateCached(CACHE_KEYS.leaveBalances(id), () => apiRequest(`/leave-balances/${id}`)).catch(() => undefined);
         }
       })
       .catch((err) => onSaveFailed(extractErrorMessage(err, "Unable to update employee.")));
@@ -1536,14 +1536,14 @@ function EditEmployeeModal({
               {genderLeaveLabel && (isAllocationLoading || genderLeaveTypeId) && (
                 <label>
                   {genderLeaveLabel}
+                  {/* Read-only: allotments come from Utilities → Leave Types
+                      (and Added Paternity transfers), never edited per employee. */}
                   <input
-                    type="number"
-                    min={0}
-                    step={1}
-                    value={leaveAllocation}
-                    onChange={(event) => setLeaveAllocation(event.target.value)}
-                    placeholder={isAllocationLoading ? "Loading..." : "0"}
-                    disabled={isAllocationLoading}
+                    type="text"
+                    value={isAllocationLoading ? "" : (genderLeaveAllocation ?? "Not applicable to this Employee Type")}
+                    placeholder="Loading..."
+                    disabled
+                    readOnly
                   />
                 </label>
               )}

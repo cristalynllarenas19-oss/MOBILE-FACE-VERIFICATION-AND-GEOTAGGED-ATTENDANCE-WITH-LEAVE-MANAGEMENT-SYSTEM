@@ -10,6 +10,7 @@ import { EmployeeTypesService } from "../employee-types/employee-types.service";
 import { EvaluationsService } from "../evaluations/evaluations.service";
 import { GeolocationService } from "../geolocation/geolocation.service";
 import { LeaveAccrualService } from "../leave/leave-accrual.service";
+import { getTransferredPaternityDays, shiftMaternityDaysFromSpouse } from "../leave/leave-balances.service";
 import { maskEmail, summarizeSmtpError } from "../mail/mail-transport";
 import { MailNotConfiguredError, MailService } from "../mail/mail.service";
 import { NotificationsService } from "../notifications/notifications.service";
@@ -839,6 +840,23 @@ export class EmployeesService {
     // say — see GeolocationService.syncAttendanceModes.
     updated.attendanceMode =
       (await this.geolocation.syncAttendanceModes([id], context)).get(id) ?? updated.attendanceMode;
+
+    // A husband's Added Paternity days come out of his linked wife's Maternity
+    // Leave — re-linking (or unlinking) moves them back to the old wife and
+    // out of the new one.
+    if (resolvedSpouseEmployeeId !== undefined && employee.sex === "MALE") {
+      const year = new Date().getFullYear();
+      await this.prisma.$transaction(async (tx) => {
+        const transferredDays = await getTransferredPaternityDays(tx, id, year);
+        if (transferredDays === 0) return;
+        if (employee.spouseEmployeeId) {
+          await shiftMaternityDaysFromSpouse(tx, employee.spouseEmployeeId, year, -transferredDays);
+        }
+        if (resolvedSpouseEmployeeId) {
+          await shiftMaternityDaysFromSpouse(tx, resolvedSpouseEmployeeId, year, transferredDays);
+        }
+      });
+    }
 
 
     if (nextStatus && nextStatus !== employee.employmentStatus) {

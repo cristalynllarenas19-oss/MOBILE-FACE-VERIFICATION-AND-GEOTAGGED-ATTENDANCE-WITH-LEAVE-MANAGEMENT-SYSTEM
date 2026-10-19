@@ -1,5 +1,5 @@
-import { Injectable } from "@nestjs/common";
-import { EmploymentStatus, LeaveTypeKind, Sex } from "@prisma/client";
+import { BadRequestException, Injectable } from "@nestjs/common";
+import { EmploymentStatus, LeaveTypeKind, Prisma, Sex } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 
 // Maternity/Paternity-kind leave types are sex-restricted even though both
@@ -10,6 +10,46 @@ export function isEligibleForLeaveType(kind: LeaveTypeKind, sex: Sex | null | un
   if (kind === "MATERNITY") return sex === "FEMALE";
   if (kind === "PATERNITY") return sex === "MALE";
   return true;
+}
+
+// Added Paternity Leave (the isTransferable type, RA 11210) is days the
+// mother gives up from her own maternity leave. So while a husband is linked
+// to his ULPI-employed wife (Employee.spouseEmployeeId), her Maternity balance
+// for the year is kept short by exactly his Added Paternity earnedDays:
+// positive `days` takes them from her, negative hands them back. A wife with
+// no balance row yet starts from the maternity type's default allotment.
+export async function shiftMaternityDaysFromSpouse(
+  prisma: Prisma.TransactionClient,
+  spouseEmployeeId: string,
+  year: number,
+  days: number,
+) {
+  if (days === 0) return;
+  const maternity = await prisma.leaveType.findFirst({ where: { kind: "MATERNITY", isActive: true } });
+  if (!maternity) return;
+
+  const key = { employeeId_leaveTypeId_year: { employeeId: spouseEmployeeId, leaveTypeId: maternity.id, year } };
+  await prisma.leaveBalance.upsert({
+    where: key,
+    update: { earnedDays: { decrement: days } },
+    create: {
+      employeeId: spouseEmployeeId,
+      leaveTypeId: maternity.id,
+      year,
+      earnedDays: Number(maternity.defaultDays) - days,
+      usedDays: 0,
+    },
+  });
+}
+
+// The year's Added Paternity days a husband currently holds — what his linked
+// wife's Maternity balance is short by (see shiftMaternityDaysFromSpouse).
+export async function getTransferredPaternityDays(prisma: Prisma.TransactionClient, employeeId: string, year: number) {
+  const balances = await prisma.leaveBalance.findMany({
+    where: { employeeId, year, leaveType: { isTransferable: true } },
+    select: { earnedDays: true },
+  });
+  return balances.reduce((sum, balance) => sum + Number(balance.earnedDays), 0);
 }
 
 // How long a per-employee "already ensured" mark is trusted before
@@ -148,23 +188,68 @@ export class LeaveBalancesService {
     const leaveType = await this.prisma.leaveType.findUniqueOrThrow({ where: { id: dto.leaveTypeId } });
     const year = dto.year ?? new Date().getFullYear();
 
-    const balance = await this.prisma.leaveBalance.upsert({
-      where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId: dto.leaveTypeId, year } },
-      update: { earnedDays: dto.earnedDays },
-      create: { employeeId, leaveTypeId: dto.leaveTypeId, year, earnedDays: dto.earnedDays, usedDays: 0 },
-    });
+    // Added Paternity Leave comes out of the linked wife's Maternity Leave.
+    const employee = leaveType.isTransferable
+      ? await this.prisma.employee.findUniqueOrThrow({ where: { id: employeeId }, select: { sex: true, spouseEmployeeId: true } })
+      : null;
+    const spouseEmployeeId = employee?.sex === "MALE" ? employee.spouseEmployeeId : null;
 
-    await this.prisma.auditLog.create({
-      data: {
-        actorUserId,
-        action: "GRANT_LEAVE_BALANCE",
-        entityType: "LeaveBalance",
-        entityId: balance.id,
-        newValues: { employeeId, leaveTypeId: dto.leaveTypeId, leaveTypeName: leaveType.name, year, earnedDays: dto.earnedDays },
-      },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      const key = { employeeId_leaveTypeId_year: { employeeId, leaveTypeId: dto.leaveTypeId, year } };
+      const previous = await tx.leaveBalance.findUnique({ where: key, select: { earnedDays: true } });
+      // Only the change moves days, so re-granting the same amount is a no-op
+      // for the wife and revoking (0) gives back exactly what was taken.
+      const transferDays = dto.earnedDays - Number(previous?.earnedDays ?? 0);
 
-    return balance;
+      if (spouseEmployeeId && transferDays > 0) {
+        await this.assertSpouseCanTransfer(tx, spouseEmployeeId, year, transferDays);
+      }
+
+      const balance = await tx.leaveBalance.upsert({
+        where: key,
+        update: { earnedDays: dto.earnedDays },
+        create: { employeeId, leaveTypeId: dto.leaveTypeId, year, earnedDays: dto.earnedDays, usedDays: 0 },
+      });
+
+      if (spouseEmployeeId) {
+        await shiftMaternityDaysFromSpouse(tx, spouseEmployeeId, year, transferDays);
+      }
+
+      await tx.auditLog.create({
+        data: {
+          actorUserId,
+          action: "GRANT_LEAVE_BALANCE",
+          entityType: "LeaveBalance",
+          entityId: balance.id,
+          newValues: {
+            employeeId,
+            leaveTypeId: dto.leaveTypeId,
+            leaveTypeName: leaveType.name,
+            year,
+            earnedDays: dto.earnedDays,
+            ...(spouseEmployeeId && transferDays !== 0 ? { spouseEmployeeId, maternityDaysTransferred: transferDays } : {}),
+          },
+        },
+      });
+
+      return balance;
+    });
+  }
+
+  // The wife can only give up maternity days she still has left this year.
+  private async assertSpouseCanTransfer(tx: Prisma.TransactionClient, spouseEmployeeId: string, year: number, days: number) {
+    const maternity = await tx.leaveType.findFirst({ where: { kind: "MATERNITY", isActive: true } });
+    if (!maternity) return;
+    const balance = await tx.leaveBalance.findUnique({
+      where: { employeeId_leaveTypeId_year: { employeeId: spouseEmployeeId, leaveTypeId: maternity.id, year } },
+      select: { earnedDays: true, usedDays: true },
+    });
+    const remaining = balance ? Number(balance.earnedDays) - Number(balance.usedDays) : Number(maternity.defaultDays);
+    if (remaining < days) {
+      throw new BadRequestException(
+        `The spouse only has ${Math.max(0, remaining)} day(s) of ${maternity.name} left — not enough to transfer ${days} day(s) as Added Paternity Leave.`,
+      );
+    }
   }
 
   // One row per employee (not aggregated) for the Leave Balances tab's
