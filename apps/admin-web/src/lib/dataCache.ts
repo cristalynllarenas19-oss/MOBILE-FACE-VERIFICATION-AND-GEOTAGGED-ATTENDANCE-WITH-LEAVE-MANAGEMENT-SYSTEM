@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SessionExpiredError } from "./api";
+import { useLiveRefresh } from "./liveRefresh";
 
 // Stale-while-revalidate cache for read-only API data. Pages render the
 // last successful response instantly while the real request runs in the
@@ -272,6 +273,11 @@ export function useCachedData<T>(key: string | null, fetcher: () => Promise<T>) 
       cancelled = true;
     };
   }, [key, refresh]);
+
+  // Keeps every page built on this hook live while it's open — see
+  // useLiveRefresh. Concurrent hooks for the same key share one request
+  // (revalidateCached), so several components reading it cost one poll.
+  useLiveRefresh(() => refresh(), key !== null);
 
   useEffect(() => {
     if (!key) return;

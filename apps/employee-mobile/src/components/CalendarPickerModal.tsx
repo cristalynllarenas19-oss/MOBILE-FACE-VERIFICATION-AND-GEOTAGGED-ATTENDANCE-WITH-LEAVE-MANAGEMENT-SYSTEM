@@ -29,6 +29,9 @@ type Props = {
   // "day off", not the red "conflict" used above) — e.g. a weekly rest day or
   // a day outside the employee's own working-days schedule.
   isDateNonWorking?: (date: Date) => string | undefined;
+  // A day the employee already has attendance on (blue) — leave can't be
+  // filed for a day they worked.
+  isDateWorked?: (date: Date) => string | undefined;
   onSelect: (date: Date) => void;
   onClose: () => void;
 };
@@ -41,6 +44,7 @@ export default function CalendarPickerModal({
   maximumDate,
   isDateDisabled,
   isDateNonWorking,
+  isDateWorked,
   onSelect,
   onClose,
 }: Props) {
@@ -114,8 +118,9 @@ export default function CalendarPickerModal({
               const conflict = Boolean(conflictReason);
               const nonWorkingReason = !conflict ? isDateNonWorking?.(date) : undefined;
               const nonWorking = Boolean(nonWorkingReason);
-              const outOfRange = !conflict && !nonWorking && ((min && date < min) || (max && date > max));
-              const disabled = conflict || nonWorking || outOfRange;
+              const worked = !conflict && !nonWorking && Boolean(isDateWorked?.(date));
+              const outOfRange = !conflict && !nonWorking && !worked && ((min && date < min) || (max && date > max));
+              const disabled = conflict || nonWorking || worked || outOfRange;
               const selected = selectedDate ? isSameDay(date, selectedDate) : false;
               return (
                 <Pressable
@@ -130,6 +135,7 @@ export default function CalendarPickerModal({
                       selected && styles.dayCircleSelected,
                       conflict && styles.dayCircleConflict,
                       nonWorking && styles.dayCircleNonWorking,
+                      worked && styles.dayCircleWorked,
                       outOfRange && styles.dayCircleOutOfRange,
                     ]}
                   >
@@ -139,6 +145,7 @@ export default function CalendarPickerModal({
                         selected && styles.dayTextSelected,
                         conflict && styles.dayTextConflict,
                         nonWorking && styles.dayTextNonWorking,
+                        worked && styles.dayTextWorked,
                         outOfRange && styles.dayTextOutOfRange,
                       ]}
                     >
@@ -160,6 +167,12 @@ export default function CalendarPickerModal({
             <View style={styles.legendRow}>
               <View style={[styles.legendDot, { backgroundColor: "#FEF3C7" }]} />
               <Text style={styles.legendText}>Day off / non-working day</Text>
+            </View>
+          )}
+          {isDateWorked && (
+            <View style={styles.legendRow}>
+              <View style={[styles.legendDot, { backgroundColor: "#DBEAFE" }]} />
+              <Text style={styles.legendText}>Already has attendance</Text>
             </View>
           )}
 
@@ -199,6 +212,8 @@ const styles = StyleSheet.create({
   // Day off / non-working day per the employee's own schedule — amber,
   // distinct from both the red conflict and the muted out-of-range grey.
   dayCircleNonWorking: { backgroundColor: "#FEF3C7" },
+  // Already has attendance — blue, distinct from the three above.
+  dayCircleWorked: { backgroundColor: "#DBEAFE" },
   // Simply outside the min/max range (e.g. no remaining balance to cover
   // it) — muted, not red, since nothing about the date itself is a
   // conflict.
@@ -207,6 +222,7 @@ const styles = StyleSheet.create({
   dayTextSelected: { color: "#FFFFFF" },
   dayTextConflict: { color: "#FCA5A5" },
   dayTextNonWorking: { color: "#D97706" },
+  dayTextWorked: { color: "#2563EB" },
   dayTextOutOfRange: { color: "#CBD5E1" },
   legendRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 12 },
   legendDot: { width: 10, height: 10, borderRadius: 5 },

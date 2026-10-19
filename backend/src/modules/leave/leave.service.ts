@@ -448,6 +448,16 @@ export class LeaveService {
       }
     }
 
+    // Same rule updateStatus enforces at approval — a day the employee already
+    // worked can't become a leave day — checked here too so they find out
+    // when filing instead of only when their reviewer tries to approve it.
+    const workedDays = await this.workedDaysInRange(dto.employeeId, new Date(dto.startDate), new Date(dto.endDate));
+    if (workedDays) {
+      throw new BadRequestException(
+        `You already have attendance on ${workedDays}. A leave can't be filed for a day you worked.`,
+      );
+    }
+
     // Paid, capped leave types must not be requestable past what's left in the
     // employee's balance for the year — allowWithoutPay/isUnlimitedDays types
     // (e.g. LWOP) are intentionally exempt, same as in adjustLeaveBalance below.
@@ -527,6 +537,22 @@ export class LeaveService {
     return request;
   }
 
+  // The days in [startDate, endDate] the employee timed in, formatted for an
+  // error message — or null when they worked none of them.
+  private async workedDaysInRange(employeeId: string, startDate: Date, endDate: Date) {
+    const worked = await this.prisma.attendanceRecord.findMany({
+      where: {
+        employeeId,
+        timeInAt: { not: null },
+        attendanceDate: { gte: toDateOnly(startDate), lte: toDateOnly(endDate) },
+      },
+      select: { attendanceDate: true },
+      orderBy: { attendanceDate: "asc" },
+    });
+    if (worked.length === 0) return null;
+    return Array.from(new Set(worked.map((record) => record.attendanceDate.toLocaleDateString()))).join(", ");
+  }
+
   private async notifySubmission(request: {
     id: string;
     startDate: Date;
@@ -534,14 +560,9 @@ export class LeaveService {
     employee: { userId: string | null; firstName: string; lastName: string; supervisor: { userId: string | null } | null };
     leaveType: { name: string };
   }) {
-    // A regular employee's request goes to their supervisor only; a supervisor has no
-    // supervisor above them, so their own requests route to HR/Admin instead.
-    const filerIsSupervisor = await this.notifications.userHasRole(request.employee.userId, "SUPERVISOR");
-    const candidateIds = filerIsSupervisor
-      ? await this.notifications.adminUserIds()
-      : [request.employee.supervisor?.userId];
-    const recipientIds = candidateIds.filter(
-      (id): id is string => Boolean(id) && id !== request.employee.userId,
+    const recipientIds = await this.notifications.filingReviewerIds(
+      request.employee.userId,
+      request.employee.supervisor?.userId,
     );
 
     const employeeName = `${request.employee.firstName} ${request.employee.lastName}`;
@@ -598,19 +619,10 @@ export class LeaveService {
     // AttendanceService.submit) — and the reverse has to hold too: a day
     // they actually worked can't afterwards be turned into a leave day.
     if (isNowApproved && !wasApproved) {
-      const worked = await this.prisma.attendanceRecord.findMany({
-        where: {
-          employeeId: existing.employeeId,
-          timeInAt: { not: null },
-          attendanceDate: { gte: toDateOnly(existing.startDate), lte: toDateOnly(existing.endDate) },
-        },
-        select: { attendanceDate: true },
-        orderBy: { attendanceDate: "asc" },
-      });
-      if (worked.length > 0) {
-        const days = Array.from(new Set(worked.map((record) => record.attendanceDate.toLocaleDateString()))).join(", ");
+      const workedDays = await this.workedDaysInRange(existing.employeeId, existing.startDate, existing.endDate);
+      if (workedDays) {
         throw new BadRequestException(
-          `This employee has attendance on ${days}. A leave can't be approved for a day the employee worked.`,
+          `This employee has attendance on ${workedDays}. A leave can't be approved for a day the employee worked.`,
         );
       }
     }
@@ -869,15 +881,11 @@ export class LeaveService {
         data: { leaveRequestId: id, type: "CANCELLED", message: trimmedNote, authorUserId: context.actorUserId },
       });
 
-      // Same recipient routing as a fresh submission (notifySubmission) — a
-      // regular employee's request goes to their supervisor only; a
-      // supervisor cancelling their own approved leave routes to HR/Admin
-      // instead, since they have no supervisor above them.
-      const filerIsSupervisor = await this.notifications.userHasRole(request.employee.userId, "SUPERVISOR");
-      const candidateIds = filerIsSupervisor
-        ? await this.notifications.adminUserIds()
-        : [request.employee.supervisor?.userId];
-      const recipientIds = candidateIds.filter((rid): rid is string => Boolean(rid) && rid !== request.employee.userId);
+      // Same recipient routing as a fresh submission (notifySubmission).
+      const recipientIds = await this.notifications.filingReviewerIds(
+        request.employee.userId,
+        request.employee.supervisor?.userId,
+      );
 
       await this.notifications.notifyUsers(recipientIds, {
         title: "Leave Cancellation Requested",
@@ -1149,12 +1157,9 @@ export class LeaveService {
     employee: { userId: string | null; firstName: string; lastName: string; supervisor: { userId: string | null } | null };
     leaveType: { name: string };
   }) {
-    const filerIsSupervisor = await this.notifications.userHasRole(request.employee.userId, "SUPERVISOR");
-    const candidateIds = filerIsSupervisor
-      ? await this.notifications.adminUserIds()
-      : [request.employee.supervisor?.userId];
-    const recipientIds = candidateIds.filter(
-      (id): id is string => Boolean(id) && id !== request.employee.userId,
+    const recipientIds = await this.notifications.filingReviewerIds(
+      request.employee.userId,
+      request.employee.supervisor?.userId,
     );
 
     const employeeName = `${request.employee.firstName} ${request.employee.lastName}`;

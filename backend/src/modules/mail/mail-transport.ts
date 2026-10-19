@@ -9,12 +9,24 @@ export const SMTP_PORT = 465;
 // Nodemailer's own defaults are 2 min to connect and 10 min of socket
 // silence — on a network that silently drops SMTP traffic (common on campus
 // and office Wi-Fi) a send would hang that long before failing. These keep
-// every failure mode bounded to seconds.
+// every failure mode bounded, while leaving a slow-but-working network enough
+// time to finish the TLS handshake and upload the message.
 export const SMTP_TIMEOUTS = {
-  connectionTimeout: 10_000,
-  greetingTimeout: 10_000,
-  socketTimeout: 15_000,
+  connectionTimeout: 20_000,
+  greetingTimeout: 20_000,
+  socketTimeout: 30_000,
 };
+
+const TRANSIENT_CODES = new Set(["ETIMEDOUT", "ESOCKETTIMEDOUT", "ECONNECTION", "ESOCKET", "EDNS", "ECONNRESET", "ECONNREFUSED"]);
+
+// Worth another try: the network dropped or stalled, or Gmail answered with a
+// temporary 4xx. A wrong login or rejected recipient fails the same way every
+// time, so those are not retried.
+export function isTransientSmtpError(error: unknown) {
+  const summary = summarizeSmtpError(error);
+  if (summary.timedOut || (summary.code && TRANSIENT_CODES.has(summary.code))) return true;
+  return summary.responseCode !== undefined && summary.responseCode >= 400 && summary.responseCode < 500;
+}
 
 export type GmailCredentials = { user: string; pass: string };
 

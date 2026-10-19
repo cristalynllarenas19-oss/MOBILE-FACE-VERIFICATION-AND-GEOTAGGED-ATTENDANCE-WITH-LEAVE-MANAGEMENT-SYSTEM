@@ -7,6 +7,7 @@ import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { EmployeeSearchSelect, matchesEmployeeQuery } from "../../components/ui/EmployeeSearchSelect";
 import { apiRequest } from "../../lib/api";
+import { useLiveRefresh } from "../../lib/liveRefresh";
 import { useActiveDepartments } from "../../lib/departments";
 import { formatEmploymentStatus } from "../../types/employment";
 import logo from "../../assets/unileaf-logo.png";
@@ -329,6 +330,8 @@ export function ReportsPage({
   };
 
   useEffect(loadReport, [filters.from, filters.to, filters.department]);
+  // A heavier payload than most pages, so polled less often.
+  useLiveRefresh(loadReport, true, 30_000);
 
   const { departmentNames: departments } = useActiveDepartments();
 

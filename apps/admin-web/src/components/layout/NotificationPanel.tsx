@@ -8,6 +8,7 @@ import {
   Hourglass,
   Inbox,
   Lock,
+  MailX,
   Megaphone,
   ScanFace,
   ShieldAlert,
@@ -44,6 +45,7 @@ const NOTIFICATION_ICON_MAP: Record<string, { Icon: typeof BellIcon; category: s
   ATTENDANCE_FAKE_ATTEMPT: { Icon: ShieldAlert, category: "critical" },
   ATTENDANCE_LOCKED: { Icon: Lock, category: "critical" },
   FACE_MISMATCH_STREAK: { Icon: ScanFace, category: "critical" },
+  CREDENTIALS_EMAIL_FAILED: { Icon: MailX, category: "critical" },
 };
 
 // Lowercased type -> category class name, applied by callers as

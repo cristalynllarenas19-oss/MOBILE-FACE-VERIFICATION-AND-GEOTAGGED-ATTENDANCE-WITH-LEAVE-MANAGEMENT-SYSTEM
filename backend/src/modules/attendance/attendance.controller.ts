@@ -72,9 +72,18 @@ export class AttendanceController {
   // "this might not be you" photo per attempt.
   @Get("flagged")
   @RequirePermissions("attendance:write")
-  findFlagged(@Req() request: Request) {
+  findFlagged(@Req() request: Request, @Query("status") status?: string) {
     const departmentId = getSupervisorDepartmentScope((request as any).user);
-    return this.attendanceService.findFlaggedLogs({ departmentId });
+    return this.attendanceService.findFlaggedLogs({ departmentId, rejected: status === "REJECTED" });
+  }
+
+  // A single attempt as opened from an attendance notification — see
+  // findLogForReview. Same gating as the flagged list (it carries the photos).
+  @Get("logs/:logId/review")
+  @RequirePermissions("attendance:write")
+  findLogForReview(@Param("logId") logId: string, @Req() request: Request) {
+    const departmentId = getSupervisorDepartmentScope((request as any).user);
+    return this.attendanceService.findLogForReview(logId, departmentId);
   }
 
   // The earlier failed attempts the given flagged log superseded — lazily

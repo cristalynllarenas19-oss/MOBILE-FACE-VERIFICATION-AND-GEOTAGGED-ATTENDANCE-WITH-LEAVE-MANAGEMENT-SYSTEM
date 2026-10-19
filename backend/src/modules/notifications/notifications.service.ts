@@ -57,6 +57,7 @@ const REVIEWER_NOTIFICATION_TYPES = [
   "SUPERVISOR_EVALUATION_REQUIRED",
   "SUPERVISOR_REGULARIZATION_RECOMMENDATION",
   "EVALUATION_CONVERSION_OUTCOME",
+  "CREDENTIALS_EMAIL_FAILED",
 ];
 
 // Company announcements are for the person whichever portal they are in,
@@ -140,6 +141,17 @@ export class NotificationsService {
       select: { id: true },
     });
     return admins.map((admin) => admin.id);
+  }
+
+  // Who reviews an employee's own filing (leave, undertime, cancellation):
+  // a regular employee's goes to their direct supervisor; a supervisor has no
+  // supervisor above them, and an employee with no supervisor assigned would
+  // otherwise notify nobody, so both route to HR/Admin instead. The filer is
+  // never notified about their own filing.
+  async filingReviewerIds(filerUserId: string | null | undefined, supervisorUserId: string | null | undefined) {
+    const filerIsSupervisor = await this.userHasRole(filerUserId, "SUPERVISOR");
+    const candidateIds = !filerIsSupervisor && supervisorUserId ? [supervisorUserId] : await this.adminUserIds();
+    return candidateIds.filter((id) => id !== filerUserId);
   }
 
   async userHasRole(userId: string | null | undefined, roleCode: "ADMIN" | "SUPERVISOR" | "EMPLOYEE") {

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Search, X } from "lucide-react";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { apiRequest } from "../../lib/api";
+import { useLiveRefresh } from "../../lib/liveRefresh";
 import type { Notification } from "./UtilitiesPage";
 
 type AuditLog = {
@@ -122,6 +123,19 @@ export function AuditLogsTab({
     loadAuditLogs(1, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sortOrder, auditFrom, auditTo]);
+
+  // Live, but silent (no spinner) and only while the first page is showing —
+  // never collapses entries the admin pulled in with "Load more".
+  useLiveRefresh(() => {
+    if (auditPage > 1) return;
+    const params = buildParams();
+    params.set("page", "1");
+    params.set("pageSize", String(AUDIT_PAGE_SIZE));
+    return apiRequest<AuditLogPage>(`/audit-logs?${params.toString()}`).then((res) => {
+      setAuditLogs(res.items);
+      setAuditTotal(res.total);
+    });
+  });
 
   const clearAuditSearch = () => {
     setAuditSearch("");

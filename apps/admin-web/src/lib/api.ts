@@ -79,6 +79,20 @@ async function rawRequest(path: string, options: RequestInit, token: string | nu
   });
 }
 
+// Nest error bodies are JSON ({ statusCode, message, error }) — surface just
+// the message (joined when it's the validation pipe's string[]) instead of
+// the raw JSON. Mirrors employee-mobile/src/api.ts's extractErrorMessage.
+function extractErrorMessage(body: string) {
+  try {
+    const parsed = JSON.parse(body);
+    if (Array.isArray(parsed?.message)) return parsed.message.join(" ");
+    if (typeof parsed?.message === "string") return parsed.message;
+  } catch {
+    // Not JSON, fall back to the raw text below.
+  }
+  return body;
+}
+
 export async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem("accessToken");
   let response = await rawRequest(path, options, token);
@@ -102,8 +116,8 @@ export async function apiRequest<T>(path: string, options: RequestInit = {}): Pr
       _onSessionExpired?.();
       throw new SessionExpiredError();
     }
-    const message = await response.text();
-    throw new Error(message || `Request failed with status ${response.status}`);
+    const body = await response.text();
+    throw new Error(extractErrorMessage(body) || `Request failed with status ${response.status}`);
   }
 
   // Nest's Express adapter treats a controller returning `null` the same as

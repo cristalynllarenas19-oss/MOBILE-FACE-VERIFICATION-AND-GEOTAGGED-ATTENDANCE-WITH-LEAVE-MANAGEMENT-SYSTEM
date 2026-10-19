@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Archive, ChevronDown, Eye, Pencil, RotateCcw, Plus, Search, X } from "lucide-react";
 import { apiRequest } from "../../lib/api";
+import { useLiveRefresh } from "../../lib/liveRefresh";
 import { Badge } from "../../components/ui/Badge";
 import { ConfirmDialog, type ConfirmDialogConfig } from "../../components/ui/ConfirmDialog";
 import { EmployeeSearchSelect, matchesEmployeeQuery } from "../../components/ui/EmployeeSearchSelect";
@@ -513,6 +514,7 @@ export function SchedulesPage({
   };
 
   useEffect(loadData, [departmentFilter, shiftFilter, statusFilter, showArchived]);
+  useLiveRefresh(loadData);
   useEffect(() => setPage(1), [departmentFilter, shiftFilter, statusFilter, showArchived, modeFilter, searchQuery]);
 
   const visibleSchedules = schedules.filter((schedule) => {

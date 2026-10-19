@@ -29,8 +29,6 @@ const EMPLOYEES_PAGE_SIZE = 10;
 // stops responding — the spinner can never run forever.
 const CREATE_EMPLOYEE_TIMEOUT_MS = 45_000;
 
-// Returned by POST /employees alongside the created employee.
-type CredentialsEmailStatus = { status: "SENT" | "FAILED" | "PENDING"; reason?: string };
 
 // NestJS error responses are JSON bodies ({ statusCode, message, error }), not
 // raw strings — message is a string[] when it comes from the validation
@@ -358,6 +356,16 @@ function getAdminGrantTypes(leaveTypes: LeaveTypeRow[] | null | undefined, sex: 
   });
 }
 
+// Added Paternity Leave is seeded with 0 default days; a grant gives the
+// statutory 7 (RA 11210) instead — taken from the wife's Maternity Leave.
+const ADDED_PATERNITY_LEAVE_DAYS = 7;
+
+// Days a grant from the "Additional Leave Types" checklist gives (and shows).
+function getGrantDays(type: LeaveTypeRow) {
+  const days = Number(type.defaultDays);
+  return type.isTransferable && days === 0 ? ADDED_PATERNITY_LEAVE_DAYS : days;
+}
+
 const isSoloParentLeaveType = (type: LeaveTypeRow) => type.name === "Solo Parent Leave";
 
 // Solo Parent Leave and Added Paternity Leave both presume a spouse exists,
@@ -473,11 +481,11 @@ function SpouseFields({
   const candidates = candidatesCache.data ?? [];
   const spouseOptions = [
     ...(currentSpouse && !candidates.some((candidate) => candidate.id === currentSpouse.id)
-      ? [{ value: currentSpouse.id, label: `${currentSpouse.lastName}, ${currentSpouse.firstName}` }]
+      ? [{ value: currentSpouse.id, label: `${currentSpouse.firstName} ${currentSpouse.lastName}` }]
       : []),
     ...candidates.map((candidate) => ({
       value: candidate.id,
-      label: `${candidate.lastName}, ${candidate.firstName}`,
+      label: `${candidate.firstName} ${candidate.lastName}`,
     })),
   ];
 
@@ -532,6 +540,7 @@ function SpouseFields({
             ariaLabel="Spouse"
             disabled={disabled || !isUlpi || spouseOptions.length === 0}
             searchable
+            menuVariant="employee"
           />
           {isUlpi && !candidatesCache.isLoading && spouseOptions.length === 0 && (
             <span className="employee-form-hint">
@@ -601,8 +610,7 @@ function AdditionalLeaveGrants({
       </p>
       {types.map((type) => {
         const isSoloParentLeave = isSoloParentLeaveType(type);
-        const isIneligible =
-          (isSoloParentLeave && form.soloParentStatus === "INELIGIBLE") || (requiresSpouse(type) && isCivilStatusSingle);
+        const isIneligible = requiresSpouse(type) && isCivilStatusSingle;
         // Added Paternity Leave is transferred from a spouse who also works at
         // ULPI. An older grant already on file stays uncheckable (revocable)
         // even without one recorded — it just can't be newly granted.
@@ -627,41 +635,12 @@ function AdditionalLeaveGrants({
                 }}
               />
               <span>
-                {type.name} <span className="grant-days">({type.defaultDays} day{Number(type.defaultDays) === 1 ? "" : "s"})</span>
+                {type.name} <span className="grant-days">({getGrantDays(type)} day{getGrantDays(type) === 1 ? "" : "s"})</span>
                 {type.isTransferable && (
                   <span className="grant-days"> — spouse must work at ULPI; deducted from her Maternity Leave</span>
                 )}
               </span>
             </label>
-            {isSoloParentLeave && (
-              <label className="employee-inline-checkbox employee-solo-parent-ineligible">
-                <input
-                  type="checkbox"
-                  checked={form.soloParentStatus === "INELIGIBLE"}
-                  disabled={isLoading || isCivilStatusSingle}
-                  onChange={(event) => {
-                    const checked = event.target.checked;
-                    setForm((current) => ({
-                      ...current,
-                      soloParentStatus: checked ? "INELIGIBLE" : "NOT_APPLICABLE",
-                    }));
-                    if (checked && grantedTypeIds.has(type.id)) {
-                      toggleGrantedType(type.id);
-                    }
-                  }}
-                />
-                <span>Ineligible</span>
-              </label>
-            )}
-            {isSoloParentLeave && (
-              <span className={`employee-solo-parent-status employee-solo-parent-status--${form.soloParentStatus.toLowerCase()}`}>
-                {form.soloParentStatus === "ELIGIBLE"
-                  ? "Eligible"
-                  : form.soloParentStatus === "INELIGIBLE"
-                    ? "Ineligible"
-                    : "Not Applicable"}
-              </span>
-            )}
           </div>
         );
       })}
@@ -688,13 +667,12 @@ function AddEmployeeModal({
   }));
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
-  // Set when the employee was created but a follow-up step didn't fully
-  // succeed (login email not confirmed sent, or a leave grant failed) —
-  // shown before moving on so it can't be missed.
+  // Set when the employee was created but a leave grant failed — shown before
+  // moving on so it can't be missed. (The login email is sent in the
+  // background; a final failure arrives as a bell notification instead.)
   const [postCreateIssues, setPostCreateIssues] = useState<{
     employee: Employee;
-    email?: CredentialsEmailStatus;
-    grantError?: string;
+    grantError: string;
   } | null>(null);
   const { options: employeeTypeOptions, byId: employeeTypesById } = useEmployeeTypes();
 
@@ -813,7 +791,7 @@ function AddEmployeeModal({
 
     try {
       const token = localStorage.getItem("accessToken");
-      const response = await axios.post<Employee & { credentialsEmail?: CredentialsEmailStatus }>(
+      const response = await axios.post<Employee>(
         `${API_BASE_URL}/employees`,
         {
           firstName: form.firstName.trim(),
@@ -841,7 +819,7 @@ function AddEmployeeModal({
         },
       );
 
-      const { credentialsEmail, ...employee } = response.data;
+      const employee = response.data;
 
       // The grant endpoint needs the new employee's id, so these can only
       // run once the create has returned. A failure here doesn't undo the
@@ -852,7 +830,7 @@ function AddEmployeeModal({
           grantsToApply.map((type) =>
             apiRequest(`/leave-balances/${employee.id}/grant`, {
               method: "POST",
-              body: JSON.stringify({ leaveTypeId: type.id, earnedDays: Number(type.defaultDays) }),
+              body: JSON.stringify({ leaveTypeId: type.id, earnedDays: getGrantDays(type) }),
             }),
           ),
         );
@@ -862,9 +840,8 @@ function AddEmployeeModal({
         }
       }
 
-      const emailIssue = credentialsEmail && credentialsEmail.status !== "SENT" ? credentialsEmail : undefined;
-      if (emailIssue || grantError) {
-        setPostCreateIssues({ employee, email: emailIssue, grantError });
+      if (grantError) {
+        setPostCreateIssues({ employee, grantError });
         return;
       }
       onCreated(employee);
@@ -880,27 +857,13 @@ function AddEmployeeModal({
   };
 
   if (postCreateIssues) {
-    const { employee, email, grantError } = postCreateIssues;
+    const { employee, grantError } = postCreateIssues;
     return (
       <EmployeeModal title="Employee Added" onClose={() => onCreated(employee)}>
         <p>
           {employee.firstName} {employee.lastName} ({employee.employeeNo}) was added successfully.
         </p>
-        {email && (
-          <>
-            <p className="employee-form-error">
-              {email.status === "PENDING"
-                ? "The login email with the temporary password is still being sent and could not be confirmed yet."
-                : "The login email with the temporary password was NOT sent."}
-              {email.reason ? ` ${email.reason}` : ""}
-            </p>
-            <p className="employee-form-hint">
-              The employee cannot log in until they receive their temporary password. This has been recorded in Audit
-              Logs (Credentials Email Failed) for follow-up — see the backend terminal's [MAILER] logs for the exact error.
-            </p>
-          </>
-        )}
-        {grantError && <p className="employee-form-error">{grantError}</p>}
+        <p className="employee-form-error">{grantError}</p>
         <div className="employee-form-actions">
           <button type="button" className="primary-button" onClick={() => onCreated(employee)}>
             Continue
@@ -1362,7 +1325,7 @@ function EditEmployeeModal({
             method: "POST",
             body: JSON.stringify({
               leaveTypeId: typeId,
-              earnedDays: isGranted ? Number(type.defaultDays) : 0,
+              earnedDays: isGranted ? getGrantDays(type) : 0,
             }),
           });
         }),
@@ -2038,8 +2001,18 @@ export function EmployeesPage({
     pageSafe * EMPLOYEES_PAGE_SIZE,
   );
 
+  // Spouse links are two-way on the server: saving one spouse also updates
+  // the other (Married, linked back) and unlinks any previous partner, so
+  // those rows are re-read rather than left stale.
+  const refreshIfSpouseLinked = (employee: Employee) => {
+    if (employee.spouseEmployeeId || employees.some((item) => item.spouseEmployeeId === employee.id)) {
+      employeesCache.refresh().catch(() => undefined);
+    }
+  };
+
   const handleEmployeeCreated = (employee: Employee) => {
     employeesCache.setData([employee, ...employees]);
+    refreshIfSpouseLinked(employee);
     setIsAddOpen(false);
     if (onEmployeeCreated) {
       onEmployeeCreated(employee);
@@ -2061,6 +2034,7 @@ export function EmployeesPage({
   const handleEmployeeSynced = (employee: Employee) => {
     employeesCache.setData(employees.map((item) => (item.id === employee.id ? employee : item)));
     setViewEmployee((current) => (current?.id === employee.id ? employee : current));
+    refreshIfSpouseLinked(employee);
   };
 
   const handleEmployeeSaveFailed = (message: string) => {

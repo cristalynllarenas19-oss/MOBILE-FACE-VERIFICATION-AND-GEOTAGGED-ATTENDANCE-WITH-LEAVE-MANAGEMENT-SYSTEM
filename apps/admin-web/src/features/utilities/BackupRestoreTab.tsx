@@ -15,6 +15,7 @@ import { Badge } from "../../components/ui/Badge";
 import { ConfirmDialog, type ConfirmDialogConfig } from "../../components/ui/ConfirmDialog";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { apiRequest, API_BASE_URL } from "../../lib/api";
+import { useLiveRefresh } from "../../lib/liveRefresh";
 import type { Notification } from "./UtilitiesPage";
 
 type BackupStatus = "SUCCESS" | "FAILED";
@@ -151,6 +152,7 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
   };
 
   useEffect(loadBackups, []);
+  useLiveRefresh(loadBackups);
 
   useEffect(() => {
     setPage(1);

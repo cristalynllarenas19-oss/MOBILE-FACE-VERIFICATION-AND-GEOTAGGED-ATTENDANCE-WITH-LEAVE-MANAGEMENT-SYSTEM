@@ -9,6 +9,7 @@ import markerShadowUrl from "leaflet/dist/images/marker-shadow.png";
 import "./GeotaggingPage.css";
 import { apiRequest } from "../../lib/api";
 import { useActiveDepartments } from "../../lib/departments";
+import { useLiveRefresh } from "../../lib/liveRefresh";
 import { ConfirmDialog, type ConfirmDialogConfig } from "../../components/ui/ConfirmDialog";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { NotificationModal, type NotificationConfig } from "../../components/ui/NotificationModal";
@@ -45,6 +46,13 @@ type GeotaggedLocation = {
 
 function isGlobalZoneLocation(location?: GeotaggedLocation | null) {
   return Boolean(location?.name && location.name.toLowerCase().includes("global zone"));
+}
+
+// What an area with nobody assigned says in place of the employee names.
+// A new area starts empty and covers no one — employees can only clock in at
+// areas they're assigned to — so only an actual Global Zone reads as "all".
+function getUnassignedAreaLabel(location: GeotaggedLocation) {
+  return isGlobalZoneLocation(location) ? "Global Zone (All Employees)" : "No employees assigned yet";
 }
 
 // Same name GeolocationService.assignDefaultOfficeLocation matches on when
@@ -424,18 +432,26 @@ function GeotaggingPageContent({
   // the picker means by "assigned to another area". Using assignedEmployees
   // there treated an employee just unchecked from this area as taken
   // elsewhere: greyed out, sunk to the bottom, and impossible to re-check.
+  // Employees blocked from this area because they're already in another one.
+  // The default area doesn't count: everyone is in it and keeps it alongside
+  // one other area — and nobody is ever blocked from joining the default
+  // itself (GeolocationService.claimEmployeeForArea).
+  const isEditingDefaultArea = isDefaultOfficeLocation(locations.find((location) => location.id === editingLocationId));
   const assignedToOtherAreas = useMemo(
     () =>
       new Set(
         locations
-          .filter((location) => location.id !== editingLocationId)
+          .filter(
+            (location) =>
+              !isEditingDefaultArea && location.id !== editingLocationId && !isDefaultOfficeLocation(location),
+          )
           .flatMap(
             (location) =>
               location.employees?.map((entry) => entry.employee.id) ?? (location.employeeId ? [location.employeeId] : []),
           )
           .filter((employeeId) => activeEmployeeIds.has(employeeId)),
       ),
-    [locations, activeEmployeeIds, editingLocationId],
+    [locations, activeEmployeeIds, editingLocationId, isEditingDefaultArea],
   );
 
   const currentLocationAssignedIds = useMemo(() => new Set(form.employeeIds), [form.employeeIds]);
@@ -767,7 +783,7 @@ function GeotaggingPageContent({
           ? location.employees.map(({ employee }) => `${employee.firstName} ${employee.lastName}`).join(", ")
           : location.employee
             ? `${location.employee.firstName} ${location.employee.lastName}`
-          : "Global Zone (All Employees)";
+          : getUnassignedAreaLabel(location);
 
       L.circle([location.latitude, location.longitude], {
         radius: location.radiusMeters,
@@ -829,6 +845,7 @@ function GeotaggingPageContent({
           body: JSON.stringify({ ...areaPayload, employeeIds: form.employeeIds }),
         });
         setLocations((current) => [newLoc, ...current]);
+        reloadLocations();
         setNotice({ type: "success", title: "Location Added", message: `"${newLoc.name}" was added.` });
       }
       startCreateMode();
@@ -924,6 +941,29 @@ function GeotaggingPageContent({
     setPlaceSearchMessage("Pin moved — check it on the map and adjust before saving.");
   }
 
+  // Unassigning in one area can also put employees back into the default
+  // area (GeolocationService.returnToDefaultAreaIfUnassigned) — so every card
+  // is re-read afterwards, not just the one that was saved.
+  function reloadLocations() {
+    apiRequest<GeotaggedLocation[]>("/geolocation/locations")
+      .then((locs) => {
+        if (Array.isArray(locs)) setLocations(locs);
+      })
+      .catch(() => undefined);
+  }
+
+  // Live: areas and the employee list follow changes made elsewhere (a new
+  // hire landing in the default area, another admin's assignments) without
+  // a reload. Only the data is refreshed — an open edit form keeps its draft.
+  useLiveRefresh(() => {
+    reloadLocations();
+    apiRequest<EmployeeOption[]>("/employees")
+      .then((emps) => {
+        if (Array.isArray(emps)) setEmployees(emps.filter((employee) => employee.employmentStatus !== "SEPARATED"));
+      })
+      .catch(() => undefined);
+  });
+
   async function handleSaveAssignments() {
     if (!editingLocationId) {
       return;
@@ -937,6 +977,7 @@ function GeotaggingPageContent({
         body: JSON.stringify({ employeeIds: form.employeeIds }),
       });
       setLocations((current) => current.map((location) => (location.id === updated.id ? updated : location)));
+      reloadLocations();
       setNotice({ type: "success", title: "Assignments Saved", message: `Employee assignments saved for "${updated.name}".` });
       startCreateMode();
     } catch (error) {
@@ -982,6 +1023,7 @@ function GeotaggingPageContent({
         { method: "DELETE" },
       );
       setLocations((current) => current.map((loc) => (loc.id === updated.id ? updated : loc)));
+      reloadLocations();
       // Keep the assignments checklist in step if this same area is open there.
       if (editingLocationId === location.id) removeEmployeeFromCurrentLocation(employee.id);
       setNotice({
@@ -1005,6 +1047,7 @@ function GeotaggingPageContent({
     try {
       await apiRequest(`/geolocation/locations/${id}`, { method: "DELETE" });
       setLocations((current) => current.filter((loc) => loc.id !== id));
+      reloadLocations();
       if (selectedLocationId === id) {
         setSelectedLocationId("");
       }
@@ -1446,7 +1489,7 @@ function GeotaggingPageContent({
                 const empName =
                   locationEmployees.length > 0
                     ? locationEmployees.map((employee) => `${employee.firstName} ${employee.lastName}`).join(", ")
-                    : "Global Zone (All Employees)";
+                    : getUnassignedAreaLabel(location);
 
                 return (
                   <article
@@ -1694,7 +1737,11 @@ function GeotaggingPageContent({
                   // Still shown (and removable) when already selected — e.g.
                   // the area was just switched from Office to Field.
                   const isFixedDepartmentOnField = isBlockedFromFieldArea(employee);
-                  const isDisabled = isAssignedElsewhere || (isFixedDepartmentOnField && !isSelected);
+                  // Everyone stays in the default area (the server refuses
+                  // removing them), so a saved member can't be unticked.
+                  const isLockedInDefault = isEditingDefaultArea && savedAssignedIds.has(employee.id);
+                  const isDisabled =
+                    isAssignedElsewhere || (isFixedDepartmentOnField && !isSelected) || isLockedInDefault;
 
                   if (!canWrite) {
                     if (!isSelected) return null;
@@ -1746,6 +1793,9 @@ function GeotaggingPageContent({
                             <span className="employee-assigned-note">
                               Already assigned to another geotagged area
                             </span>
+                          )}
+                          {isLockedInDefault && (
+                            <span className="employee-assigned-note">Default area — every employee stays here</span>
                           )}
                           {isFixedDepartmentOnField && (
                             <span className="employee-assigned-note">

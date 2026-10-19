@@ -3,6 +3,7 @@ import { AlertTriangle, ChevronDown, Plus, Search, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { NotificationModal, type NotificationConfig } from "../../components/ui/NotificationModal";
 import { apiRequest } from "../../lib/api";
+import { useLiveRefresh } from "../../lib/liveRefresh";
 import "../employees/EmployeesPage.css";
 import "./UsersPage.css";
 
@@ -79,6 +80,7 @@ export function UsersPage() {
   };
 
   useEffect(loadUsers, []);
+  useLiveRefresh(loadUsers);
 
   useEffect(() => {
     if (!isAddOpen) return;

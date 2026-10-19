@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import "./FormSelectDropdown.css";
+import "./EmployeeSearchSelect.css";
 
 export type FormSelectDropdownOption = { value: string; label: string; disabled?: boolean };
 
@@ -25,6 +26,7 @@ export function FormSelectDropdown({
   disabled,
   ariaLabel,
   searchable,
+  menuVariant = "default",
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -36,7 +38,11 @@ export function FormSelectDropdown({
   // label — for long lists (e.g. picking an employee) where scrolling to find
   // an option is impractical.
   searchable?: boolean;
+  // "employee" draws the menu like the employee search on Attendance/Reports
+  // (EmployeeSearchSelect) — roomy rows with bold names — for employee pickers.
+  menuVariant?: "default" | "employee";
 }) {
+  const isEmployeeMenu = menuVariant === "employee";
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const shellRef = useRef<HTMLDivElement>(null);
@@ -140,8 +146,14 @@ export function FormSelectDropdown({
       )}
 
       {open && (
-        <div className="form-select-dropdown-menu" role="listbox">
-          {searchable && visibleOptions.length === 0 && <p className="form-select-dropdown-empty">No matches found.</p>}
+        <div className={isEmployeeMenu ? "employee-search-select-list" : "form-select-dropdown-menu"} role="listbox">
+          {searchable &&
+            visibleOptions.length === 0 &&
+            (isEmployeeMenu ? (
+              <div className="employee-search-select-empty">No matching employees found.</div>
+            ) : (
+              <p className="form-select-dropdown-empty">No matches found.</p>
+            ))}
           {visibleOptions.map((option) => (
             <button
               type="button"
@@ -150,10 +162,14 @@ export function FormSelectDropdown({
               aria-selected={value === option.value}
               aria-disabled={option.disabled}
               disabled={option.disabled}
-              className={`form-select-dropdown-option${value === option.value ? " active" : ""}`}
+              className={
+                isEmployeeMenu
+                  ? `employee-search-select-option${value === option.value ? " selected" : ""}`
+                  : `form-select-dropdown-option${value === option.value ? " active" : ""}`
+              }
               onClick={() => select(option)}
             >
-              {option.label}
+              {isEmployeeMenu ? <span>{option.label}</span> : option.label}
             </button>
           ))}
         </div>

@@ -4,6 +4,7 @@ import * as nodemailer from "nodemailer";
 import { join } from "path";
 import {
   createGmailTransport,
+  isTransientSmtpError,
   maskEmail,
   readGmailCredentials,
   SMTP_HOST,
@@ -19,7 +20,13 @@ import {
 const LOGO_PATH = join(process.cwd(), "assets/ULPI-header.png");
 const LOGO_CID = "ulpi-header";
 
-export type MailSendResult = { messageId?: string; accepted: number; rejected: number; durationMs: number };
+// Credentials emails are sent in the background (nobody waits on them), so
+// they can ride out a flaky network: up to 3 attempts, waiting longer before
+// each retry. The OTP email is awaited by the forgot-password request itself,
+// so it keeps a single attempt.
+const CREDENTIALS_RETRY_DELAYS_MS = [5_000, 15_000];
+
+export type MailSendResult ={ messageId?: string; accepted: number; rejected: number; durationMs: number };
 
 export class MailNotConfiguredError extends Error {
   constructor() {
@@ -108,35 +115,47 @@ export class MailService implements OnApplicationBootstrap {
           contentDisposition: "inline",
         },
       ],
-    });
+    }, CREDENTIALS_RETRY_DELAYS_MS);
   }
 
   // Logs every attempt's start and outcome (never the body — it carries the
   // password/OTP) and rethrows failures so callers decide what they mean.
-  private async deliver(kind: string, options: nodemailer.SendMailOptions & { to: string }): Promise<MailSendResult> {
+  // Transient failures are retried once per entry in retryDelaysMs.
+  private async deliver(
+    kind: string,
+    options: nodemailer.SendMailOptions & { to: string },
+    retryDelaysMs: number[] = [],
+  ): Promise<MailSendResult> {
     const recipient = maskEmail(options.to);
     if (!this.transporter) {
       this.logger.warn(`[MAILER] Email NOT sent (${kind} → ${recipient}) — mailer not configured.`);
       throw new MailNotConfiguredError();
     }
 
-    this.logger.log(`[MAILER] Email sending started (${kind} → ${recipient})`);
-    const startedAt = Date.now();
-    try {
-      const info = await this.transporter.sendMail({ from: this.sender, ...options });
-      const durationMs = Date.now() - startedAt;
-      const accepted = info.accepted?.length ?? 0;
-      const rejected = info.rejected?.length ?? 0;
-      const smtpReply = String(info.response ?? "").split(" ").slice(0, 2).join(" ");
-      if (accepted === 0) throw new Error(`SMTP server rejected the recipient (reply "${smtpReply}")`);
-      this.logger.log(
-        `[MAILER] Email sending successful (${kind} → ${recipient}) in ${durationMs}ms — messageId ${info.messageId}, ` +
-          `accepted ${accepted}, rejected ${rejected}, SMTP reply "${smtpReply}"`,
-      );
-      return { messageId: info.messageId, accepted, rejected, durationMs };
-    } catch (error) {
-      this.logFailure(`Email sending (${kind} → ${recipient})`, error, Date.now() - startedAt);
-      throw error;
+    const maxAttempts = retryDelaysMs.length + 1;
+    for (let attempt = 1; ; attempt++) {
+      const attemptLabel = maxAttempts > 1 ? ` attempt ${attempt}/${maxAttempts}` : "";
+      this.logger.log(`[MAILER] Email sending started (${kind} → ${recipient})${attemptLabel}`);
+      const startedAt = Date.now();
+      try {
+        const info = await this.transporter.sendMail({ from: this.sender, ...options });
+        const durationMs = Date.now() - startedAt;
+        const accepted = info.accepted?.length ?? 0;
+        const rejected = info.rejected?.length ?? 0;
+        const smtpReply = String(info.response ?? "").split(" ").slice(0, 2).join(" ");
+        if (accepted === 0) throw new Error(`SMTP server rejected the recipient (reply "${smtpReply}")`);
+        this.logger.log(
+          `[MAILER] Email sending successful (${kind} → ${recipient})${attemptLabel} in ${durationMs}ms — messageId ${info.messageId}, ` +
+            `accepted ${accepted}, rejected ${rejected}, SMTP reply "${smtpReply}"`,
+        );
+        return { messageId: info.messageId, accepted, rejected, durationMs };
+      } catch (error) {
+        this.logFailure(`Email sending (${kind} → ${recipient})${attemptLabel}`, error, Date.now() - startedAt);
+        const retryDelayMs = retryDelaysMs[attempt - 1];
+        if (retryDelayMs === undefined || !isTransientSmtpError(error)) throw error;
+        this.logger.warn(`[MAILER] Retrying ${kind} → ${recipient} in ${retryDelayMs / 1000}s…`);
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+      }
     }
   }
 

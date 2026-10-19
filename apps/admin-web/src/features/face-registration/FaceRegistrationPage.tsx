@@ -86,62 +86,108 @@ function employeeLabel(employee: Employee) {
   return `${employee.firstName} ${employee.lastName}`;
 }
 
-// face-api.js ships no dedicated eyewear classifier, so this is a best-effort
-// pixel heuristic built on the 68-point landmarks we already compute for
-// detection/tracking — not a trained model. It looks for three independent
-// signals:
-//  1. Frame edges around each eye — clear/rimmed glasses leave a strong edge
-//     around the eye socket that bare skin doesn't produce (Sobel gradient
-//     magnitude). Computed per eye and required to agree on both sides, since
-//     a real pair of glasses spans the whole face while one-sided lighting
-//     artifacts (a shadow, hair near one temple) typically only trip one side.
-//  2. Lens darkness — sunglasses make the eye region noticeably darker than
-//     the forehead just above it (average luminance delta), also required on
-//     both sides.
-//  3. Nose-bridge line — thin wire/rimless frames barely move signals 1-2 (too
-//     little frame area over a wide crop), but they almost always still cross
-//     the nose between the inner eye corners. This looks at just that narrow
-//     gap and checks for a strong edge line there; because the crop is so
-//     small, even a thin bridge dominates it enough to register.
-// A positive also has to persist for a couple of consecutive polls (see
-// eyewearStreakRef in startFaceTracking) before it's shown, so a single noisy
-// frame can't flash the warning.
-// Thresholds below are starting points, not calibrated against real footage —
-// expect to retune them (and accept some false positives/negatives) once this
-// runs against real captures.
-const EYEGLASS_EDGE_THRESHOLD = 12; // % of eye-band pixels counted as a strong edge
-const SUNGLASSES_DARKNESS_THRESHOLD = 35; // forehead-vs-eye average brightness delta (0-255 scale)
-const BRIDGE_EDGE_THRESHOLD = 8; // % of nose-bridge crop pixels counted as a strong edge
-const EYEWEAR_CONFIRM_STREAK = 2; // consecutive positive polls required before flagging
+// face-api.js ships no eyewear classifier, so this is a pixel check built on
+// the 68-point landmarks we already compute. It only looks for things a bare
+// face can't produce, so ordinary eye features (iris vs. white of the eye,
+// lashes, brows) and lighting (shadowed eye sockets under a ceiling light)
+// don't count:
+//  1. The bridge. Every pair of glasses — rimmed, rimless, wire, sunglasses —
+//     has a bar crossing the top of the nose between the eyes. In that small
+//     patch of skin (well clear of the eyes and brows) we look for a thin
+//     horizontal bar spanning most of its width: an edge of one polarity with
+//     the opposite edge just below it. A shadow boundary is a single edge, and
+//     the sides of the nose are vertical, so neither qualifies.
+//  2. Dark, flat lenses (sunglasses): both eye openings much darker than the
+//     cheek below them AND without the bright-white/dark-iris contrast a
+//     visible eye always has.
+// Regions are placed relative to the two eye centres and sampled with the eye
+// line rotated level, so face size, distance and head tilt don't matter.
+// The verdict is a majority over the last EYEWEAR_WINDOW polls (~2s), never a
+// single frame, so a passing shadow or blink can't flip it.
+const EYEWEAR_WINDOW = 8;
+const EYEWEAR_MIN_POSITIVES = 6;
+
+function isEyewearConfirmed(history: boolean[]) {
+  return history.filter(Boolean).length >= EYEWEAR_MIN_POSITIVES;
+}
+// Below this distance between the eye centres (video pixels) the face is too
+// small for the bridge to be resolved, so no verdict is given.
+const EYEWEAR_MIN_EYE_DISTANCE = 36;
+// Bridge bar: edge strength relative to the patch's own contrast (lighting
+// independent), the share of the patch width the bar must span, and how far
+// apart (as a share of patch height) its two edges may be.
+const BRIDGE_MIN_CONTRAST = 18;
+const BRIDGE_EDGE_FACTOR = 1.2;
+const BRIDGE_MIN_EDGE = 30;
+const BRIDGE_MIN_COVERAGE = 0.75;
+const BRIDGE_MAX_BAR_HEIGHT = 0.35;
+// Sunglasses: eye opening at most this share of the cheek's brightness, with
+// less than this much brightness spread (std dev, 0-255) inside it.
+const SUNGLASSES_MAX_BRIGHTNESS_RATIO = 0.55;
+const SUNGLASSES_MAX_EYE_SPREAD = 22;
 const ENROLLMENTS_PAGE_SIZE = 5;
 
-function pointsBounds(points: faceapi.Point[]) {
-  const xs = points.map((p) => p.x);
-  const ys = points.map((p) => p.y);
-  return { minX: Math.min(...xs), maxX: Math.max(...xs), minY: Math.min(...ys), maxY: Math.max(...ys) };
+type Point = { x: number; y: number };
+type FaceAxes = { left: Point; right: Point; mid: Point; angle: number; d: number };
+
+function centerOf(points: faceapi.Point[]): Point {
+  return {
+    x: points.reduce((sum, p) => sum + p.x, 0) / points.length,
+    y: points.reduce((sum, p) => sum + p.y, 0) / points.length,
+  };
 }
 
-// Sobel gradient magnitude at a single interior pixel of a grayscale buffer.
-function sobelMagnitude(gray: Float32Array, w: number, px: number, py: number): number {
-  const gx =
-    -gray[(py - 1) * w + (px - 1)] + gray[(py - 1) * w + (px + 1)] +
-    -2 * gray[py * w + (px - 1)] + 2 * gray[py * w + (px + 1)] +
-    -gray[(py + 1) * w + (px - 1)] + gray[(py + 1) * w + (px + 1)];
-  const gy =
-    -gray[(py - 1) * w + (px - 1)] - 2 * gray[(py - 1) * w + px] - gray[(py - 1) * w + (px + 1)] +
-    gray[(py + 1) * w + (px - 1)] + 2 * gray[(py + 1) * w + px] + gray[(py + 1) * w + (px + 1)];
-  return Math.sqrt(gx * gx + gy * gy);
+function faceAxes(landmarks: faceapi.FaceLandmarks68): FaceAxes | null {
+  const a = centerOf(landmarks.getLeftEye());
+  const b = centerOf(landmarks.getRightEye());
+  const [left, right] = a.x <= b.x ? [a, b] : [b, a];
+  const d = Math.hypot(right.x - left.x, right.y - left.y);
+  if (d < EYEWEAR_MIN_EYE_DISTANCE) return null;
+  return {
+    left,
+    right,
+    mid: { x: (left.x + right.x) / 2, y: (left.y + right.y) / 2 },
+    angle: Math.atan2(right.y - left.y, right.x - left.x),
+    d,
+  };
 }
 
-function grabGrayscale(video: HTMLVideoElement, cropX: number, cropY: number, cropWidth: number, cropHeight: number) {
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.round(cropWidth);
-  canvas.height = Math.round(cropHeight);
-  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+let samplingCanvas: HTMLCanvasElement | null = null;
+
+// Grayscale copy of a rectangle centred (u, v) eye-distances from `origin` —
+// u along the eye line, v down the face — of half-size halfW x halfH, rotated
+// level and scaled to outWidth pixels wide.
+function sampleRegion(
+  video: HTMLVideoElement,
+  axes: FaceAxes,
+  origin: Point,
+  u: number,
+  v: number,
+  halfW: number,
+  halfH: number,
+  outWidth: number,
+) {
+  const cos = Math.cos(axes.angle);
+  const sin = Math.sin(axes.angle);
+  const cx = origin.x + (u * cos - v * sin) * axes.d;
+  const cy = origin.y + (u * sin + v * cos) * axes.d;
+  const scale = outWidth / (halfW * 2 * axes.d);
+  const w = outWidth;
+  const h = Math.max(5, Math.round(halfH * 2 * axes.d * scale));
+
+  samplingCanvas ??= document.createElement("canvas");
+  samplingCanvas.width = w;
+  samplingCanvas.height = h;
+  const ctx = samplingCanvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) return null;
-  ctx.drawImage(video, cropX, cropY, cropWidth, cropHeight, 0, 0, canvas.width, canvas.height);
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.translate(w / 2, h / 2);
+  ctx.scale(scale, scale);
+  ctx.rotate(-axes.angle);
+  ctx.translate(-cx, -cy);
+  ctx.drawImage(video, 0, 0);
 
-  const { data, width: w, height: h } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const { data } = ctx.getImageData(0, 0, w, h);
   const gray = new Float32Array(w * h);
   for (let i = 0; i < w * h; i++) {
     gray[i] = 0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2];
@@ -149,133 +195,114 @@ function grabGrayscale(video: HTMLVideoElement, cropX: number, cropY: number, cr
   return { gray, w, h };
 }
 
-// Analyzes a single eye+brow region (one side of the face only) and returns
-// its edge density and forehead-vs-eye darkness delta, the same two signals
-// detectEyewear below compares across both sides for symmetry.
-function analyzeEyeRegion(
-  video: HTMLVideoElement,
-  eyePoints: faceapi.Point[],
-  browPoints: faceapi.Point[],
-): { edgeDensity: number; darknessDelta: number } | null {
-  if (!eyePoints.length || !browPoints.length) return null;
-
-  const eyeBounds = pointsBounds(eyePoints);
-  const browBounds = pointsBounds(browPoints);
-  const browHeight = eyeBounds.minY - browBounds.minY || 12;
-
-  // Crop from just above the eyebrow (approximating the forehead, since the
-  // 68-point set has no forehead landmarks of its own) down to just below
-  // the eye, spanning that eye's width with a little side padding.
-  const padX = (eyeBounds.maxX - eyeBounds.minX) * 0.15;
-  const cropX = Math.max(0, eyeBounds.minX - padX);
-  const cropY = Math.max(0, browBounds.minY - browHeight);
-  const cropWidth = Math.min(video.videoWidth - cropX, eyeBounds.maxX - eyeBounds.minX + padX * 2);
-  const cropHeight = Math.min(video.videoHeight - cropY, eyeBounds.maxY - cropY + browHeight * 0.4);
-  if (cropWidth < 12 || cropHeight < 10) return null;
-
-  const grabbed = grabGrayscale(video, cropX, cropY, cropWidth, cropHeight);
-  if (!grabbed) return null;
-  const { gray, w, h } = grabbed;
-
-  // Signal 1: edge density across the eye-level band (roughly the middle
-  // third of the crop, where a glasses frame/rim would sit).
-  const bandTop = Math.max(1, Math.round(h * 0.35));
-  const bandBottom = Math.min(h - 1, Math.round(h * 0.7));
-  let strongEdges = 0;
-  let bandPixels = 0;
-  for (let py = Math.max(1, bandTop); py < bandBottom; py++) {
-    for (let px = 1; px < w - 1; px++) {
-      if (sobelMagnitude(gray, w, px, py) > 110) strongEdges++;
-      bandPixels++;
+function boxBlur(gray: Float32Array, w: number, h: number) {
+  const out = new Float32Array(w * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      let sum = 0;
+      let count = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const yy = y + dy;
+          const xx = x + dx;
+          if (yy >= 0 && yy < h && xx >= 0 && xx < w) {
+            sum += gray[yy * w + xx];
+            count++;
+          }
+        }
+      }
+      out[y * w + x] = sum / count;
     }
   }
-  const edgeDensity = bandPixels > 0 ? (strongEdges / bandPixels) * 100 : 0;
-
-  // Signal 2: forehead strip (top ~20%) vs eye-band average brightness.
-  const foreheadEnd = Math.max(1, Math.round(h * 0.2));
-  let foreheadSum = 0;
-  let foreheadCount = 0;
-  for (let i = 0; i < foreheadEnd * w; i++) {
-    foreheadSum += gray[i];
-    foreheadCount++;
-  }
-  let eyeBandSum = 0;
-  let eyeBandCount = 0;
-  for (let py = bandTop; py < bandBottom; py++) {
-    for (let px = 0; px < w; px++) {
-      eyeBandSum += gray[py * w + px];
-      eyeBandCount++;
-    }
-  }
-  const foreheadAvg = foreheadCount > 0 ? foreheadSum / foreheadCount : 0;
-  const eyeBandAvg = eyeBandCount > 0 ? eyeBandSum / eyeBandCount : 0;
-  const darknessDelta = foreheadAvg - eyeBandAvg;
-
-  return { edgeDensity, darknessDelta };
+  return out;
 }
 
-// Looks specifically at the narrow gap between the inner corners of the two
-// eyes (the nose bridge) for a strong edge line — this is where even a thin
-// wire/rimless frame's bridge crosses, and the crop is tight enough that the
-// bridge dominates it even though it's only a few pixels wide.
-function analyzeBridgeRegion(
-  video: HTMLVideoElement,
-  leftEyeBounds: { minX: number; maxX: number; minY: number; maxY: number },
-  rightEyeBounds: { minX: number; maxX: number; minY: number; maxY: number },
-): number | null {
-  // Figure out which bounds is physically on-screen-left vs right without
-  // assuming anything about face-api's "left eye"/"right eye" naming.
-  const [innerSideA, innerSideB] =
-    leftEyeBounds.minX <= rightEyeBounds.minX ? [leftEyeBounds, rightEyeBounds] : [rightEyeBounds, leftEyeBounds];
-  const bridgeLeft = innerSideA.maxX;
-  const bridgeRight = innerSideB.minX;
-  const bridgeWidthRaw = bridgeRight - bridgeLeft;
-  if (bridgeWidthRaw < 4) return null; // eyes overlap/touch in the detected bounds — unreliable
+function percentile(values: Float32Array, p: number) {
+  const sorted = Array.from(values).sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))];
+}
 
-  const padX = bridgeWidthRaw * 0.3;
-  const cropX = Math.max(0, bridgeLeft - padX);
-  const cropWidth = Math.min(video.videoWidth - cropX, bridgeWidthRaw + padX * 2);
+// Signal 1 — see the comment above EYEWEAR_WINDOW.
+function hasBridgeBar(video: HTMLVideoElement, axes: FaceAxes) {
+  // Between the inner eye corners (~±0.28 eye-distances from the midpoint),
+  // from eye level up to just under the brows (which start ~0.3 above it) —
+  // the strip of nose skin a bridge always crosses. Kept clear of the brows
+  // so thick or joined eyebrows can't pass for a bar.
+  const region = sampleRegion(video, axes, axes.mid, 0, -0.05, 0.15, 0.17, 32);
+  if (!region) return false;
+  const { w, h } = region;
+  const gray = boxBlur(region.gray, w, h);
 
-  const centerY = (((innerSideA.minY + innerSideA.maxY) / 2) + ((innerSideB.minY + innerSideB.maxY) / 2)) / 2;
-  const bandHeight = Math.max(innerSideA.maxY - innerSideA.minY, innerSideB.maxY - innerSideB.minY) * 0.9;
-  const cropY = Math.max(0, centerY - bandHeight / 2);
-  const cropHeight = Math.min(video.videoHeight - cropY, bandHeight);
-  if (cropWidth < 6 || cropHeight < 6) return null;
+  const contrast = percentile(gray, 0.95) - percentile(gray, 0.05);
+  if (contrast < BRIDGE_MIN_CONTRAST) return false;
+  const threshold = Math.max(BRIDGE_MIN_EDGE, contrast * BRIDGE_EDGE_FACTOR);
 
-  const grabbed = grabGrayscale(video, cropX, cropY, cropWidth, cropHeight);
-  if (!grabbed) return null;
-  const { gray, w, h } = grabbed;
-
-  let strongEdges = 0;
-  let total = 0;
-  for (let py = 1; py < h - 1; py++) {
-    for (let px = 1; px < w - 1; px++) {
-      // Slightly lower than the eye-region threshold: thin metal wire is
-      // high-contrast but only a pixel or two wide, so its peak gradient can
-      // be a bit weaker than a thick plastic rim's.
-      if (sobelMagnitude(gray, w, px, py) > 90) strongEdges++;
-      total++;
+  // Per row: which columns have a strong, mostly-horizontal edge going
+  // darker-downward (+1) or lighter-downward (-1).
+  const signs = new Int8Array(w * h);
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const at = (dx: number, dy: number) => gray[(y + dy) * w + (x + dx)];
+      const gx = -at(-1, -1) + at(1, -1) - 2 * at(-1, 0) + 2 * at(1, 0) - at(-1, 1) + at(1, 1);
+      const gy = -at(-1, -1) - 2 * at(0, -1) - at(1, -1) + at(-1, 1) + 2 * at(0, 1) + at(1, 1);
+      if (Math.abs(gy) > threshold && Math.abs(gy) > 1.5 * Math.abs(gx)) {
+        signs[y * w + x] = gy > 0 ? 1 : -1;
+      }
     }
   }
-  return total > 0 ? (strongEdges / total) * 100 : 0;
+
+  // Share of the width covered by each polarity around each row (±1 row, so
+  // a slightly curved bar still counts).
+  const coverage = (row: number, sign: number) => {
+    let hit = 0;
+    for (let x = 1; x < w - 1; x++) {
+      for (let y = Math.max(1, row - 1); y <= Math.min(h - 2, row + 1); y++) {
+        if (signs[y * w + x] === sign) {
+          hit++;
+          break;
+        }
+      }
+    }
+    return hit / (w - 2);
+  };
+
+  const maxGap = Math.max(2, Math.round(h * BRIDGE_MAX_BAR_HEIGHT));
+  for (let top = 1; top < h - 1; top++) {
+    for (const sign of [1, -1]) {
+      if (coverage(top, sign) < BRIDGE_MIN_COVERAGE) continue;
+      for (let bottom = top + 1; bottom <= Math.min(h - 2, top + maxGap); bottom++) {
+        if (coverage(bottom, -sign) >= BRIDGE_MIN_COVERAGE) return true;
+      }
+    }
+  }
+  return false;
+}
+
+function meanAndSpread(gray: Float32Array) {
+  const mean = gray.reduce((sum, value) => sum + value, 0) / gray.length;
+  const variance = gray.reduce((sum, value) => sum + (value - mean) ** 2, 0) / gray.length;
+  return { mean, spread: Math.sqrt(variance) };
+}
+
+// Signal 2 — dark, flat lenses over both eyes.
+function hasDarkLenses(video: HTMLVideoElement, axes: FaceAxes) {
+  return [axes.left, axes.right].every((eye) => {
+    const opening = sampleRegion(video, axes, eye, 0, 0, 0.2, 0.08, 24);
+    const cheek = sampleRegion(video, axes, eye, 0, 0.62, 0.15, 0.08, 16);
+    if (!opening || !cheek) return false;
+    const eyeStats = meanAndSpread(opening.gray);
+    const cheekStats = meanAndSpread(cheek.gray);
+    return (
+      eyeStats.mean < cheekStats.mean * SUNGLASSES_MAX_BRIGHTNESS_RATIO &&
+      eyeStats.spread < SUNGLASSES_MAX_EYE_SPREAD
+    );
+  });
 }
 
 function detectEyewear(video: HTMLVideoElement, landmarks: faceapi.FaceLandmarks68): boolean {
-  const leftEyePoints = landmarks.getLeftEye();
-  const rightEyePoints = landmarks.getRightEye();
-  const left = analyzeEyeRegion(video, leftEyePoints, landmarks.getLeftEyeBrow());
-  const right = analyzeEyeRegion(video, rightEyePoints, landmarks.getRightEyeBrow());
-  if (!left || !right) return false;
-
-  const edgesOnBothSides =
-    left.edgeDensity > EYEGLASS_EDGE_THRESHOLD && right.edgeDensity > EYEGLASS_EDGE_THRESHOLD;
-  const darkOnBothSides =
-    left.darknessDelta > SUNGLASSES_DARKNESS_THRESHOLD && right.darknessDelta > SUNGLASSES_DARKNESS_THRESHOLD;
-
-  const bridgeEdgeDensity = analyzeBridgeRegion(video, pointsBounds(leftEyePoints), pointsBounds(rightEyePoints));
-  const bridgeDetected = bridgeEdgeDensity !== null && bridgeEdgeDensity > BRIDGE_EDGE_THRESHOLD;
-
-  return edgesOnBothSides || darkOnBothSides || bridgeDetected;
+  const axes = faceAxes(landmarks);
+  if (!axes) return false;
+  return hasBridgeBar(video, axes) || hasDarkLenses(video, axes);
 }
 
 export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: FaceRegistrationEmployee } = {}) {
@@ -283,8 +310,8 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
   const streamRef = useRef<MediaStream | null>(null);
   const sequenceRef = useRef(false);
   const faceTrackingTimerRef = useRef<number | null>(null);
-  // Consecutive polls in a row that detected eyewear — see EYEWEAR_CONFIRM_STREAK.
-  const eyewearStreakRef = useRef(0);
+  // Eyewear verdicts of the most recent polls — see EYEWEAR_WINDOW.
+  const eyewearHistoryRef = useRef<boolean[]>([]);
   const [modelsReady, setModelsReady] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
   // A just-created employee handed over from Employee Management arrives
@@ -401,10 +428,10 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
     if (box.width < 120 || box.height < 120) {
       throw new Error("Move closer so the face is large and clear.");
     }
-    // Belt-and-suspenders: the live tracker already blocks starting a guided
-    // capture while eyewear is detected, but re-check the actual captured
-    // frame in case the on-screen state was stale at the moment of capture.
-    if (input instanceof HTMLVideoElement && detectEyewear(input, results[0].landmarks)) {
+    // The live tracker already blocks starting a guided capture while eyewear
+    // is confirmed; re-check its (multi-frame) verdict at the moment of
+    // capture, rather than judging this one frame on its own.
+    if (input instanceof HTMLVideoElement && isEyewearConfirmed(eyewearHistoryRef.current)) {
       throw new Error("Eyeglasses or sunglasses detected. Please remove them and try again.");
     }
     return Array.from(results[0].descriptor);
@@ -412,7 +439,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
 
   function startFaceTracking() {
     if (!modelsReady || faceTrackingTimerRef.current) return;
-    eyewearStreakRef.current = 0;
+    eyewearHistoryRef.current = [];
 
     faceTrackingTimerRef.current = window.setInterval(async () => {
       const video = videoRef.current;
@@ -424,21 +451,16 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
           .withFaceLandmarks(true);
 
         if (!result) {
-          eyewearStreakRef.current = 0;
+          eyewearHistoryRef.current = [];
           setFaceFrame(null);
           setEyewearDetected(false);
           return;
         }
 
-        // Require a couple of consecutive positive polls (~500ms) before
-        // actually showing the warning, so one noisy frame (a shadow, a hand
-        // passing by) can't flash it on and off.
-        if (detectEyewear(video, result.landmarks)) {
-          eyewearStreakRef.current += 1;
-        } else {
-          eyewearStreakRef.current = 0;
-        }
-        setEyewearDetected(eyewearStreakRef.current >= EYEWEAR_CONFIRM_STREAK);
+        eyewearHistoryRef.current = [...eyewearHistoryRef.current, detectEyewear(video, result.landmarks)].slice(
+          -EYEWEAR_WINDOW,
+        );
+        setEyewearDetected(isEyewearConfirmed(eyewearHistoryRef.current));
 
         const box = result.detection.box;
         const scale = Math.max(video.clientWidth / video.videoWidth, video.clientHeight / video.videoHeight);
@@ -488,7 +510,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
           ready,
         });
       } catch {
-        eyewearStreakRef.current = 0;
+        eyewearHistoryRef.current = [];
         setFaceFrame(null);
         setEyewearDetected(false);
       }

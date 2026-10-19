@@ -28,6 +28,7 @@ import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { MultiSelectDropdown } from "../../components/ui/MultiSelectDropdown";
 import { apiRequest } from "../../lib/api";
+import { useLiveRefresh } from "../../lib/liveRefresh";
 import { useActiveDepartments } from "../../lib/departments";
 import { renderFormattedText } from "../../lib/richText";
 import { PermissionCode, permissions } from "../../types/rbac";
@@ -215,6 +216,7 @@ export function AnnouncementsTab({
   };
 
   useEffect(loadAnnouncements, [showArchived]);
+  useLiveRefresh(loadAnnouncements);
 
   useEffect(() => {
     apiRequest<EmployeeOption[]>("/employees").then(setEmployees).catch(() => undefined);

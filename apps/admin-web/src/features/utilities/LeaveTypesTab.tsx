@@ -15,6 +15,7 @@ import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { ConfirmDialog, type ConfirmDialogConfig } from "../../components/ui/ConfirmDialog";
 import { MultiSelectDropdown } from "../../components/ui/MultiSelectDropdown";
 import { apiRequest } from "../../lib/api";
+import { useLiveRefresh } from "../../lib/liveRefresh";
 import {
   type EmploymentStatus,
   formatEmploymentStatus,
@@ -179,6 +180,7 @@ export function LeaveTypesTab({
   };
 
   useEffect(loadLeaveTypes, []);
+  useLiveRefresh(loadLeaveTypes);
 
   useEffect(() => {
     setPage(1);

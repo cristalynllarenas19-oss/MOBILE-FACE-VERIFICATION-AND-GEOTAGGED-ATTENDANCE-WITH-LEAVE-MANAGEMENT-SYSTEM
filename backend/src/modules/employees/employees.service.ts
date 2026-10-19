@@ -1,7 +1,7 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, OnApplicationBootstrap } from "@nestjs/common";
 import { canContinueOvernightRecord, computeShiftEnd, isInsidePreviousDayShift } from "../attendance/attendance-shift.util";
 import { isNonWorkingDay } from "../../common/utils/schedule.util";
-import { LeaveTypeKind } from "@prisma/client";
+import { LeaveTypeKind, Prisma } from "@prisma/client";
 import * as argon2 from "argon2";
 import { generateTemporaryPassword } from "../../common/utils/password.util";
 import { PrismaService } from "../../prisma/prisma.service";
@@ -58,21 +58,12 @@ const ENTITLED_TO_LEAVE_STATUSES = new Set(["REGULAR", "PERMANENT_SEASONAL"]);
 // admin-web View/Edit Employee modals to show their name.
 const SPOUSE_EMPLOYEE_SELECT = { select: { id: true, firstName: true, lastName: true, employeeNo: true } } as const;
 
-// How long the Add Employee request waits on Gmail before answering with
-// PENDING. The send itself keeps going (bounded by SMTP_TIMEOUTS) and its
-// final outcome is still logged and, on failure, audit-logged.
-// A pooled (already-connected) send normally lands in ~1s, so 5s still
-// confirms SENT in the common case without stalling the form on a slow network.
-const CREDENTIALS_EMAIL_WAIT_MS = 5_000;
-
-export type CredentialsEmailStatus = {
-  status: "SENT" | "FAILED" | "PENDING";
-  // Safe for display — never contains the password or SMTP credentials.
-  reason?: string;
-};
+// Bell notification for the admin when a login credentials email could not be
+// sent even after retries (see sendCredentialsEmailInBackground).
+const CREDENTIALS_EMAIL_FAILED_NOTIFICATION_TYPE = "CREDENTIALS_EMAIL_FAILED";
 
 @Injectable()
-export class EmployeesService {
+export class EmployeesService implements OnApplicationBootstrap {
   private readonly logger = new Logger(EmployeesService.name);
 
   constructor(
@@ -275,6 +266,103 @@ export class EmployeesService {
   }
 
 
+  // Spouse links used to be one-way, so a couple linked from only one side
+  // gets its missing back-link filled in on boot. Idempotent (a no-op once
+  // every link is mutual) and in the background, so startup never waits.
+  onApplicationBootstrap() {
+    void this.backfillSpouseBackLinks().catch((error) =>
+      this.logger.error(`[EMPLOYEE] Spouse back-link backfill failed: ${String(error)}`),
+    );
+  }
+
+  private async backfillSpouseBackLinks() {
+    const oneSided = await this.prisma.employee.findMany({
+      where: { spouseEmployeeId: { not: null }, spouseEmployee: { spouseEmployeeId: null } },
+      select: { id: true, spouseEmployeeId: true },
+    });
+    let linked = 0;
+    for (const { id, spouseEmployeeId } of oneSided) {
+      if (!spouseEmployeeId) continue;
+      // Only the missing side is written — the existing side's link (and any
+      // Added Paternity days already moved for it) stays as it is. Re-checked
+      // here so two records naming the same spouse can't both claim them.
+      await this.prisma.$transaction(async (tx) => {
+        const spouse = await tx.employee.findUnique({ where: { id: spouseEmployeeId }, select: { spouseEmployeeId: true } });
+        if (!spouse || spouse.spouseEmployeeId) return;
+        await this.relinkSpouse(tx, spouseEmployeeId, id, { civilStatus: "MARRIED", spouseEmployerName: null, spouseUnemployed: false });
+        linked++;
+      });
+    }
+    if (linked > 0) this.logger.log(`[EMPLOYEE] Linked back ${linked} one-sided spouse record(s).`);
+  }
+
+  // Spouse links run both ways. Once employeeId's own link has been saved as
+  // previousSpouseId -> newSpouseId, this:
+  //  - marks the new spouse Married with their spouse working at ULPI, linked
+  //    back to employeeId (and unlinks whoever they were linked to before);
+  //  - unlinks the previous spouse if they still pointed back at employeeId
+  //    (their Civil Status is left for the admin to set).
+  // One transaction, with Added Paternity days following every link change.
+  private async syncSpouseLinks(
+    employeeId: string,
+    sex: string | null,
+    previousSpouseId: string | null,
+    newSpouseId: string | null,
+  ) {
+    if (previousSpouseId === newSpouseId) return;
+    await this.prisma.$transaction(async (tx) => {
+      await this.movePaternityTransfer(tx, employeeId, sex, previousSpouseId, newSpouseId);
+
+      if (previousSpouseId) {
+        const previous = await tx.employee.findUnique({ where: { id: previousSpouseId }, select: { spouseEmployeeId: true } });
+        if (previous?.spouseEmployeeId === employeeId) await this.relinkSpouse(tx, previousSpouseId, null);
+      }
+
+      if (newSpouseId) {
+        const spouse = await tx.employee.findUniqueOrThrow({ where: { id: newSpouseId }, select: { spouseEmployeeId: true } });
+        const theirFormerId = spouse.spouseEmployeeId;
+        if (theirFormerId && theirFormerId !== employeeId) {
+          const theirFormer = await tx.employee.findUnique({ where: { id: theirFormerId }, select: { spouseEmployeeId: true } });
+          if (theirFormer?.spouseEmployeeId === newSpouseId) await this.relinkSpouse(tx, theirFormerId, null);
+        }
+        await this.relinkSpouse(tx, newSpouseId, employeeId, {
+          civilStatus: "MARRIED",
+          spouseEmployerName: null,
+          spouseUnemployed: false,
+        });
+      }
+    });
+  }
+
+  private async relinkSpouse(
+    tx: Prisma.TransactionClient,
+    employeeId: string,
+    spouseId: string | null,
+    data: Prisma.EmployeeUncheckedUpdateInput = {},
+  ) {
+    const current = await tx.employee.findUniqueOrThrow({ where: { id: employeeId }, select: { sex: true, spouseEmployeeId: true } });
+    await tx.employee.update({ where: { id: employeeId }, data: { ...data, spouseEmployeeId: spouseId } });
+    await this.movePaternityTransfer(tx, employeeId, current.sex, current.spouseEmployeeId, spouseId);
+  }
+
+  // A husband's Added Paternity days come out of his linked wife's Maternity
+  // Leave — re-linking (or unlinking) moves them back to the old wife and out
+  // of the new one.
+  private async movePaternityTransfer(
+    tx: Prisma.TransactionClient,
+    employeeId: string,
+    sex: string | null,
+    fromSpouseId: string | null,
+    toSpouseId: string | null,
+  ) {
+    if (sex !== "MALE" || fromSpouseId === toSpouseId) return;
+    const year = new Date().getFullYear();
+    const transferredDays = await getTransferredPaternityDays(tx, employeeId, year);
+    if (transferredDays === 0) return;
+    if (fromSpouseId) await shiftMaternityDaysFromSpouse(tx, fromSpouseId, year, -transferredDays);
+    if (toSpouseId) await shiftMaternityDaysFromSpouse(tx, toSpouseId, year, transferredDays);
+  }
+
   private async resolveSupervisorId(
     supervisorId: string | undefined,
     targetDepartmentId: string,
@@ -426,7 +514,7 @@ export class EmployeesService {
     try {
       const result = await this.createEmployee(dto, context, scopeDepartmentId, recipient);
       this.logger.log(
-        `[EMPLOYEE] Employee creation completed — ${result.employeeNo} in ${Date.now() - startedAt}ms total, credentials email ${result.credentialsEmail.status}`,
+        `[EMPLOYEE] Employee creation completed — ${result.employeeNo} in ${Date.now() - startedAt}ms total, credentials email sending in background`,
       );
       return result;
     } catch (error) {
@@ -526,16 +614,16 @@ export class EmployeesService {
     this.logger.log(`[DATABASE] Employee saved — ${created.employeeNo} (${created.id}) in ${Date.now() - stepAt}ms`);
     stepAt = Date.now();
 
-    // Every new hire gets a starting Standard Shift. A Non-field hire also
-    // gets the default Office geotag so they can record attendance right
-    // away; a Field hire (mode taken from their department — see
-    // resolveAttendanceMode) does not, since syncAttendanceModes below would
-    // read that Office area and flip them to FIXED. Field employees get their
-    // sites assigned in Geotagging.
-    await this.assignDefaultScheduleIfMissing(created.id);
-    if (created.attendanceMode !== "FIELD") {
-      await this.geolocation.assignDefaultOfficeLocation(created.id, created.departmentId, context);
+    if (resolvedSpouseEmployeeId) {
+      await this.syncSpouseLinks(created.id, created.sex, null, resolvedSpouseEmployeeId);
     }
+
+    // Every new hire gets a starting Standard Shift and the default geotagged
+    // area, field hires included — the default area never changes anyone's
+    // attendance mode (see GeolocationService.syncAttendanceModes). A field
+    // hire's own sites are added in Geotagging.
+    await this.assignDefaultScheduleIfMissing(created.id);
+    await this.geolocation.assignDefaultOfficeLocation(created.id, context);
     // The assigned area, not the submitted/department mode, has the final
     // say — see GeolocationService.syncAttendanceModes.
     created.attendanceMode =
@@ -573,64 +661,52 @@ export class EmployeesService {
       },
     });
 
-    // Never rolls back the hire: the account exists either way, and a failed
-    // email is reported back (and audit-logged) so it can be resent.
-    stepAt = Date.now();
-    const credentialsEmail = await this.sendCredentialsEmail(created, dto.email, temporaryPassword, context, recipient);
-    this.logger.log(`[EMPLOYEE] Credentials email step finished in ${Date.now() - stepAt}ms — ${credentialsEmail.status}`);
+    // Never rolls back the hire, and never makes the admin wait on Gmail: the
+    // email goes out in the background (retrying a slow/flaky network) and
+    // only a final failure is reported — see sendCredentialsEmailInBackground.
+    this.sendCredentialsEmailInBackground(created, dto.email, temporaryPassword, context, recipient);
 
-    return { ...created, credentialsEmail };
+    return created;
   }
 
-  // Waits up to CREDENTIALS_EMAIL_WAIT_MS for Gmail so the response can say
-  // SENT/FAILED; past that it answers PENDING and lets the send finish in the
-  // background. Never throws.
-  private async sendCredentialsEmail(
+  // Fire-and-forget; never throws. If every attempt fails, the admin who made
+  // the change gets a bell notification and it's flagged in Audit Logs.
+  private sendCredentialsEmailInBackground(
     employee: { id: string; employeeNo: string; firstName: string; lastName: string },
     email: string,
     temporaryPassword: string,
     context: AuditLogContext,
     recipient = maskEmail(email),
-  ): Promise<CredentialsEmailStatus> {
-    const outcome = this.mail
-      .sendNewEmployeeCredentialsEmail(email, temporaryPassword, `${employee.firstName} ${employee.lastName}`)
-      .then(
-        (): CredentialsEmailStatus => ({ status: "SENT" }),
-        async (error): Promise<CredentialsEmailStatus> => {
-          const summary = summarizeSmtpError(error);
-          const reason =
-            error instanceof MailNotConfiguredError
-              ? "The email service is not configured on the server (GMAIL_USER / GMAIL_APP_PASSWORD)."
-              : summary.hint ?? `The email server returned an error${summary.code ? ` (${summary.code})` : ""}.`;
-          // The flag for manual follow-up: Audit Logs → CREDENTIALS_EMAIL_FAILED.
-          await this.auditLogs.record({
-            ...context,
-            action: "CREDENTIALS_EMAIL_FAILED",
-            module: "Employees",
-            entityType: "Employee",
+  ) {
+    const name = `${employee.firstName} ${employee.lastName}`;
+    this.mail.sendNewEmployeeCredentialsEmail(email, temporaryPassword, name).catch(async (error) => {
+      const summary = summarizeSmtpError(error);
+      const reason =
+        error instanceof MailNotConfiguredError
+          ? "The email service is not configured on the server (GMAIL_USER / GMAIL_APP_PASSWORD)."
+          : summary.hint ?? `The email server returned an error${summary.code ? ` (${summary.code})` : ""}.`;
+      try {
+        await this.auditLogs.record({
+          ...context,
+          action: "CREDENTIALS_EMAIL_FAILED",
+          module: "Employees",
+          entityType: "Employee",
+          entityId: employee.id,
+          description: `Login credentials email to ${name} (${recipient}) was not sent.`,
+          newValues: { employeeNo: employee.employeeNo, code: summary.code, responseCode: summary.responseCode, timedOut: summary.timedOut },
+        });
+        if (context.actorUserId) {
+          await this.notifications.notifyUsers([context.actorUserId], {
+            title: "Login Email Not Sent",
+            message: `The login email with the temporary password could not be sent to ${name} (${employee.employeeNo}). ${reason}`,
+            type: CREDENTIALS_EMAIL_FAILED_NOTIFICATION_TYPE,
             entityId: employee.id,
-            description: `Login credentials email to ${employee.firstName} ${employee.lastName} (${recipient}) was not sent.`,
-            newValues: { employeeNo: employee.employeeNo, code: summary.code, responseCode: summary.responseCode, timedOut: summary.timedOut },
           });
-          return { status: "FAILED", reason };
-        },
-      );
-
-    let timer: NodeJS.Timeout | undefined;
-    const waitLimit = new Promise<CredentialsEmailStatus>((resolve) => {
-      timer = setTimeout(() => {
-        this.logger.warn(
-          `[MAILER] Email for ${employee.employeeNo} still sending after ${CREDENTIALS_EMAIL_WAIT_MS / 1000}s — responding PENDING; the outcome will be logged when it settles.`,
-        );
-        resolve({ status: "PENDING", reason: "The email server is responding slowly. The email is still being sent." });
-      }, CREDENTIALS_EMAIL_WAIT_MS);
+        }
+      } catch (reportError) {
+        this.logger.error(`[EMPLOYEE] Could not report the failed credentials email for ${employee.employeeNo}: ${String(reportError)}`);
+      }
     });
-
-    try {
-      return await Promise.race([outcome, waitLimit]);
-    } finally {
-      clearTimeout(timer);
-    }
   }
 
   
@@ -841,21 +917,8 @@ export class EmployeesService {
     updated.attendanceMode =
       (await this.geolocation.syncAttendanceModes([id], context)).get(id) ?? updated.attendanceMode;
 
-    // A husband's Added Paternity days come out of his linked wife's Maternity
-    // Leave — re-linking (or unlinking) moves them back to the old wife and
-    // out of the new one.
-    if (resolvedSpouseEmployeeId !== undefined && employee.sex === "MALE") {
-      const year = new Date().getFullYear();
-      await this.prisma.$transaction(async (tx) => {
-        const transferredDays = await getTransferredPaternityDays(tx, id, year);
-        if (transferredDays === 0) return;
-        if (employee.spouseEmployeeId) {
-          await shiftMaternityDaysFromSpouse(tx, employee.spouseEmployeeId, year, -transferredDays);
-        }
-        if (resolvedSpouseEmployeeId) {
-          await shiftMaternityDaysFromSpouse(tx, resolvedSpouseEmployeeId, year, transferredDays);
-        }
-      });
+    if (resolvedSpouseEmployeeId !== undefined) {
+      await this.syncSpouseLinks(id, employee.sex, employee.spouseEmployeeId, resolvedSpouseEmployeeId);
     }
 
 
@@ -899,16 +962,7 @@ export class EmployeesService {
     }
 
     if (newTemporaryPassword) {
-      try {
-        await this.mail.sendNewEmployeeCredentialsEmail(
-          updated.user.email,
-          newTemporaryPassword,
-          `${updated.firstName} ${updated.lastName}`,
-        );
-      } catch (error) {
-        // Details were already logged by MailService ([MAILER] …FAILED).
-        this.logger.error(`[EMPLOYEE] Updated credentials email to ${maskEmail(updated.user.email)} was not sent.`);
-      }
+      this.sendCredentialsEmailInBackground(updated, updated.user.email, newTemporaryPassword, context);
     }
 
     await this.auditLogs.record({

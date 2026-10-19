@@ -29,6 +29,8 @@ import {
   UndertimeFiling,
   EmployeeProfile,
   MySchedule,
+  AttendanceHistoryRecord,
+  getAttendanceHistory,
   getLeaveTypes,
   getLeaveBalances,
   getLeaveRequests,
@@ -68,6 +70,7 @@ const EMPTY_BALANCES: LeaveBalance[] = [];
 const EMPTY_REQUESTS: LeaveRequest[] = [];
 const EMPTY_UNDERTIME_FILINGS: UndertimeFiling[] = [];
 const EMPTY_SCHEDULES: MySchedule[] = [];
+const EMPTY_ATTENDANCE: AttendanceHistoryRecord[] = [];
 
 type PickedAttachment = {
   name: string;
@@ -275,6 +278,14 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
   const balances = balancesCache.data ?? EMPTY_BALANCES;
   const requests = requestsCache.data ?? EMPTY_REQUESTS;
   const mySchedules = mySchedulesCache.data ?? EMPTY_SCHEDULES;
+  // Same cache key as the DTR screen (and revalidated after every scan in
+  // App.tsx), so a day the employee just timed in on shows up here as
+  // unfilable — see isDateWorked.
+  const attendanceCache = useCachedData<AttendanceHistoryRecord[]>(
+    employeeId ? CACHE_KEYS.attendanceHistory(employeeId) : null,
+    () => getAttendanceHistory(employeeId!),
+  );
+  const attendanceRecords = attendanceCache.data ?? EMPTY_ATTENDANCE;
   const isLoadingData = leaveTypesCache.isLoading || balancesCache.isLoading || requestsCache.isLoading;
   // Balance tab only ever renders balancesCache's data, so its spinner
   // shouldn't wait on the (much heavier) requests/leave-types fetches too.
@@ -332,11 +343,6 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
   const [resubmitNote, setResubmitNote] = useState("");
   const [activeTab, setActiveTab] = useState<"balance" | "request" | "undertime">("balance");
   const [resultModal, setResultModal] = useState<{ status: ResultModalStatus; title: string; message: string } | null>(null);
-  // Sticks around (independent of resultModal, which the user may have
-  // already dismissed by the time a background submission actually fails)
-  // until explicitly closed, and shows on every tab so a failed leave
-  // request filed optimistically is never silently missed.
-  const [submissionAlert, setSubmissionAlert] = useState<{ title: string; message: string } | null>(null);
   // Viewing an already-submitted attachment (own or a resubmission) — fetched
   // on demand via getLeaveRequestDetail since the list poll above never
   // carries the base64 attachmentData.
@@ -357,6 +363,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
   const [undertimeReason, setUndertimeReason] = useState("");
   const [selectedLateRecordId, setSelectedLateRecordId] = useState<string | null>(null);
   const [isFilingUndertime, setIsFilingUndertime] = useState(false);
+  const [isSubmittingLeave, setIsSubmittingLeave] = useState(false);
   // A 3-step wizard (pick day -> reason -> review) rather than one long form —
   // each step's Next is gated on that step's own requirement, so the
   // employee can't reach Review without both a selected day and a reason.
@@ -490,11 +497,12 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
       });
       return;
     }
-    if (isLeaveTypeUnavailableToday(type)) {
+    const unavailableTodayReason = leaveTypeUnavailableTodayReason(type);
+    if (unavailableTodayReason) {
       setResultModal({
         status: "info",
-        title: "Non-Working Day",
-        message: `${type.name} can only be filed for today's date, but today is your day off / a non-working day.`,
+        title: "Unavailable Today",
+        message: `${type.name} can only be filed for today's date, but ${unavailableTodayReason}.`,
       });
       return;
     }
@@ -810,13 +818,34 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
     return schedule.workingDays.includes(date.getDay()) ? undefined : "Day off / non-working day";
   }
 
+  // A day the employee already timed in can't become a leave day — mirrors
+  // the backend's check in leave.service.ts (create + approve).
+  const workedDayKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const record of attendanceRecords) {
+      if (!record.timeInAt) continue;
+      const d = new Date(record.attendanceDate);
+      keys.add(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`);
+    }
+    return keys;
+  }, [attendanceRecords]);
+
+  function isDateWorked(date: Date) {
+    return workedDayKeys.has(`${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`)
+      ? "You already have attendance on this day"
+      : undefined;
+  }
+
   // A !advanceFilingAllowed type (Sick Leave, Emergency Leave, Adverse
   // Weather Leave) can only ever be filed for today — so if today happens to
-  // be this employee's day off, the type is entirely unfilable right now,
-  // not just on some dates. Surfaced up front (dropdown + Date section)
-  // instead of only failing at submit time.
-  function isLeaveTypeUnavailableToday(item: LeaveType) {
-    return item.advanceFilingAllowed === false && Boolean(isDateNonWorking(todayStart));
+  // be this employee's day off, or they already timed in today, the type is
+  // entirely unfilable right now, not just on some dates. Surfaced up front
+  // (dropdown + Date section) instead of only failing at submit time.
+  function leaveTypeUnavailableTodayReason(item: LeaveType) {
+    if (item.advanceFilingAllowed !== false) return undefined;
+    if (isDateNonWorking(todayStart)) return "today is your day off / a non-working day";
+    if (isDateWorked(todayStart)) return "you already have attendance today";
+    return undefined;
   }
 
   // Single-day-only types (Sick Leave, Emergency Leave) always mirror the end
@@ -1027,6 +1056,19 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
       return;
     }
 
+    // Mirrors the backend's worked-day check (leave.service.ts) — catches a
+    // range that spans a worked day, or today on a locked-to-today type.
+    for (let d = new Date(leaveStartDate.getFullYear(), leaveStartDate.getMonth(), leaveStartDate.getDate()); d <= leaveEndDate; d.setDate(d.getDate() + 1)) {
+      if (isDateWorked(d)) {
+        setResultModal({
+          status: "info",
+          title: "Already Worked",
+          message: `You already have attendance on ${formatDate(d)}. Leave can't be filed for a day you worked.`,
+        });
+        return;
+      }
+    }
+
     // Mirrors the backend's check (leave.service.ts) so the error shows up
     // immediately instead of after a round trip — same type is blocked
     // regardless of dates, a different type is always fine.
@@ -1095,11 +1137,9 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
       }
     }
 
-    // All the validation above (including the same-type-pending check)
-    // already mirrors what the backend will enforce, so the request is
-    // effectively guaranteed to succeed — confirm immediately and let the
-    // actual submission finish in the background instead of making the
-    // employee wait on the round trip.
+    // The checks above only mirror the backend using whatever is cached
+    // locally (e.g. attendance history), so the server still has the final
+    // say — wait for it before telling the employee it went through.
     const payload = {
       employeeId,
       leaveTypeId,
@@ -1112,47 +1152,33 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
       attachmentData: attachment?.base64,
     };
 
-    resetForm();
-    setResultModal({
-      status: "approved",
-      title: "Leave Request Submitted",
-      message: "Your HR/Admin and supervisor have been notified. You'll be notified once it's reviewed.",
-    });
-
-    createLeaveRequest(payload)
+    setIsSubmittingLeave(true);
+    try {
+      const created = await createLeaveRequest(payload);
       // The POST already returns the created record — write it straight into
       // the cache instead of following up with a second GET round-trip, so
       // it appears on "My Leave Requests" the moment submission succeeds.
-      .then((created) => requestsCache.setData([created, ...requests]))
-      .catch((error) => {
-        // The "Submitted" modal above has likely already been dismissed by
-        // now, so a transient modal here isn't enough — this sticks around
-        // (see submissionAlert) until the employee explicitly closes it.
-        setSubmissionAlert({
-          title: "Leave Request Failed",
-          message: `Your ${selectedLeaveType?.name ?? "leave"} request did not go through: ${error instanceof Error ? error.message : "please try again."}`,
-        });
-        // Best-effort — if this also fails (e.g. still offline), the cached
-        // pending list simply stays as it was; the alert above is what
-        // actually informs the employee either way.
-        requestsCache.refresh().catch(() => undefined);
+      requestsCache.setData([created, ...requests]);
+      resetForm();
+      setResultModal({
+        status: "approved",
+        title: "Leave Request Submitted",
+        message: "Your HR/Admin and supervisor have been notified. You'll be notified once it's reviewed.",
       });
+    } catch (error) {
+      // Form is left filled in so the employee can adjust and retry.
+      setResultModal({
+        status: "error",
+        title: "Leave Request Failed",
+        message: error instanceof Error ? error.message : "Your leave request did not go through. Please try again.",
+      });
+    } finally {
+      setIsSubmittingLeave(false);
+    }
   }
 
   return (
     <View style={styles.safeArea}>
-      {submissionAlert && (
-        <View style={styles.submissionAlertBanner}>
-          <Ionicons name="warning-outline" size={18} color="#B91C1C" />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.submissionAlertTitle}>{submissionAlert.title}</Text>
-            <Text style={styles.submissionAlertMessage}>{submissionAlert.message}</Text>
-          </View>
-          <Pressable onPress={() => setSubmissionAlert(null)} hitSlop={8}>
-            <Ionicons name="close" size={18} color="#B91C1C" />
-          </Pressable>
-        </View>
-      )}
       <SegmentedControl
         segments={[
           { key: "balance", label: "Balance" },
@@ -1526,8 +1552,8 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                     filteredLeaveTypes.map((item) => {
                       const exhausted = isLeaveTypeExhausted(item);
                       const alreadyPending = isLeaveTypeAlreadyPending(item);
-                      const unavailableToday = !exhausted && !alreadyPending && isLeaveTypeUnavailableToday(item);
-                      const disabled = exhausted || alreadyPending || unavailableToday;
+                      const unavailableToday = !exhausted && !alreadyPending ? leaveTypeUnavailableTodayReason(item) : undefined;
+                      const disabled = exhausted || alreadyPending || Boolean(unavailableToday);
                       return (
                         <Pressable
                           key={item.id}
@@ -1561,7 +1587,9 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                               : alreadyPending
                                 ? " (already pending)"
                                 : unavailableToday
-                                  ? " (today is a non-working day)"
+                                  ? isDateNonWorking(todayStart)
+                                    ? " (today is a non-working day)"
+                                    : " (already timed in today)"
                                   : ""}
                           </Text>
                         </Pressable>
@@ -1613,6 +1641,11 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                 Today is your day off / a non-working day — {selectedLeaveType.name} can't be filed until your next working day.
               </Text>
             )}
+            {selectedLeaveType && lockedToToday && !isDateNonWorking(todayStart) && isDateWorked(todayStart) && (
+              <Text style={styles.nonWorkingWarningText}>
+                You already have attendance today — {selectedLeaveType.name} can't be filed for a day you worked.
+              </Text>
+            )}
             {maxEndDate && !isSingleDayLeave && (
               <Text style={styles.totalDaysText}>
                 {remainingDaysFor(selectedLeaveType!)} day{remainingDaysFor(selectedLeaveType!) === 1 ? "" : "s"} available for {selectedLeaveType!.name} — end date can't go past {formatDate(maxEndDate)}
@@ -1632,6 +1665,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
               maximumDate={lockedToToday ? todayStart : undefined}
               isDateDisabled={isDateAlreadyFiledForType}
               isDateNonWorking={isDateNonWorking}
+              isDateWorked={isDateWorked}
               onSelect={handleStartDateConfirm}
               onClose={() => setStartPickerVisibility(false)}
             />
@@ -1644,6 +1678,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
               maximumDate={maxEndDate}
               isDateDisabled={isDateAlreadyFiledForType}
               isDateNonWorking={isDateNonWorking}
+              isDateWorked={isDateWorked}
               onSelect={handleEndDateConfirm}
               onClose={() => setEndPickerVisibility(false)}
             />
@@ -1691,8 +1726,16 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
               />
             </View>
 
-            <Pressable style={styles.button} onPress={handleSubmit}>
-              <Text style={styles.buttonText}>Submit Leave Request</Text>
+            <Pressable
+              style={[styles.button, isSubmittingLeave && styles.buttonDisabled]}
+              onPress={handleSubmit}
+              disabled={isSubmittingLeave}
+            >
+              {isSubmittingLeave ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={styles.buttonText}>Submit Leave Request</Text>
+              )}
             </Pressable>
             </AestheticScrollView>
           </View>
@@ -2353,28 +2396,6 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: "#FFFFFF"
-  },
-  submissionAlertBanner: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-    marginHorizontal: 16,
-    marginTop: 8,
-    backgroundColor: "#FEF2F2",
-    borderWidth: 1,
-    borderColor: "#FCA5A5",
-    borderRadius: 12,
-    padding: 12,
-  },
-  submissionAlertTitle: {
-    color: "#B91C1C",
-    fontWeight: "700",
-    fontSize: 13,
-  },
-  submissionAlertMessage: {
-    color: "#991B1B",
-    fontSize: 12,
-    marginTop: 2,
   },
   // No horizontal/extra padding here, and no inner SafeAreaView on this
   // screen either — matches DTRScreen.tsx's own tabSwitcher/card exactly

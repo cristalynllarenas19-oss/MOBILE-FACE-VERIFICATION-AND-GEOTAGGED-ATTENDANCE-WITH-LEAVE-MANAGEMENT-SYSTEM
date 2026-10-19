@@ -68,6 +68,34 @@ const FLAGGED_NOTIFY_THRESHOLD = 3;
 // title, since they log attendance like any other employee.
 const EMPLOYEE_ROLE_CODES_SELECT = { userRoles: { select: { role: { select: { code: true } } } } } as const;
 
+// One Attendance Management list row (findAll) — also what findLogForReview
+// returns for a validated attempt, so the two always look the same. No base64
+// photos (log captures, registered face, profile photo): inlining them made
+// the list many MB. The modal fetches them per record via getRecordReviewPhotos().
+const ATTENDANCE_LIST_INCLUDE = {
+  employee: { omit: { profilePhotoData: true }, include: { department: true, position: { select: { title: true } }, user: { select: EMPLOYEE_ROLE_CODES_SELECT } } },
+  workLocation: { select: { name: true } },
+  logs: { orderBy: { capturedAt: "desc" }, omit: { faceImageData: true } },
+  shift: { select: { startTime: true, endTime: true, lateThresholdMinutes: true, lunchBreakMinutes: true, breakStartTime: true, breakKind: true } },
+} as const;
+
+// One flagged attempt as the review modals read it (findFlaggedLogs,
+// findLogForReview). The capture photo and registered face stay inline —
+// both review modals (admin-web and mobile) read them straight from here.
+// Only the fields nothing reads (profile photo, face descriptors) are left out.
+const FLAGGED_LOG_INCLUDE = {
+  employee: {
+    omit: { profilePhotoData: true },
+    include: {
+      department: true,
+      position: { select: { title: true } },
+      user: { select: EMPLOYEE_ROLE_CODES_SELECT },
+      faceProfiles: { orderBy: { enrolledAt: "desc" }, take: 1, omit: { descriptors: true } },
+    },
+  },
+  workLocation: { select: { name: true } },
+} as const;
+
 const FLAGGED_LOG_TYPE_LABEL: Record<string, string> = {
   TIME_IN: "time in",
   TIME_OUT: "time out",
@@ -149,15 +177,7 @@ export class AttendanceService {
             ? { employee: { department: { name: filters.department } } }
             : {}),
       },
-      // No base64 photos in the list (log captures, registered face, profile
-      // photo) — inlining them made this response many MB. The Attendance
-      // Management modal fetches them per record via getRecordReviewPhotos().
-      include: {
-        employee: { omit: { profilePhotoData: true }, include: { department: true, position: { select: { title: true } }, user: { select: EMPLOYEE_ROLE_CODES_SELECT } } },
-        workLocation: { select: { name: true } },
-        logs: { orderBy: { capturedAt: "desc" }, omit: { faceImageData: true } },
-        shift: { select: { startTime: true, endTime: true, lateThresholdMinutes: true, lunchBreakMinutes: true, breakStartTime: true, breakKind: true } },
-      },
+      include: ATTENDANCE_LIST_INCLUDE,
       orderBy: [{ attendanceDate: "desc" }, { visitNumber: "asc" }],
       take: MAX_LISTED_RECORDS,
     });
@@ -949,7 +969,10 @@ export class AttendanceService {
         throw new BadRequestException("You have already completed your attendance for today.");
       }
 
-      location = await this.geolocation.getLocationForEmployee(dto.employeeId);
+      location = await this.geolocation.getLocationForEmployee(dto.employeeId, {
+        latitude: dto.latitude,
+        longitude: dto.longitude,
+      });
       // An already-open record keeps the type it was opened with, same as a
       // field visit — its break punches and Time Out must land on that row
       // even if the area was reclassified or reassigned in between.
@@ -1391,33 +1414,50 @@ export class AttendanceService {
   // Flagged attempts awaiting a human decision: geofence passed but the
   // face didn't cleanly match the account being used. No AttendanceRecord
   // exists for these yet (attendanceRecordId is null) — see submit()'s
-  // shouldFlag branch.
-  async findFlaggedLogs(filters: { departmentId?: string } = {}) {
+  // shouldFlag branch. With `rejected`, the ones a reviewer has since
+  // rejected as fake attempts instead (see rejectFlaggedLog).
+  async findFlaggedLogs(filters: { departmentId?: string; rejected?: boolean } = {}) {
     return this.prisma.attendanceLog.findMany({
       where: {
-        verificationStatus: "PENDING_REVIEW",
+        ...(filters.rejected
+          ? { verificationStatus: "FAKE_ATTEMPT", reviewedAt: { not: null } }
+          : { verificationStatus: "PENDING_REVIEW" }),
         attendanceRecordId: null,
         ...(filters.departmentId ? { employee: { departmentId: filters.departmentId } } : {}),
       },
-      // The capture photo and registered face stay inline — both review
-      // modals (admin-web and mobile) read them straight from this list.
-      // Only the fields nothing reads (profile photo, face descriptors) are
-      // left out.
-      include: {
-        employee: {
-          omit: { profilePhotoData: true },
-          include: {
-            department: true,
-            position: { select: { title: true } },
-            user: { select: EMPLOYEE_ROLE_CODES_SELECT },
-            faceProfiles: { orderBy: { enrolledAt: "desc" }, take: 1, omit: { descriptors: true } },
-          },
-        },
-        workLocation: { select: { name: true } },
-      },
+      include: FLAGGED_LOG_INCLUDE,
       orderBy: { capturedAt: "desc" },
       take: MAX_LISTED_FLAGGED_LOGS,
     });
+  }
+
+  // What a clicked attendance notification opens, straight away and
+  // whatever the Attendance Management list is filtered to: the attendance
+  // record the attempt became part of once validated, otherwise the attempt
+  // itself — still pending review, or already rejected/archived (`reviewed`).
+  async findLogForReview(logId: string, scopeDepartmentId?: string) {
+    const log = await this.prisma.attendanceLog.findUnique({
+      where: { id: logId },
+      include: FLAGGED_LOG_INCLUDE,
+    });
+    if (!log) throw new NotFoundException("This attendance attempt no longer exists.");
+    if (scopeDepartmentId && log.employee.departmentId !== scopeDepartmentId) {
+      throw new ForbiddenException("You can only manage attendance records from your own department.");
+    }
+
+    if (log.attendanceRecordId) {
+      const [record, remark] = await Promise.all([
+        this.prisma.attendanceRecord.findUniqueOrThrow({ where: { id: log.attendanceRecordId }, include: ATTENDANCE_LIST_INCLUDE }),
+        this.prisma.auditLog.findFirst({
+          where: { entityType: "AttendanceRecord", entityId: log.attendanceRecordId },
+          orderBy: { createdAt: "desc" },
+        }),
+      ]);
+      const { shift, ...rest } = record;
+      return { kind: "record" as const, record: { ...rest, breakKind: resolveBreakKind(shift), adminRemarks: remark?.newValues } };
+    }
+
+    return { kind: "flagged" as const, log, reviewed: log.verificationStatus !== "PENDING_REVIEW" };
   }
 
   // The earlier same-day failed attempts a flagged log superseded (see

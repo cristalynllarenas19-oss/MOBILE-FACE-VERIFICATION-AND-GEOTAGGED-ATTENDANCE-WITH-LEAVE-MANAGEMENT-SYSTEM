@@ -10,7 +10,7 @@ import { useActiveDepartments } from "../../lib/departments";
 import { PermissionCode, permissions } from "../../types/rbac";
 import "./AttendancePage.css";
 
-type AttendanceStatus = "PRESENT" | "LATE" | "ABSENT" | "ON_LEAVE" | "PENDING_REVIEW" | "FLAGGED";
+type AttendanceStatus = "PRESENT" | "LATE" | "ABSENT" | "ON_LEAVE" | "PENDING_REVIEW" | "FLAGGED" | "FLAGGED_REJECTED";
 
 const ATTENDANCE_PAGE_SIZE = 10;
 
@@ -62,6 +62,9 @@ type AttendanceRecord = {
   // the review actions (validate/reject) act on.
   isFlagged?: boolean;
   flaggedLogId?: string;
+  // A flagged attempt a reviewer already rejected as fake — shown read-only.
+  isRejected?: boolean;
+  reviewRemarks?: string | null;
 };
 
 // Shape of GET /attendance/records/:id/review-photos — the photos GET
@@ -89,18 +92,30 @@ type FlaggedLog = {
   faceImageMimeType?: string | null;
   workLocation?: { name: string } | null;
   employee: AttendanceRecord["employee"];
+  // Set once reviewed — only on the GET /attendance/flagged?status=REJECTED rows.
+  reviewRemarks?: string | null;
 };
+
+// Shape of GET /attendance/logs/:id/review — a clicked attendance
+// notification's attempt (see AttendancePage's initialFocusLogId effect).
+type FocusedLog =
+  | { kind: "record"; record: AttendanceRecord }
+  | { kind: "flagged"; log: FlaggedLog; reviewed: boolean };
 
 type EmployeeOption = EmployeeSearchOption;
 
-const statusOptions = ["PRESENT", "LATE", "ABSENT", "ON_LEAVE", "PENDING_REVIEW", "FLAGGED"];
+// No separate "Pending Review" option: no record is ever stored as
+// PENDING_REVIEW, so it only ever listed the same unresolved attempts as
+// Flagged (labelled "Flagged – Pending Review"). FLAGGED_REJECTED lists the
+// flagged attempts a reviewer has since rejected as fake.
+const statusOptions = ["PRESENT", "LATE", "ABSENT", "ON_LEAVE", "FLAGGED", "FLAGGED_REJECTED"];
 const recordTypeOptions = ["OFFICE", "FIELD"];
 
 function getRecordTypeLabel(recordType: string) {
   return recordType === "FIELD" ? "Field" : "Non-field";
 }
 
-function flaggedLogToRecord(log: FlaggedLog): AttendanceRecord {
+function flaggedLogToRecord(log: FlaggedLog, rejected = false): AttendanceRecord {
   return {
     id: `flagged-${log.id}`,
     attendanceDate: log.attendanceDate ?? log.capturedAt,
@@ -108,7 +123,9 @@ function flaggedLogToRecord(log: FlaggedLog): AttendanceRecord {
     timeOutAt: null,
     lunchOutAt: null,
     lunchInAt: null,
-    status: "FLAGGED",
+    status: rejected ? "FLAGGED_REJECTED" : "FLAGGED",
+    isRejected: rejected,
+    reviewRemarks: log.reviewRemarks ?? null,
     recordType: log.recordType ?? undefined,
     workLocation: log.workLocation ?? null,
     employee: log.employee,
@@ -166,12 +183,13 @@ function getPositionLabel(employee: AttendanceRecord["employee"]) {
 
 function getStatusTone(status: AttendanceStatus) {
   if (status === "PRESENT") return "success";
-  if (status === "ABSENT" || status === "FLAGGED") return "danger";
+  if (status === "ABSENT" || status === "FLAGGED" || status === "FLAGGED_REJECTED") return "danger";
   return "warning";
 }
 
 function getStatusLabel(status: string) {
   if (status === "FLAGGED") return "Flagged – Pending Review";
+  if (status === "FLAGGED_REJECTED") return "Flagged – Rejected";
   return status.replace(/_/g, " ");
 }
 
@@ -467,8 +485,8 @@ function AttendanceDetailsModal({
             ) : (
               <div className="attendance-times">
                 <div><span>Time In</span><strong>{formatTime(record.timeInAt, record.status)}</strong></div>
-                <div><span>{breakWord} Out</span><strong>{formatTime(record.lunchOutAt, record.status)}</strong></div>
-                <div><span>{breakWord} In</span><strong>{formatTime(record.lunchInAt, record.status)}</strong></div>
+                <div><span>Start {breakWord}</span><strong>{formatTime(record.lunchOutAt, record.status)}</strong></div>
+                <div><span>End {breakWord}</span><strong>{formatTime(record.lunchInAt, record.status)}</strong></div>
                 <div><span>Time Out</span><strong>{formatTime(record.timeOutAt, record.status)}</strong></div>
               </div>
             )}
@@ -489,10 +507,14 @@ function AttendanceDetailsModal({
                       <strong>No log</strong>
                     )}
                   </div>
-                  {/* A flagged attempt has no AttendanceRecord yet, so there is
-                      never a remark to show for it. */}
+                  {/* A pending flagged attempt has no AttendanceRecord yet, so
+                      there's no remark to show; a rejected one shows the
+                      reviewer's. */}
                   {!record.isFlagged && (
                     <div><span>Remarks</span><strong>{record.adminRemarks?.remarks ?? "None"}</strong></div>
+                  )}
+                  {record.isRejected && (
+                    <div><span>Rejection Remarks</span><strong>{record.reviewRemarks || "None"}</strong></div>
                   )}
                 </>
               )}
@@ -503,7 +525,7 @@ function AttendanceDetailsModal({
         <div className="attendance-admin-actions">
           {error && <p className="attendance-form-error">{error}</p>}
           <div>
-            {canWrite && record.isFlagged && (
+            {canWrite && record.isFlagged && !record.isRejected && (
               <>
                 <button className="attendance-reject-button" onClick={() => reviewFlagged("reject")} disabled={isSaving}>
                   <XCircle size={15} />
@@ -575,7 +597,9 @@ export function AttendancePage({
   const fetchRecords = async () => {
     const params = new URLSearchParams();
     if (departmentFilter !== "ALL") params.set("department", departmentFilter);
-    if (statusFilter !== "ALL" && statusFilter !== "FLAGGED" && statusFilter !== "PENDING_REVIEW") {
+    const isFlaggedFilter = statusFilter === "FLAGGED" || statusFilter === "PENDING_REVIEW";
+    const isRejectedFilter = statusFilter === "FLAGGED_REJECTED";
+    if (statusFilter !== "ALL" && !isFlaggedFilter && !isRejectedFilter) {
       params.set("status", statusFilter);
     }
     if (recordTypeFilter !== "ALL") params.set("recordType", recordTypeFilter);
@@ -591,15 +615,20 @@ export function AttendancePage({
     // AttendanceService.submit/updateStatus), so "Pending Review" in this
     // dropdown is the same underlying data as "Flagged": an AttendanceLog
     // still awaiting an admin decision.
-    const wantsRecords = statusFilter !== "FLAGGED" && statusFilter !== "PENDING_REVIEW";
-    const wantsFlagged = statusFilter === "ALL" || statusFilter === "FLAGGED" || statusFilter === "PENDING_REVIEW";
+    // "Flagged – Rejected" lists only the attempts a reviewer rejected, from
+    // the same endpoint with status=REJECTED; "All" leaves them out, since
+    // they never became attendance.
+    const wantsRecords = !isFlaggedFilter && !isRejectedFilter;
+    const wantsFlagged = statusFilter === "ALL" || isFlaggedFilter || isRejectedFilter;
 
     const [fetchedRecords, flaggedLogs] = await Promise.all([
       wantsRecords
         ? apiRequest<AttendanceRecord[]>(`/attendance${query ? `?${query}` : ""}`).catch(() => [] as AttendanceRecord[])
         : Promise.resolve<AttendanceRecord[]>([]),
       wantsFlagged
-        ? apiRequest<FlaggedLog[]>("/attendance/flagged").catch(() => [] as FlaggedLog[])
+        ? apiRequest<FlaggedLog[]>(`/attendance/flagged${isRejectedFilter ? "?status=REJECTED" : ""}`).catch(
+            () => [] as FlaggedLog[],
+          )
         : Promise.resolve<FlaggedLog[]>([]),
     ]);
     // /attendance/flagged takes no filters, so the date range and type are
@@ -609,7 +638,7 @@ export function AttendancePage({
     const toTime = dateTo ? new Date(`${dateTo}T23:59:59.999`).getTime() : null;
     const flaggedRecords = flaggedLogs
       .filter((log) => departmentFilter === "ALL" || log.employee.department.name === departmentFilter)
-      .map(flaggedLogToRecord)
+      .map((log) => flaggedLogToRecord(log, isRejectedFilter))
       .filter((record) => {
         if (recordTypeFilter !== "ALL" && record.recordType !== recordTypeFilter) return false;
         const time = new Date(record.attendanceDate).getTime();
@@ -637,24 +666,37 @@ export function AttendancePage({
     recordsCache.refresh().catch(() => undefined);
   };
 
-  // Arrived here from a clicked flagged-attendance notification — open that
-  // log's review modal directly once it shows up in the loaded list, same
-  // as clicking its row would, then tell the parent we're done with the
-  // focus id so it doesn't reapply on a later re-render. If some other
-  // status filter is active (flagged rows are only fetched under "ALL" or
-  // "FLAGGED" — see fetchRecords), reset to "ALL" first so the log is
-  // actually there to find; the effect re-runs once that refetch lands.
+  // Arrived here from a clicked attendance notification — open that attempt
+  // at once. It's fetched on its own (GET /attendance/logs/:id/review) rather
+  // than looked up in the list, so it opens even if it arrived after the list
+  // loaded or the current filters hide it: as a flagged attempt still to be
+  // reviewed, as a read-only one already rejected, or as the attendance
+  // record it became part of once validated. The list is refreshed too, so
+  // the new attempt shows there behind the modal.
   useEffect(() => {
     if (!initialFocusLogId) return;
-    if (statusFilter !== "ALL" && statusFilter !== "FLAGGED") {
-      setStatusFilter("ALL");
-      return;
-    }
-    const match = records.find((record) => record.flaggedLogId === initialFocusLogId);
-    if (!match) return;
-    setViewRecord(match);
-    onFocusHandled?.();
-  }, [records, statusFilter, initialFocusLogId]);
+    let cancelled = false;
+    loadRecords();
+    apiRequest<FocusedLog>(`/attendance/logs/${initialFocusLogId}/review`)
+      .then((focused) => {
+        if (cancelled) return;
+        setViewRecord(focused.kind === "record" ? focused.record : flaggedLogToRecord(focused.log, focused.reviewed));
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setNotification({
+          type: "error",
+          title: "Couldn't Open Attendance",
+          message: error instanceof Error ? error.message : "This attendance attempt could not be loaded.",
+        });
+      })
+      .finally(() => {
+        if (!cancelled) onFocusHandled?.();
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [initialFocusLogId]);
 
   useEffect(
     () => setPage(1),

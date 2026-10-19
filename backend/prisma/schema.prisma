@@ -400,8 +400,8 @@ model Employee {
   spouseUnemployed     Boolean                @default(false) @map("spouse_unemployed")
   // Set only when the spouse is also a ULPI employee (picked from the
   // opposite-sex employee list in Add/Edit Employee). Mutually exclusive with
-  // spouseEmployerName/spouseUnemployed in the admin-web form. One-way link:
-  // the spouse's own record is not updated.
+  // spouseEmployerName/spouseUnemployed in the admin-web form. Kept two-way
+  // by EmployeesService.syncSpouseLinks: linking one spouse links the other back.
   spouseEmployeeId     String?                @map("spouse_employee_id")
   spouseEmployee       Employee?              @relation("SpouseEmployee", fields: [spouseEmployeeId], references: [id], onDelete: SetNull)
   spouseOf             Employee[]             @relation("SpouseEmployee")

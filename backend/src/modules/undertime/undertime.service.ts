@@ -217,19 +217,17 @@ export class UndertimeService {
     return filing;
   }
 
-  // Routing mirrors LeaveService.notifySubmission: a regular employee's
-  // filing goes to their direct supervisor; a supervisor's own filing has no
-  // supervisor above them, so it routes to HR/Admin instead.
+  // Routing mirrors LeaveService.notifySubmission (see
+  // NotificationsService.filingReviewerIds).
   private async notifySubmission(filing: {
     id: string;
     employee: { userId: string | null; firstName: string; lastName: string; supervisor: { userId: string | null } | null };
     attendanceRecord: { attendanceDate: Date };
   }) {
-    const filerIsSupervisor = await this.notifications.userHasRole(filing.employee.userId, "SUPERVISOR");
-    const candidateIds = filerIsSupervisor
-      ? await this.notifications.adminUserIds()
-      : [filing.employee.supervisor?.userId];
-    const recipientIds = candidateIds.filter((id): id is string => Boolean(id) && id !== filing.employee.userId);
+    const recipientIds = await this.notifications.filingReviewerIds(
+      filing.employee.userId,
+      filing.employee.supervisor?.userId,
+    );
 
     const employeeName = `${filing.employee.firstName} ${filing.employee.lastName}`;
 

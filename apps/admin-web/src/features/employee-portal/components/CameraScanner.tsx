@@ -219,8 +219,8 @@ function playSuccessChime() {
 function logTypeTitle(logType: Props["logType"], isBreak = false, isField = false) {
   if (logType === "TIME_IN") return isField ? "Start Visit" : "Time In";
   if (logType === "TIME_OUT") return isField ? "End Visit" : "Time Out";
-  if (logType === "LUNCH_OUT") return isBreak ? "Break Start" : "Lunch Out";
-  return isBreak ? "Break End" : "Lunch In";
+  if (logType === "LUNCH_OUT") return isBreak ? "Start Break" : "Start Lunch";
+  return isBreak ? "End Break" : "End Lunch";
 }
 
 function logTypeLabel(logType: Props["logType"], isBreak = false, isField = false) {

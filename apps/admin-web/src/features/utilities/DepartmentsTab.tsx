@@ -4,6 +4,7 @@ import { Badge } from "../../components/ui/Badge";
 import { ConfirmDialog, type ConfirmDialogConfig } from "../../components/ui/ConfirmDialog";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { apiRequest } from "../../lib/api";
+import { useLiveRefresh } from "../../lib/liveRefresh";
 import {
   type AttendanceMode,
   formatAttendanceMode as attendanceModeLabel,
@@ -60,6 +61,7 @@ export function DepartmentsTab({
   };
 
   useEffect(loadDepartments, []);
+  useLiveRefresh(loadDepartments);
 
   const { forDepartments: attendanceModeOptions } = useAttendanceModeOptions();
 

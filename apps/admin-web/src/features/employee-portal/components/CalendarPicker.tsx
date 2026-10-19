@@ -33,6 +33,9 @@ type Props = {
   // "day off", not the red "conflict" above) — e.g. a weekly rest day or a
   // day outside the employee's own working-days schedule.
   isDateNonWorking?: (date: Date) => string | undefined;
+  // A day the employee already has attendance on (blue) — leave can't be
+  // filed for a day they worked.
+  isDateWorked?: (date: Date) => string | undefined;
   placeholder?: string;
   // Which edge the popover hangs from. A field near the right edge of its
   // container needs "right" so the 280px-wide popover opens leftward
@@ -44,7 +47,7 @@ type Props = {
 // min/max range — it can't grey out arbitrary individual days (e.g. dates
 // already covered by a filed leave of this type). This replaces it with a
 // small popover month-grid that can.
-export function CalendarPicker({ value, onChange, min, max, isDateDisabled, isDateNonWorking, placeholder, align = "left" }: Props) {
+export function CalendarPicker({ value, onChange, min, max, isDateDisabled, isDateNonWorking, isDateWorked, placeholder, align = "left" }: Props) {
   const [open, setOpen] = useState(false);
   const selected = value ? parseIsoDate(value) : undefined;
   const [viewMonth, setViewMonth] = useState(() => toDateOnly(selected ?? new Date()));
@@ -145,21 +148,23 @@ export function CalendarPicker({ value, onChange, min, max, isDateDisabled, isDa
               const conflict = Boolean(conflictReason);
               const nonWorkingReason = !conflict ? isDateNonWorking?.(date) : undefined;
               const nonWorking = Boolean(nonWorkingReason);
-              const outOfRange = !conflict && !nonWorking && ((minDate && date < minDate) || (maxDate && date > maxDate));
-              const disabled = conflict || nonWorking || outOfRange;
+              const workedReason = !conflict && !nonWorking ? isDateWorked?.(date) : undefined;
+              const worked = Boolean(workedReason);
+              const outOfRange = !conflict && !nonWorking && !worked && ((minDate && date < minDate) || (maxDate && date > maxDate));
+              const disabled = conflict || nonWorking || worked || outOfRange;
               const isSelected = selected && toIsoDate(date) === toIsoDate(selected);
               return (
                 <button
                   key={index}
                   type="button"
                   disabled={disabled}
-                  title={conflictReason ?? nonWorkingReason}
+                  title={conflictReason ?? nonWorkingReason ?? workedReason}
                   onClick={() => { onChange(toIsoDate(date)); setOpen(false); }}
                   style={{
                     aspectRatio: "1", border: "none", borderRadius: 10,
                     fontSize: 12, fontWeight: 600, cursor: disabled ? "not-allowed" : "pointer",
-                    background: isSelected ? "#062B59" : conflict ? "#FEE2E2" : nonWorking ? "#FEF3C7" : "transparent",
-                    color: isSelected ? "#FFFFFF" : conflict ? "#FCA5A5" : nonWorking ? "#D97706" : outOfRange ? "#CBD5E1" : "#334155",
+                    background: isSelected ? "#062B59" : conflict ? "#FEE2E2" : nonWorking ? "#FEF3C7" : worked ? "#DBEAFE" : "transparent",
+                    color: isSelected ? "#FFFFFF" : conflict ? "#FCA5A5" : nonWorking ? "#D97706" : worked ? "#2563EB" : outOfRange ? "#CBD5E1" : "#334155",
                     // Soft card: a lifted shadow under the selected day for depth.
                     boxShadow: isSelected ? "0 4px 10px rgba(6,43,89,0.32)" : "none",
                   }}
@@ -180,6 +185,12 @@ export function CalendarPicker({ value, onChange, min, max, isDateDisabled, isDa
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
               <span style={{ width: 9, height: 9, borderRadius: 3, background: "#FEF3C7", display: "inline-block" }} />
               <span style={{ fontSize: 10.5, color: "#64748B" }}>Day off / non-working day</span>
+            </div>
+          )}
+          {isDateWorked && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+              <span style={{ width: 9, height: 9, borderRadius: 3, background: "#DBEAFE", display: "inline-block" }} />
+              <span style={{ fontSize: 10.5, color: "#64748B" }}>Already has attendance</span>
             </div>
           )}
         </div>

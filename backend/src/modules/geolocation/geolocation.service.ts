@@ -10,6 +10,11 @@ import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.serv
 // belong to it, and only this department's slice of a roster is ever replaced.
 export type DepartmentScope = { departmentId?: string };
 
+// The company default area every new hire starts in (see
+// assignDefaultOfficeLocation). Matched by name — WorkLocation has no
+// isDefault column; admin-web's isDefaultOfficeLocation uses the same name.
+const DEFAULT_OFFICE_LOCATION_NAME = "Universal Leaf Philippines Inc. - Agoo";
+
 export type GeofenceInput = {
   latitude: number;
   longitude: number;
@@ -232,6 +237,16 @@ export class GeolocationService implements OnApplicationBootstrap {
       newValues: { ...data },
     });
 
+    const currentIds = new Set<string>(
+      ((updated as any).employees ?? []).map((entry: { employeeId: string }) => entry.employeeId),
+    );
+    if (before && before.name !== DEFAULT_OFFICE_LOCATION_NAME) {
+      await this.returnToDefaultAreaIfUnassigned(
+        before.employees.map((entry) => entry.employeeId).filter((employeeId) => !currentIds.has(employeeId)),
+        context,
+      );
+    }
+
     // Both the previous and the current roster — a type or active change
     // affects everyone still assigned, and anyone just removed may no longer
     // have a Field area left.
@@ -267,7 +282,11 @@ export class GeolocationService implements OnApplicationBootstrap {
       oldValues: before ? { name: before.name, isActive: before.isActive } : null,
     });
 
-    await this.syncAttendanceModes((before?.employees ?? []).map((entry) => entry.employeeId), context);
+    const formerIds = (before?.employees ?? []).map((entry) => entry.employeeId);
+    if (before && before.name !== DEFAULT_OFFICE_LOCATION_NAME) {
+      await this.returnToDefaultAreaIfUnassigned(formerIds, context);
+    }
+    await this.syncAttendanceModes(formerIds, context);
 
     return removed;
   }
@@ -282,7 +301,7 @@ export class GeolocationService implements OnApplicationBootstrap {
     await this.assertWithinDepartmentScope(locationId, employeeId, scope);
     const updated = await this.prisma.$transaction(async (tx) => {
       if (joinTableAvailable) {
-        await this.assertEmployeeAvailable(tx, employeeId, locationId);
+        await this.claimEmployeeForArea(tx, employeeId, locationId);
         await tx.workLocationEmployee.create({
           data: { workLocationId: locationId, employeeId },
         });
@@ -336,6 +355,15 @@ export class GeolocationService implements OnApplicationBootstrap {
     await this.assertWithinDepartmentScope(locationId, employeeId, scope);
     const updated = await this.prisma.$transaction(async (tx) => {
       if (joinTableAvailable) {
+        const [location, employee] = await Promise.all([
+          tx.workLocation.findUnique({ where: { id: locationId }, select: { name: true } }),
+          tx.employee.findUnique({ where: { id: employeeId }, select: { employmentStatus: true } }),
+        ]);
+        if (location?.name === DEFAULT_OFFICE_LOCATION_NAME && employee?.employmentStatus !== "SEPARATED") {
+          throw new BadRequestException(
+            `Every employee stays in ${DEFAULT_OFFICE_LOCATION_NAME}, the default area, so they can't be unassigned from it.`,
+          );
+        }
         await tx.workLocationEmployee.deleteMany({
           where: { workLocationId: locationId, employeeId },
         });
@@ -363,49 +391,34 @@ export class GeolocationService implements OnApplicationBootstrap {
       oldValues: { locationId, employeeId },
     });
 
+    if (updated.name !== DEFAULT_OFFICE_LOCATION_NAME) {
+      await this.returnToDefaultAreaIfUnassigned([employeeId], context);
+    }
     await this.syncAttendanceModes([employeeId], context);
 
     return this.scopeLocationEmployees(updated, scope.departmentId);
   }
 
-  // Auto-assigns a new/Fixed-mode employee to whichever geotagged area is
-  // the active Office for their department (type: "OFFICE", scoped to their
-  // departmentId) — never a hardcoded name, so a department with its own
-  // dedicated Office area needs no code change. Falling back to a
-  // shared/global Office (departmentId null), we match the canonical
-  // "Universal Leaf Philippines Inc. - Agoo" company HQ by name first —
-  // with several other unrelated global Office areas also active (e.g.
-  // "SLC"), a plain alphabetical pick landed on whichever name happened to
-  // sort first rather than the intended company-wide default. Alphabetical
-  // order remains only as a last resort if that named area is ever removed.
-  // Called by EmployeesService on hire — not exposed as an endpoint, since
-  // it's system-triggered, not a manual Supervisor action (see addEmployee
-  // for that).
-  async assignDefaultOfficeLocation(employeeId: string, employeeDepartmentId: string, context: AuditLogContext = {}) {
-    const officeLocation =
-      (await this.prisma.workLocation.findFirst({
-        where: { type: "OFFICE", isActive: true, departmentId: employeeDepartmentId },
-        orderBy: { name: "asc" },
-      })) ??
-      (await this.prisma.workLocation.findFirst({
-        where: { type: "OFFICE", isActive: true, departmentId: null, name: "Universal Leaf Philippines Inc. - Agoo" },
-      })) ??
-      (await this.prisma.workLocation.findFirst({
-        where: { type: "OFFICE", isActive: true, departmentId: null },
-        orderBy: { name: "asc" },
-      }));
+  // Puts an employee (every new hire, field technicians included) in the
+  // company default area — "Universal Leaf Philippines Inc. - Agoo" (shown as
+  // DEFAULT in Geotagging) — and nowhere else. Every other area, including
+  // one made for a specific department, only gets employees an admin assigns
+  // by hand. Only adds; any other area they're in is kept. Called by
+  // EmployeesService on hire — not exposed as an endpoint, since it's
+  // system-triggered, not a manual Supervisor action (see addEmployee for that).
+  async assignDefaultOfficeLocation(employeeId: string, context: AuditLogContext = {}) {
+    const officeLocation = await this.prisma.workLocation.findFirst({
+      where: { isActive: true, name: DEFAULT_OFFICE_LOCATION_NAME },
+    });
 
-    // No Office area configured yet — non-blocking, same as the Standard
-    // Shift lookup in EmployeesService.create() when none exists.
+    // Default area missing or deactivated — non-blocking, same as the
+    // Standard Shift lookup in EmployeesService.create() when none exists;
+    // the new hire is then assigned manually in Geotagging.
     if (!officeLocation) return null;
 
-    await this.prisma.$transaction(async (tx) => {
-      // A Fixed employee holds exactly one assignment — clear any stale ones
-      // (leftover Field-site assignments from before a mode switch, or a
-      // previous Office area that's since been archived/replaced) before
-      // attaching the current one. Idempotent: safe even if already correct.
-      await tx.workLocationEmployee.deleteMany({ where: { employeeId } });
-      await tx.workLocationEmployee.create({ data: { workLocationId: officeLocation.id, employeeId } });
+    await this.prisma.workLocationEmployee.createMany({
+      data: [{ workLocationId: officeLocation.id, employeeId }],
+      skipDuplicates: true,
     });
 
     await this.auditLogs.record({
@@ -421,12 +434,27 @@ export class GeolocationService implements OnApplicationBootstrap {
     return officeLocation;
   }
 
-  async getLocationForEmployee(employeeId: string) {
+  // The one area a Fixed employee's attendance is checked against. Everyone
+  // keeps the default area alongside at most one other (see
+  // claimEmployeeForArea), so with a GPS position this is whichever of their
+  // areas they're actually at (nearest geofence edge) — they can clock in at
+  // either. Without one, their own specific area wins over the default.
+  async getLocationForEmployee(employeeId: string, position?: { latitude: number; longitude: number }) {
     if (await this.hasJoinTable()) {
-      return this.prisma.workLocation.findFirst({
+      const locations = await this.prisma.workLocation.findMany({
         where: { isActive: true, employees: { some: { employeeId } } },
         include: { employees: { include: { employee: true } } },
+        orderBy: { name: "asc" },
       });
+      if (locations.length <= 1) return locations[0] ?? null;
+
+      if (position) {
+        const outsideBy = (location: (typeof locations)[number]) =>
+          this.distanceInMeters(position.latitude, position.longitude, Number(location.latitude), Number(location.longitude)) -
+          Number(location.radiusMeters);
+        return locations.reduce((best, location) => (outsideBy(location) < outsideBy(best) ? location : best));
+      }
+      return locations.find((location) => location.name !== DEFAULT_OFFICE_LOCATION_NAME) ?? locations[0];
     }
 
     const rows = await this.prisma.$queryRaw<
@@ -534,7 +562,9 @@ export class GeolocationService implements OnApplicationBootstrap {
   // An employee's attendance mode follows the areas they're assigned to:
   // any active Field-classified area makes them FIELD (Start/End Visit,
   // several visits a day); Office areas only make them FIXED (Time In/Out on
-  // their shift). Left alone when they have no active area at all. This is
+  // their shift). The default area doesn't count — every employee, field
+  // technicians included, is in it — so the mode is left alone when that's
+  // the only active area they have (or they have none at all). This is
   // the only thing that decides an employee's mode — called after every
   // geotag change here, after EmployeesService create/update, after a
   // department mode change, and once for everyone at startup (see
@@ -551,7 +581,10 @@ export class GeolocationService implements OnApplicationBootstrap {
         attendanceMode: true,
         firstName: true,
         lastName: true,
-        workLocations: { where: { workLocation: { isActive: true } }, select: { workLocation: { select: { type: true } } } },
+        workLocations: {
+          where: { workLocation: { isActive: true, NOT: { name: DEFAULT_OFFICE_LOCATION_NAME } } },
+          select: { workLocation: { select: { type: true } } },
+        },
       },
     });
 
@@ -586,6 +619,11 @@ export class GeolocationService implements OnApplicationBootstrap {
   // the next geotag/employee change re-syncs whoever it touches anyway.
   async onApplicationBootstrap() {
     try {
+      await this.ensureEveryoneInDefaultArea();
+    } catch (error) {
+      this.logger.error("Failed to add employees to the default area at startup", error instanceof Error ? error.stack : undefined);
+    }
+    try {
       const changed = await this.syncAttendanceModes();
       if (changed.size > 0) {
         this.logger.log(`Synced attendance mode to assigned area for ${changed.size} employee(s).`);
@@ -593,6 +631,36 @@ export class GeolocationService implements OnApplicationBootstrap {
     } catch (error) {
       this.logger.error("Failed to sync attendance modes at startup", error instanceof Error ? error.stack : undefined);
     }
+  }
+
+  // Every active employee belongs to the default area (new hires are put
+  // there by assignDefaultOfficeLocation); this adds anyone who isn't —
+  // e.g. hired back when new hires went to their department's own area, or
+  // changed directly in the DB. Only adds, never removes; idempotent. Field
+  // technicians included — the default area never changes anyone's mode
+  // (see syncAttendanceModes).
+  private async ensureEveryoneInDefaultArea() {
+    if (!(await this.hasJoinTable())) return;
+    const defaultArea = await this.prisma.workLocation.findFirst({
+      where: { isActive: true, name: DEFAULT_OFFICE_LOCATION_NAME },
+      select: { id: true },
+    });
+    if (!defaultArea) return;
+
+    const missing = await this.prisma.employee.findMany({
+      where: {
+        employmentStatus: { not: "SEPARATED" },
+        workLocations: { none: { workLocationId: defaultArea.id } },
+      },
+      select: { id: true },
+    });
+    if (missing.length === 0) return;
+
+    await this.prisma.workLocationEmployee.createMany({
+      data: missing.map(({ id }) => ({ workLocationId: defaultArea.id, employeeId: id })),
+      skipDuplicates: true,
+    });
+    this.logger.log(`Added ${missing.length} employee(s) to the default area ${DEFAULT_OFFICE_LOCATION_NAME}.`);
   }
 
   // Only employees whose department allows field work (attendance mode FIELD
@@ -652,6 +720,30 @@ export class GeolocationService implements OnApplicationBootstrap {
       return;
     }
 
+    // No active employee can be taken out of the default area (archived ones
+    // may be — the admin page doesn't even list them).
+    const location = await tx.workLocation.findUnique({ where: { id: locationId }, select: { name: true } });
+    if (location?.name === DEFAULT_OFFICE_LOCATION_NAME) {
+      const dropped = await tx.workLocationEmployee.findMany({
+        where: {
+          workLocationId: locationId,
+          employeeId: { notIn: uniqueEmployeeIds },
+          employee: {
+            employmentStatus: { not: "SEPARATED" },
+            ...(restrictToDepartmentId ? { departmentId: restrictToDepartmentId } : {}),
+          },
+        },
+        select: { employee: { select: { firstName: true, lastName: true } } },
+      });
+      if (dropped.length > 0) {
+        throw new BadRequestException(
+          `Every employee stays in ${DEFAULT_OFFICE_LOCATION_NAME}, the default area — it can't be removed for: ${dropped
+            .map(({ employee }) => `${employee.firstName} ${employee.lastName}`)
+            .join(", ")}.`,
+        );
+      }
+    }
+
     // A scoped Supervisor only ever sees (and submits) their own department's
     // slice of an area's roster — so only that slice is replaced, leaving
     // other departments' assignments on a shared area untouched.
@@ -663,14 +755,20 @@ export class GeolocationService implements OnApplicationBootstrap {
     });
 
     for (const employeeId of uniqueEmployeeIds) {
-      await this.assertEmployeeAvailable(tx, employeeId, locationId, restrictToDepartmentId);
+      await this.claimEmployeeForArea(tx, employeeId, locationId, restrictToDepartmentId);
       await tx.workLocationEmployee.create({
         data: { workLocationId: locationId, employeeId },
       });
     }
   }
 
-  private async assertEmployeeAvailable(
+  // Every employee is in the default area and always keeps it. On top of
+  // that they may be given one other area, but only while the default is the
+  // only one they're in — anyone already in some other area must be
+  // unassigned from it first. Joining the default area itself is never
+  // blocked. Field technicians are the exception: they may hold several
+  // field sites at once.
+  private async claimEmployeeForArea(
     tx: Prisma.TransactionClient,
     employeeId: string,
     locationId: string,
@@ -685,20 +783,39 @@ export class GeolocationService implements OnApplicationBootstrap {
       throw new ForbiddenException("You can only assign employees from your own department.");
     }
 
-    // Field technicians are allowed to be assigned to many sites at once —
-    // only FIXED employees are restricted to a single geotagged area.
-    if (employee?.attendanceMode === "FIELD") {
-      return;
+    const target = await tx.workLocation.findUnique({ where: { id: locationId }, select: { name: true } });
+    if (employee?.attendanceMode !== "FIELD" && target?.name !== DEFAULT_OFFICE_LOCATION_NAME) {
+      const existingAssignment = await tx.workLocationEmployee.findFirst({
+        where: {
+          employeeId,
+          NOT: [{ workLocationId: locationId }, { workLocation: { name: DEFAULT_OFFICE_LOCATION_NAME } }],
+        },
+        select: { workLocation: { select: { name: true } } },
+      });
+
+      if (existingAssignment) {
+        throw new BadRequestException(
+          `This employee is already assigned to ${existingAssignment.workLocation.name}. Only employees assigned to ${DEFAULT_OFFICE_LOCATION_NAME} alone can be assigned to another area — unassign them from ${existingAssignment.workLocation.name} first.`,
+        );
+      }
     }
+  }
 
-    const existingAssignment = await tx.workLocationEmployee.findFirst({
-      where: { employeeId, NOT: { workLocationId: locationId } },
+  // Safety net for the everyone-in-the-default-area rule: an employee left
+  // with no area at all (e.g. one that slipped out of the default before this
+  // rule) goes back to the default rather than nowhere to clock in.
+  private async returnToDefaultAreaIfUnassigned(employeeIds: string[], context: AuditLogContext) {
+    if (employeeIds.length === 0 || !(await this.hasJoinTable())) return;
+    const stranded = await this.prisma.employee.findMany({
+      where: {
+        id: { in: [...new Set(employeeIds)] },
+        employmentStatus: { not: "SEPARATED" },
+        workLocations: { none: {} },
+      },
+      select: { id: true },
     });
-
-    if (existingAssignment) {
-      throw new BadRequestException(
-        "This employee is already assigned to another geotagged area. Please unassign them from their current area before assigning them to a new one.",
-      );
+    for (const { id } of stranded) {
+      await this.assignDefaultOfficeLocation(id, context);
     }
   }
 

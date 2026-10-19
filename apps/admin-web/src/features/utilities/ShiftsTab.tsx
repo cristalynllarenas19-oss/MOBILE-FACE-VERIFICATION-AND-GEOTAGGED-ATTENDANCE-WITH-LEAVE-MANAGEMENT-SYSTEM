@@ -3,6 +3,7 @@ import { Archive, CalendarClock, Eye, Pencil, Plus, RotateCcw, Search, X } from 
 import { Badge } from "../../components/ui/Badge";
 import { ConfirmDialog, type ConfirmDialogConfig } from "../../components/ui/ConfirmDialog";
 import { apiRequest } from "../../lib/api";
+import { useLiveRefresh } from "../../lib/liveRefresh";
 import type { Notification } from "./UtilitiesPage";
 
 type ActorRef = { email: string; employee?: { firstName: string; lastName: string } | null } | null;
@@ -192,6 +193,7 @@ export function ShiftsTab({
   };
 
   useEffect(loadShifts, []);
+  useLiveRefresh(loadShifts);
 
   useEffect(() => {
     setPage(1);
