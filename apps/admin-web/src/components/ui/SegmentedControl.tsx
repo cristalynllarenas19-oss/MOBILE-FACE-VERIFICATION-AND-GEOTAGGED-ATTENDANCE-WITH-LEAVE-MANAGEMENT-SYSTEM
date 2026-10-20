@@ -1,7 +1,8 @@
 import { CSSProperties } from "react";
 import "./SegmentedControl.css";
 
-export type SegmentedControlOption = { key: string; label: string };
+// disabled: shown dimmed and can't be selected.
+export type SegmentedControlOption = { key: string; label: string; disabled?: boolean };
 
 const DENSE_GAP = 4;
 
@@ -44,6 +45,7 @@ export function SegmentedControl({
           type="button"
           className={`seg-btn${dense ? " dense" : ""}${segment.key === value ? " active" : ""}`}
           onClick={() => onChange(segment.key)}
+          disabled={segment.disabled}
         >
           {segment.label}
         </button>

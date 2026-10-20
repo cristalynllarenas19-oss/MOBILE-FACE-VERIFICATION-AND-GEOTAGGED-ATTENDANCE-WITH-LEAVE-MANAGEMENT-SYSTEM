@@ -130,6 +130,24 @@ function describeShiftBreak(startTime: string, endTime: string, breakStartTime: 
   return `${toClock(breakStart)} – ${toClock(breakStart + breakMinutes)}`;
 }
 
+// A shift is Active until archived (Archive sets isActive false), whether or
+// not any employee is assigned to it.
+type ShiftStatus = "ACTIVE" | "ARCHIVED";
+
+const SHIFT_STATUS_META: Record<ShiftStatus, { label: string; tone: "success" | "neutral" }> = {
+  ACTIVE: { label: "Active", tone: "success" },
+  ARCHIVED: { label: "Archived", tone: "neutral" },
+};
+
+function getShiftStatus(shift: Shift): ShiftStatus {
+  return shift.isActive ? "ACTIVE" : "ARCHIVED";
+}
+
+function ShiftStatusBadge({ shift }: { shift: Shift }) {
+  const meta = SHIFT_STATUS_META[getShiftStatus(shift)];
+  return <Badge tone={meta.tone}>{meta.label}</Badge>;
+}
+
 const PAGE_SIZE = 10;
 
 // value matches JS Date.getDay() (0=Sunday..6=Saturday); displayed Mon-first.
@@ -174,6 +192,7 @@ export function ShiftsTab({
 }) {
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<ShiftStatus | "ALL">("ALL");
   const [page, setPage] = useState(1);
 
   const [formOpen, setFormOpen] = useState(false);
@@ -197,11 +216,16 @@ export function ShiftsTab({
 
   useEffect(() => {
     setPage(1);
-  }, [search]);
+  }, [search, statusFilter]);
 
   const visibleShifts = shifts.filter(
-    (shift) => !search.trim() || shift.name.toLowerCase().includes(search.trim().toLowerCase()),
+    (shift) =>
+      (!search.trim() || shift.name.toLowerCase().includes(search.trim().toLowerCase())) &&
+      (statusFilter === "ALL" || getShiftStatus(shift) === statusFilter),
   );
+
+  const statusCounts: Record<ShiftStatus, number> = { ACTIVE: 0, ARCHIVED: 0 };
+  for (const shift of shifts) statusCounts[getShiftStatus(shift)] += 1;
 
   const pageCount = Math.max(1, Math.ceil(visibleShifts.length / PAGE_SIZE));
   const pagedShifts = visibleShifts.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -362,22 +386,49 @@ export function ShiftsTab({
 
   return (
     <>
-      <div className="utilities-section-header">
-        <h3>Shifts</h3>
-        <div className="utilities-section-header-controls">
-          <div className="utilities-search">
-            <Search size={14} />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search shift by name…"
-              aria-label="Search shifts by name"
-            />
+      {/* Same toolbar as the Users page (UsersPage.css classes). */}
+      <div className="users-filter-bar">
+        <div className="users-filter-group">
+          <span className="users-filter-label">View</span>
+          <div className="filter-tabs">
+            <button className={statusFilter === "ALL" ? "active" : ""} onClick={() => setStatusFilter("ALL")}>
+              All Shifts ({shifts.length})
+            </button>
+            {(Object.keys(SHIFT_STATUS_META) as ShiftStatus[]).map((status) => (
+              <button
+                key={status}
+                className={statusFilter === status ? "active" : ""}
+                onClick={() => setStatusFilter(status)}
+              >
+                {SHIFT_STATUS_META[status].label} ({statusCounts[status]})
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="users-filter-actions">
+          <div className="users-filter-group users-filter-search-group">
+            <span className="users-filter-label">Search</span>
+            <div className="employee-search">
+              <Search size={14} className="employee-search-icon" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search shift by name..."
+                aria-label="Search shifts by name"
+              />
+              {search && (
+                <button type="button" className="employee-search-clear" onClick={() => setSearch("")} aria-label="Clear search">
+                  <X size={13} />
+                </button>
+              )}
+            </div>
           </div>
           {canManageShifts && (
-            <button className="primary-button" onClick={openCreateForm}>
-              <Plus size={15} /> Add Shift
+            <button className="add-user-button" onClick={openCreateForm}>
+              <Plus size={15} />
+              Add Shift
             </button>
           )}
         </div>
@@ -405,7 +456,7 @@ export function ShiftsTab({
                       <p>No shifts have been created yet. Create your first shift to begin.</p>
                     </div>
                   ) : (
-                    "No shifts match your search."
+                    "No shifts match your search or status filter."
                   )}
                 </td>
               </tr>
@@ -416,7 +467,7 @@ export function ShiftsTab({
                   <td data-label="Time">{formatTime12h(shift.startTime)} – {formatTime12h(shift.endTime)}</td>
                   <td data-label="Employees Assigned">{shift._count?.schedules ?? 0}</td>
                   <td data-label="Status">
-                    <Badge tone={shift.isActive ? "success" : "neutral"}>{shift.isActive ? "Active" : "Inactive"}</Badge>
+                    <ShiftStatusBadge shift={shift} />
                   </td>
                   <td data-label="Actions">
                     <button type="button" className="utilities-view-button" onClick={() => setViewShift(shift)}>
@@ -741,7 +792,7 @@ export function ShiftsTab({
                 </div>
                 <div>
                   <span>Status</span>
-                  <strong>{viewShift.isActive ? "Active" : "Inactive"}</strong>
+                  <strong>{SHIFT_STATUS_META[getShiftStatus(viewShift)].label}</strong>
                 </div>
                 <div>
                   <span>Created</span>
@@ -802,7 +853,7 @@ export function ShiftsTab({
                 </div>
                 <div>
                   <span>Status</span>
-                  <Badge tone={viewShift.isActive ? "success" : "neutral"}>{viewShift.isActive ? "Active" : "Inactive"}</Badge>
+                  <ShiftStatusBadge shift={viewShift} />
                 </div>
                 <div>
                   <span>Created</span>

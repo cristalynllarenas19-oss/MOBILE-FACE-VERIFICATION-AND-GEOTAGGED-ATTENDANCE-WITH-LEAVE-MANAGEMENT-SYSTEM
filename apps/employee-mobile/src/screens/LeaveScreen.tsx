@@ -275,6 +275,17 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
     () => getMySchedules(),
   );
   const leaveTypes = leaveTypesCache.data ?? EMPTY_LEAVE_TYPES;
+  // Not entitled to leave (e.g. Probationary) = no active leave type lists
+  // this employee's employment status — the same check the backend makes on
+  // every request. Stays enabled until both the profile and leave types are
+  // known, so a slow load never locks out an entitled employee.
+  const employmentStatus = profileCache.data?.employmentStatus;
+  // Whether this leave type covers the employee's employment status (e.g.
+  // Regular-only types are off for a Probationary employee). Unknown = allowed.
+  const isLeaveTypeApplicable = (type: LeaveType) =>
+    !employmentStatus || !type.applicableStatuses || type.applicableStatuses.includes(employmentStatus);
+  const canRequestLeave =
+    leaveTypes.length === 0 || leaveTypes.some((type) => type.isActive !== false && isLeaveTypeApplicable(type));
   const balances = balancesCache.data ?? EMPTY_BALANCES;
   const requests = requestsCache.data ?? EMPTY_REQUESTS;
   const mySchedules = mySchedulesCache.data ?? EMPTY_SCHEDULES;
@@ -342,6 +353,8 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
   const [isPickingResubmitFile, setIsPickingResubmitFile] = useState(false);
   const [resubmitNote, setResubmitNote] = useState("");
   const [activeTab, setActiveTab] = useState<"balance" | "request" | "undertime">("balance");
+  // A disabled Request tab falls back to Balance, even if it was already open.
+  const shownTab = activeTab === "request" && !canRequestLeave ? "balance" : activeTab;
   const [resultModal, setResultModal] = useState<{ status: ResultModalStatus; title: string; message: string } | null>(null);
   // Viewing an already-submitted attachment (own or a resubmission) — fetched
   // on demand via getLeaveRequestDetail since the list poll above never
@@ -479,6 +492,16 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
   function handleRequestFromBalance(id: string) {
     const type = leaveTypes.find((t) => t.id === id);
     if (!type || type.isActive === false) return;
+    if (!isLeaveTypeApplicable(type)) {
+      setResultModal({
+        status: "info",
+        title: "Not Entitled to Leave",
+        message: canRequestLeave
+          ? `${type.name} isn't available for your employment status.`
+          : "Your employment status isn't entitled to leave yet. Leave becomes available once you're a regular employee.",
+      });
+      return;
+    }
     if (isLeaveTypeExhausted(type)) {
       setResultModal({
         status: "info",
@@ -1182,15 +1205,20 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
       <SegmentedControl
         segments={[
           { key: "balance", label: "Balance" },
-          { key: "request", label: "Request" },
+          { key: "request", label: "Request", disabled: !canRequestLeave },
           { key: "undertime", label: "Undertime" },
         ]}
-        value={activeTab}
+        value={shownTab}
         onChange={(key) => setActiveTab(key as typeof activeTab)}
         style={styles.tabSwitcher}
       />
+      {!canRequestLeave && (
+        <Text style={styles.notEntitledNote}>
+          You are not entitled to leave yet, so leave requests are unavailable.
+        </Text>
+      )}
 
-      {activeTab === "balance" ? (
+      {shownTab === "balance" ? (
         <View style={{ flex: 1 }}>
           <LeaveBalanceChart
             balances={visibleBalances}
@@ -1202,7 +1230,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
             onRequestLeave={handleRequestFromBalance}
           />
         </View>
-      ) : activeTab === "undertime" ? (
+      ) : shownTab === "undertime" ? (
         <View style={{ flex: 1 }}>
           <View style={styles.card}>
             <View style={styles.formHeader}>
@@ -1550,10 +1578,12 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                 <AestheticScrollView style={{ maxHeight: 160 }}>
                   {filteredLeaveTypes.length > 0 ? (
                     filteredLeaveTypes.map((item) => {
-                      const exhausted = isLeaveTypeExhausted(item);
-                      const alreadyPending = isLeaveTypeAlreadyPending(item);
-                      const unavailableToday = !exhausted && !alreadyPending ? leaveTypeUnavailableTodayReason(item) : undefined;
-                      const disabled = exhausted || alreadyPending || Boolean(unavailableToday);
+                      const notApplicable = !isLeaveTypeApplicable(item);
+                      const exhausted = !notApplicable && isLeaveTypeExhausted(item);
+                      const alreadyPending = !notApplicable && isLeaveTypeAlreadyPending(item);
+                      const unavailableToday =
+                        !notApplicable && !exhausted && !alreadyPending ? leaveTypeUnavailableTodayReason(item) : undefined;
+                      const disabled = notApplicable || exhausted || alreadyPending || Boolean(unavailableToday);
                       return (
                         <Pressable
                           key={item.id}
@@ -1580,7 +1610,9 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                           >
                             {item.name}
                             {item.requiresDocument ? " (document required)" : ""}
-                            {exhausted
+                            {notApplicable
+                              ? " (regular employees only)"
+                              : exhausted
                               ? item.requiresAdminGrant
                                 ? " (apply to HR/Admin first)"
                                 : " (no balance left)"
@@ -2404,6 +2436,13 @@ const styles = StyleSheet.create({
   // { flex: 1, padding: 16 } wrapper.
   tabSwitcher: {
     marginBottom: 12,
+  },
+  notEntitledNote: {
+    marginTop: -4,
+    marginBottom: 12,
+    color: "#64748B",
+    fontSize: 12,
+    textAlign: "center",
   },
   card: {
     flex: 1,

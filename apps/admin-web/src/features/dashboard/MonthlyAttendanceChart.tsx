@@ -43,7 +43,11 @@ export function MonthlyAttendanceChart({
       </div>
 
       <div className="mabar-track">
-        {days.map((day) => {
+        {days.map((rawDay) => {
+          // `present` from the API is on-time only; late arrivals still came
+          // to work, so they count as Present here — same as the Present
+          // Today card.
+          const day = { ...rawDay, present: rawDay.present + rawDay.late };
           const total = day.present + day.absent + day.onLeave;
           const isSelected = selectedDay === day.day;
 
@@ -52,7 +56,7 @@ export function MonthlyAttendanceChart({
               type="button"
               key={day.day}
               className={`mabar-col${isSelected ? " selected" : ""}${day.isDayOff ? " day-off" : total === 0 ? " empty" : ""}`}
-              onClick={() => onSelectDay(day)}
+              onClick={() => onSelectDay(rawDay)}
               aria-pressed={isSelected}
               aria-label={
                 day.isDayOff

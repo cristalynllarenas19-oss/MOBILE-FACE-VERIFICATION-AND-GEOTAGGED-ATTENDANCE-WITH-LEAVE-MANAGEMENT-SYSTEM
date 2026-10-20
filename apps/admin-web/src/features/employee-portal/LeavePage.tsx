@@ -7,7 +7,7 @@ import {
   LeaveType, LeaveBalance, LeaveRequest, UndertimeEligibility, UndertimeFiling, MySchedule, AttendanceHistoryRecord,
   getLeaveTypes, getLeaveBalances, getLeaveRequests, createLeaveRequest, cancelLeaveRequest, resubmitLeaveRequest,
   getUndertimeEligibility, getUndertimeFilings, fileUndertime, getMySchedules, getAttendanceHistory,
-  filedMinutes,
+  filedMinutes, getMyProfile,
 } from "./api";
 import { LeaveBalanceChart } from "./components/LeaveBalanceChart";
 import { CalendarPicker } from "./components/CalendarPicker";
@@ -253,6 +253,21 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
     () => getMySchedules(),
   );
   const leaveTypes = leaveTypesCache.data ?? [];
+  // Same cache key as AttendancePage/SettingsPage, so no extra fetch.
+  const profileCache = useCachedData(CACHE_KEYS.myProfile, getMyProfile);
+  // Not entitled to leave (e.g. Probationary) = no active leave type lists
+  // this employee's employment status — the same check the backend makes on
+  // every request. Stays enabled until both the profile and leave types are
+  // known, so a slow load never locks out an entitled employee.
+  const employmentStatus = profileCache.data?.employmentStatus;
+  // Whether this leave type covers the employee's employment status (e.g.
+  // Regular-only types are off for a Probationary employee). Unknown = allowed.
+  const isLeaveTypeApplicable = (type: LeaveType) =>
+    !employmentStatus || !type.applicableStatuses || type.applicableStatuses.includes(employmentStatus);
+  const canRequestLeave =
+    leaveTypes.length === 0 || leaveTypes.some((type) => type.isActive !== false && isLeaveTypeApplicable(type));
+  // A disabled Request tab falls back to Balance, even if it was already open.
+  const shownTab: Tab = tab === "request" && !canRequestLeave ? "balance" : tab;
   const balances = balancesCache.data ?? [];
   const requests = requestsCache.data ?? [];
   const undertimeEligibility = undertimeEligibilityCache.data;
@@ -528,6 +543,16 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
   function handleRequestFromBalance(id: string) {
     const type = leaveTypes.find((t) => t.id === id);
     if (!type || !type.isActive) return;
+    if (!isLeaveTypeApplicable(type)) {
+      setResultModal({
+        ok: false,
+        title: "Not Entitled to Leave",
+        msg: canRequestLeave
+          ? `${type.name} isn't available for your employment status.`
+          : "Your employment status isn't entitled to leave yet. Leave becomes available once you're a regular employee.",
+      });
+      return;
+    }
     if (isLeaveTypeExhausted(type)) {
       setResultModal({
         ok: false,
@@ -1201,16 +1226,21 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
       <SegmentedControl
         segments={[
           { key: "balance", label: "Balance" },
-          { key: "request", label: "Request" },
+          { key: "request", label: "Request", disabled: !canRequestLeave },
           { key: "undertime", label: "Undertime" },
         ]}
-        value={tab}
+        value={shownTab}
         onChange={(key) => setTab(key as Tab)}
-        style={{ marginBottom: 16 }}
+        style={{ marginBottom: canRequestLeave ? 16 : 8 }}
       />
+      {!canRequestLeave && (
+        <p style={{ margin: "0 0 16px", color: "#64748B", fontSize: 13, textAlign: "center" }}>
+          You are not entitled to leave yet, so leave requests are unavailable.
+        </p>
+      )}
 
       {/* ── Balance tab ──────────────────────────────────────────────────────── */}
-      {tab === "balance" && (
+      {shownTab === "balance" && (
         <LeaveBalanceChart
           balances={visibleBalances}
           loading={loadingData}
@@ -1223,7 +1253,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
       )}
 
       {/* ── Request tab ──────────────────────────────────────────────────────── */}
-      {tab === "request" && (
+      {shownTab === "request" && (
         <div style={{ background: "#FFFFFF", borderRadius: 18, border: "1px solid #E2E8F0", padding: 20, boxShadow: "var(--emp-shadow-card)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
               <FileText size={28} color="#DC2777" />
@@ -1273,10 +1303,12 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                     {filteredTypes.length === 0
                       ? <p style={{ padding: 14, textAlign: "center", color: "#94A3B8", fontSize: 13, margin: 0 }}>No leave types found</p>
                       : filteredTypes.map((t) => {
-                          const exhausted = isLeaveTypeExhausted(t);
-                          const alreadyPending = isLeaveTypeAlreadyPending(t);
-                          const unavailableToday = !exhausted && !alreadyPending ? leaveTypeUnavailableTodayReason(t) : undefined;
-                          const disabled = exhausted || alreadyPending || Boolean(unavailableToday);
+                          const notApplicable = !isLeaveTypeApplicable(t);
+                          const exhausted = !notApplicable && isLeaveTypeExhausted(t);
+                          const alreadyPending = !notApplicable && isLeaveTypeAlreadyPending(t);
+                          const unavailableToday =
+                            !notApplicable && !exhausted && !alreadyPending ? leaveTypeUnavailableTodayReason(t) : undefined;
+                          const disabled = notApplicable || exhausted || alreadyPending || Boolean(unavailableToday);
                           return (
                             <button
                               key={t.id}
@@ -1294,7 +1326,9 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                               }}
                             >
                               {t.name}{t.requiresDocument ? (t.supportingDocumentAfterDays ? ` (document required after ${t.supportingDocumentAfterDays}+ days)` : " (document required)") : ""}
-                              {exhausted
+                              {notApplicable
+                                ? " (regular employees only)"
+                                : exhausted
                                 ? t.requiresAdminGrant
                                   ? " (apply to HR/Admin first)"
                                   : " (no balance left)"
@@ -1446,7 +1480,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
       )}
 
       {/* ── Undertime tab ────────────────────────────────────────────────────── */}
-      {tab === "undertime" && (
+      {shownTab === "undertime" && (
         <div style={{ background: "#FFFFFF", borderRadius: 18, border: "1px solid #E2E8F0", padding: 20, boxShadow: "var(--emp-shadow-card)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
             <div style={{ width: 28, height: 28, borderRadius: 8, background: "#CCFBF1", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>

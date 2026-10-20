@@ -320,11 +320,13 @@ export function DashboardPage({
 
   // Attendance Breakdown donut tracks the same selected date + department
   // filter as the detail panel, so both always describe the same scope.
+  // Present includes late arrivals (the API's present is on-time only), same
+  // as the Present Today card.
   const donutSource = useMemo(() => {
     if (!selectedDay) return { present: 0, late: 0, absent: 0, onLeave: 0 };
     if (departmentFilter === "ALL") {
       return {
-        present: selectedDay.present,
+        present: selectedDay.present + selectedDay.late,
         late: selectedDay.late,
         absent: selectedDay.absent,
         onLeave: selectedDay.onLeave,
@@ -332,7 +334,7 @@ export function DashboardPage({
     }
     const row = selectedDay.departments.find((d) => d.department === departmentFilter);
     return {
-      present: row?.present ?? 0,
+      present: (row?.present ?? 0) + (row?.late ?? 0),
       late: row?.late ?? 0,
       absent: row?.absent ?? 0,
       onLeave: row?.onLeave ?? 0,

@@ -283,6 +283,9 @@ export type EmployeeProfile = {
   // (ISO), or null when there's no shift today. See AttendanceEligibility.
   shiftEndsAt?: string | null;
   sex?: "MALE" | "FEMALE";
+  // REGULAR, PROBATIONARY, ... — decides which leave types they may request
+  // (see LeaveType.applicableStatuses).
+  employmentStatus?: string;
   // The live value — follows the employee's assigned geotagged area, so it
   // can differ from the attendanceMode saved with the login session.
   attendanceMode?: AttendanceMode;
@@ -304,6 +307,9 @@ export type LeaveType = {
   allowWithoutPay: boolean;
   isUnlimitedDays: boolean;
   isActive: boolean;
+  // Employment statuses allowed to request this type — the backend rejects a
+  // request from anyone else (leave.service.ts create()).
+  applicableStatuses?: string[];
   requiresAdminGrant: boolean;
   isSingleDayOnly: boolean;
   advanceFilingAllowed: boolean;

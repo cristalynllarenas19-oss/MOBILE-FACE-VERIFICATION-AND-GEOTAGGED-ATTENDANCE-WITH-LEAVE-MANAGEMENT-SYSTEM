@@ -4,7 +4,8 @@ import { Animated, LayoutChangeEvent, Pressable, StyleSheet, Text, View, ViewSty
 const PADDING = 4;
 const DENSE_GAP = 4;
 
-export type SegmentedControlOption = { key: string; label: string };
+// disabled: shown dimmed and can't be selected.
+export type SegmentedControlOption = { key: string; label: string; disabled?: boolean };
 
 export default function SegmentedControl({
   segments,
@@ -65,7 +66,14 @@ export default function SegmentedControl({
       {segments.map((segment) => {
         const isActive = segment.key === value;
         return (
-          <Pressable key={segment.key} style={styles.button} onPress={() => onChange(segment.key)} hitSlop={4}>
+          <Pressable
+            key={segment.key}
+            style={[styles.button, segment.disabled && styles.buttonDisabled]}
+            onPress={() => onChange(segment.key)}
+            disabled={segment.disabled}
+            accessibilityState={{ disabled: !!segment.disabled, selected: isActive }}
+            hitSlop={4}
+          >
             {dense ? (
               <Text
                 style={[styles.label, styles.labelDense, isActive && styles.labelActive]}
@@ -116,6 +124,9 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     alignItems: "center",
     justifyContent: "center",
+  },
+  buttonDisabled: {
+    opacity: 0.4,
   },
   label: {
     fontSize: 14,
