@@ -47,9 +47,10 @@
 
 .ddp-row {
   display: grid;
-  grid-template-columns: minmax(88px, 1.9fr) minmax(34px, 0.7fr) minmax(34px, 0.7fr) minmax(42px, 0.8fr) minmax(34px, 0.7fr) 16px;
+  /* Department | Present | Late | Absent | On Leave | Total | arrow */
+  grid-template-columns: minmax(80px, 1.8fr) minmax(32px, 0.65fr) minmax(26px, 0.55fr) minmax(32px, 0.65fr) minmax(40px, 0.8fr) minmax(28px, 0.6fr) 16px;
   align-items: center;
-  column-gap: 4px;
+  column-gap: 3px;
   padding: 4px 0;
 }
 
@@ -76,6 +77,10 @@
    (Do not color the actual attendance numbers). */
 .ddp-head .ddp-col-present {
   color: #1baf7a;
+}
+
+.ddp-head .ddp-col-late {
+  color: #eda100;
 }
 
 .ddp-head .ddp-col-absent {

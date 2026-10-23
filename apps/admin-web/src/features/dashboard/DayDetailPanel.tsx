@@ -16,16 +16,11 @@ export type SelectedDay = {
 };
 
 // Same total computeAttendanceRate already uses everywhere else on this page
-// (present + late + absent + onLeave).
+// (present + late + absent + onLeave). `present` from the API is on-time
+// only and Late has its own column, so Present + Late + Absent + On Leave
+// always adds up to Total with no one counted twice.
 function rowTotal(row: DeptAttendanceRow) {
   return computeAttendanceRate(row).total;
-}
-
-// `present` from the API is on-time only; late arrivals still came to work,
-// so the Present column includes them — same as the Present Today card, and
-// Present + Absent + On Leave always adds up to Total.
-function rowPresent(row: DeptAttendanceRow) {
-  return row.present + row.late;
 }
 
 function DeptTableRow({
@@ -40,7 +35,8 @@ function DeptTableRow({
   return (
     <div className="ddp-row" role="row">
       <span className="ddp-cell ddp-cell-dept" title={row.department}>{row.department}</span>
-      <span className="ddp-cell ddp-cell-num ddp-col-present">{rowPresent(row)}</span>
+      <span className="ddp-cell ddp-cell-num ddp-col-present">{row.present}</span>
+      <span className="ddp-cell ddp-cell-num ddp-col-late">{row.late}</span>
       <span className="ddp-cell ddp-cell-num ddp-col-absent">{row.absent}</span>
       <span className="ddp-cell ddp-cell-num ddp-col-onleave">{row.onLeave}</span>
       <span className="ddp-cell ddp-cell-num ddp-col-total">{rowTotal(row)}</span>
@@ -86,12 +82,13 @@ export function DayDetailPanel({
 
   const totals = rows.reduce(
     (acc, row) => ({
-      present: acc.present + rowPresent(row),
+      present: acc.present + row.present,
+      late: acc.late + row.late,
       absent: acc.absent + row.absent,
       onLeave: acc.onLeave + row.onLeave,
       total: acc.total + rowTotal(row),
     }),
-    { present: 0, absent: 0, onLeave: 0, total: 0 },
+    { present: 0, late: 0, absent: 0, onLeave: 0, total: 0 },
   );
 
   return (
@@ -108,6 +105,7 @@ export function DayDetailPanel({
           <div className="ddp-row ddp-head" role="row">
             <span className="ddp-cell ddp-cell-dept">Department</span>
             <span className="ddp-cell ddp-cell-num ddp-col-present">Present</span>
+            <span className="ddp-cell ddp-cell-num ddp-col-late">Late</span>
             <span className="ddp-cell ddp-cell-num ddp-col-absent">Absent</span>
             <span className="ddp-cell ddp-cell-num ddp-col-onleave">On Leave</span>
             <span className="ddp-cell ddp-cell-num ddp-col-total">Total</span>
@@ -123,6 +121,7 @@ export function DayDetailPanel({
           <div className="ddp-row ddp-total" role="row">
             <span className="ddp-cell ddp-cell-dept">TOTAL</span>
             <span className="ddp-cell ddp-cell-num">{totals.present}</span>
+            <span className="ddp-cell ddp-cell-num">{totals.late}</span>
             <span className="ddp-cell ddp-cell-num">{totals.absent}</span>
             <span className="ddp-cell ddp-cell-num">{totals.onLeave}</span>
             <span className="ddp-cell ddp-cell-num">{totals.total}</span>

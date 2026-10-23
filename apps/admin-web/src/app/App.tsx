@@ -316,7 +316,9 @@ export default function App() {
       activeUtilityTab={utilityTab}
       user={user}
     >
-      {renderPage === "dashboard" && <DashboardPage user={user} onNavigateToAttendance={navigateToAttendance} />}
+      {renderPage === "dashboard" && (
+        <DashboardPage user={user} onNavigateToAttendance={navigateToAttendance} onNavigate={handleNavigate} />
+      )}
       {renderPage === "users" && <UsersPage />}
       {renderPage === "face-registration" && <FaceRegistrationPage initialEmployee={faceRegistrationEmployee} />}
       {renderPage === "employees" && (

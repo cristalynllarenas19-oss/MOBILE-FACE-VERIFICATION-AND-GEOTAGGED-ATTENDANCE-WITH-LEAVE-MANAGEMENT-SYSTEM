@@ -79,6 +79,22 @@
   box-shadow: 0 6px 16px rgba(15, 23, 42, 0.08);
 }
 
+/* Every card opens its page: the status cards open Attendance Management
+   filtered to that status, Total Employees and Geotagged Areas open their
+   own pages. */
+.stat-card-clickable {
+  cursor: pointer;
+}
+
+.stat-card-clickable:hover {
+  border-color: #c9d6e6;
+}
+
+.stat-card-clickable:focus-visible {
+  outline: 2px solid #1a6faf;
+  outline-offset: 2px;
+}
+
 .dashboard-page .card {
   padding: 8px 12px;
 }

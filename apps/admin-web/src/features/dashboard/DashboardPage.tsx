@@ -18,10 +18,11 @@ import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { StatCard } from "../../components/ui/StatCard";
 import { apiRequest } from "../../lib/api";
 import { prefetchCached, useCachedData } from "../../lib/dataCache";
+import { PermissionCode, permissions } from "../../types/rbac";
 import { useActiveDepartments } from "../../lib/departments";
 import { AttendanceDonutChart, AttendanceDonutLegend } from "./AttendanceDonut";
 import { computeAttendanceRate, getRateTone, RATE_TONE_COLOR } from "./attendanceRate";
-import { formatShortDate } from "./dateUtils";
+import { formatShortDate, toDateInputValue } from "./dateUtils";
 import { DayDetailPanel } from "./DayDetailPanel";
 import { MonthlyAttendanceChart } from "./MonthlyAttendanceChart";
 import "./DashboardPage.css";
@@ -204,11 +205,16 @@ function CalendarPicker({
 
 export function DashboardPage({
   onNavigateToAttendance,
+  onNavigate,
   user,
 }: {
   onNavigateToAttendance: (filter: AttendanceNavigateFilter) => void;
-  user?: { roles?: string[]; departmentId?: string; department?: string };
+  onNavigate?: (pageId: string) => void;
+  user?: { permissions?: PermissionCode[]; roles?: string[]; departmentId?: string; department?: string };
 }) {
+  // Total Employees / Geotagged Areas open their own pages — only offered to
+  // users whose sidebar shows those pages (same permissions as navItems).
+  const canOpen = (permission: PermissionCode) => Boolean(onNavigate && user?.permissions?.includes(permission));
   // Mirrors the backend's getSupervisorDepartmentScope: a Supervisor who is
   // also an Admin (or not a Supervisor at all) gets full, unscoped access.
   const roles = user?.roles ?? [];
@@ -274,6 +280,15 @@ export function DashboardPage({
 
   const onLeaveToday = summary.departmentAttendance.today.reduce((sum, row) => sum + row.onLeave, 0);
 
+  // The stat cards always describe today (company-wide, or the Supervisor's
+  // own department — the backend scopes both the counts and the list), so
+  // the Attendance page opens on today's date with just the status set.
+  // The backend's single-day mode rebuilds Absent/On Leave rows with the
+  // same cutoff and approved-leave rules this summary counts with.
+  function openTodayInAttendance(status: "PRESENT" | "LATE" | "ABSENT" | "ON_LEAVE") {
+    onNavigateToAttendance({ department: "ALL", status, date: toDateInputValue(new Date().toISOString()) });
+  }
+
   
   const todayAttendanceRateLabel = new Date().getDay() === 0
     ? "Day Off"
@@ -320,8 +335,8 @@ export function DashboardPage({
 
   // Attendance Breakdown donut tracks the same selected date + department
   // filter as the detail panel, so both always describe the same scope.
-  // Present includes late arrivals (the API's present is on-time only), same
-  // as the Present Today card.
+  // The donut has no Late slice, so its Present includes late arrivals (the
+  // API's present is on-time only) to keep the three slices summing to total.
   const donutSource = useMemo(() => {
     if (!selectedDay) return { present: 0, late: 0, absent: 0, onLeave: 0 };
     if (departmentFilter === "ALL") {
@@ -403,20 +418,57 @@ export function DashboardPage({
       {loadError && <p className="dashboard-error">{loadError}</p>}
 
       <div className="stats-grid">
-        <StatCard label="Total Employees"  value={summary.stats.totalEmployees}  icon={Users}         tone="blue"   />
-        {/* Everyone who reported for work today — late arrivals included, since
-            they still came in. Late Today is the late subset of this number.
-            (The API's presentToday is on-time only, which the breakdown charts
-            here and on mobile need as a separate, non-overlapping slice.) */}
-        <StatCard label="Present Today"    value={summary.stats.presentToday + summary.stats.lateToday} icon={CheckCircle2}  tone="green"  />
-        <StatCard label="Late Today"       value={summary.stats.lateToday}       icon={Clock}         tone="yellow" />
-        <StatCard label="Absent Today"     value={summary.stats.absentToday}     icon={AlertTriangle} tone="red"    />
-        <StatCard label="On Leave Today"   value={onLeaveToday}                  icon={CalendarOff}   tone="pink"   />
+        <StatCard
+          label="Total Employees"
+          value={summary.stats.totalEmployees}
+          icon={Users}
+          tone="blue"
+          onClick={canOpen(permissions.employeesRead) ? () => onNavigate?.("employees") : undefined}
+          title="View employees in Employee Management"
+        />
+        {/* Present Today is on-time only — Late Today is its own,
+            non-overlapping count, same split as the Attendance Details
+            table. Each status card opens Attendance Management filtered to
+            exactly the employees it counts. */}
+        <StatCard
+          label="Present Today"
+          value={summary.stats.presentToday}
+          icon={CheckCircle2}
+          tone="green"
+          onClick={() => openTodayInAttendance("PRESENT")}
+          title="View today's present employees in Attendance Management"
+        />
+        <StatCard
+          label="Late Today"
+          value={summary.stats.lateToday}
+          icon={Clock}
+          tone="yellow"
+          onClick={() => openTodayInAttendance("LATE")}
+          title="View today's late employees in Attendance Management"
+        />
+        <StatCard
+          label="Absent Today"
+          value={summary.stats.absentToday}
+          icon={AlertTriangle}
+          tone="red"
+          onClick={() => openTodayInAttendance("ABSENT")}
+          title="View today's absent employees in Attendance Management"
+        />
+        <StatCard
+          label="On Leave Today"
+          value={onLeaveToday}
+          icon={CalendarOff}
+          tone="pink"
+          onClick={() => openTodayInAttendance("ON_LEAVE")}
+          title="View employees on leave today in Attendance Management"
+        />
         <StatCard
           label="Geotagged Areas"
           value={summary.geotagging.assigned}
           icon={MapPinned}
           tone="teal"
+          onClick={canOpen(permissions.attendanceRead) ? () => onNavigate?.("geotagging") : undefined}
+          title="View areas in Geotagged Areas"
         />
       </div>
 
