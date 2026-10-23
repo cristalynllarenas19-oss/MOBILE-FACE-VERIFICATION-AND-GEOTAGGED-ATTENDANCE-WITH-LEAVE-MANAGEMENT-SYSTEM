@@ -1,6 +1,24 @@
 import axios from "axios";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { AlertTriangle, Archive, ChevronsUpDown, Eye, Pencil, Plus, RotateCcw, ScanFace, Search, UserCheck, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Archive,
+  Briefcase,
+  CalendarDays,
+  ChevronsUpDown,
+  Eye,
+  FileUp,
+  Info,
+  Pencil,
+  Plus,
+  RotateCcw,
+  ScanFace,
+  Search,
+  UserCheck,
+  UserRound,
+  Users,
+  X,
+} from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
@@ -18,6 +36,7 @@ import { PermissionCode, permissions } from "../../types/rbac";
 import { useEmployeeTypes } from "../../lib/employeeTypes";
 import { useAvailablePositions, usePositions } from "../../lib/positions";
 import type { EmploymentStatus } from "../../types/employment";
+import { ImportEmployeesModal } from "./ImportEmployeesModal";
 import "./EmployeesPage.css";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3001/api/v1";
@@ -53,6 +72,8 @@ type Employee = {
   id: string;
   employeeNo: string;
   firstName: string;
+  // null (not "") when the employee has none.
+  middleName?: string | null;
   lastName: string;
   // Existing Employment Status, set server-side from employeeType.
   employmentStatus: EmploymentStatus;
@@ -103,6 +124,8 @@ type SpouseEmployment = "NONE" | "OTHER_COMPANY" | "ULPI" | "UNEMPLOYED";
 
 type EmployeeForm = {
   firstName: string;
+  // Optional — "" in the form, sent as null.
+  middleName: string;
   lastName: string;
   email: string;
   department: string;
@@ -127,6 +150,7 @@ type EditEmployeeForm = EmployeeForm;
 
 const initialForm: EmployeeForm = {
   firstName: "",
+  middleName: "",
   lastName: "",
   email: "",
   department: "",
@@ -247,8 +271,13 @@ function getStatusLabel(employee: Employee) {
   return employee.employeeType?.name ?? "Unspecified";
 }
 
+// The middle name sits between first and last only when there is one, so
+// a blank one never leaves a double space (or "null") in the name.
 function getEmployeeName(employee: Employee) {
-  return `${employee.firstName} ${employee.lastName}`;
+  return [employee.firstName, employee.middleName, employee.lastName]
+    .map((part) => part?.trim())
+    .filter(Boolean)
+    .join(" ");
 }
 
 function matchesSearch(employee: Employee, query: string) {
@@ -258,7 +287,10 @@ function matchesSearch(employee: Employee, query: string) {
   const haystacks = [
     employee.employeeNo,
     employee.firstName,
+    employee.middleName ?? "",
     employee.lastName,
+    // "Juan Dela Cruz" still finds Juan Santos Dela Cruz.
+    `${employee.firstName} ${employee.lastName}`,
     getEmployeeName(employee),
     employee.user?.email ?? "",
     employee.department.name,
@@ -395,6 +427,11 @@ function validateSpouse(form: EmployeeForm) {
   if (form.civilStatus === "MARRIED" && form.spouseEmployment === "ULPI" && !form.spouseEmployeeId) {
     return "Select the spouse from the ULPI employee list.";
   }
+  // Without this, "Works at another company" with a blank name saved
+  // nothing and quietly came back as "Not provided".
+  if (form.civilStatus === "MARRIED" && form.spouseEmployment === "OTHER_COMPANY" && !form.spouseEmployerName.trim()) {
+    return "Enter the spouse's company.";
+  }
   return "";
 }
 
@@ -455,9 +492,38 @@ function useSpouseDependentResets({
   }, [spouseEmployment]);
 }
 
-// The spouse checkboxes (mutually exclusive) plus whichever detail field the
-// checked one needs. Always shown, and disabled (not removed) unless Married,
-// so changing Civil Status never resizes the modal.
+const SPOUSE_EMPLOYMENT_OPTIONS = [
+  { value: "NONE", label: "Not provided" },
+  { value: "OTHER_COMPANY", label: "Works at another company" },
+  { value: "ULPI", label: "Works at ULPI" },
+  { value: "UNEMPLOYED", label: "Unemployed" },
+];
+
+// The red * after a required field's label.
+function RequiredMark() {
+  return (
+    <span className="employee-form-required" aria-hidden="true">
+      *
+    </span>
+  );
+}
+
+// A titled group of fields on Add Employee (Personal Information, …).
+function FormSection({ icon: Icon, title, children }: { icon: typeof UserRound; title: string; children: ReactNode }) {
+  return (
+    <section className="employee-form-section">
+      <h3 className="employee-form-section-title">
+        <Icon size={15} /> {title}
+      </h3>
+      <div className="employee-form-section-body">{children}</div>
+    </section>
+  );
+}
+
+// Spouse's Employment (one dropdown) plus the detail field that choice
+// needs. Always shown, and disabled (not removed) unless Married, so
+// changing Civil Status never resizes the modal. Same stored fields as
+// before — Not provided = nothing recorded (unknown, never "unemployed").
 function SpouseFields({
   form,
   setForm,
@@ -489,67 +555,66 @@ function SpouseFields({
     })),
   ];
 
-  const toggle = (mode: SpouseEmployment) =>
-    setForm((current) => {
-      const next = current.spouseEmployment === mode ? "NONE" : mode;
-      return {
-        ...current,
-        spouseEmployment: next,
-        spouseEmployerName: next === "OTHER_COMPANY" ? current.spouseEmployerName : "",
-        spouseEmployeeId: next === "ULPI" ? current.spouseEmployeeId : "",
-      };
-    });
+  // One choice instead of three look-alike checkboxes; switching clears the
+  // detail field the previous choice used.
+  const chooseEmployment = (mode: SpouseEmployment) =>
+    setForm((current) => ({
+      ...current,
+      spouseEmployment: mode,
+      spouseEmployerName: mode === "OTHER_COMPANY" ? current.spouseEmployerName : "",
+      spouseEmployeeId: mode === "ULPI" ? current.spouseEmployeeId : "",
+    }));
+  const isOtherCompany = form.spouseEmployment === "OTHER_COMPANY";
 
-  const checkboxRow = (mode: SpouseEmployment, label: string) => (
-    <div
-      className={`employee-spouse-checkbox-row${disabled ? " employee-spouse-checkbox-row--disabled" : ""}`}
-      onClick={disabled ? undefined : () => toggle(mode)}
-    >
-      <input type="checkbox" checked={form.spouseEmployment === mode} disabled={disabled} readOnly />
-      <span>{label}</span>
-    </div>
-  );
-
+  // All three fields always shown, stacked; the detail fields stay disabled
+  // until their choice is picked, so the column never changes size.
   return (
-    <>
-      <div className="employee-form-grid">
-        {checkboxRow("OTHER_COMPANY", "Employee's spouse works at another company")}
-        {checkboxRow("ULPI", "Employee's spouse works at ULPI")}
-        {checkboxRow("UNEMPLOYED", "Spouse is unemployed")}
-      </div>
-      <div className="employee-form-grid">
-        <label>
-          Spouse's Company
-          <input
-            type="text"
-            value={form.spouseEmployerName}
-            onChange={(event) => setForm((current) => ({ ...current, spouseEmployerName: event.target.value }))}
-            placeholder="Company name"
-            disabled={disabled || form.spouseEmployment !== "OTHER_COMPANY"}
-          />
-        </label>
-        {/* Always shown, like Spouse's Company — enabled only while the
-            "works at ULPI" box is checked (the list is fetched only then). */}
-        <label>
-          Spouse (ULPI {candidateSex === "FEMALE" ? "female" : "male"} employees)
-          <FormSelectDropdown
-            value={form.spouseEmployeeId}
-            onChange={(value) => setForm((current) => ({ ...current, spouseEmployeeId: value }))}
-            options={spouseOptions}
-            placeholder={isUlpi && candidatesCache.isLoading && spouseOptions.length === 0 ? "Loading…" : "Type the spouse's name…"}
-            ariaLabel="Spouse"
-            disabled={disabled || !isUlpi || spouseOptions.length === 0}
-            searchable
-            menuVariant="employee"
-          />
-          {isUlpi && !candidatesCache.isLoading && spouseOptions.length === 0 && (
-            <span className="employee-form-hint">
-              No active {candidateSex === "FEMALE" ? "female" : "male"} employees found.
-            </span>
-          )}
-        </label>
-      </div>
-    </>
+    <div className="employee-form-stack">
+      <label>
+        Spouse's Employment
+        <FormSelectDropdown
+          value={form.spouseEmployment}
+          onChange={(value) => chooseEmployment(value as SpouseEmployment)}
+          options={SPOUSE_EMPLOYMENT_OPTIONS}
+          placeholder="Not provided"
+          ariaLabel="Spouse's Employment"
+          disabled={disabled}
+        />
+        {disabled && <span className="employee-form-hint">Available when Civil Status is Married.</span>}
+      </label>
+      <label>
+        <span>
+          Spouse's Company {isOtherCompany && !disabled && <RequiredMark />}
+        </span>
+        <input
+          type="text"
+          value={form.spouseEmployerName}
+          onChange={(event) => setForm((current) => ({ ...current, spouseEmployerName: event.target.value }))}
+          placeholder="e.g. ABC Company"
+          disabled={disabled || !isOtherCompany}
+        />
+      </label>
+      <label>
+        <span>
+          Spouse (ULPI Employee) {isUlpi && !disabled && <RequiredMark />}
+        </span>
+        <FormSelectDropdown
+          value={form.spouseEmployeeId}
+          onChange={(value) => setForm((current) => ({ ...current, spouseEmployeeId: value }))}
+          options={spouseOptions}
+          placeholder={isUlpi && candidatesCache.isLoading && spouseOptions.length === 0 ? "Loading" : "Select a spouse"}
+          ariaLabel="Spouse (ULPI Employee)"
+          disabled={disabled || !isUlpi || spouseOptions.length === 0}
+          searchable
+          menuVariant="employee"
+        />
+        {isUlpi && !candidatesCache.isLoading && spouseOptions.length === 0 && (
+          <span className="employee-form-hint">
+            No active {candidateSex === "FEMALE" ? "female" : "male"} employees found.
+          </span>
+        )}
+      </label>
+    </div>
   );
 }
 
@@ -575,16 +640,14 @@ function AdditionalLeaveGrants({
   isLoading: boolean;
   isRegular: boolean;
 }) {
-  if (!isRegular || types.length === 0) {
+  if (types.length === 0) {
     return (
       <div className="employee-leave-grants">
-        <p className="employee-leave-grants-title">Additional Leave Types{isLoading ? " (loading…)" : ""}</p>
+        <p className="employee-leave-grants-title">
+          <Info size={14} aria-hidden="true" /> Additional Leave Types{isLoading ? " (loading)" : ""}
+        </p>
         {!isLoading && (
-          <p className="employee-leave-grants-hint">
-            {!isRegular
-              ? "Only Regular employees can be granted additional leave types. Set the Employee Type to a Regular type to grant them."
-              : "No admin-granted leave types are set up yet (Utilities → Leave Types)."}
-          </p>
+          <p className="employee-leave-grants-hint">No admin-granted leave types are set up yet (Utilities → Leave Types).</p>
         )}
       </div>
     );
@@ -603,10 +666,15 @@ function AdditionalLeaveGrants({
 
   return (
     <div className="employee-leave-grants">
-      <p className="employee-leave-grants-title">Additional Leave Types{isLoading ? " (loading…)" : ""}</p>
+      <p className="employee-leave-grants-title">
+        <Info size={14} aria-hidden="true" /> Additional Leave Types{isLoading ? " (loading)" : ""}
+      </p>
+      {/* Always listed so the admin sees what exists; only tickable for a
+          Regular employee, the only type that can be granted these. */}
       <p className="employee-leave-grants-hint">
-        These leave types are only available to an employee once granted here. Checking one grants its default day
-        allotment; unchecking revokes it.
+        {isRegular
+          ? "Tick a leave type to grant it to this employee."
+          : "Available only when the Employee Type is Regular."}
       </p>
       {types.map((type) => {
         const isSoloParentLeave = isSoloParentLeaveType(type);
@@ -616,13 +684,16 @@ function AdditionalLeaveGrants({
         // even without one recorded — it just can't be newly granted.
         const needsUlpiSpouse = type.isTransferable && form.spouseEmployment !== "ULPI";
         const isGranted = grantedTypeIds.has(type.id);
+        const isLocked = !isRegular || isLoading || isIneligible || (needsUlpiSpouse && !isGranted);
         return (
           <div key={type.id} className="employee-leave-grant-line">
-            <label className="employee-leave-grant-row">
+            {/* A locked line is greyed out as a whole (not just its box), so
+                it's obvious it can't be ticked — e.g. Solo Parent while Single. */}
+            <label className={`employee-leave-grant-row${isLocked ? " employee-leave-grant-row--locked" : ""}`}>
               <input
                 type="checkbox"
                 checked={isGranted}
-                disabled={isLoading || isIneligible || (needsUlpiSpouse && !isGranted)}
+                disabled={isLocked}
                 onChange={() => {
                   const wasGranted = grantedTypeIds.has(type.id);
                   toggleGrantedType(type.id);
@@ -654,12 +725,15 @@ function AddEmployeeModal({
   lockedDepartmentName,
   onClose,
   onCreated,
+  onImport,
 }: {
   departments: DepartmentOption[];
   supervisors: SupervisorOption[];
   lockedDepartmentName?: string;
   onClose: () => void;
   onCreated: (employee: Employee) => void;
+  // Opens Batch Employee Import (bottom-left of this modal's footer).
+  onImport?: () => void;
 }) {
   const [form, setForm] = useState<EmployeeForm>(() => ({
     ...initialForm,
@@ -676,13 +750,9 @@ function AddEmployeeModal({
   } | null>(null);
   const { options: employeeTypeOptions, byId: employeeTypesById } = useEmployeeTypes();
 
-  // Preselect the first active type (the list is oldest-first) once loaded,
-  // same as the old form defaulting to Regular.
-  useEffect(() => {
-    if (!form.employeeTypeId && employeeTypeOptions.length > 0) {
-      setForm((current) => (current.employeeTypeId ? current : { ...current, employeeTypeId: employeeTypeOptions[0].value }));
-    }
-  }, [employeeTypeOptions, form.employeeTypeId]);
+  // No type is preselected: Employee Type starts on its "Select employee
+  // type" placeholder like Department and Position, and must be picked
+  // (validateForm requires it).
 
   const selectedEmploymentStatus = employeeTypesById.get(form.employeeTypeId)?.employmentStatus;
 
@@ -736,6 +806,14 @@ function AddEmployeeModal({
   const [grantedTypeIds, setGrantedTypeIds] = useState<Set<string>>(new Set());
   const isRegular = selectedEmploymentStatus === "REGULAR";
 
+  // The grant list stays visible (locked) for other types, so switching away
+  // from Regular clears any ticks rather than leaving them looking granted.
+  useEffect(() => {
+    if (isRegular) return;
+    setGrantedTypeIds((current) => (current.size === 0 ? current : new Set()));
+    setForm((current) => (current.soloParentStatus === "NOT_APPLICABLE" ? current : { ...current, soloParentStatus: "NOT_APPLICABLE" }));
+  }, [isRegular]);
+
   useSpouseDependentResets({
     civilStatus: form.civilStatus,
     spouseEmployment: form.spouseEmployment,
@@ -763,6 +841,7 @@ function AddEmployeeModal({
     if (!form.department.trim()) return "Department is required.";
     if (!form.positionId) return "Position is required.";
     if (!form.employeeTypeId) return "Employee Type is required.";
+    if (!form.hireDate) return "Hire Date is required.";
     return validateSpouse(form);
   };
 
@@ -795,6 +874,8 @@ function AddEmployeeModal({
         `${API_BASE_URL}/employees`,
         {
           firstName: form.firstName.trim(),
+          // Optional — a blank field is sent as null, never "" or "N/A".
+          middleName: form.middleName.trim() || null,
           lastName: form.lastName.trim(),
           email: form.email.trim(),
           department: form.department.trim(),
@@ -876,31 +957,35 @@ function AddEmployeeModal({
   return (
     <EmployeeModal
       title="Add Employee"
-      description="Create an employee profile. They'll set their own password on first login."
+      description="Fields marked * are required."
       onClose={onClose}
       split
     >
       <form className="employee-form" onSubmit={handleSubmit}>
-        <div className="employee-form-columns">
-          <div className="employee-form-details">
-            <div className="employee-form-grid">
+        {/* Three side-by-side columns, one per section, fields stacked. */}
+        <div className="employee-form-sections">
+          <FormSection icon={UserRound} title="Personal Information">
+            <div className="employee-form-stack">
               <label>
-                First Name
-                <input type="text" value={form.firstName} onChange={updateField("firstName")} placeholder="Juan" required />
+                <span>First Name <RequiredMark /></span>
+                <input type="text" value={form.firstName} onChange={updateField("firstName")} placeholder="e.g. Juan" required />
               </label>
               <label>
-                Last Name
-                <input type="text" value={form.lastName} onChange={updateField("lastName")} placeholder="Dela Cruz" required />
-              </label>
-            </div>
-
-            <div className="employee-form-grid">
-              <label>
-                Email
-                <input type="email" value={form.email} onChange={updateField("email")} placeholder="employee@example.com" required />
+                <span>
+                  Middle Name <span className="employee-form-optional">(Optional)</span>
+                </span>
+                <input type="text" value={form.middleName} onChange={updateField("middleName")} placeholder="e.g. Santos" />
               </label>
               <label>
-                Sex/Gender
+                <span>Last Name <RequiredMark /></span>
+                <input type="text" value={form.lastName} onChange={updateField("lastName")} placeholder="e.g. Dela Cruz" required />
+              </label>
+              <label>
+                <span>Email <RequiredMark /></span>
+                <input type="email" value={form.email} onChange={updateField("email")} placeholder="e.g. employee@example.com" required />
+              </label>
+              <label>
+                <span>Sex/Gender <RequiredMark /></span>
                 <FormSelectDropdown
                   value={form.sex}
                   onChange={(value) => setForm((current) => ({ ...current, sex: value as EmployeeForm["sex"] }))}
@@ -908,15 +993,27 @@ function AddEmployeeModal({
                     { value: "MALE", label: "Male" },
                     { value: "FEMALE", label: "Female" },
                   ]}
-                  placeholder="Select sex/gender…"
+                  placeholder="Select sex/gender"
                   ariaLabel="Sex/Gender"
                 />
               </label>
-            </div>
-
-            <div className="employee-form-grid">
               <label>
-                Department
+                <span>Civil Status <RequiredMark /></span>
+                <FormSelectDropdown
+                  value={form.civilStatus}
+                  onChange={(value) => setForm((current) => ({ ...current, civilStatus: value as EmployeeForm["civilStatus"] }))}
+                  options={CIVIL_STATUS_OPTIONS}
+                  placeholder="Select civil status"
+                  ariaLabel="Civil Status"
+                />
+              </label>
+            </div>
+          </FormSection>
+
+          <FormSection icon={Briefcase} title="Employment Details">
+            <div className="employee-form-stack">
+              <label>
+                <span>Department <RequiredMark /></span>
                 {lockedDepartmentName ? (
                   <input type="text" value={lockedDepartmentName} disabled readOnly />
                 ) : (
@@ -924,18 +1021,18 @@ function AddEmployeeModal({
                     value={form.department}
                     onChange={(value) => setForm((current) => ({ ...current, department: value }))}
                     options={departments.map((department) => ({ value: department.name, label: department.name }))}
-                    placeholder="Select a department…"
+                    placeholder="Select a department"
                     ariaLabel="Department"
                   />
                 )}
               </label>
               <label>
-                Position
+                <span>Position <RequiredMark /></span>
                 <FormSelectDropdown
                   value={form.positionId}
                   onChange={(value) => setForm((current) => ({ ...current, positionId: value }))}
                   options={availablePositions.map((position) => ({ value: position.id, label: position.title }))}
-                  placeholder={selectedDepartmentId ? "Select a position…" : "Select a department first…"}
+                  placeholder={selectedDepartmentId ? "Select a position" : "Select a department first"}
                   ariaLabel="Position"
                   disabled={!selectedDepartmentId || availablePositions.length === 0}
                 />
@@ -943,28 +1040,34 @@ function AddEmployeeModal({
                   <span className="employee-form-hint">No positions are available for this department yet (Utilities → Positions).</span>
                 )}
               </label>
-            </div>
-
-            <div className="employee-form-grid">
               <label>
-                Hire Date
-                <input type="date" value={form.hireDate} onChange={updateField("hireDate")} />
+                <span>Employee Type <RequiredMark /></span>
+                <FormSelectDropdown
+                  value={form.employeeTypeId}
+                  onChange={(value) => setForm((current) => ({ ...current, employeeTypeId: value }))}
+                  options={employeeTypeOptions}
+                  placeholder="Select employee type"
+                  ariaLabel="Employee Type"
+                  disabled={employeeTypeOptions.length === 0}
+                />
+              </label>
+              <label>
+                <span>Hire Date <RequiredMark /></span>
+                <input type="date" value={form.hireDate} onChange={updateField("hireDate")} required />
               </label>
               <label>
                 Attendance Mode
-                {/* Shows the department's own mode — "Both" included — same as
-                    the Mode column in the employee list. Never picked here. */}
+                {/* Shows the department's own mode — "Both" included — same
+                    as the Mode column in the employee list. Never picked here.
+                    Full width so the whole placeholder fits. */}
                 <input
                   type="text"
                   value={departmentMode ? getAttendanceModeLabel(departmentMode, allAttendanceModeOptions) : ""}
-                  placeholder="Select a department first…"
+                  placeholder="Based on the department"
                   disabled
                   readOnly
                 />
               </label>
-            </div>
-
-            <div className="employee-form-grid">
               <label>
                 Supervisor
                 <FormSelectDropdown
@@ -977,46 +1080,17 @@ function AddEmployeeModal({
                       label: `${supervisor.firstName} ${supervisor.lastName}`,
                     })),
                   ]}
-                  placeholder={form.department.trim() ? "Select a supervisor…" : "Select a department first…"}
+                  placeholder={form.department.trim() ? "Select a supervisor" : "Select a department first"}
                   ariaLabel="Supervisor"
                   disabled={!form.department.trim()}
                 />
               </label>
-              <label>
-                Employee Type
-                <FormSelectDropdown
-                  value={form.employeeTypeId}
-                  onChange={(value) => setForm((current) => ({ ...current, employeeTypeId: value }))}
-                  options={employeeTypeOptions}
-                  placeholder="Select employee type…"
-                  ariaLabel="Employee Type"
-                  disabled={employeeTypeOptions.length === 0}
-                />
-              </label>
-            </div>
-
-            <AdditionalLeaveGrants
-              types={adminGrantTypes}
-              grantedTypeIds={grantedTypeIds}
-              setGrantedTypeIds={setGrantedTypeIds}
-              form={form}
-              setForm={setForm}
-              isLoading={leaveTypesCache.isLoading}
-              isRegular={isRegular}
-            />
-          </div>
-
-          {/* The fields that decide Paternity/Maternity eligibility, plus the
-              spouse details they reveal. */}
-          <aside className="employee-form-side">
-            <div className="employee-form-grid">
-              {/* Always shown so the column never jumps; says "Not applicable"
-                  when the chosen Employee Type isn't entitled to this leave. */}
+              {/* Read-only: a new hire gets the leave type's default allotment
+                  from Utilities → Leave Types; says "Not applicable" when the
+                  chosen Employee Type isn't entitled to it. */}
               {genderLeaveLabel && genderLeaveType && (
                 <label>
                   {genderLeaveLabel}
-                  {/* Read-only: a new hire gets the leave type's default
-                      allotment from Utilities → Leave Types. */}
                   <input
                     type="text"
                     value={
@@ -1029,30 +1103,44 @@ function AddEmployeeModal({
                   />
                 </label>
               )}
-              <label>
-                Civil Status
-                <FormSelectDropdown
-                  value={form.civilStatus}
-                  onChange={(value) => setForm((current) => ({ ...current, civilStatus: value as EmployeeForm["civilStatus"] }))}
-                  options={CIVIL_STATUS_OPTIONS}
-                  placeholder="Select civil status…"
-                  ariaLabel="Civil Status"
-                />
-              </label>
             </div>
+          </FormSection>
 
-            <SpouseFields
-              form={form}
-              setForm={setForm}
-              employeeSex={form.sex}
-              disabled={form.civilStatus !== "MARRIED"}
-            />
-          </aside>
+          {/* Third column: spouse details, then the leave grants (Added
+              Paternity / Solo Parent depend on the spouse details above). */}
+          <div className="employee-form-stack">
+            <FormSection icon={Users} title="Spouse Employment (If Applicable)">
+              <SpouseFields
+                form={form}
+                setForm={setForm}
+                employeeSex={form.sex}
+                disabled={form.civilStatus !== "MARRIED"}
+              />
+            </FormSection>
+            <FormSection icon={CalendarDays} title="Leave Entitlements">
+              <AdditionalLeaveGrants
+                types={adminGrantTypes}
+                grantedTypeIds={grantedTypeIds}
+                setGrantedTypeIds={setGrantedTypeIds}
+                form={form}
+                setForm={setForm}
+                isLoading={leaveTypesCache.isLoading}
+                isRegular={isRegular}
+              />
+            </FormSection>
+          </div>
         </div>
 
         {error && <p className="employee-form-error">{error}</p>}
 
         <div className="employee-form-actions">
+          {onImport && (
+            <div className="employee-import-group">
+              <button type="button" className="employee-import-button" onClick={onImport} disabled={isSaving}>
+                <FileUp size={16} /> Import Employees
+              </button>
+            </div>
+          )}
           <button type="submit" className="primary-button" disabled={isSaving}>
             {isSaving ? "Adding..." : "Add Employee"}
           </button>
@@ -1086,6 +1174,7 @@ function EditEmployeeModal({
 }) {
   const [form, setForm] = useState<EditEmployeeForm>({
     firstName: employee.firstName,
+    middleName: employee.middleName ?? "",
     lastName: employee.lastName,
     email: employee.user?.email ?? "",
     department: employee.department.name,
@@ -1221,6 +1310,7 @@ function EditEmployeeModal({
     if (!/^\S+@\S+\.\S+$/.test(form.email.trim())) return "Enter a valid email address.";
     if (!form.department.trim()) return "Department is required.";
     if (!form.positionId) return "Position is required.";
+    if (!form.hireDate) return "Hire Date is required.";
     return validateSpouse(form);
   };
 
@@ -1264,6 +1354,7 @@ function EditEmployeeModal({
     onUpdated({
       ...employee,
       firstName: form.firstName.trim(),
+      middleName: form.middleName.trim() || null,
       lastName: form.lastName.trim(),
       user: employee.user ? { ...employee.user, email: form.email.trim() } : employee.user,
       department: { name: form.department.trim(), attendanceMode: departmentMode ?? employee.department.attendanceMode },
@@ -1289,6 +1380,8 @@ function EditEmployeeModal({
       `${API_BASE_URL}/employees/${employee.id}`,
       {
         firstName: form.firstName.trim(),
+        // Always sent, so clearing the field removes a saved middle name.
+        middleName: form.middleName.trim() || null,
         lastName: form.lastName.trim(),
         email: form.email.trim(),
         department: form.department.trim(),
@@ -1360,33 +1453,50 @@ function EditEmployeeModal({
   return (
     <EmployeeModal title="Edit Employee" description={getEmployeeName(employee)} onClose={onClose} split>
       <form className="employee-form" onSubmit={handleSubmit}>
-        <div className="employee-form-columns">
-          <div className="employee-form-details">
-            <div className="employee-form-grid">
+        {/* Same three columns as Add Employee: Personal | Employment | Spouse. */}
+        <div className="employee-form-sections">
+          <FormSection icon={UserRound} title="Personal Information">
+            <div className="employee-form-stack">
               <label>
-                First Name
+                <span>First Name <RequiredMark /></span>
                 <input type="text" value={form.firstName} onChange={updateField("firstName")} required />
               </label>
               <label>
-                Last Name
+                <span>
+                  Middle Name <span className="employee-form-optional">(Optional)</span>
+                </span>
+                <input type="text" value={form.middleName} onChange={updateField("middleName")} />
+              </label>
+              <label>
+                <span>Last Name <RequiredMark /></span>
                 <input type="text" value={form.lastName} onChange={updateField("lastName")} required />
               </label>
-            </div>
-
-            <div className="employee-form-grid">
               <label>
-                Email
+                <span>Email <RequiredMark /></span>
                 <input type="email" value={form.email} onChange={updateField("email")} required />
               </label>
               <label>
                 Sex/Gender
+                {/* Not editable after creation. */}
                 <input type="text" value={employee.sex === "FEMALE" ? "Female" : employee.sex === "MALE" ? "Male" : "Not set"} disabled readOnly />
               </label>
-            </div>
-
-            <div className="employee-form-grid">
               <label>
-                Department
+                <span>Civil Status <RequiredMark /></span>
+                <FormSelectDropdown
+                  value={form.civilStatus}
+                  onChange={(value) => setForm((current) => ({ ...current, civilStatus: value as EmployeeForm["civilStatus"] }))}
+                  options={CIVIL_STATUS_OPTIONS}
+                  placeholder="Select civil status"
+                  ariaLabel="Civil Status"
+                />
+              </label>
+            </div>
+          </FormSection>
+
+          <FormSection icon={Briefcase} title="Employment Details">
+            <div className="employee-form-stack">
+              <label>
+                <span>Department <RequiredMark /></span>
                 {lockedDepartmentName ? (
                   <input type="text" value={lockedDepartmentName} disabled readOnly />
                 ) : (
@@ -1400,63 +1510,24 @@ function EditEmployeeModal({
                         : []),
                       ...departments.map((department) => ({ value: department.name, label: department.name })),
                     ]}
-                    placeholder="Select a department…"
+                    placeholder="Select a department"
                     ariaLabel="Department"
                   />
                 )}
               </label>
               <label>
-                Position
+                <span>Position <RequiredMark /></span>
                 <FormSelectDropdown
                   value={form.positionId}
                   onChange={(value) => setForm((current) => ({ ...current, positionId: value }))}
                   options={positionOptions}
-                  placeholder="Select a position…"
+                  placeholder="Select a position"
                   ariaLabel="Position"
                   disabled={positionOptions.length === 0}
                 />
               </label>
-            </div>
-
-            <div className="employee-form-grid">
               <label>
-                Hire Date
-                <input type="date" value={form.hireDate} onChange={updateField("hireDate")} />
-              </label>
-              <label>
-                Attendance Mode
-                {/* Shows the department's mode ("Both" included), same as the
-                    Mode column in the employee list. Read-only: the employee's
-                    concrete mode is set by the backend from their assigned
-                    geotagged area — see GeolocationService.syncAttendanceModes. */}
-                <input
-                  type="text"
-                  value={getAttendanceModeLabel(departmentMode === "BOTH" ? "BOTH" : form.attendanceMode, allAttendanceModeOptions)}
-                  disabled
-                  readOnly
-                />
-              </label>
-            </div>
-
-            <div className="employee-form-grid">
-              <label>
-                Supervisor
-                <FormSelectDropdown
-                  value={form.supervisorId}
-                  onChange={(value) => setForm((current) => ({ ...current, supervisorId: value }))}
-                  options={[
-                    { value: "", label: "No supervisor assigned" },
-                    ...availableSupervisors.map((supervisor) => ({
-                      value: supervisor.id,
-                      label: `${supervisor.firstName} ${supervisor.lastName}`,
-                    })),
-                  ]}
-                  placeholder="Select a supervisor…"
-                  ariaLabel="Supervisor"
-                />
-              </label>
-              <label>
-                Employee Type
+                <span>Employee Type <RequiredMark /></span>
                 <FormSelectDropdown
                   value={form.employeeTypeId}
                   onChange={(value) => setForm((current) => ({ ...current, employeeTypeId: value }))}
@@ -1472,30 +1543,44 @@ function EditEmployeeModal({
                       disabled: type.employmentStatus === restrictedStatus && type.id !== employee.employeeTypeId,
                     })),
                   ]}
-                  placeholder="Select employee type…"
+                  placeholder="Select employee type"
                   ariaLabel="Employee Type"
                 />
               </label>
-            </div>
-
-            {/* Only a Regular employee is eligible for these — reacts to the
-                form's own Employee Type (its Employment Status) so toggling the
-                dropdown in this same modal updates it immediately. */}
-            <AdditionalLeaveGrants
-              types={adminGrantTypes}
-              grantedTypeIds={grantedTypeIds}
-              setGrantedTypeIds={setGrantedTypeIds}
-              form={form}
-              setForm={setForm}
-              isLoading={isGrantsLoading}
-              isRegular={selectedEmploymentStatus === "REGULAR"}
-            />
-          </div>
-
-          {/* The fields that decide Paternity/Maternity eligibility, plus the
-              spouse details they reveal. */}
-          <aside className="employee-form-side">
-            <div className="employee-form-grid">
+              <label>
+                <span>Hire Date <RequiredMark /></span>
+                <input type="date" value={form.hireDate} onChange={updateField("hireDate")} required />
+              </label>
+              <label>
+                Attendance Mode
+                {/* Shows the department's mode ("Both" included), same as the
+                    Mode column in the employee list. Read-only: the employee's
+                    concrete mode is set by the backend from their assigned
+                    geotagged area — see GeolocationService.syncAttendanceModes. */}
+                <input
+                  type="text"
+                  value={getAttendanceModeLabel(departmentMode === "BOTH" ? "BOTH" : form.attendanceMode, allAttendanceModeOptions)}
+                  placeholder="Based on the department"
+                  disabled
+                  readOnly
+                />
+              </label>
+              <label>
+                Supervisor
+                <FormSelectDropdown
+                  value={form.supervisorId}
+                  onChange={(value) => setForm((current) => ({ ...current, supervisorId: value }))}
+                  options={[
+                    { value: "", label: "No supervisor assigned" },
+                    ...availableSupervisors.map((supervisor) => ({
+                      value: supervisor.id,
+                      label: `${supervisor.firstName} ${supervisor.lastName}`,
+                    })),
+                  ]}
+                  placeholder="Select a supervisor"
+                  ariaLabel="Supervisor"
+                />
+              </label>
               {genderLeaveLabel && (isAllocationLoading || genderLeaveTypeId) && (
                 <label>
                   {genderLeaveLabel}
@@ -1504,34 +1589,46 @@ function EditEmployeeModal({
                   <input
                     type="text"
                     value={isAllocationLoading ? "" : (genderLeaveAllocation ?? "Not applicable to this Employee Type")}
-                    placeholder="Loading..."
+                    placeholder="Loading"
                     disabled
                     readOnly
                   />
                 </label>
               )}
-              <label>
-                Civil Status
-                <FormSelectDropdown
-                  value={form.civilStatus}
-                  onChange={(value) => setForm((current) => ({ ...current, civilStatus: value as EmployeeForm["civilStatus"] }))}
-                  options={CIVIL_STATUS_OPTIONS}
-                  placeholder="Select civil status…"
-                  ariaLabel="Civil Status"
-                />
-              </label>
             </div>
+          </FormSection>
 
-            {employee.sex && (
-              <SpouseFields
+          {/* Third column: spouse details, then the leave grants (Added
+              Paternity / Solo Parent depend on the spouse details above). */}
+          <div className="employee-form-stack">
+            <FormSection icon={Users} title="Spouse Employment (If Applicable)">
+              {employee.sex ? (
+                <SpouseFields
+                  form={form}
+                  setForm={setForm}
+                  employeeSex={employee.sex}
+                  currentSpouse={employee.spouseEmployee}
+                  disabled={form.civilStatus !== "MARRIED"}
+                />
+              ) : (
+                <p className="employee-form-hint">Spouse details need the employee's Sex/Gender on file.</p>
+              )}
+            </FormSection>
+            {/* Only a Regular employee is eligible for these — reacts to the
+                form's own Employee Type (its Employment Status) so toggling the
+                dropdown in this same modal updates it immediately. */}
+            <FormSection icon={CalendarDays} title="Leave Entitlements">
+              <AdditionalLeaveGrants
+                types={adminGrantTypes}
+                grantedTypeIds={grantedTypeIds}
+                setGrantedTypeIds={setGrantedTypeIds}
                 form={form}
                 setForm={setForm}
-                employeeSex={employee.sex}
-                currentSpouse={employee.spouseEmployee}
-                disabled={form.civilStatus !== "MARRIED"}
+                isLoading={isGrantsLoading}
+                isRegular={selectedEmploymentStatus === "REGULAR"}
               />
-            )}
-          </aside>
+            </FormSection>
+          </div>
         </div>
 
         {error && <p className="employee-form-error">{error}</p>}
@@ -1578,92 +1675,147 @@ function ViewEmployeeModal({
     employee.requiresFaceConsent && !employee.faceConsentAcceptedAt && employee.employmentStatus !== "SEPARATED",
   );
 
-  return (
-    <EmployeeModal title="Employee Details" description={getEmployeeName(employee)} onClose={onClose}>
-      <div className="employee-detail-grid">
-        <div>
-          <span>Email</span>
-          <strong>{employee.user?.email ?? "Unassigned"}</strong>
-        </div>
-        <div>
-          <span>Department</span>
-          <strong>{employee.department.name}</strong>
-        </div>
-        <div>
-          <span>Position</span>
-          <strong>{employee.position.title}</strong>
-        </div>
-        <div>
-          <span>Supervisor</span>
-          <strong>
-            {employee.supervisor ? `${employee.supervisor.firstName} ${employee.supervisor.lastName}` : "Unassigned"}
-          </strong>
-        </div>
-        <div>
-          <span>Status</span>
-          <Badge tone={getStatusTone(employee.employmentStatus)}>
-            {getStatusLabel(employee)}
-          </Badge>
-        </div>
-        {employee.hireDate && (
-          <div>
-            <span>Hire Date</span>
-            <strong>
-              {new Date(employee.hireDate).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
-              {(() => {
-                const tenure = getTenure(employee.hireDate);
-                if (!tenure) return null;
-                return ` · ${tenure.months} month${tenure.months === 1 ? "" : "s"}, ${tenure.days} day${tenure.days === 1 ? "" : "s"}`;
-              })()}
-            </strong>
-          </div>
-        )}
-        <div>
-          <span>Attendance Mode</span>
-          {/* Same as the list's Mode column: a "Both" department shows Both. */}
-          <Badge tone={getAttendanceModeTone(employee.department.attendanceMode === "BOTH" ? "BOTH" : employee.attendanceMode)}>
-            {getAttendanceModeLabel(
-              employee.department.attendanceMode === "BOTH" ? "BOTH" : employee.attendanceMode,
-              attendanceModeOptions,
-            )}
-          </Badge>
-        </div>
-        {employee.soloParentStatus && employee.soloParentStatus !== "NOT_APPLICABLE" && (
-          <div>
-            <span>Solo Parent Status</span>
-            <Badge tone={employee.soloParentStatus === "ELIGIBLE" ? "success" : "danger"}>
-              {employee.soloParentStatus === "ELIGIBLE" ? "Eligible" : "Ineligible"}
-            </Badge>
-          </div>
-        )}
-        {employee.civilStatus && employee.civilStatus !== "SINGLE" && (
-          <div>
-            <span>Civil Status</span>
-            <strong>{employee.civilStatus.charAt(0) + employee.civilStatus.slice(1).toLowerCase()}</strong>
-          </div>
-        )}
-        {employee.spouseEmployerName && (
-          <div>
-            <span>Spouse's Company</span>
-            <strong>{employee.spouseEmployerName}</strong>
-          </div>
-        )}
-        {employee.spouseEmployee && (
-          <div>
-            <span>Spouse (ULPI Employee)</span>
-            <strong>
-              {employee.spouseEmployee.firstName} {employee.spouseEmployee.lastName} ({employee.spouseEmployee.employeeNo})
-            </strong>
-          </div>
-        )}
-        {employee.spouseUnemployed && (
-          <div>
-            <span>Spouse's Employment</span>
-            <strong>Unemployed</strong>
-          </div>
-        )}
-      </div>
+  const attendanceModeCode = employee.department.attendanceMode === "BOTH" ? "BOTH" : employee.attendanceMode;
+  const tenure = employee.hireDate ? getTenure(employee.hireDate) : null;
+  const spouseEmployment = employee.spouseEmployeeId
+    ? "Works at ULPI"
+    : employee.spouseEmployerName
+      ? "Works at another company"
+      : employee.spouseUnemployed
+        ? "Unemployed"
+        : "Not provided";
+  const isMarried = employee.civilStatus === "MARRIED";
+  const show = (value?: string | null) => (value && value.trim() ? value : "—");
 
+  return (
+    <EmployeeModal title="Employee Details" description={getEmployeeName(employee)} onClose={onClose} split>
+      {/* Same three columns as Add/Edit Employee, showing values instead of
+          inputs: Personal | Employment | Spouse Employment. */}
+      <div className="employee-detail-body">
+        <div className="employee-form-sections">
+          <FormSection icon={UserRound} title="Personal Information">
+            <div className="employee-form-stack">
+              <div className="employee-view-field">
+                <span>First Name</span>
+                <strong>{show(employee.firstName)}</strong>
+              </div>
+              <div className="employee-view-field">
+                <span>Middle Name</span>
+                <strong>{show(employee.middleName)}</strong>
+              </div>
+              <div className="employee-view-field">
+                <span>Last Name</span>
+                <strong>{show(employee.lastName)}</strong>
+              </div>
+              <div className="employee-view-field">
+                <span>Email</span>
+                <strong>{employee.user?.email ?? "Unassigned"}</strong>
+              </div>
+              <div className="employee-view-field">
+                <span>Sex/Gender</span>
+                <strong>{employee.sex === "FEMALE" ? "Female" : employee.sex === "MALE" ? "Male" : "Not set"}</strong>
+              </div>
+              <div className="employee-view-field">
+                <span>Civil Status</span>
+                <strong>
+                  {employee.civilStatus ? employee.civilStatus.charAt(0) + employee.civilStatus.slice(1).toLowerCase() : "Single"}
+                </strong>
+              </div>
+            </div>
+          </FormSection>
+
+          <FormSection icon={Briefcase} title="Employment Details">
+            <div className="employee-form-stack">
+              <div className="employee-view-field">
+                <span>Department</span>
+                <strong>{employee.department.name}</strong>
+              </div>
+              <div className="employee-view-field">
+                <span>Position</span>
+                <strong>{employee.position.title}</strong>
+              </div>
+              <div className="employee-view-field">
+                <span>Employee Type</span>
+                <strong>{getStatusLabel(employee)}</strong>
+              </div>
+              <div className="employee-view-field">
+                <span>Hire Date</span>
+                {/* Time in service on the same line, so every item stays one
+                    line and the rows line up across the three columns. */}
+                <strong>
+                  {employee.hireDate
+                    ? new Date(employee.hireDate).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })
+                    : "—"}
+                  {tenure && (
+                    <em>
+                      {" · "}
+                      {tenure.months > 0
+                        ? `${tenure.months} month${tenure.months === 1 ? "" : "s"}`
+                        : tenure.days > 0
+                          ? `${tenure.days} day${tenure.days === 1 ? "" : "s"}`
+                          : "New hire"}
+                    </em>
+                  )}
+                </strong>
+              </div>
+              <div className="employee-view-field">
+                <span>Attendance Mode</span>
+                {/* Same as the list's Mode column: a "Both" department shows Both. */}
+                <strong>{getAttendanceModeLabel(attendanceModeCode, attendanceModeOptions)}</strong>
+              </div>
+              <div className="employee-view-field">
+                <span>Supervisor</span>
+                <strong>
+                  {employee.supervisor ? `${employee.supervisor.firstName} ${employee.supervisor.lastName}` : "Unassigned"}
+                </strong>
+              </div>
+            </div>
+          </FormSection>
+
+          {/* Third column: spouse details, then (while it's pending) the
+              face-consent notice — in the column's free space rather than a
+              full-width banner under all three columns. */}
+          <div className="employee-form-stack">
+          <FormSection icon={Users} title="Spouse Employment (If Applicable)">
+            <div className="employee-form-stack">
+              <div className="employee-view-field">
+                <span>Spouse's Employment</span>
+                <strong>{isMarried ? spouseEmployment : "Not applicable"}</strong>
+              </div>
+              <div className="employee-view-field">
+                <span>Spouse's Company</span>
+                <strong>{isMarried ? show(employee.spouseEmployerName) : "—"}</strong>
+              </div>
+              <div className="employee-view-field">
+                <span>Spouse (ULPI Employee)</span>
+                <strong>
+                  {isMarried && employee.spouseEmployee
+                    ? `${employee.spouseEmployee.firstName} ${employee.spouseEmployee.lastName} (${employee.spouseEmployee.employeeNo})`
+                    : "—"}
+                </strong>
+              </div>
+              {employee.soloParentStatus && employee.soloParentStatus !== "NOT_APPLICABLE" && (
+                <div className="employee-view-field">
+                  <span>Solo Parent Status</span>
+                  <strong>{employee.soloParentStatus === "ELIGIBLE" ? "Eligible" : "Ineligible"}</strong>
+                </div>
+              )}
+            </div>
+          </FormSection>
+          {consentPending && (
+            <FormSection icon={ScanFace} title="Face Registration">
+              <div className="employee-view-note" role="status">
+                <AlertTriangle size={16} />
+                <div>
+                  <strong>Consent pending</strong>
+                  <p>The employee must accept the face-data consent on the mobile app before their face can be registered.</p>
+                </div>
+              </div>
+            </FormSection>
+          )}
+          </div>
+        </div>
+      </div>
       {isDueForRegularizationReview(employee) && (
         <div className="employee-regularization-banner" role="alert">
           <UserCheck size={22} className="employee-regularization-banner-icon" />
@@ -1673,19 +1825,6 @@ function ViewEmployeeModal({
               This employee has completed six (6) months of probationary employment and is eligible for
               regularization review. Please review their performance and qualifications before converting their
               status to Regular.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {consentPending && (
-        <div className="employee-consent-banner" role="alert">
-          <AlertTriangle size={22} className="employee-consent-banner-icon" />
-          <div>
-            <strong>Face consent pending</strong>
-            <p>
-              This employee hasn't accepted the face-data consent on the mobile app yet. Face registration is
-              unavailable until they log in and accept it.
             </p>
           </div>
         </div>
@@ -1843,7 +1982,7 @@ function ArchiveEmployeeModal({
                 { value: "End of Contract", label: "End of Contract" },
                 { value: "Separated", label: "Separated" },
               ]}
-              placeholder="Select archive type…"
+              placeholder="Select archive type"
               ariaLabel="Archive Type"
             />
           </label>
@@ -1906,6 +2045,7 @@ export function EmployeesPage({
   const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(1);
   const [isAddOpen, setIsAddOpen] = useState(false);
+  const [isImportOpen, setIsImportOpen] = useState(false);
   const [viewEmployee, setViewEmployee] = useState<Employee | null>(null);
   const [editEmployee, setEditEmployee] = useState<Employee | null>(null);
   const [archiveEmployee, setArchiveEmployee] = useState<Employee | null>(null);
@@ -2289,6 +2429,22 @@ export function EmployeesPage({
           lockedDepartmentName={lockedDepartmentName}
           onClose={() => setIsAddOpen(false)}
           onCreated={handleEmployeeCreated}
+          onImport={() => {
+            setIsAddOpen(false);
+            setIsImportOpen(true);
+          }}
+        />
+      )}
+
+      {isImportOpen && (
+        <ImportEmployeesModal
+          onClose={() => setIsImportOpen(false)}
+          // Imported rows can be spouses/supervisees of existing employees,
+          // so the whole list is re-read rather than patched in.
+          onImported={() => {
+            employeesCache.refresh().catch(() => undefined);
+            supervisorsCache.refresh().catch(() => undefined);
+          }}
         />
       )}
 

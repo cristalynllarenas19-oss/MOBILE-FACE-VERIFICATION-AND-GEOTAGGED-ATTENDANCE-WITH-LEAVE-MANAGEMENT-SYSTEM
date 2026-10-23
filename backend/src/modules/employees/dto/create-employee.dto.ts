@@ -27,9 +27,23 @@ export enum EmployeeCivilStatus {
   ANNULLED = "ANNULLED",
 }
 
+// Middle name is optional: trimmed, and blank/whitespace-only/null all
+// collapse to null so nothing like "" or "N/A" is ever stored.
+const toOptionalName = ({ value }: { value: unknown }) => {
+  if (value === null || value === undefined) return value;
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  return trimmed === "" ? null : trimmed;
+};
+
 export class CreateEmployeeDto {
   @IsString()
   firstName!: string;
+
+  @IsOptional()
+  @Transform(toOptionalName)
+  @IsString()
+  middleName?: string | null;
 
   @IsString()
   lastName!: string;
@@ -121,6 +135,12 @@ export class UpdateEmployeeDto {
   @IsOptional()
   @IsString()
   firstName?: string;
+
+  // Omitted = leave unchanged; blank or null = clear it (stored as null).
+  @IsOptional()
+  @Transform(toOptionalName)
+  @IsString()
+  middleName?: string | null;
 
   @IsOptional()
   @IsString()

@@ -543,6 +543,198 @@
   grid-template-columns: 1fr 1fr;
 }
 
+/* First | Middle | Last on one row. */
+.employee-form-grid.name-fields {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+/* ── Add Employee sections (Personal / Employment / Spouse) ─────────────── */
+.employee-form-section {
+  display: grid;
+  gap: 10px;
+}
+
+.employee-form-section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  /* A heading, not a box: navy text over a navy underline, so it never
+     looks like a (grey) locked field. */
+  padding: 0 0 7px;
+  border-bottom: 2px solid #1a3a5c;
+  background: transparent;
+  color: #1a3a5c;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.employee-form-section-body {
+  display: grid;
+  gap: 12px;
+  padding: 0 2px;
+}
+
+/* Add Employee: Personal | Employment | Spouse as three equal columns,
+   each with its fields stacked one per row. */
+.employee-form-sections {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  /* All three columns as tall as the tallest one… */
+  align-items: stretch;
+}
+
+/* A thin vertical divider between the columns, with even spacing on
+   either side of it. */
+.employee-form-sections > * {
+  min-width: 0;
+  padding: 0 20px;
+}
+
+.employee-form-sections > *:first-child {
+  padding-left: 0;
+}
+
+.employee-form-sections > *:last-child {
+  padding-right: 0;
+}
+
+.employee-form-sections > * + * {
+  border-left: 1px solid var(--line);
+}
+
+/* Run the vertical dividers all the way down to the horizontal line above
+   the buttons: each column gets its bottom spacing as padding (so its
+   divider extends through it), and the form's 10px row gap below the
+   columns is cancelled so the footer line starts exactly where they end. */
+@media (min-width: 901px) {
+  .employee-form-sections > * {
+    padding-bottom: 14px;
+  }
+
+  .employee-form-sections {
+    margin-bottom: -10px;
+  }
+
+  /* Out-ranks .employee-modal--split .employee-form-actions' margin-top. */
+  .employee-form .employee-form-sections + .employee-form-actions {
+    margin-top: 0;
+  }
+}
+
+/* …and each column spreads its fields evenly over that height, so the
+   first and last rows line up across the columns (e.g. Civil Status, the
+   leave allocation and the Additional Leave Types box share a bottom edge). */
+.employee-form-sections > .employee-form-section,
+.employee-form-sections > .employee-form-stack {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+/* Third column (Spouse, then Leave Entitlements): the two sections sit right
+   under each other with no gap, and the leave box stretches to the bottom
+   so this column still ends level with the other two. */
+.employee-form-sections > .employee-form-stack {
+  justify-content: flex-start;
+  gap: 14px;
+}
+
+.employee-form-sections > .employee-form-stack > .employee-form-section:last-child {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.employee-form-sections > .employee-form-stack > .employee-form-section:last-child > .employee-form-section-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.employee-form-sections > .employee-form-stack > .employee-form-section:last-child .employee-leave-grants {
+  flex: 1 1 auto;
+}
+
+.employee-form-sections > .employee-form-section > .employee-form-section-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.employee-form-sections > .employee-form-section > .employee-form-section-body > .employee-form-stack {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.employee-form-stack {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* Two short fields sharing one row inside a column (Hire Date + Mode). */
+.employee-form-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (max-width: 900px) {
+  .employee-form-sections {
+    grid-template-columns: 1fr;
+    gap: 18px;
+  }
+
+  /* Stacked: the divider becomes a line above each section instead. */
+  .employee-form-sections > * {
+    padding: 0;
+  }
+
+  .employee-form-sections > * + * {
+    border-left: none;
+    border-top: 1px solid var(--line);
+    padding-top: 18px;
+  }
+}
+
+/* Three fields per row in every section, all the same width. */
+.employee-form-grid.three-fields {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px 14px;
+}
+
+/* Additional Leave Types box takes the two columns beside the leave
+   allocation field. */
+.employee-form-span-2 {
+  grid-column: span 2;
+  min-width: 0;
+}
+
+.employee-form-required {
+  color: #e34948;
+  font-weight: 700;
+}
+
+/* Edit Employee keeps the spouse fields in its narrow side column — one
+   per row there. */
+.employee-form-side .employee-form-grid.three-fields {
+  grid-template-columns: 1fr;
+}
+
+.employee-form-optional {
+  font-weight: 500;
+  color: var(--muted);
+}
+
 /* Top-aligned: a neighbour with a hint under its input (e.g. Attendance
    Mode) makes the row taller, and bottom-aligning pushed this side's label
    and input down, leaving a gap above them. */
@@ -560,7 +752,7 @@
 .employee-form select {
   width: 100%;
   height: 38px;
-  border: 1px solid #dbe5ef;
+  border: 1px solid #c9d4e1;
   border-radius: 8px;
   background: #ffffff;
   color: #0f172a;
@@ -571,15 +763,22 @@
 }
 
 /* Same placeholder and disabled look as FormSelectDropdown, so text inputs
-   and dropdowns in one form read as the same control. */
+   and dropdowns in one form read as the same control. A field you can fill
+   is white with a clear border and readable placeholder; a locked one is a
+   flat grey box with faded text — so the two are never mistaken. */
 .employee-form input::placeholder {
-  color: #94a3b8;
+  color: #7b8a9c;
 }
 
 .employee-form input:disabled:not([type="checkbox"]) {
-  background: #f4f7fb;
-  color: #94a3b8;
+  background: #eef1f5;
+  border-color: #e3e8ee;
+  color: #a9b4c2;
   cursor: not-allowed;
+}
+
+.employee-form input:disabled:not([type="checkbox"])::placeholder {
+  color: #a9b4c2;
 }
 
 .employee-form input:focus,
@@ -647,12 +846,16 @@
   flex-direction: column;
   gap: 0;
   padding: 10px 14px;
-  border: 1px solid #dbe5ef;
+  border: 1px solid #c9d4e1;
   border-radius: 10px;
-  background: #f8fafc;
+  /* White card — grey is reserved for locked fields. */
+  background: #ffffff;
 }
 
 .employee-leave-grants-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 13px;
   font-weight: 700;
   color: #193d69;
@@ -699,6 +902,21 @@
   color: #64748b;
 }
 
+/* Can't be ticked right now (e.g. Solo Parent while Single, or any type for
+   a non-Regular employee): the whole line greyed, no hover, no pointer. */
+.employee-leave-grants .employee-leave-grant-row--locked {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.employee-leave-grants .employee-leave-grant-row--locked:hover {
+  background: transparent;
+}
+
+.employee-leave-grant-row--locked input[type="checkbox"] {
+  cursor: not-allowed;
+}
+
 .employee-form-actions,
 .employee-detail-actions {
   display: flex;
@@ -732,6 +950,64 @@
   border-radius: 7px;
   color: #1a3a5c;
   font-size: 12px;
+}
+
+/* Add/Edit Employee: a horizontal divider between the fields and the
+   buttons. */
+.employee-modal--split .employee-form-actions {
+  margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  /* Edge to edge, like the line under the header: stretch past the form's
+     20px side padding, then pad the buttons back in. */
+  margin-left: -20px;
+  margin-right: -20px;
+  padding-left: 20px;
+  padding-right: 20px;
+}
+
+/* Add Employee's Import Employees — bottom-left of the footer, with Add
+   Employee and Cancel staying bottom-right. Tinted navy so it reads as a
+   real option, not a faint link. */
+.employee-import-group {
+  margin-right: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.employee-import-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1.5px solid #1a3a5c;
+  border-radius: 7px;
+  background: #eef3f9;
+  color: #1a3a5c;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.employee-import-button:hover:not(:disabled) {
+  background: #1a3a5c;
+  color: #ffffff;
+}
+
+.employee-import-button:focus-visible {
+  outline: 2px solid #1a6faf;
+  outline-offset: 2px;
+}
+
+.employee-import-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 /* Archive form's footer (step 2, after "Archive Employee" is confirmed) —
@@ -840,39 +1116,50 @@
 
 /* Shown below the details list in Employee Details. */
 .employee-detail-grid ~ .employee-regularization-banner,
-.employee-detail-grid ~ .employee-consent-banner {
+.employee-detail-body ~ .employee-regularization-banner,
+.employee-detail-grid ~ .employee-consent-banner,
+.employee-detail-body ~ .employee-consent-banner {
   margin: 8px 24px 16px;
 }
 
 /* In Employee Details the notices use the same 12–13px type scale as the
    rows above them, and their button matches the footer buttons. */
 .employee-detail-grid ~ .employee-regularization-banner,
-.employee-detail-grid ~ .employee-consent-banner {
+.employee-detail-body ~ .employee-regularization-banner,
+.employee-detail-grid ~ .employee-consent-banner,
+.employee-detail-body ~ .employee-consent-banner {
   gap: 10px;
   margin: 6px 24px 12px;
   padding: 10px 14px;
 }
 
 .employee-detail-grid ~ .employee-regularization-banner svg,
-.employee-detail-grid ~ .employee-consent-banner svg {
+.employee-detail-body ~ .employee-regularization-banner svg,
+.employee-detail-grid ~ .employee-consent-banner svg,
+.employee-detail-body ~ .employee-consent-banner svg {
   width: 18px;
   height: 18px;
 }
 
 .employee-detail-grid ~ .employee-regularization-banner strong,
-.employee-detail-grid ~ .employee-consent-banner strong {
+.employee-detail-body ~ .employee-regularization-banner strong,
+.employee-detail-grid ~ .employee-consent-banner strong,
+.employee-detail-body ~ .employee-consent-banner strong {
   font-size: 13px;
   font-weight: 700;
   margin-bottom: 3px;
 }
 
 .employee-detail-grid ~ .employee-regularization-banner p,
-.employee-detail-grid ~ .employee-consent-banner p {
+.employee-detail-body ~ .employee-regularization-banner p,
+.employee-detail-grid ~ .employee-consent-banner p,
+.employee-detail-body ~ .employee-consent-banner p {
   font-size: 12px;
   line-height: 1.55;
 }
 
-.employee-detail-grid ~ .employee-regularization-banner .outline-button {
+.employee-detail-grid ~ .employee-regularization-banner .outline-button,
+.employee-detail-body ~ .employee-regularization-banner .outline-button {
   height: 34px;
   padding: 0 14px;
   border: 1.5px solid #dbe5ef;
@@ -881,7 +1168,8 @@
   font-size: 12px;
 }
 
-.employee-detail-grid ~ .employee-regularization-banner .outline-button:hover {
+.employee-detail-grid ~ .employee-regularization-banner .outline-button:hover,
+.employee-detail-body ~ .employee-regularization-banner .outline-button:hover {
   background: #ffffff;
   border-color: #b8c7d8;
 }
@@ -1218,8 +1506,15 @@
     border-bottom: none;
   }
 
-  .employee-form-grid.single-field {
+  .employee-form-grid.single-field,
+  .employee-form-grid.name-fields,
+  .employee-form-grid.three-fields,
+  .employee-form-pair {
     grid-template-columns: 1fr;
+  }
+
+  .employee-form-span-2 {
+    grid-column: auto;
   }
 
   .employee-status-cell .badge,
@@ -1233,6 +1528,13 @@
 
   .employee-form-actions {
     flex-direction: column-reverse;
+  }
+
+  /* Stacked footer: Import Employees stays last (bottom) and left-aligned
+     instead of stretching full width like Add Employee / Cancel. */
+  .employee-import-group {
+    margin-right: 0;
+    flex-wrap: wrap;
   }
 
   .employee-detail-grid div {
@@ -1258,4 +1560,79 @@
   .employee-confirm-actions {
     flex-direction: column-reverse;
   }
+}
+
+/* ── Employee Details: Add/Edit's three columns, read-only ─────────────── */
+.employee-detail-body {
+  padding: 16px 24px 14px;
+}
+
+/* Read-only columns don't spread their items to the bottom like the
+   Add/Edit form does — the spouse column has fewer items, and spreading
+   them left big gaps. Stacked from the top with an even gap instead. */
+.employee-detail-body .employee-form-sections > .employee-form-section > .employee-form-section-body > .employee-form-stack {
+  justify-content: flex-start;
+  gap: 14px;
+}
+
+/* Label above its value, like a filled-in form field. */
+.employee-view-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+/* Label: light grey, regular weight — so the bold value below is what
+   stands out. */
+.employee-view-field > span {
+  color: #7b8794;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.employee-view-field > strong {
+  color: #1a3a5c;
+  font-size: 13.5px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+/* e.g. " · 3 months" after the hire date, on the same line. */
+.employee-view-field em {
+  color: #7b8794;
+  font-size: 12px;
+  font-weight: 500;
+  font-style: normal;
+}
+
+/* Face Registration's "Consent pending" notice, inside the third column. */
+.employee-view-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #f3e2a6;
+  border-radius: 10px;
+  background: #fffbeb;
+  color: #7a5b00;
+}
+
+.employee-view-note svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: #c09000;
+}
+
+.employee-view-note strong {
+  display: block;
+  color: #8a5a00;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.employee-view-note p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
 }

@@ -1,0 +1,648 @@
+/* Import Employees (Add Employee → Import Employees). Reuses the Employee
+   modal shell, header and footer buttons from EmployeesPage.css; only the
+   import-specific pieces live here. */
+
+/* Doubled class so it beats EmployeesPage.css's .employee-modal width
+   (that file loads after this one), which was squeezing the import window
+   down to the narrow Add Employee size. */
+/* One fixed height for every step (Upload, Review, Confirm, Done) so the
+   window never jumps in size; the buttons always sit in the same spot. */
+.employee-modal.import-modal {
+  width: min(1000px, 100%);
+  height: min(620px, calc(100vh - 36px));
+  overflow: hidden;
+}
+
+/* Fills the space between the step bar and the bottom of the window.
+   Everything keeps its natural height except the drop area / tables,
+   which stretch (and scroll inside) to take up the rest. */
+.import-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 14px 20px 16px;
+  overflow-y: auto;
+}
+
+.import-body > * {
+  flex-shrink: 0;
+}
+
+/* Footer pinned to the bottom of every step, separated by a line. */
+.import-body > .employee-form-actions {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  /* Edge to edge, like Add Employee's footer line: stretch past the
+     body's 20px side padding, then pad the buttons back in. */
+  margin-left: -20px;
+  margin-right: -20px;
+  padding-left: 20px;
+  padding-right: 20px;
+}
+
+.import-muted {
+  color: var(--muted);
+}
+
+.import-spin {
+  animation: import-spin 0.9s linear infinite;
+}
+
+@keyframes import-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Stepper ─────────────────────────────────────────────────────────────── */
+/* Circle + label per step, joined by a line: 1 Upload ─── 2 Review ─── 3 Done */
+.import-stepper {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  padding: 16px 20px 4px;
+  list-style: none;
+}
+
+.import-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 0;
+  min-width: 0;
+  color: #64748b;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+/* The last step has no line after it, so it only takes its own width. */
+.import-step:last-child {
+  flex: 0 0 auto;
+}
+
+/* Connector line to the next step — dark enough to see on white; turns
+   navy once the step before it is finished. */
+.import-step:not(:last-child)::after {
+  content: "";
+  flex: 1 1 auto;
+  min-width: 24px;
+  height: 2px;
+  margin: 0 16px;
+  border-radius: 2px;
+  background: #c3cfdd;
+}
+
+.import-step.done:not(:last-child)::after {
+  background: #1a3a5c;
+}
+
+.import-step-number {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 50%;
+  background: #e3e9f0;
+  color: #475569;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.import-step-label {
+  white-space: nowrap;
+}
+
+.import-step.active {
+  color: #1a3a5c;
+  font-weight: 700;
+}
+
+.import-step.active .import-step-number {
+  background: #1a3a5c;
+  color: #ffffff;
+}
+
+.import-step.done {
+  color: #1a3a5c;
+}
+
+.import-step.done .import-step-number {
+  background: #e6f6ee;
+  color: #1baf7a;
+}
+
+/* ── Upload ──────────────────────────────────────────────────────────────── */
+/* Two numbered steps: 1 Download the template, 2 Upload the filled file. */
+.import-upload-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.import-upload-step-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  border-radius: 8px;
+  background: #e8eef6;
+  color: #1a3a5c;
+}
+
+.import-upload-step-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.import-upload-step-text strong {
+  color: #1a3a5c;
+  font-size: 13px;
+}
+
+.import-upload-step-text span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.import-template-button,
+.import-left-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.import-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  /* Stretches to fill the Upload step, so it's the same height as the
+     other steps. */
+  flex: 1 1 auto;
+  min-height: 140px;
+  padding: 20px;
+  font: inherit;
+  border: 1.5px dashed #c9d6e6;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #1a3a5c;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.import-dropzone strong {
+  font-size: 13px;
+}
+
+.import-dropzone span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.import-dropzone:hover,
+.import-dropzone.dragging {
+  border-color: #1a3a5c;
+  background: #eef3f9;
+}
+
+/* Hidden input behind the dropzone and the Replace button. */
+.import-file-input {
+  display: none;
+}
+
+.import-file-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #1a3a5c;
+}
+
+.import-file-meta {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.import-file-meta strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.import-file-meta span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.import-file-card .outline-button {
+  border: 1.5px solid #dbe5ef;
+  border-radius: 7px;
+  color: #1a3a5c;
+  font-size: 12px;
+}
+
+.import-file-remove {
+  width: 32px;
+  height: 32px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid #e3e9f0;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1a3a5c;
+}
+
+/* ── Preview ─────────────────────────────────────────────────────────────── */
+.import-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+/* Summary boxes (also the filters): light cards — a label, a big coloured
+   number, and a navy outline on the one being shown. */
+.import-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 12px 14px;
+  border: 1px solid #e3e8ee;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #1a3a5c;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.import-chip span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #64748b;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.import-chip strong {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.import-chip.valid strong { color: #1baf7a; }
+.import-chip.invalid strong { color: #e34948; }
+.import-chip.duplicate strong { color: #c09000; }
+
+.import-chip:hover {
+  border-color: #c9d4e1;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+}
+
+.import-chip.active {
+  border-color: #1a3a5c;
+  box-shadow: 0 0 0 1px #1a3a5c;
+}
+
+.import-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 9px 12px;
+  border: 1px solid #f3e2a6;
+  border-radius: 10px;
+  background: #fffbeb;
+  color: #7a5b00;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.import-note svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+/* Takes whatever height is left in the step and scrolls inside it. */
+.import-table-scroll {
+  flex: 1 1 0;
+  min-height: 140px;
+  /* Up/down only — the tables are sized to fit the modal's width. */
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid #e3e8ee;
+  border-radius: 12px;
+}
+
+.import-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.import-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 10px 10px;
+  border-bottom: 1px solid #e3e8ee;
+  background: #ffffff;
+  color: #64748b;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: left;
+  white-space: nowrap;
+}
+
+/* Centered vertically, so the Status badge lines up with the text beside
+   it instead of sitting lower. */
+.import-table td {
+  padding: 12px 12px;
+  border-top: 1px solid #f1f4f8;
+  color: var(--text);
+  vertical-align: middle;
+}
+
+.import-table tbody tr:first-child td {
+  border-top: none;
+}
+
+.import-table tbody tr:hover td {
+  background: #f8fafc;
+}
+
+.import-table th {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+
+
+/* Review table: fixed column widths that add up to the modal's width, and
+   long values wrap inside their cell instead of pushing the table wider. */
+.import-table--preview {
+  table-layout: fixed;
+}
+
+/* Column titles and their contents centered, so each column lines up
+   under its title. */
+.import-table--preview th,
+.import-table--preview td {
+  text-align: center;
+}
+
+.import-table--preview td {
+  overflow-wrap: break-word;
+}
+
+.import-table--preview .import-cell-stack,
+.import-table--preview .import-status-cell {
+  align-items: center;
+}
+
+/* A problem row's reasons stay left-aligned so the list reads normally. */
+.import-table--preview .import-issues {
+  text-align: center;
+}
+
+.import-col-row { width: 52px; }
+.import-col-employee { width: 27%; }
+.import-col-assignment { width: 19%; }
+.import-col-type { width: 21%; }
+/* Widest: holds the badge plus the reason a row is skipped. */
+.import-col-status { width: auto; }
+
+/* Badge on top; for a problem row, the reasons listed under it. */
+.import-status-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.import-cell-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.import-cell-stack strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.import-cell-stack span {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.import-empty {
+  text-align: center;
+  color: var(--muted);
+}
+
+.import-no-issues {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #157a55;
+  font-weight: 600;
+}
+
+/* The reason(s) a row won't be imported — one plain line each under the
+   badge, no bullets. */
+.import-issues {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: #b42318;
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.import-issues strong {
+  font-weight: 700;
+}
+
+/* ── Review: note + import progress ─────────────────────────────────────── */
+.import-info {
+  margin: 0;
+  color: #475569;
+  font-size: 12.5px;
+}
+
+.import-info strong {
+  color: #1a3a5c;
+}
+
+.import-progress {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.import-progress-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #1a3a5c;
+  font-weight: 700;
+}
+
+.import-progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: #e3e9f0;
+  overflow: hidden;
+}
+
+.import-progress-bar {
+  height: 100%;
+  border-radius: 999px;
+  background: #1a3a5c;
+  transition: width 0.3s ease;
+}
+
+/* ── Results ─────────────────────────────────────────────────────────────── */
+.import-results-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.import-result-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.import-result-card svg {
+  grid-row: span 2;
+}
+
+.import-result-card strong {
+  font-size: 20px;
+  line-height: 1.1;
+  color: #1a3a5c;
+}
+
+.import-result-card span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.import-result-card.created svg { color: #1baf7a; }
+.import-result-card.failed svg { color: #e34948; }
+.import-result-card.skipped svg { color: #c09000; }
+.import-result-card.email svg { color: #6d36c4; }
+
+.import-success-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 12px;
+  border-radius: 10px;
+  background: #e8f8f0;
+  color: #157a55;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* Left-aligned footer action (Upload a Different File / Back / Download
+   Error Report), with the main actions staying on the right. */
+.employee-form-actions .import-left-action {
+  margin-right: auto;
+}
+
+@media (max-width: 760px) {
+  /* Three short labels still fit on a phone — just tighter lines. */
+  .import-step:not(:last-child)::after {
+    margin: 0 8px;
+  }
+
+  .import-upload-step {
+    flex-wrap: wrap;
+  }
+
+  .import-upload-step .import-template-button {
+    margin-left: 42px;
+  }
+
+  .import-summary,
+  .import-results-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .employee-form-actions .import-left-action {
+    margin-right: 0;
+  }
+
+  .import-table thead {
+    display: none;
+  }
+
+  .import-table tr {
+    display: block;
+    padding: 8px 10px;
+    border-top: 1px solid #eef2f7;
+  }
+
+  .import-table td {
+    display: flex;
+    gap: 10px;
+    padding: 3px 0;
+    border-top: none;
+  }
+
+  /* Phone cards read "Label: value", so they stay left-aligned. */
+  .import-table--preview td {
+    text-align: left;
+  }
+
+  .import-table--preview .import-cell-stack,
+  .import-table--preview .import-status-cell {
+    align-items: flex-start;
+  }
+
+  .import-table td::before {
+    content: attr(data-label);
+    flex: 0 0 96px;
+    color: var(--muted);
+    font-weight: 700;
+  }
+
+  .import-table td.import-empty::before {
+    display: none;
+  }
+}

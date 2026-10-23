@@ -9,7 +9,7 @@
 .form-select-dropdown-trigger {
   width: 100%;
   height: 38px;
-  border: 1px solid #dbe5ef;
+  border: 1px solid #c9d4e1;
   border-radius: 8px;
   background: #ffffff;
   color: #0f172a;
@@ -30,10 +30,18 @@
   box-shadow: 0 0 0 3px rgba(26, 58, 92, 0.1);
 }
 
+/* Locked: flat grey with faded text and chevron (same as a locked text
+   input in .employee-form). */
 .form-select-dropdown-trigger:disabled {
-  background: #f4f7fb;
-  color: #94a3b8;
+  background: #eef1f5;
+  border-color: #e3e8ee;
+  color: #a9b4c2;
   cursor: not-allowed;
+}
+
+.form-select-dropdown-trigger:disabled .form-select-dropdown-placeholder,
+.form-select-dropdown-trigger:disabled .form-select-dropdown-chevron {
+  color: #a9b4c2;
 }
 
 .form-select-dropdown-trigger span {
@@ -44,7 +52,7 @@
 }
 
 .form-select-dropdown-placeholder {
-  color: #94a3b8;
+  color: #7b8a9c;
 }
 
 .form-select-dropdown-chevron {
@@ -57,13 +65,10 @@
   transform: rotate(180deg);
 }
 
-/* A plain descendant of the field (not portaled) so it stays confined to
-   whichever scrollable ancestor the field itself sits in (the modal's
-   .employee-form) — opens downward only, and if the form is scrolled such
-   that there isn't room below, the menu is clipped by that same scroll
-   container instead of flipping upward over the fields above it. The
-   z-index only needs to clear this form's own fields/labels, not compete
-   with anything portaled to <body>. */
+/* Portaled to <body> and pinned under the field by FormSelectDropdown
+   (inline position: fixed, top/left/width, max-height, z-index above the
+   modal), so it always opens downward and floats over the modal instead of
+   stretching it. The values below are only the fallback/base styling. */
 .form-select-dropdown-menu {
   position: absolute;
   top: calc(100% + 4px);
@@ -130,8 +135,13 @@
 }
 
 .form-select-dropdown-combobox.disabled {
-  background: #f4f7fb;
+  background: #eef1f5;
+  border-color: #e3e8ee;
   cursor: not-allowed;
+}
+
+.form-select-dropdown-combobox.disabled .form-select-dropdown-chevron {
+  color: #a9b4c2;
 }
 
 /* Scoped under .form-select-dropdown so it out-ranks host form rules such as
@@ -156,10 +166,14 @@
 }
 
 .form-select-dropdown .form-select-dropdown-input:disabled {
-  color: #94a3b8;
+  color: #a9b4c2;
   cursor: not-allowed;
 }
 
 .form-select-dropdown .form-select-dropdown-input::placeholder {
-  color: #94a3b8;
+  color: #7b8a9c;
+}
+
+.form-select-dropdown .form-select-dropdown-input:disabled::placeholder {
+  color: #a9b4c2;
 }

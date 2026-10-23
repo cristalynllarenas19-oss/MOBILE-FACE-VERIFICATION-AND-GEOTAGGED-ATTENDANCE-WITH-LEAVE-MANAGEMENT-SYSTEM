@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { ChevronDown } from "lucide-react";
 import "./FormSelectDropdown.css";
 import "./EmployeeSearchSelect.css";
@@ -8,16 +9,36 @@ export type FormSelectDropdownOption = { value: string; label: string; disabled?
 // A drop-in replacement for a plain <select> inside a form field, used where
 // the native select's browser-controlled popup (which can open upward and
 // overlap the fields above it, with no way to fix that via CSS) needs to
-// reliably open downward, directly under the field, and stay confined to
-// its scrollable parent (e.g. a modal form) instead of escaping it.
+// reliably open downward, directly under the field.
 //
-// Deliberately NOT portaled to <body> the way DropdownFilter is — that
-// component intentionally escapes clipping ancestors (chart cards with
-// overflow:hidden) so its menu is never cut off. Here the opposite is
-// wanted: the menu stays a normal descendant of this field, so if there's
-// no room below within the modal's own scroll area, the menu is clipped by
-// that scroll container and the user scrolls the form to reach it, rather
-// than the menu flipping upward over the fields above.
+// The menu is portaled to <body> and pinned under the field (position:
+// fixed), so it always opens downward and floats over the modal — its
+// buttons and even its bottom edge — instead of stretching the modal's
+// scroll area. Its height is capped to the space left in the window and
+// the list scrolls inside itself. It follows the field if the page or modal
+// scrolls or the window resizes.
+const MENU_GAP = 4;
+const VIEWPORT_MARGIN = 8;
+const MIN_MENU_HEIGHT = 120;
+
+function menuPosition(field: HTMLElement, preferredHeight: number, isEmployeeMenu: boolean): CSSProperties {
+  const rect = field.getBoundingClientRect();
+  const top = rect.bottom + MENU_GAP;
+  const room = window.innerHeight - top - VIEWPORT_MARGIN;
+  return {
+    position: "fixed",
+    top,
+    left: rect.left,
+    right: "auto",
+    bottom: "auto",
+    // The employee list may grow wider than the field (long names); the
+    // plain list matches the field exactly.
+    ...(isEmployeeMenu ? { minWidth: rect.width } : { width: rect.width }),
+    maxHeight: Math.max(Math.min(preferredHeight, room), MIN_MENU_HEIGHT),
+    zIndex: 1100,
+  };
+}
+
 export function FormSelectDropdown({
   value,
   onChange,
@@ -46,12 +67,30 @@ export function FormSelectDropdown({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const shellRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [menuStyle, setMenuStyle] = useState<CSSProperties>({});
 
   // Each open starts with an empty filter.
   useEffect(() => {
     if (!open) setQuery("");
   }, [open]);
+
+  // Pin the floating menu under the field, and keep it there while anything
+  // scrolls (capture: the modal's own scroll area too) or the window resizes.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const place = () => {
+      if (shellRef.current) setMenuStyle(menuPosition(shellRef.current, isEmployeeMenu ? 280 : 220, isEmployeeMenu));
+    };
+    place();
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [open, isEmployeeMenu]);
 
   const needle = query.trim().toLowerCase();
   const visibleOptions =
@@ -65,8 +104,12 @@ export function FormSelectDropdown({
 
   useEffect(() => {
     if (!open) return;
+    // The menu lives in a portal, outside the field — a click in either one
+    // isn't "outside".
     function handleOutside(event: MouseEvent) {
-      if (shellRef.current && !shellRef.current.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      if (shellRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setOpen(false);
     }
     function handleKey(event: KeyboardEvent) {
       if (event.key === "Escape") setOpen(false);
@@ -145,8 +188,16 @@ export function FormSelectDropdown({
         </button>
       )}
 
-      {open && (
-        <div className={isEmployeeMenu ? "employee-search-select-list" : "form-select-dropdown-menu"} role="listbox">
+      {open &&
+        createPortal(
+        <div
+          ref={menuRef}
+          className={isEmployeeMenu ? "employee-search-select-list" : "form-select-dropdown-menu"}
+          style={menuStyle}
+          role="listbox"
+          // Keeps focus in a searchable field while an option is clicked.
+          onMouseDown={(event) => event.preventDefault()}
+        >
           {searchable &&
             visibleOptions.length === 0 &&
             (isEmployeeMenu ? (
@@ -172,8 +223,9 @@ export function FormSelectDropdown({
               {isEmployeeMenu ? <span>{option.label}</span> : option.label}
             </button>
           ))}
-        </div>
-      )}
+        </div>,
+          document.body,
+        )}
     </div>
   );
 }

@@ -364,6 +364,8 @@ model Employee {
   userId               String                 @unique @map("user_id")
   employeeNo           String                 @unique @map("employee_no")
   firstName            String                 @map("first_name")
+  // Optional — null (never "" or "N/A") when the employee has none.
+  middleName           String?                @map("middle_name")
   lastName             String                 @map("last_name")
   departmentId         String                 @map("department_id")
   positionId           String                 @map("position_id")

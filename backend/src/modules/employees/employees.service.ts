@@ -62,6 +62,13 @@ const SPOUSE_EMPLOYEE_SELECT = { select: { id: true, firstName: true, lastName: 
 // sent even after retries (see sendCredentialsEmailInBackground).
 const CREDENTIALS_EMAIL_FAILED_NOTIFICATION_TYPE = "CREDENTIALS_EMAIL_FAILED";
 
+export type CreateEmployeeOptions = {
+  // Handed the background credentials-email delivery (resolves true = sent,
+  // false = failed after retries; never rejects). Used by Batch Import to
+  // report email results separately from record creation.
+  onCredentialsEmail?: (delivery: Promise<boolean>) => void;
+};
+
 @Injectable()
 export class EmployeesService implements OnApplicationBootstrap {
   private readonly logger = new Logger(EmployeesService.name);
@@ -507,12 +514,17 @@ export class EmployeesService implements OnApplicationBootstrap {
     return `ULPI-${String(year).slice(-2)}${String(last_number).padStart(3, "0")}`;
   }
 
-  async create(dto: CreateEmployeeDto, context: AuditLogContext = {}, scopeDepartmentId?: string) {
+  async create(
+    dto: CreateEmployeeDto,
+    context: AuditLogContext = {},
+    scopeDepartmentId?: string,
+    options: CreateEmployeeOptions = {},
+  ) {
     const startedAt = Date.now();
     const recipient = maskEmail(dto.email);
     this.logger.log(`[EMPLOYEE] Employee creation started (${recipient})`);
     try {
-      const result = await this.createEmployee(dto, context, scopeDepartmentId, recipient);
+      const result = await this.createEmployee(dto, context, scopeDepartmentId, recipient, options);
       this.logger.log(
         `[EMPLOYEE] Employee creation completed — ${result.employeeNo} in ${Date.now() - startedAt}ms total, credentials email sending in background`,
       );
@@ -526,7 +538,13 @@ export class EmployeesService implements OnApplicationBootstrap {
     }
   }
 
-  private async createEmployee(dto: CreateEmployeeDto, context: AuditLogContext, scopeDepartmentId: string | undefined, recipient: string) {
+  private async createEmployee(
+    dto: CreateEmployeeDto,
+    context: AuditLogContext,
+    scopeDepartmentId: string | undefined,
+    recipient: string,
+    options: CreateEmployeeOptions,
+  ) {
     const existingUser = await this.prisma.user.findUnique({ where: { email: dto.email } });
     if (existingUser) throw new ConflictException(`An account with the email "${dto.email}" already exists.`);
 
@@ -579,6 +597,7 @@ export class EmployeesService implements OnApplicationBootstrap {
         userId: user.id,
         employeeNo,
         firstName: dto.firstName,
+        middleName: dto.middleName ?? null,
         lastName: dto.lastName,
         departmentId: department.id,
         positionId: position.id,
@@ -651,6 +670,7 @@ export class EmployeesService implements OnApplicationBootstrap {
       newValues: {
         email: dto.email,
         firstName: created.firstName,
+        middleName: created.middleName,
         lastName: created.lastName,
         department: created.department.name,
         employeeType: created.employeeType.name,
@@ -664,22 +684,25 @@ export class EmployeesService implements OnApplicationBootstrap {
     // Never rolls back the hire, and never makes the admin wait on Gmail: the
     // email goes out in the background (retrying a slow/flaky network) and
     // only a final failure is reported — see sendCredentialsEmailInBackground.
-    this.sendCredentialsEmailInBackground(created, dto.email, temporaryPassword, context, recipient);
+    const delivery = this.sendCredentialsEmailInBackground(created, dto.email, temporaryPassword, context, recipient);
+    options.onCredentialsEmail?.(delivery);
 
     return created;
   }
 
   // Fire-and-forget; never throws. If every attempt fails, the admin who made
-  // the change gets a bell notification and it's flagged in Audit Logs.
+  // the change gets a bell notification and it's flagged in Audit Logs. The
+  // returned promise (true = sent) lets Batch Import report delivery per row;
+  // the single-employee callers ignore it.
   private sendCredentialsEmailInBackground(
     employee: { id: string; employeeNo: string; firstName: string; lastName: string },
     email: string,
     temporaryPassword: string,
     context: AuditLogContext,
     recipient = maskEmail(email),
-  ) {
+  ): Promise<boolean> {
     const name = `${employee.firstName} ${employee.lastName}`;
-    this.mail.sendNewEmployeeCredentialsEmail(email, temporaryPassword, name).catch(async (error) => {
+    return this.mail.sendNewEmployeeCredentialsEmail(email, temporaryPassword, name).then(() => true, async (error) => {
       const summary = summarizeSmtpError(error);
       const reason =
         error instanceof MailNotConfiguredError
@@ -706,6 +729,7 @@ export class EmployeesService implements OnApplicationBootstrap {
       } catch (reportError) {
         this.logger.error(`[EMPLOYEE] Could not report the failed credentials email for ${employee.employeeNo}: ${String(reportError)}`);
       }
+      return false;
     });
   }
 
@@ -882,6 +906,7 @@ export class EmployeesService implements OnApplicationBootstrap {
       where: { id },
       data: {
         ...(dto.firstName ? { firstName: dto.firstName } : {}),
+        ...(dto.middleName !== undefined ? { middleName: dto.middleName ?? null } : {}),
         ...(dto.lastName ? { lastName: dto.lastName } : {}),
         ...(department ? { departmentId: department.id } : {}),
         ...(position ? { positionId: position.id } : {}),
@@ -975,6 +1000,7 @@ export class EmployeesService implements OnApplicationBootstrap {
       oldValues: {
         email: employee.user?.email,
         firstName: employee.firstName,
+        middleName: employee.middleName,
         lastName: employee.lastName,
         department: employee.department.name,
         position: employee.position.title,
@@ -985,6 +1011,7 @@ export class EmployeesService implements OnApplicationBootstrap {
       newValues: {
         email: updated.user.email,
         firstName: updated.firstName,
+        middleName: updated.middleName,
         lastName: updated.lastName,
         department: updated.department.name,
         position: updated.position.title,

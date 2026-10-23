@@ -7,12 +7,13 @@ import { LeaveAccrualModule } from "../leave/leave-accrual.module";
 import { MailModule } from "../mail/mail.module";
 import { NotificationsModule } from "../notifications/notifications.module";
 import { PositionsModule } from "../positions/positions.module";
+import { EmployeeImportService } from "./employee-import.service";
 import { EmployeesController } from "./employees.controller";
 import { EmployeesService } from "./employees.service";
 
 @Module({
   imports: [AuditLogsModule, EmployeeTypesModule, PositionsModule, MailModule, GeolocationModule, NotificationsModule, EvaluationsModule, LeaveAccrualModule],
   controllers: [EmployeesController],
-  providers: [EmployeesService],
+  providers: [EmployeesService, EmployeeImportService],
 })
 export class EmployeesModule {}

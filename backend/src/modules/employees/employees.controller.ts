@@ -3,11 +3,16 @@ import { RequirePermissions } from "../../common/decorators/permissions.decorato
 import { getAuditContext } from "../../common/utils/audit-context.util";
 import { getSupervisorDepartmentScope } from "../../common/utils/supervisor-scope.util";
 import { CreateEmployeeDto, UpdateEmployeeDto } from "./dto/create-employee.dto";
+import { RunEmployeeImportDto, ValidateEmployeeImportDto } from "./dto/import-employees.dto";
+import { EmployeeImportService } from "./employee-import.service";
 import { EmployeesService } from "./employees.service";
 
 @Controller("employees")
 export class EmployeesController {
-  constructor(private readonly employeesService: EmployeesService) {}
+  constructor(
+    private readonly employeesService: EmployeesService,
+    private readonly employeeImportService: EmployeeImportService,
+  ) {}
 
   @Get()
   findAll(@Req() request: Request) {
@@ -58,6 +63,32 @@ export class EmployeesController {
   acceptFaceConsent(@Req() request: Request) {
     const employeeId = (request as any).user.employeeId;
     return this.employeesService.acceptFaceConsent(employeeId);
+  }
+
+  // Batch Employee Import (Add Employee → Import Employees). Same
+  // employees:write permission and Supervisor department scope as the
+  // single Add Employee below — an import is just many of those.
+  @Get("import/reference")
+  @RequirePermissions("employees:write")
+  getImportReference(@Req() request: Request) {
+    const departmentId = getSupervisorDepartmentScope((request as any).user);
+    return this.employeeImportService.getReference(departmentId);
+  }
+
+  // Dry run for the preview step — validates every row, writes nothing.
+  @Post("import/validate")
+  @RequirePermissions("employees:write")
+  validateImport(@Body() dto: ValidateEmployeeImportDto, @Req() request: Request) {
+    const departmentId = getSupervisorDepartmentScope((request as any).user);
+    return this.employeeImportService.validate(dto.rows, departmentId);
+  }
+
+  // Creates one chunk of rows (re-validated server-side first).
+  @Post("import")
+  @RequirePermissions("employees:write")
+  runImport(@Body() dto: RunEmployeeImportDto, @Req() request: Request) {
+    const departmentId = getSupervisorDepartmentScope((request as any).user);
+    return this.employeeImportService.runImport(dto.rows, getAuditContext(request), departmentId);
   }
 
   @Post()
