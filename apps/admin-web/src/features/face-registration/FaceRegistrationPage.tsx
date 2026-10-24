@@ -1,7 +1,8 @@
 import * as faceapi from "face-api.js";
-import { AlertTriangle, Archive, Building2, Calendar, Camera, Check, CheckCircle2, Eye, Pencil, RefreshCw, RotateCcw, ScanFace, Search, User, X } from "lucide-react";
+import { AlertTriangle, Archive, Briefcase, Building2, Calendar, Camera, Check, CheckCircle2, ChevronLeft, ChevronRight, Eye, Fingerprint, Mail, MapPin, Network, RefreshCw, RotateCcw, ScanFace, Search, User, Users, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiRequest } from "../../lib/api";
+import { useLiveRefresh } from "../../lib/liveRefresh";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { Badge } from "../../components/ui/Badge";
 import { useActiveDepartments } from "../../lib/departments";
@@ -30,8 +31,10 @@ type FaceFrame = {
   boxHeight: number;
   // Whether the face is positioned/sized well enough and confident enough to
   // actually pass detectFace()'s own capture checks right now — drives the
-  // guide box turning green.
+  // face oval's outline turning green.
   ready: boolean;
+  // Face centre inside the on-screen oval (see isFaceInOval).
+  inOval: boolean;
 };
 
 export type FaceRegistrationEmployee = {
@@ -74,13 +77,6 @@ type FaceProfile = {
 
 const MODEL_URL = "/models";
 const CAMERA_SAMPLE_TARGET = 1;
-
-const CAPTURE_STEPS = [
-  {
-    key: "front",
-    title: "Look at the camera",
-  },
-] as const;
 
 function employeeLabel(employee: Employee) {
   return `${employee.firstName} ${employee.lastName}`;
@@ -305,6 +301,251 @@ function detectEyewear(video: HTMLVideoElement, landmarks: faceapi.FaceLandmarks
   return hasBridgeBar(video, axes) || hasDarkLenses(video, axes);
 }
 
+// ── Guided movements (basic active liveness) ─────────────────────────────
+// Start guided capture walks the employee through these steps, each judged
+// from the live tracker's own landmarks, before the existing capture runs on
+// the final straight-facing frame. Every tick on screen is a real detection.
+// This is a basic check only: it raises the bar against a held-up photo but
+// is not spoof-proof (a replayed video can still pass).
+const LIVENESS_STEPS = [
+  {
+    key: "straight",
+    group: 0,
+    sub: "Make sure your face is centered and clearly visible.",
+    instruction: "Look straight at the camera.",
+    passed: "Face position confirmed",
+    timeout: "Couldn't confirm a straight, centered face.",
+  },
+  {
+    key: "blink",
+    group: 1,
+    sub: "Close and open your eyes once.",
+    instruction: "Please blink naturally.",
+    passed: "Blink detected",
+    timeout: "No blink was detected.",
+  },
+  {
+    key: "left",
+    group: 2,
+    sub: "Turn until the step is checked, then face forward.",
+    instruction: "Slowly turn your head to the left.",
+    passed: "Left turn detected",
+    timeout: "No turn to the left was detected.",
+  },
+  {
+    key: "right",
+    group: 2,
+    sub: "Turn until the step is checked, then face forward.",
+    instruction: "Slowly turn your head to the right.",
+    passed: "Right turn detected",
+    timeout: "No turn to the right was detected.",
+  },
+  {
+    key: "center",
+    group: 3,
+    sub: "Taking your photo...",
+    instruction: "Hold still.",
+    passed: "Photo captured",
+    timeout: "Couldn't confirm a straight, centered face.",
+  },
+] as const;
+
+type LivenessStepKey = (typeof LIVENESS_STEPS)[number]["key"];
+
+// The step bar shows four groups (both turns fall under "Turn head"). Each
+// group is checked only when every step in it has really been detected.
+const LIVENESS_GROUPS = ["Face detected", "Blink", "Turn head", "Capture"];
+
+// The face oval's outline in an 80x100 box: top → right → bottom → left →
+// top (two clockwise half-arcs), so the progress ring fills from the top.
+const FACE_OVAL_PATH = "M 40 1.5 A 38.5 48.5 0 1 1 40 98.5 A 38.5 48.5 0 1 1 40 1.5";
+
+// Tracker poll rate: the usual 4/s, and 10/s while the steps run so a short
+// blink isn't missed. Back to 4/s as soon as the steps end.
+const FACE_TRACKING_MS = 250;
+const LIVENESS_TRACKING_MS = 100;
+const LIVENESS_STEP_TIMEOUT_MS = 12_000;
+// How long the face must stay straight and centered to pass a "look
+// straight" step, and how long each step's tick is shown before the next.
+const LIVENESS_HOLD_MS = 800;
+// The final photo step: the face was just confirmed facing forward, so a
+// shorter hold is enough.
+const LIVENESS_CAPTURE_HOLD_MS = 500;
+const LIVENESS_PASS_PAUSE_MS = 600;
+// After the photo: long enough to see the flash and "Photo captured".
+const LIVENESS_CAPTURED_PAUSE_MS = 800;
+// Head turn: nose tip offset from the eye midpoint, in eye-distances.
+// ~0 facing the camera; past TURN counts as a turn, within STRAIGHT as straight.
+const YAW_STRAIGHT = 0.1;
+const YAW_TURN = 0.2;
+// Blink: eye openness relative to this employee's own open eyes (tracked
+// during the blink step), so eye shape doesn't matter.
+const BLINK_CLOSED_RATIO = 0.78;
+const BLINK_OPEN_RATIO = 0.9;
+// Same, for the eye-contrast signal (see eyeContrast), sampled this often.
+const BLINK_CONTRAST_CLOSED_RATIO = 0.7;
+const BLINK_CONTRAST_OPEN_RATIO = 0.88;
+const BLINK_SAMPLE_MS = 33;
+// A blink only counts with the head still and facing forward: at most this
+// much turn, this much shift between detections (in eye-distances), and
+// eye positions at most this old for the fast sampler.
+const YAW_BLINK_MAX = 0.14;
+const BLINK_MAX_HEAD_SHIFT = 0.12;
+const BLINK_EYES_MAX_AGE_MS = 250;
+// How far the face centre may sit from the oval's centre, as a share of the
+// oval's half-size, and still count as inside it.
+const FACE_IN_OVAL_MAX = 0.42;
+// Mean brightness (0-255) of the face below which lighting is too dark.
+const MIN_FACE_BRIGHTNESS = 55;
+
+type TrackedFace = {
+  video: HTMLVideoElement;
+  landmarks: faceapi.FaceLandmarks68;
+  box: faceapi.Box;
+  score: number;
+};
+
+class LivenessCancelled extends Error {}
+
+function distance(a: Point, b: Point) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+// Eye aspect ratio: eyelid opening over eye width, from the 6 points of
+// each eye (p1/p4 corners, p2/p3 upper lid, p6/p5 lower lid). Drops sharply
+// while the eye is closed.
+function eyeAspectRatio(eye: faceapi.Point[]) {
+  const [p1, p2, p3, p4, p5, p6] = eye;
+  return (distance(p2, p6) + distance(p3, p5)) / (2 * distance(p1, p4));
+}
+
+function eyeOpenness(landmarks: faceapi.FaceLandmarks68) {
+  return (eyeAspectRatio(landmarks.getLeftEye()) + eyeAspectRatio(landmarks.getRightEye())) / 2;
+}
+
+// In the raw (unmirrored) camera frame the employee's own left is the image's
+// right, so turning to their left moves the nose tip right: positive = their
+// left, negative = their right. Matches what they see in the mirrored preview.
+function headYaw(landmarks: faceapi.FaceLandmarks68) {
+  const a = centerOf(landmarks.getLeftEye());
+  const b = centerOf(landmarks.getRightEye());
+  const eyeDistance = distance(a, b);
+  if (eyeDistance === 0) return 0;
+  const noseTip = landmarks.getNose()[3];
+  return (noseTip.x - (a.x + b.x) / 2) / eyeDistance;
+}
+
+function faceBrightness(video: HTMLVideoElement, box: faceapi.Box) {
+  samplingCanvas ??= document.createElement("canvas");
+  samplingCanvas.width = 24;
+  samplingCanvas.height = 24;
+  const ctx = samplingCanvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return 255;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(video, box.x, box.y, box.width, box.height, 0, 0, 24, 24);
+  const { data } = ctx.getImageData(0, 0, 24, 24);
+  let sum = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    sum += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+  }
+  return sum / (data.length / 4);
+}
+
+// Positioning guidance shown under the current step; "" when the face is
+// well placed. Uses the same size rule as the capture itself.
+const FACE_OUTSIDE_OVAL_HINT = "Please move your face inside the oval.";
+
+function getPositionHint(face: TrackedFace | null, eyewear: boolean, inOval: boolean) {
+  if (!face) return "No face detected. Face the camera.";
+  if (!inOval) return FACE_OUTSIDE_OVAL_HINT;
+  if (eyewear) return "Remove eyeglasses or sunglasses.";
+  const { video, box } = face;
+  if (box.width < 120 || box.height < 120) return "Move closer to the camera.";
+  if (faceBrightness(video, box) < MIN_FACE_BRIGHTNESS) return "Too dark. Improve the lighting.";
+  return "";
+}
+
+// Whether the detected face's centre sits inside the on-screen oval — checked
+// against the oval's real position, mapping the face from raw video pixels
+// to the mirrored, cover-cropped preview the employee sees.
+function isFaceInOval(oval: HTMLElement | null, video: HTMLVideoElement, box: faceapi.Box) {
+  if (!oval || !video.videoWidth || !video.videoHeight) return true;
+  const o = oval.getBoundingClientRect();
+  const v = video.getBoundingClientRect();
+  if (!o.width || !o.height) return true;
+  const scale = Math.max(v.width / video.videoWidth, v.height / video.videoHeight);
+  const cropX = (video.videoWidth * scale - v.width) / 2;
+  const cropY = (video.videoHeight * scale - v.height) / 2;
+  const shownX = (box.x + box.width / 2) * scale - cropX;
+  const centerX = v.left + (v.width - shownX);
+  const centerY = v.top + (box.y + box.height / 2) * scale - cropY;
+  const nx = (centerX - (o.left + o.width / 2)) / (o.width / 2);
+  const ny = (centerY - (o.top + o.height / 2)) / (o.height / 2);
+  return nx * nx + ny * ny <= FACE_IN_OVAL_MAX * FACE_IN_OVAL_MAX;
+}
+
+// Second blink signal, independent of the landmark eyelid points (which
+// often barely close on a blink): the contrast inside each eye opening —
+// average brightness minus its darkest pixels (iris/pupil). Closing the eye
+// covers the iris with skin, so it drops sharply. Cheap enough to sample
+// every animation frame, so a quick blink isn't missed between detections.
+function eyeContrast(video: HTMLVideoElement, axes: FaceAxes) {
+  let total = 0;
+  for (const eye of [axes.left, axes.right]) {
+    const region = sampleRegion(video, axes, eye, 0, 0, 0.22, 0.1, 24);
+    if (!region) return null;
+    const sorted = Array.from(region.gray).sort((a, b) => a - b);
+    const darkCount = Math.max(1, Math.floor(sorted.length * 0.2));
+    const darkMean = sorted.slice(0, darkCount).reduce((sum, value) => sum + value, 0) / darkCount;
+    const mean = sorted.reduce((sum, value) => sum + value, 0) / sorted.length;
+    total += mean - darkMean;
+  }
+  return total / 2;
+}
+
+// Open → closed → open on one signal, measured against that signal's own
+// open-eye level (followed while the eyes are open, so it suits the person
+// and the lighting). Returns true once a full blink is seen.
+function createBlinkDetector(closedRatio: number, openRatio: number) {
+  let reference: number | null = null;
+  let sawOpen = false;
+  let sawClosed = false;
+  return (value: number) => {
+    if (value <= 0) return false;
+    reference ??= value;
+    const ratio = value / reference;
+    if (ratio >= openRatio) {
+      if (sawOpen && sawClosed) return true;
+      sawOpen = true;
+      reference = reference * 0.8 + value * 0.2;
+    } else if (ratio <= closedRatio && sawOpen) {
+      sawClosed = true;
+    }
+    return false;
+  };
+}
+
+// The first run of a model in the browser is slow (its GPU programs get
+// built then), and the capture is the only place the face-signature model and
+// the 416px detector run — so without this the "Hold still" step stalls for
+// seconds the first time. Runs both once on a blank image right after the
+// models load, in the background; any failure just means no head start.
+function warmUpCaptureModels() {
+  window.setTimeout(() => {
+    const canvas = document.createElement("canvas");
+    canvas.width = 150;
+    canvas.height = 150;
+    Promise.all([
+      faceapi.nets.faceRecognitionNet.computeFaceDescriptor(canvas),
+      faceapi.detectAllFaces(canvas, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.65 })),
+    ]).catch(() => undefined);
+  }, 300);
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: FaceRegistrationEmployee } = {}) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -312,6 +553,27 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
   const faceTrackingTimerRef = useRef<number | null>(null);
   // Eyewear verdicts of the most recent polls — see EYEWEAR_WINDOW.
   const eyewearHistoryRef = useRef<boolean[]>([]);
+  // Guided movements: the tracker hands each frame to the running step via
+  // livenessListenerRef; livenessAbortRef stops it (Reset, camera stopped).
+  // Steps already passed this camera session are kept so a failed step can
+  // be retried on its own.
+  const trackingRateRef = useRef(FACE_TRACKING_MS);
+  const trackingInFlightRef = useRef(false);
+  const livenessListenerRef = useRef<((face: TrackedFace | null) => void) | null>(null);
+  const livenessAbortRef = useRef<(() => void) | null>(null);
+  const livenessCompletedRef = useRef(0);
+  const fullLandmarksReadyRef = useRef(false);
+  // The on-screen oval, for checking the face is inside it.
+  const faceOvalRef = useRef<HTMLDivElement>(null);
+  const [liveness, setLiveness] = useState<{
+    step: number;
+    status: "active" | "passed" | "failed";
+    // Why the step failed (a timeout, or the capture's own check).
+    reason?: string;
+  } | null>(null);
+  const [livenessHint, setLivenessHint] = useState("");
+  // The head turned the opposite way from the current turn step.
+  const [livenessWrongWay, setLivenessWrongWay] = useState(false);
   const [modelsReady, setModelsReady] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
   // A just-created employee handed over from Employee Management arrives
@@ -335,6 +597,13 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
   const [listSearch, setListSearch] = useState("");
   const [enrollmentsPage, setEnrollmentsPage] = useState(1);
   const [viewProfile, setViewProfile] = useState<FaceProfile | null>(null);
+  // Every employee, for the "Awaiting face registration" list — read from the
+  // database each time (so batch-imported employees appear too), never from
+  // a list of just-added employees.
+  const [allEmployees, setAllEmployees] = useState<Employee[]>([]);
+  const [awaitingDepartmentFilter, setAwaitingDepartmentFilter] = useState("ALL");
+  // A face photo opened full size (click it again, or anywhere, to close).
+  const [enlargedPhoto, setEnlargedPhoto] = useState<string | null>(null);
   const [editingEnrollmentId, setEditingEnrollmentId] = useState<string | null>(null);
   const captureCardRef = useRef<HTMLDivElement>(null);
   const [archiveTarget, setArchiveTarget] = useState<FaceProfile | null>(null);
@@ -357,6 +626,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
         // Archived Employees only; their face records stay in the database.
         setEnrollments(faceProfiles.filter((item) => item.employee.employmentStatus !== "SEPARATED"));
         setModelsReady(true);
+        warmUpCaptureModels();
         setMessage(
           initialEmployee
             ? faceProfiles.some((item) => item.employeeId === initialEmployee.id)
@@ -366,6 +636,16 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
         );
       })
       .catch(() => setMessage("Employee or face models could not be loaded. Refresh the page and try again."));
+
+    // Full 68-point landmark model, used only while the guided movements
+    // run: the tiny model's eyelid points barely move on a blink. Optional —
+    // if it fails to load the steps fall back to the tiny model.
+    faceapi.nets.faceLandmark68Net
+      .loadFromUri(MODEL_URL)
+      .then(() => {
+        fullLandmarksReadyRef.current = true;
+      })
+      .catch(() => undefined);
 
     return () => {
       stopFaceTracking();
@@ -385,6 +665,11 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
 
   async function startCamera() {
     if (!modelsReady) return;
+    // A capture always belongs to an employee — nothing to register it to otherwise.
+    if (!selectedEmployee) {
+      setMessage("Select an employee first.");
+      return;
+    }
     if (selectedEmployee?.requiresFaceConsent && !selectedEmployee.faceConsentAcceptedAt) return;
     try {
       stopCamera();
@@ -393,6 +678,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
         audio: false,
       });
       streamRef.current = stream;
+      clearLiveness();
       setCameraActive(true);
       setDescriptors([]);
       setPreview("");
@@ -403,8 +689,20 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
     }
   }
 
+  // Ends any running step and forgets the steps passed — used whenever the
+  // camera session ends or the capture is reset.
+  function clearLiveness() {
+    livenessAbortRef.current?.();
+    livenessCompletedRef.current = 0;
+    setFaceTrackingRate(FACE_TRACKING_MS);
+    setLiveness(null);
+    setLivenessHint("");
+    setLivenessWrongWay(false);
+  }
+
   function stopCamera() {
     sequenceRef.current = false;
+    clearLiveness();
     stopFaceTracking();
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
@@ -437,23 +735,31 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
     return Array.from(results[0].descriptor);
   }
 
-  function startFaceTracking() {
+  // keepHistory: a rate change mid-session keeps the eyewear verdicts so far.
+  function startFaceTracking(keepHistory = false) {
     if (!modelsReady || faceTrackingTimerRef.current) return;
-    eyewearHistoryRef.current = [];
+    if (!keepHistory) eyewearHistoryRef.current = [];
 
     faceTrackingTimerRef.current = window.setInterval(async () => {
       const video = videoRef.current;
       if (!video || video.readyState < 2) return;
+      // A slow machine can take longer than one tick to detect — skip
+      // rather than pile up overlapping detections.
+      if (trackingInFlightRef.current) return;
+      trackingInFlightRef.current = true;
 
       try {
+        // Tiny landmarks normally; the accurate ones while a guided step runs.
+        const useTinyLandmarks = !(livenessListenerRef.current && fullLandmarksReadyRef.current);
         const result = await faceapi
           .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 }))
-          .withFaceLandmarks(true);
+          .withFaceLandmarks(useTinyLandmarks);
 
         if (!result) {
           eyewearHistoryRef.current = [];
           setFaceFrame(null);
           setEyewearDetected(false);
+          livenessListenerRef.current?.(null);
           return;
         }
 
@@ -461,6 +767,12 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
           -EYEWEAR_WINDOW,
         );
         setEyewearDetected(isEyewearConfirmed(eyewearHistoryRef.current));
+        livenessListenerRef.current?.({
+          video,
+          landmarks: result.landmarks,
+          box: result.detection.box,
+          score: result.detection.score,
+        });
 
         const box = result.detection.box;
         const scale = Math.max(video.clientWidth / video.videoWidth, video.clientHeight / video.videoHeight);
@@ -497,8 +809,8 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
         // Mirrors the size/confidence gates detectFace() itself enforces at
         // capture time, so the box only turns green when a capture right now
         // would actually succeed.
-        const ready =
-          result.detection.score >= 0.75 && box.width >= 120 && box.height >= 120;
+        const inOval = isFaceInOval(faceOvalRef.current, video, box);
+        const ready = result.detection.score >= 0.75 && box.width >= 120 && box.height >= 120 && inOval;
 
         setFaceFrame({
           width: video.clientWidth,
@@ -508,19 +820,183 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
           boxWidth,
           boxHeight,
           ready,
+          inOval,
         });
       } catch {
         eyewearHistoryRef.current = [];
         setFaceFrame(null);
         setEyewearDetected(false);
+        livenessListenerRef.current?.(null);
+      } finally {
+        trackingInFlightRef.current = false;
       }
-    }, 250);
+    }, trackingRateRef.current);
   }
 
   function stopFaceTracking() {
     if (faceTrackingTimerRef.current) {
       window.clearInterval(faceTrackingTimerRef.current);
       faceTrackingTimerRef.current = null;
+    }
+  }
+
+  function setFaceTrackingRate(ms: number) {
+    if (trackingRateRef.current === ms) return;
+    trackingRateRef.current = ms;
+    if (faceTrackingTimerRef.current) {
+      stopFaceTracking();
+      startFaceTracking(true);
+    }
+  }
+
+  // Resolves once the live tracker sees this step's movement; rejects on
+  // timeout (retryable) or LivenessCancelled (Reset / camera stopped).
+  function waitForStep(key: LivenessStepKey, timeoutMessage: string) {
+    return new Promise<void>((resolve, reject) => {
+      let heldSince: number | null = null;
+      // Blink: two independent signals, either one completing a blink passes.
+      // Both only count while the head is still and facing forward — any
+      // head movement starts them over, so turning or shifting the head can
+      // never pass for a blink.
+      let landmarkBlink = createBlinkDetector(BLINK_CLOSED_RATIO, BLINK_OPEN_RATIO);
+      let contrastBlink = createBlinkDetector(BLINK_CONTRAST_CLOSED_RATIO, BLINK_CONTRAST_OPEN_RATIO);
+      const restartBlink = () => {
+        landmarkBlink = createBlinkDetector(BLINK_CLOSED_RATIO, BLINK_OPEN_RATIO);
+        contrastBlink = createBlinkDetector(BLINK_CONTRAST_CLOSED_RATIO, BLINK_CONTRAST_OPEN_RATIO);
+        latestEyes = null;
+      };
+      // Latest eye positions from the tracker, for the fast contrast sampler.
+      let latestEyes: { video: HTMLVideoElement; axes: FaceAxes; at: number } | null = null;
+      let eyeSampler: number | null = null;
+
+      const finish = (error?: Error) => {
+        window.clearTimeout(timer);
+        if (eyeSampler !== null) window.clearInterval(eyeSampler);
+        livenessListenerRef.current = null;
+        livenessAbortRef.current = null;
+        if (error) reject(error);
+        else resolve();
+      };
+      const timer = window.setTimeout(() => finish(new Error(timeoutMessage)), LIVENESS_STEP_TIMEOUT_MS);
+      livenessAbortRef.current = () => finish(new LivenessCancelled());
+
+      if (key === "blink") {
+        // The head is held still (see restartBlink), so the eye positions
+        // from the last detection are good enough to sample in between — as
+        // long as they're fresh.
+        eyeSampler = window.setInterval(() => {
+          if (!latestEyes || performance.now() - latestEyes.at > BLINK_EYES_MAX_AGE_MS) return;
+          const contrast = eyeContrast(latestEyes.video, latestEyes.axes);
+          if (contrast !== null && contrastBlink(contrast)) finish();
+        }, BLINK_SAMPLE_MS);
+      }
+
+      livenessListenerRef.current = (face) => {
+        const eyewear = isEyewearConfirmed(eyewearHistoryRef.current);
+        const inOval = Boolean(face && isFaceInOval(faceOvalRef.current, face.video, face.box));
+        const positionHint = getPositionHint(face, eyewear, inOval);
+
+        if (!face) {
+          heldSince = null;
+          if (key === "blink") restartBlink();
+          setLivenessHint(positionHint);
+          return;
+        }
+        const yaw = headYaw(face.landmarks);
+
+        if (key === "straight" || key === "center") {
+          const straight = Math.abs(yaw) <= YAW_STRAIGHT;
+          setLivenessHint(positionHint || (straight ? "" : "Face the camera directly."));
+          // Same confidence the capture needs, held steady for a moment.
+          if (positionHint || !straight || face.score < 0.75) {
+            heldSince = null;
+            return;
+          }
+          heldSince ??= performance.now();
+          if (performance.now() - heldSince < (key === "center" ? LIVENESS_CAPTURE_HOLD_MS : LIVENESS_HOLD_MS)) return;
+          finish();
+          return;
+        }
+
+        if (key === "blink") {
+          // Eye openness is only comparable while facing the camera.
+          if (Math.abs(yaw) > YAW_BLINK_MAX) {
+            setLivenessHint("Face the camera directly.");
+            restartBlink();
+            return;
+          }
+          const axes = faceAxes(face.landmarks);
+          const previous = latestEyes?.axes;
+          // Head moved since the last detection (position or distance).
+          const moved =
+            !axes ||
+            (previous !== undefined &&
+              (distance(axes.mid, previous.mid) / axes.d > BLINK_MAX_HEAD_SHIFT ||
+                Math.abs(axes.d - previous.d) / previous.d > BLINK_MAX_HEAD_SHIFT));
+          if (moved) {
+            setLivenessHint("Keep your head still.");
+            restartBlink();
+            if (axes) latestEyes = { video: face.video, axes, at: performance.now() };
+            return;
+          }
+          setLivenessHint(positionHint);
+          // Outside the oval: nothing counts until the face is back inside.
+          if (!inOval) {
+            restartBlink();
+            return;
+          }
+          latestEyes = { video: face.video, axes, at: performance.now() };
+          if (landmarkBlink(eyeOpenness(face.landmarks))) finish();
+          return;
+        }
+
+        // left / right
+        const wanted = key === "left" ? yaw >= YAW_TURN : yaw <= -YAW_TURN;
+        const opposite = key === "left" ? yaw <= -YAW_TURN : yaw >= YAW_TURN;
+        // Turned the opposite way: the instruction card switches to a warning.
+        // A turn only counts with the face inside the oval.
+        if (!inOval) {
+          setLivenessWrongWay(false);
+          setLivenessHint(FACE_OUTSIDE_OVAL_HINT);
+          return;
+        }
+        setLivenessWrongWay(opposite);
+        setLivenessHint(
+          !opposite && (positionHint === "No face detected. Face the camera." || positionHint === "Move closer to the camera.")
+            ? positionHint
+            : "",
+        );
+        if (wanted) {
+          setLivenessWrongWay(false);
+          finish();
+        }
+      };
+    });
+  }
+
+  // The existing capture is stricter than the live tracker (bigger detector
+  // input, its own score threshold), so in dim light one attempt can miss
+  // even with the face confirmed straight. Keep re-confirming and retrying
+  // until the step's time runs out instead of failing on the first miss.
+  async function captureWhenStraight(key: LivenessStepKey, timeoutMessage: string) {
+    const deadline = performance.now() + LIVENESS_STEP_TIMEOUT_MS;
+    for (;;) {
+      await waitForStep(key, timeoutMessage);
+      if (!sequenceRef.current) throw new LivenessCancelled();
+      // Pause the 10/s tracker so the (heavier) capture detection gets the
+      // machine to itself — they otherwise slow each other down.
+      stopFaceTracking();
+      while (trackingInFlightRef.current) await delay(20);
+      try {
+        await captureCurrentFrame();
+        return;
+      } catch (error) {
+        if (!sequenceRef.current) throw new LivenessCancelled();
+        // Tracking back on before anything else, so a retry (now or after
+        // the step fails) has live frames again.
+        if (streamRef.current) startFaceTracking(true);
+        if (performance.now() >= deadline) throw error;
+      }
     }
   }
 
@@ -556,6 +1032,10 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
 
   async function startGuidedCapture() {
     if (!cameraActive || busy) return;
+    if (!selectedEmployee) {
+      setMessage("Select an employee first.");
+      return;
+    }
     if (eyewearDetected) {
       setMessage("Eyeglasses or sunglasses detected. Please remove them before capturing.");
       return;
@@ -564,14 +1044,28 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
     setBusy(true);
     setDescriptors([]);
     setPreview("");
-    setMessage("Capturing...");
+    // The instruction card on the camera says what to do.
+    setMessage("");
+    setFaceTrackingRate(LIVENESS_TRACKING_MS);
 
     try {
-      for (let index = 0; index < CAPTURE_STEPS.length; index += 1) {
+      // Picks up at the step that failed last time (this camera session);
+      // a fresh session starts at step 1.
+      for (let index = livenessCompletedRef.current; index < LIVENESS_STEPS.length; index += 1) {
         if (!sequenceRef.current) return;
-        await captureCurrentFrame();
-        setMessage(`${CAPTURE_STEPS[index].title} sample captured.`);
+        const step = LIVENESS_STEPS[index];
+        setLiveness({ step: index, status: "active" });
+        setLivenessHint("");
+        setLivenessWrongWay(false);
+        // The last step ends with the existing capture, right after the face
+        // is confirmed straight and centered.
+        if (index === LIVENESS_STEPS.length - 1) await captureWhenStraight(step.key, step.timeout);
+        else await waitForStep(step.key, step.timeout);
+        livenessCompletedRef.current = index + 1;
+        setLiveness({ step: index, status: "passed" });
+        await delay(index === LIVENESS_STEPS.length - 1 ? LIVENESS_CAPTURED_PAUSE_MS : LIVENESS_PASS_PAUSE_MS);
       }
+      if (!sequenceRef.current) return;
 
       sequenceRef.current = false;
       stopCamera();
@@ -579,9 +1073,14 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
       setShowCapturePreview(true);
     } catch (error) {
       sequenceRef.current = false;
-      setMessage(error instanceof Error ? error.message : "Face capture failed.");
+      if (error instanceof LivenessCancelled) return;
+      const reason = error instanceof Error ? error.message : "Face capture failed.";
+      setLiveness((current) => (current ? { ...current, status: "failed", reason } : current));
+      setLivenessHint("");
+      setMessage("");
     } finally {
       setBusy(false);
+      if (streamRef.current) setFaceTrackingRate(FACE_TRACKING_MS);
     }
   }
 
@@ -592,6 +1091,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
 
   function resetCapture() {
     sequenceRef.current = false;
+    clearLiveness();
     setShowCapturePreview(false);
     setDescriptors([]);
     setPreview("");
@@ -760,6 +1260,43 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
   // Lets the admin re-check without restarting the employee-creation flow:
   // re-fetches the employee list (no single-employee GET endpoint exists)
   // and swaps in the fresh record if the employee has since accepted.
+  function loadAllEmployees() {
+    apiRequest<Employee[]>("/employees").then(setAllEmployees).catch(() => undefined);
+  }
+
+  useEffect(loadAllEmployees, []);
+  // Keeps consent statuses current while the list is showing, so an employee
+  // who just accepted on mobile becomes selectable without a reload.
+  useLiveRefresh(loadAllEmployees, !selectedEmployee);
+
+  // Active employees with no registered face yet, ready ones first. Those
+  // still waiting for consent are listed but can't be selected.
+  const hasPendingConsent = (employee: Employee) =>
+    Boolean(employee.requiresFaceConsent && !employee.faceConsentAcceptedAt);
+  const awaitingEmployees = allEmployees
+    .filter(
+      (employee) =>
+        employee.employmentStatus !== "SEPARATED" &&
+        !enrollments.some((item) => item.employeeId === employee.id && !item.isArchived) &&
+        (awaitingDepartmentFilter === "ALL" || employee.department?.name === awaitingDepartmentFilter),
+    )
+    .sort(
+      (a, b) =>
+        Number(hasPendingConsent(a)) - Number(hasPendingConsent(b)) ||
+        employeeLabel(a).localeCompare(employeeLabel(b)),
+    );
+
+  // Picks the employee only — the camera is started by the admin as usual.
+  function selectAwaitingEmployee(employee: Employee) {
+    if (hasPendingConsent(employee)) return;
+    setEditingEnrollmentId(null);
+    resetCapture();
+    setSelectedEmployee(employee);
+    // Until the models/records have loaded, keep the loading (or load error)
+    // message rather than inviting a camera start that isn't available yet.
+    if (modelsReady) setMessage(`Start the camera to register ${employeeLabel(employee)}'s face.`);
+  }
+
   async function refreshConsentStatus() {
     if (!selectedEmployee) return;
     setConsentRefreshing(true);
@@ -798,61 +1335,204 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
     return "warning" as const;
   }
 
+  // Display state for the step bar and instruction card, derived
+  // from the real detection progress in `liveness`.
+  const livenessStepsDone = liveness ? (liveness.status === "passed" ? liveness.step + 1 : liveness.step) : 0;
+  const currentLivenessStep = liveness ? LIVENESS_STEPS[liveness.step] : LIVENESS_STEPS[0];
+  const livenessView = {
+    currentGroup: currentLivenessStep.group,
+    // Share of all steps really detected so far (0-100), for the oval ring.
+    progress: (livenessStepsDone / LIVENESS_STEPS.length) * 100,
+    cue: liveness?.status === "active" ? currentLivenessStep.key : null,
+    groupDone: (group: number) =>
+      LIVENESS_STEPS.every((step, index) => step.group !== group || index < livenessStepsDone),
+    wrongWay: liveness?.status === "active" && livenessWrongWay,
+    title: !liveness
+      ? currentLivenessStep.instruction
+      : liveness.status === "active" && livenessWrongWay
+        ? `Incorrect direction. Please turn your head to the ${currentLivenessStep.key}.`
+      : liveness.status === "passed"
+        ? currentLivenessStep.passed
+        : liveness.status === "failed"
+          ? (liveness.reason ?? currentLivenessStep.timeout)
+          : currentLivenessStep.instruction,
+    sub: !liveness
+      ? "Click Start guided capture to begin."
+      : liveness.status === "failed"
+        ? "Click Start guided capture to retry this step."
+        : liveness.status === "passed"
+          ? ""
+          : livenessWrongWay
+            ? currentLivenessStep.instruction
+            : livenessHint || currentLivenessStep.sub,
+  };
+
   return (
     <div className="face-page">
       <div className="face-workspace">
         <section className="face-card capture-card" ref={captureCardRef}>
           <div className="capture-summary">
-            <div>
-              <p>{editingEnrollmentId ? "Editing photo for" : "Selected employee"}</p>
-              <strong>{selectedEmployee ? employeeLabel(selectedEmployee) : "None selected"}</strong>
+            <div className="capture-summary-tile">
+              <span className="capture-summary-icon"><Camera size={17} /></span>
+              <div>
+                <p>{editingEnrollmentId ? "Editing photo for" : "Selected employee"}</p>
+                <strong>{selectedEmployee ? employeeLabel(selectedEmployee) : "None selected"}</strong>
+              </div>
             </div>
-            <div>
-              <p>Status</p>
-              <strong
+            <div className="capture-summary-tile">
+              <span
+                className={`capture-summary-icon${
+                  cameraActive ? (faceFrame?.inOval && !eyewearDetected ? " is-good" : " is-bad") : ""
+                }`}
+              >
+                {cameraActive && (!faceFrame?.inOval || eyewearDetected) ? <AlertTriangle size={17} /> : <CheckCircle2 size={17} />}
+              </span>
+              <div>
+                <p>Status</p>
+                <strong
                 className={
-                  cameraActive ? (faceFrame && !eyewearDetected ? "status-face-detected" : "status-face-missing") : undefined
+                  cameraActive ? (faceFrame?.inOval && !eyewearDetected ? "status-face-detected" : "status-face-missing") : undefined
                 }
               >
                 {cameraActive
                   ? eyewearDetected
                     ? "Remove eyeglasses"
                     : faceFrame
-                      ? "Face detected"
+                      ? faceFrame.inOval
+                        ? "Face detected"
+                        : "Face outside the oval"
                       : "No face detected"
                   : selectedEmployee
                     ? "Ready for capture"
                     : "Choose an employee first"}
               </strong>
+              </div>
             </div>
-            <div className="stat-inline-card">
-              <span className="stat-value">{enrollments.filter((item) => !item.isArchived).length}</span>
-              <span className="stat-label">Registered Employees</span>
+            <div className="capture-summary-tile">
+              <span className="capture-summary-icon"><Users size={17} /></span>
+              <div>
+                <p>Registered Employees</p>
+                <strong className="capture-summary-count">{enrollments.filter((item) => !item.isArchived).length}</strong>
+              </div>
             </div>
           </div>
 
           <div className="capture-stage">
             {cameraActive ? (
-              <video ref={videoRef} autoPlay muted playsInline />
+              <video ref={videoRef} autoPlay muted playsInline disablePictureInPicture />
             ) : preview ? (
               <img src={preview} alt="Face enrollment preview" />
             ) : (
               <div className="capture-placeholder"><ScanFace size={72} /><span>No face captured</span></div>
             )}
-            {cameraActive && faceFrame && (
-              <svg className="face-tracker" viewBox={`0 0 ${faceFrame.width} ${faceFrame.height}`} aria-hidden="true">
-                <rect
-                  className={`face-guide-rect${faceFrame.ready && !eyewearDetected ? " is-ready" : ""}`}
-                  x={faceFrame.x}
-                  y={faceFrame.y}
-                  width={faceFrame.boxWidth}
-                  height={faceFrame.boxHeight}
-                  rx="18"
-                  ry="18"
-                />
-              </svg>
+            {/* GCash-style oval: the camera outside it is dimmed, its outline
+                turns green when the face is ready, the ring fills as steps are
+                really detected, and each step shows its own moving cue. */}
+            {cameraActive && (
+              <div
+                className={`face-oval-overlay${
+                  liveness?.status === "passed"
+                    ? " is-passed"
+                    : faceFrame?.ready && !eyewearDetected
+                      ? " is-ready"
+                      : ""
+                }`}
+                aria-hidden="true"
+              >
+                <div className="face-oval" ref={faceOvalRef}>
+                  {/* Same 4:5 shape as the oval, so the ring is drawn unstretched.
+                      The path starts at the top and runs clockwise (right side,
+                      bottom, left side), so the progress fills from 12 o'clock. */}
+                  <svg className="face-oval-ring" viewBox="0 0 80 100">
+                    <path className="face-oval-track" d={FACE_OVAL_PATH} />
+                    <path
+                      className="face-oval-progress"
+                      d={FACE_OVAL_PATH}
+                      pathLength={100}
+                      strokeDasharray={`${livenessView.progress} 100`}
+                      opacity={livenessView.progress > 0 ? 1 : 0}
+                    />
+                  </svg>
+                  {livenessView.cue === "blink" && (
+                    <span className="face-cue face-cue-blink">
+                      <Eye size={20} />
+                    </span>
+                  )}
+                  {/* The preview is mirrored, so the employee's left is the screen's left. */}
+                  {livenessView.cue === "left" && (
+                    <span className={`face-cue face-cue-left${livenessView.wrongWay ? " is-urgent" : ""}`}>
+                      <ChevronLeft size={30} strokeWidth={3} />
+                    </span>
+                  )}
+                  {livenessView.cue === "right" && (
+                    <span className={`face-cue face-cue-right${livenessView.wrongWay ? " is-urgent" : ""}`}>
+                      <ChevronRight size={30} strokeWidth={3} />
+                    </span>
+                  )}
+                  {liveness?.status === "passed" && (
+                    <span
+                      key={liveness.step}
+                      className={`face-oval-check${liveness.step === LIVENESS_STEPS.length - 1 ? " is-final" : ""}`}
+                    >
+                      <Check size={30} strokeWidth={3} />
+                    </span>
+                  )}
+                </div>
+              </div>
             )}
-            {cameraActive && eyewearDetected && (
+            {/* Camera flash the moment the photo is actually taken. */}
+            {cameraActive && liveness?.status === "passed" && liveness.step === LIVENESS_STEPS.length - 1 && (
+              <div className="capture-flash" aria-hidden="true" />
+            )}
+            {cameraActive && (
+              <div className="liveness-stepbar" aria-hidden="true">
+                <span className="liveness-stepbar-label">
+                  Step {livenessView.currentGroup + 1} of {LIVENESS_GROUPS.length}
+                </span>
+                {LIVENESS_GROUPS.map((label, group) => (
+                  <span key={label} className="liveness-stepbar-item">
+                    {group > 0 && (
+                      <span className={`liveness-stepbar-line${livenessView.groupDone(group - 1) ? " is-done" : ""}`} />
+                    )}
+                    <span
+                      className={`liveness-dot${
+                        livenessView.groupDone(group)
+                          ? " is-done"
+                          : group === livenessView.currentGroup
+                            ? ` is-${liveness?.status ?? "active"}`
+                            : ""
+                      }`}
+                    >
+                      {livenessView.groupDone(group) ? <Check size={11} strokeWidth={3} /> : group + 1}
+                    </span>
+                  </span>
+                ))}
+              </div>
+            )}
+            {/* Instruction card — the eyewear warning takes this spot until a
+                guided capture starts. */}
+            {cameraActive && (liveness || !eyewearDetected) && (
+              <div
+                className={`liveness-card is-${liveness?.status ?? "idle"}${livenessView.wrongWay ? " is-wrong-way" : ""}`}
+                role="status"
+                aria-live="polite"
+              >
+                <span className="liveness-card-icon">
+                  {liveness?.status === "passed" ? (
+                    <CheckCircle2 size={20} />
+                  ) : liveness?.status === "failed" || livenessView.wrongWay ? (
+                    <AlertTriangle size={20} />
+                  ) : (
+                    <ScanFace size={20} />
+                  )}
+                </span>
+                <div>
+                  <strong>{livenessView.title}</strong>
+                  {livenessView.sub && <span>{livenessView.sub}</span>}
+                </div>
+              </div>
+            )}
+            {cameraActive && eyewearDetected && !liveness && (
               <div className="eyewear-warning" role="alert">
                 <AlertTriangle size={15} />
                 <span>Eyeglasses or sunglasses detected — please remove them to continue.</span>
@@ -887,11 +1567,16 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
             <button
               className="primary-button"
               onClick={cameraActive ? startGuidedCapture : startCamera}
-              disabled={!modelsReady || busy || (cameraActive && eyewearDetected)}
+              disabled={!modelsReady || busy || !selectedEmployee || (cameraActive && eyewearDetected)}
             >
-              <Camera size={17} /> {busy ? "Capturing automatically..." : cameraActive ? "Start guided capture" : "Start camera"}
+              <Camera size={17} /> {busy ? "Guided capture in progress..." : cameraActive ? "Start guided capture" : "Start camera"}
             </button>
-            <button className="outline-button" onClick={resetCapture} disabled={busy || (!cameraActive && descriptors.length === 0)}>
+            {/* Stays usable while the movement steps run, to stop them. */}
+            <button
+              className="outline-button"
+              onClick={resetCapture}
+              disabled={(busy && !liveness) || (!cameraActive && descriptors.length === 0)}
+            >
               <RotateCcw size={17} /> Reset
             </button>
           </div>
@@ -903,6 +1588,18 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
               <p className="form-kicker">{editingEnrollmentId ? "Editing" : "Face Registration"}</p>
               <h3>{editingEnrollmentId ? "Update Face Photo" : selectedEmployee ? (selectedFaceArchived ? "Existing Employee" : "New Employee") : "No Employee Selected"}</h3>
             </div>
+            {/* Narrows the "Awaiting face registration" list below. */}
+            {!selectedEmployee && (
+              <DropdownFilter
+                value={awaitingDepartmentFilter}
+                onChange={setAwaitingDepartmentFilter}
+                options={departmentOptions.map((name) => ({ value: name, label: name }))}
+                allLabel="All Departments"
+                menuLabel="Filter by department"
+                ariaLabel="Filter awaiting employees by department"
+                menuAlign="right"
+              />
+            )}
           </div>
 
           {editingEnrollmentId && (
@@ -912,59 +1609,113 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
           {selectedEmployee ? (
             <div className="selected-employee-card new-employee-details reregister-details">
               <div className="new-employee-details-name">
-                <p>{editingEnrollmentId ? "Editing photo for" : selectedFaceArchived ? "Selected employee" : "New employee"}</p>
-                <strong>{employeeLabel(selectedEmployee)}</strong>
+                {/* Their current registered photo, when there is one. */}
+                {selectedEnrollment?.referenceImageData ? (
+                  <button
+                    type="button"
+                    className="details-photo is-clickable"
+                    onClick={() => setEnlargedPhoto(selectedEnrollment.referenceImageData)}
+                    aria-label="View registered photo full size"
+                  >
+                    <img src={selectedEnrollment.referenceImageData} alt="" />
+                  </button>
+                ) : (
+                  <span className="details-photo">
+                    <User size={26} />
+                  </span>
+                )}
+                <div>
+                  <p>{editingEnrollmentId ? "Editing photo for" : selectedFaceArchived ? "Selected employee" : "New employee"}</p>
+                  <strong>{employeeLabel(selectedEmployee)}</strong>
+                </div>
               </div>
-              <div>
-                <p>Email</p>
-                <strong>{selectedEmployee.user?.email ?? "—"}</strong>
-              </div>
-              <div>
-                <p>Department</p>
-                <strong>{selectedEmployee.department?.name ?? "—"}</strong>
-              </div>
-              <div>
-                <p>Supervisor</p>
-                <strong>
-                  {selectedEmployee.supervisor
+              {[
+                { icon: Mail, label: "Email", value: selectedEmployee.user?.email ?? "—" },
+                { icon: Building2, label: "Department", value: selectedEmployee.department?.name ?? "—" },
+                {
+                  icon: Network,
+                  label: "Supervisor",
+                  value: selectedEmployee.supervisor
                     ? `${selectedEmployee.supervisor.firstName} ${selectedEmployee.supervisor.lastName}`
-                    : "None"}
-                </strong>
-              </div>
-              <div>
-                <p>Hire Date</p>
-                <strong>
-                  {selectedEmployee.hireDate ? new Date(selectedEmployee.hireDate).toLocaleDateString() : "—"}
-                </strong>
-              </div>
-              <div>
-                <p>Employment Status</p>
-                <strong>
-                  {selectedEmployee.employmentStatus ? EMPLOYMENT_STATUS_LABELS[selectedEmployee.employmentStatus] : "—"}
-                </strong>
-              </div>
-              <div>
-                <p>Attendance Mode</p>
-                <strong>{formatAttendanceMode(selectedEmployee.attendanceMode, attendanceModeOptions)}</strong>
-              </div>
-              <div>
-                <p>Face Registration</p>
-                <strong>
-                  {selectedEnrollment
+                    : "None",
+                },
+                {
+                  icon: Calendar,
+                  label: "Hire Date",
+                  value: selectedEmployee.hireDate ? new Date(selectedEmployee.hireDate).toLocaleDateString() : "—",
+                },
+                {
+                  icon: Briefcase,
+                  label: "Employment Status",
+                  value: selectedEmployee.employmentStatus ? EMPLOYMENT_STATUS_LABELS[selectedEmployee.employmentStatus] : "—",
+                },
+                {
+                  icon: MapPin,
+                  label: "Attendance Mode",
+                  value: formatAttendanceMode(selectedEmployee.attendanceMode, attendanceModeOptions),
+                },
+                {
+                  icon: Fingerprint,
+                  label: "Face Registration",
+                  value: selectedEnrollment
                     ? selectedEnrollment.enrolledAt
                       ? `Registered · ${new Date(selectedEnrollment.enrolledAt).toLocaleDateString()}`
                       : "Registered"
                     : selectedFaceArchived
                       ? "Archived · not registered"
-                      : "Not yet registered"}
-                </strong>
-              </div>
+                      : "Not yet registered",
+                },
+              ].map(({ icon: Icon, label, value }) => (
+                <div key={label} className="details-field">
+                  <Icon size={16} className="details-field-icon" />
+                  <div>
+                    <p>{label}</p>
+                    <strong>{value}</strong>
+                  </div>
+                </div>
+              ))}
             </div>
           ) : (
-            <p className="capture-message">
-              New employees are sent here automatically from Employee Management. To re-register an existing
-              employee's face, use the "Re-register" action from the list below.
-            </p>
+            <div className="awaiting-list">
+              <div className="awaiting-list-head">
+                <p>Awaiting face registration</p>
+                <span>{awaitingEmployees.length}</span>
+              </div>
+              {awaitingEmployees.length === 0 ? (
+                <p className="capture-message">
+                  {awaitingDepartmentFilter === "ALL"
+                    ? "Every active employee has a registered face."
+                    : "No employees in this department are awaiting face registration."}
+                </p>
+              ) : (
+                <ul>
+                  {awaitingEmployees.map((employee) => {
+                    const pending = hasPendingConsent(employee);
+                    return (
+                      <li key={employee.id} className={pending ? "is-pending" : undefined}>
+                        <div>
+                          <strong>{employeeLabel(employee)}</strong>
+                          <span>{employee.department?.name ?? "No department"}</span>
+                        </div>
+                        {pending ? (
+                          <span className="awaiting-tag" title="The employee must accept the face-data consent on the mobile app first.">
+                            Waiting for consent
+                          </span>
+                        ) : (
+                          <button type="button" className="outline-button awaiting-select" onClick={() => selectAwaitingEmployee(employee)}>
+                            Select
+                          </button>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              <p className="awaiting-note">
+                Employees added one by one or by batch import appear here. Those waiting for consent become selectable
+                once they accept it on the mobile app. To re-register a face, use "Re-register" in the list below.
+              </p>
+            </div>
           )}
 
           <div className="form-actions">
@@ -1158,10 +1909,21 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
                 <X size={15} />
               </button>
             )}
-            <div className="view-modal-photo capture-review-photo">
-              <img src={preview} alt="Captured face preview" />
+            {/* Green ring and check, matching the camera oval the scan just completed. */}
+            <div className="capture-review-photo-wrap">
+              <button
+                type="button"
+                className="view-modal-photo capture-review-photo is-clickable"
+                onClick={() => setEnlargedPhoto(preview)}
+                aria-label="View captured photo full size"
+              >
+                <img src={preview} alt="Captured face preview" />
+              </button>
+              <span className="capture-review-check" aria-hidden="true">
+                <Check size={18} strokeWidth={3} />
+              </span>
             </div>
-            <span className="capture-review-badge"><Camera size={13} /> Face Captured</span>
+            <span className="capture-review-badge"><CheckCircle2 size={13} /> Face Captured</span>
             <h3>Review Captured Photo</h3>
             <p className="view-modal-sub">Make sure the face is clearly visible before continuing.</p>
             <dl className="capture-review-info">
@@ -1207,48 +1969,88 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
 
       {viewProfile && (
         <div className="view-modal-overlay" onClick={closeViewModal}>
-          <div className="view-modal" onClick={(event) => event.stopPropagation()}>
-            <button className="view-modal-close" onClick={closeViewModal} aria-label="Close">
-              <X size={18} />
+          {/* Same look as the capture review, in two columns so it fits
+              without scrolling: photo, status and name on the left; details
+              and actions on the right. */}
+          <div className="view-modal capture-review-modal profile-modal" onClick={(event) => event.stopPropagation()}>
+            <button className="view-modal-close capture-review-close" onClick={closeViewModal} aria-label="Close">
+              <X size={15} />
             </button>
-
-            <div className="view-modal-photo">
+            <div className="profile-modal-side">
               {viewProfile.isArchived ? (
-                <div className="view-modal-photo-archived"><ScanFace size={56} /><span>Face archived</span></div>
+                <div className="view-modal-photo">
+                  <div className="view-modal-photo-archived"><ScanFace size={56} /><span>Face archived</span></div>
+                </div>
               ) : (
-                <img src={viewProfile.referenceImageData ?? ""} alt={`Registered face for ${employeeLabel(viewProfile.employee)}`} />
+                <div className="capture-review-photo-wrap">
+                  <button
+                    type="button"
+                    className="view-modal-photo capture-review-photo is-clickable"
+                    onClick={() => setEnlargedPhoto(viewProfile.referenceImageData)}
+                    aria-label="View registered photo full size"
+                  >
+                    <img src={viewProfile.referenceImageData ?? ""} alt={`Registered face for ${employeeLabel(viewProfile.employee)}`} />
+                  </button>
+                  <span className="capture-review-check" aria-hidden="true">
+                    <Check size={18} strokeWidth={3} />
+                  </span>
+                </div>
               )}
+              <span className={`capture-review-badge${viewProfile.isArchived ? " is-archived" : ""}`}>
+                {viewProfile.isArchived ? <Archive size={13} /> : <CheckCircle2 size={13} />}
+                {viewProfile.isArchived ? "Face Archived" : "Face Registered"}
+              </span>
+              <h3>{employeeLabel(viewProfile.employee)}</h3>
+              <p className="view-modal-sub">
+                {/* Department is listed in the details beside it. */}
+                {viewProfile.employee.employmentStatus
+                  ? EMPLOYMENT_STATUS_LABELS[viewProfile.employee.employmentStatus]
+                  : "—"}
+              </p>
             </div>
-            <h3>{employeeLabel(viewProfile.employee)}</h3>
-            <p className="view-modal-sub">
-              {viewProfile.employee.employmentStatus
-                ? EMPLOYMENT_STATUS_LABELS[viewProfile.employee.employmentStatus]
-                : "—"}
-              {" · "}
-              {viewProfile.employee.department?.name ?? "No department"}
-            </p>
-            <dl className="view-modal-details">
-              <div>
-                <dt>Status</dt>
-                <dd>{viewProfile.isArchived ? "ARCHIVED" : viewProfile.enrollmentStatus}</dd>
-              </div>
-              <div>
-                <dt>Date of Registration</dt>
-                <dd>{viewProfile.enrolledAt ? new Date(viewProfile.enrolledAt).toLocaleString() : "Pending"}</dd>
-              </div>
-            </dl>
-            <div className="view-modal-actions">
-              <button className="primary-button" onClick={() => editProfilePhoto(viewProfile)}>
-                <Pencil size={16} /> Re-register Face
-              </button>
-              {!viewProfile.isArchived && (
-                <button
-                  className="archive-button"
-                  onClick={() => { setArchiveTarget(viewProfile); closeViewModal(); }}
-                >
-                  <Archive size={16} /> Archive
+            <div className="profile-modal-main">
+              <dl className="capture-review-info profile-info">
+                {[
+                  { icon: Mail, label: "Email", value: viewProfile.employee.user?.email ?? "—" },
+                  { icon: Building2, label: "Department", value: viewProfile.employee.department?.name ?? "—" },
+                  {
+                    icon: Network,
+                    label: "Supervisor",
+                    value: viewProfile.employee.supervisor
+                      ? `${viewProfile.employee.supervisor.firstName} ${viewProfile.employee.supervisor.lastName}`
+                      : "None",
+                  },
+                  {
+                    icon: MapPin,
+                    label: "Attendance Mode",
+                    value: formatAttendanceMode(viewProfile.employee.attendanceMode, attendanceModeOptions),
+                  },
+                  {
+                    icon: Calendar,
+                    label: "Registered On",
+                    value: viewProfile.enrolledAt ? new Date(viewProfile.enrolledAt).toLocaleString() : "Pending",
+                  },
+                ].map(({ icon: Icon, label, value }) => (
+                  <div key={label}>
+                    <Icon size={18} />
+                    <dt>{label}</dt>
+                    <dd>{value}</dd>
+                  </div>
+                ))}
+              </dl>
+              <div className="view-modal-actions">
+                <button className="primary-button" onClick={() => editProfilePhoto(viewProfile)}>
+                  <Camera size={16} /> Re-register Face
                 </button>
-              )}
+                {!viewProfile.isArchived && (
+                  <button
+                    className="archive-button"
+                    onClick={() => { setArchiveTarget(viewProfile); closeViewModal(); }}
+                  >
+                    <Archive size={16} /> Archive
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -1318,6 +2120,14 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
               {consentRefreshing ? "Checking..." : "Check Again"}
             </button>
           </div>
+        </div>
+      )}
+      {enlargedPhoto && (
+        <div className="photo-lightbox" role="dialog" aria-label="Face photo" onClick={() => setEnlargedPhoto(null)}>
+          <img src={enlargedPhoto} alt="Face photo, full size" />
+          <button type="button" className="photo-lightbox-close" aria-label="Close">
+            <X size={18} />
+          </button>
         </div>
       )}
     </div>

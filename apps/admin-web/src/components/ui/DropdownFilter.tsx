@@ -15,6 +15,7 @@ export function DropdownFilter({
   ariaLabel,
   className = "",
   hideAllOption = false,
+  menuAlign = "left",
 }: {
   value: string;
   options: DropdownFilterOption[];
@@ -26,6 +27,9 @@ export function DropdownFilter({
   className?: string;
   // Leaves allLabel off the menu (still shown on the trigger); Clear resets.
   hideAllOption?: boolean;
+  // "right": the menu's right edge lines up with the trigger's (for a filter
+  // at the right edge of a panel, so the menu doesn't stick out past it).
+  menuAlign?: "left" | "right";
 }) {
   const [open, setOpen] = useState(false);
   const shellRef = useRef<HTMLDivElement>(null);
@@ -59,7 +63,8 @@ export function DropdownFilter({
       const width = Math.max(220, rect.width);
       // Clamp to the viewport so the menu never runs off-screen when the
       // trigger sits near the right edge on a narrow window.
-      const left = Math.min(rect.left, window.innerWidth - width - 8);
+      const preferredLeft = menuAlign === "right" ? rect.right - width : rect.left;
+      const left = Math.min(preferredLeft, window.innerWidth - width - 8);
       setMenuPosition({ top: rect.bottom + 6, left: Math.max(8, left), minWidth: width });
     }
     updatePosition();

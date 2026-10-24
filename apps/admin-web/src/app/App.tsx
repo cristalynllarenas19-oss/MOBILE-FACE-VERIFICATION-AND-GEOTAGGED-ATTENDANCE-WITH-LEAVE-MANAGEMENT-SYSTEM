@@ -7,7 +7,8 @@ import { LeavePage } from "../features/leave/LeavePage";
 import { LoginPage } from "../features/login/LoginPage";
 import { ReportsPage } from "../features/reports/ReportsPage";
 import { SchedulesPage } from "../features/schedules/SchedulesPage";
-import { UsersPage } from "../features/users/UsersPage";
+// User Management page was removed; its styles are still shared by other pages.
+import "../features/users/UsersPage.css";
 import { UtilitiesPage, type UtilTab } from "../features/utilities/UtilitiesPage";
 import { FaceRegistrationPage, FaceRegistrationEmployee } from "../features/face-registration/FaceRegistrationPage";
 import { GeotaggingPage } from "../features/geotagging/GeotaggingPage";
@@ -319,7 +320,6 @@ export default function App() {
       {renderPage === "dashboard" && (
         <DashboardPage user={user} onNavigateToAttendance={navigateToAttendance} onNavigate={handleNavigate} />
       )}
-      {renderPage === "users" && <UsersPage />}
       {renderPage === "face-registration" && <FaceRegistrationPage initialEmployee={faceRegistrationEmployee} />}
       {renderPage === "employees" && (
         <EmployeesPage

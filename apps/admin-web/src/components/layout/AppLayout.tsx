@@ -10,7 +10,6 @@ import {
   LayoutDashboard,
   LogOut,
   MapPin,
-  Users,
   UserSquare2,
   ScanFace,
   Menu,
@@ -72,7 +71,6 @@ export const navItems = [
   { id: "attendance", label: "Attendance Management", icon: CheckSquare,     permission: permissions.attendanceRead },
   { id: "leave",      label: "Leave Management",      icon: ClipboardList,   permission: permissions.leaveRead },
   { id: "reports",    label: "Reports",               icon: BarChart3,       permission: permissions.reportsRead },
-  { id: "users",      label: "User Management",       icon: Users,           permission: permissions.usersRead },
   { id: "utilities",    label: "Utilities",               icon: Settings,       permission: permissions.auditRead },
 
   // Employee self-service nav items (mirrors employee-mobile bottom tabs)

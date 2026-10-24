@@ -57,6 +57,16 @@ export class FaceProfilesService {
       throw new NotFoundException("Employee not found.");
     }
 
+    // Face data is never stored without the employee's recorded consent
+    // (accepted on the mobile app's consent screen). The admin screen already
+    // blocks this; enforcing it here means no other client can skip it.
+    // Grandfathered employees (requiresFaceConsent = false) are exempt.
+    if (employee.requiresFaceConsent && !employee.faceConsentAcceptedAt) {
+      throw new BadRequestException(
+        "This employee has not accepted the face-data consent yet. They must accept it on the mobile app before their face can be registered.",
+      );
+    }
+
     // An employee keeps at most one active profile: re-registering replaces
     // the existing photo/descriptors in place. Archived profiles stay behind
     // as history, so a fresh row is created after an archive.

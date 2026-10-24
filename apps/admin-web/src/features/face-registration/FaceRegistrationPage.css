@@ -20,37 +20,77 @@
 
 .capture-card {
   overflow: hidden;
-  flex: 1.45 1 420px;
+  flex: 1.6 1 460px;
   display: flex;
   flex-direction: column;
-  height: 620px;
+  /* Fits the window (minus the top bar and page padding) so the buttons are
+     always on screen without scrolling; never shorter than 520px. */
+  height: clamp(520px, calc(100vh - 130px), 720px);
 }
 
 .capture-summary {
   display: grid;
   /* Fixed middle column: the Status text swaps between labels of different
      widths, so sizing it by content would make the tiles jitter. Wide enough
-     for the longest label, "Choose an employee first". */
-  grid-template-columns: 1fr 235px 1fr;
+     for the longest label, "Choose an employee first", beside its icon. */
+  grid-template-columns: 1fr 270px 1fr;
   gap: 10px;
-  margin-bottom: 18px;
+  margin-bottom: 14px;
   align-items: stretch;
 }
 
-/* Single ellipsized line keeps every tile the same height no matter which
-   label is showing or how long the employee's name is. */
-.capture-summary > div:not(.stat-inline-card) {
-  min-width: 0;
+/* Icon + label/value tiles. A single ellipsized line keeps every tile the
+   same height no matter which label is showing or how long the name is. */
+.capture-summary > .capture-summary-tile {
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  text-align: center;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  text-align: left;
 }
 
-.capture-summary > div:not(.stat-inline-card) strong {
+.capture-summary-tile > div {
+  min-width: 0;
+}
+
+.capture-summary-tile strong {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.capture-summary-tile p {
+  margin-bottom: 2px;
+}
+
+.capture-summary-icon {
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #e8eef6;
+  color: #1a3a5c;
+}
+
+.capture-summary-icon.is-good {
+  background: #dcfce7;
+  color: #16a34a;
+}
+
+.capture-summary-icon.is-bad {
+  background: #fee2e2;
+  color: #dc2626;
+}
+
+.capture-summary strong.capture-summary-count {
+  font-size: 20px;
+  font-weight: 800;
+  color: #193d69;
+  line-height: 1.1;
 }
 
 .capture-summary > div,
@@ -58,10 +98,6 @@
   border: 1px solid #dbe5ef;
   background: #f8fafc;
   border-radius: 10px;
-}
-
-.capture-summary > div:not(.stat-inline-card) {
-  padding: 14px 16px;
 }
 
 .capture-summary p,
@@ -90,33 +126,6 @@
 
 .capture-summary strong.status-face-missing {
   color: #b91c1c;
-}
-
-.stat-inline-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-width: 80px;
-  padding: 10px 18px;
-  gap: 2px;
-  flex-shrink: 0;
-}
-
-.stat-inline-card .stat-value {
-  color: #193d69;
-  font-size: 26px;
-  font-weight: 800;
-  line-height: 1;
-  letter-spacing: -0.5px;
-}
-
-.stat-inline-card .stat-label {
-  color: #7b8794;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .capture-stage {
@@ -153,25 +162,215 @@
   background: radial-gradient(circle at center, rgba(59, 130, 246, 0.12), transparent 42%);
 }
 
-.face-tracker {
-  height: 100%;
-  inset: 0;
-  pointer-events: none;
+/* GCash-style face oval. The oval's huge shadow dims everything outside
+   it (clipped by the stage's overflow: hidden); its outline goes green when
+   the face is ready to capture. */
+.face-oval-overlay {
   position: absolute;
-  width: 100%;
+  inset: 0;
   z-index: 2;
+  pointer-events: none;
 }
 
-.face-tracker .face-guide-rect {
-  fill: transparent;
-  stroke: #1d4ed8;
-  stroke-width: 4;
-  vector-effect: non-scaling-stroke;
-  transition: stroke 0.15s ease;
+/* Nearly the full camera height; the instruction card sits in the top-right
+   corner beside it (or under it on narrow screens — see the media query). */
+.face-oval {
+  position: absolute;
+  left: 50%;
+  top: 5%;
+  bottom: 6%;
+  aspect-ratio: 4 / 5;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  box-shadow: 0 0 0 200vmax rgba(5, 8, 22, 0.55);
 }
 
-.face-tracker .face-guide-rect.is-ready {
+.face-oval-ring {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.face-oval-track,
+.face-oval-progress {
+  fill: none;
+}
+
+/* Ring widths are in the 80x100 viewBox units (about 3px each). The track
+   is the full oval; it brightens when the face is ready to capture. */
+.face-oval-track {
+  stroke: rgba(255, 255, 255, 0.28);
+  stroke-width: 2;
+  transition: stroke 0.2s ease;
+}
+
+.face-oval-overlay.is-ready .face-oval-track {
+  stroke: rgba(255, 255, 255, 0.7);
+}
+
+/* Fills clockwise as steps are detected. */
+.face-oval-progress {
   stroke: #22c55e;
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.6s ease;
+}
+
+/* A step just passed: the ring flashes. */
+.face-oval-overlay.is-passed .face-oval-progress {
+  animation: face-oval-flash 0.6s ease;
+}
+
+@keyframes face-oval-flash {
+  0% { stroke-width: 2.4; filter: drop-shadow(0 0 0 rgba(34, 197, 94, 0)); }
+  40% { stroke-width: 3.4; filter: drop-shadow(0 0 3px rgba(34, 197, 94, 0.9)); }
+  100% { stroke-width: 2.4; filter: drop-shadow(0 0 0 rgba(34, 197, 94, 0)); }
+}
+
+.face-oval-check {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 58px;
+  height: 58px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #22c55e;
+  color: #ffffff;
+  box-shadow: 0 8px 24px rgba(34, 197, 94, 0.45);
+  transform: translate(-50%, -50%);
+  animation: face-oval-check-pop 0.6s ease forwards;
+}
+
+@keyframes face-oval-check-pop {
+  0% { transform: translate(-50%, -50%) scale(0.4); opacity: 0; }
+  35% { transform: translate(-50%, -50%) scale(1.12); opacity: 1; }
+  60% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1); opacity: 0; }
+}
+
+/* The final "Photo captured" check stays visible instead of fading. */
+.face-oval-check.is-final {
+  width: 68px;
+  height: 68px;
+  animation: face-oval-check-stay 0.5s ease forwards;
+}
+
+@keyframes face-oval-check-stay {
+  0% { transform: translate(-50%, -50%) scale(0.4); opacity: 0; }
+  60% { transform: translate(-50%, -50%) scale(1.12); opacity: 1; }
+  100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+}
+
+.capture-flash {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  background: #ffffff;
+  pointer-events: none;
+  animation: capture-flash 0.45s ease-out forwards;
+}
+
+@keyframes capture-flash {
+  0% { opacity: 0.85; }
+  100% { opacity: 0; }
+}
+
+/* Step cues: a blinking eye for Blink, a pulsing arrow beside the oval for
+   each head turn. */
+.face-cue {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+}
+
+.face-cue-blink {
+  left: 50%;
+  top: 6%;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  background: rgba(15, 33, 58, 0.8);
+  transform: translateX(-50%);
+}
+
+.face-cue-blink svg {
+  animation: face-cue-blink 1.6s ease-in-out infinite;
+}
+
+@keyframes face-cue-blink {
+  0%, 70%, 100% { transform: scaleY(1); }
+  80% { transform: scaleY(0.1); }
+  90% { transform: scaleY(1); }
+}
+
+.face-cue-left,
+.face-cue-right {
+  top: 50%;
+  width: 46px;
+  height: 46px;
+  border-radius: 999px;
+  background: rgba(34, 197, 94, 0.9);
+  box-shadow: 0 6px 18px rgba(34, 197, 94, 0.4);
+}
+
+.face-cue-left {
+  right: calc(100% + 14px);
+  animation: face-cue-left 1.1s ease-in-out infinite;
+}
+
+.face-cue-right {
+  left: calc(100% + 14px);
+  animation: face-cue-right 1.1s ease-in-out infinite;
+}
+
+/* Wrong way: the arrow bounces harder and faster toward the right side. */
+.face-cue-left.is-urgent {
+  animation: face-cue-left-urgent 0.6s ease-in-out infinite;
+}
+
+.face-cue-right.is-urgent {
+  animation: face-cue-right-urgent 0.6s ease-in-out infinite;
+}
+
+@keyframes face-cue-left-urgent {
+  0%, 100% { transform: translate(0, -50%) scale(1.1); }
+  50% { transform: translate(-18px, -50%) scale(1.1); }
+}
+
+@keyframes face-cue-right-urgent {
+  0%, 100% { transform: translate(0, -50%) scale(1.1); }
+  50% { transform: translate(18px, -50%) scale(1.1); }
+}
+
+@keyframes face-cue-left {
+  0%, 100% { transform: translate(0, -50%); }
+  50% { transform: translate(-10px, -50%); }
+}
+
+@keyframes face-cue-right {
+  0%, 100% { transform: translate(0, -50%); }
+  50% { transform: translate(10px, -50%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .face-cue-blink svg,
+  .face-cue-left,
+  .face-cue-right,
+  .face-oval-overlay.is-passed .face-oval-progress,
+  .capture-flash {
+    animation: none;
+  }
+
+  .capture-flash {
+    display: none;
+  }
 }
 
 .capture-overlay {
@@ -219,6 +418,169 @@
   position: absolute;
   right: 14px;
   z-index: 3;
+}
+
+/* Guided movements — step bar (top-left) and instruction card (bottom) on
+   the camera. Every check reflects a real detection. */
+.liveness-stepbar {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.72);
+  color: #f8fafc;
+  pointer-events: none;
+}
+
+.liveness-stepbar-label {
+  font-size: 12px;
+  font-weight: 700;
+  margin-right: 4px;
+}
+
+.liveness-stepbar-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.liveness-stepbar-line {
+  width: 18px;
+  height: 2px;
+  border-radius: 2px;
+  background: rgba(203, 213, 225, 0.4);
+}
+
+.liveness-stepbar-line.is-done {
+  background: #22c55e;
+}
+
+.liveness-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #cbd5e1;
+  background: rgba(255, 255, 255, 0.12);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.liveness-dot.is-active,
+.liveness-dot.is-passed {
+  background: #22c55e;
+  color: #ffffff;
+}
+
+.liveness-dot.is-done {
+  background: #22c55e;
+  color: #ffffff;
+}
+
+.liveness-dot.is-failed {
+  background: #dc2626;
+  color: #ffffff;
+}
+
+/* Top-right corner, clear of the oval. */
+.liveness-card {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: min(28%, 250px);
+  z-index: 3;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: rgba(15, 33, 58, 0.88);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  color: #f8fafc;
+  pointer-events: none;
+}
+
+.liveness-card-icon {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid rgba(255, 255, 255, 0.55);
+}
+
+.liveness-card.is-passed .liveness-card-icon {
+  border-color: #4ade80;
+  color: #4ade80;
+}
+
+.liveness-card.is-failed .liveness-card-icon {
+  border-color: #fca5a5;
+  color: #fca5a5;
+}
+
+.liveness-card strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+/* Narrow camera: no room beside the oval, so the card goes back to the
+   bottom and the oval ends above it. */
+@media (max-width: 900px) {
+  .liveness-card {
+    top: auto;
+    right: auto;
+    left: 50%;
+    bottom: 14px;
+    transform: translateX(-50%);
+    width: min(92%, 460px);
+  }
+
+  .face-oval {
+    bottom: 96px;
+  }
+}
+
+.liveness-card.is-passed strong {
+  color: #4ade80;
+}
+
+.liveness-card.is-failed strong {
+  color: #fca5a5;
+}
+
+/* Turned the wrong way: the whole card becomes a red warning. */
+.liveness-card.is-wrong-way {
+  background: rgba(127, 29, 29, 0.92);
+  border-color: #f87171;
+}
+
+.liveness-card.is-wrong-way .liveness-card-icon {
+  border-color: #fecaca;
+  color: #fecaca;
+}
+
+.liveness-card.is-wrong-way strong {
+  color: #ffffff;
+}
+
+.liveness-card span:not(.liveness-card-icon) {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: #cbd5e1;
 }
 
 .eyewear-warning svg {
@@ -391,9 +753,15 @@
   flex-direction: column;
   flex: 0.9 1 320px;
   min-height: 0;
-  height: 620px;
+  /* Same height as .capture-card so both cards' buttons share one line. */
+  height: clamp(520px, calc(100vh - 130px), 720px);
 }
 
+/* Buttons pinned to the bottom of the card. */
+.enrollment-form .form-actions {
+  margin-top: auto;
+  padding-top: 20px;
+}
 
 .form-title-row {
   display: flex;
@@ -515,6 +883,50 @@
 
 .reregister-details .new-employee-details-name strong {
   font-size: 18px;
+}
+
+/* Name header: current registered photo beside the name. */
+.reregister-details .new-employee-details-name {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.details-photo {
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #e8eef6;
+  color: #1a3a5c;
+}
+
+.details-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Icon beside each detail's label and value. */
+.details-field {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.details-field > div {
+  min-width: 0;
+}
+
+.details-field-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: #1a3a5c;
 }
 
 @media (max-width: 640px) {
@@ -1231,6 +1643,50 @@
   max-width: 480px;
   overflow-y: auto;
   padding: 28px 30px 26px;
+  /* Slides up into place instead of just appearing. */
+  animation: capture-review-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes capture-review-in {
+  from { opacity: 0; transform: translateY(18px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.capture-review-photo-wrap {
+  position: relative;
+  width: 200px;
+  margin: 0 auto 14px;
+}
+
+/* ✓ badge on the photo's corner, popping in after the modal lands. */
+.capture-review-check {
+  position: absolute;
+  right: -8px;
+  bottom: -8px;
+  width: 36px;
+  height: 36px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #22c55e;
+  color: #ffffff;
+  border: 3px solid #ffffff;
+  box-shadow: 0 6px 16px rgba(34, 197, 94, 0.4);
+  animation: capture-review-check 0.45s 0.25s ease-out both;
+}
+
+@keyframes capture-review-check {
+  0% { opacity: 0; transform: scale(0.3); }
+  70% { opacity: 1; transform: scale(1.15); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .capture-review-modal,
+  .capture-review-check {
+    animation: none;
+  }
 }
 
 .capture-review-close {
@@ -1242,19 +1698,19 @@
 }
 
 .capture-review-photo {
-  border: 3px solid #e3ebf4;
+  border: 3px solid #22c55e;
   border-radius: 20px;
-  box-shadow: 0 8px 22px rgba(26, 58, 92, 0.14);
+  box-shadow: 0 0 0 5px rgba(34, 197, 94, 0.15), 0 8px 22px rgba(26, 58, 92, 0.14);
   height: 200px;
-  margin-bottom: 14px;
+  margin: 0;
   width: 200px;
 }
 
 .capture-review-badge {
   align-items: center;
-  background: #e6effa;
+  background: #dcfce7;
   border-radius: 999px;
-  color: #1a3a5c;
+  color: #15803d;
   display: inline-flex;
   font-size: 12px;
   font-weight: 700;
@@ -1336,8 +1792,240 @@
     padding: 22px 18px 20px;
   }
 
+  .capture-review-photo-wrap,
   .capture-review-photo {
     height: 170px;
     width: 170px;
+  }
+}
+
+/* Clickable face photos (review modal, Update Face Photo panel) and the
+   full-size view they open — above every other modal. */
+.details-photo.is-clickable,
+.capture-review-photo.is-clickable {
+  display: block;
+  padding: 0;
+  cursor: zoom-in;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.details-photo.is-clickable {
+  border: 0;
+}
+
+.details-photo.is-clickable:hover,
+.capture-review-photo.is-clickable:hover {
+  transform: scale(1.03);
+}
+
+.photo-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(5, 8, 22, 0.85);
+  cursor: zoom-out;
+  animation: photo-lightbox-in 0.2s ease-out;
+}
+
+.photo-lightbox img {
+  max-width: min(90vw, 640px);
+  max-height: 85vh;
+  border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+
+.photo-lightbox-close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  border: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  cursor: pointer;
+}
+
+@keyframes photo-lightbox-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* "Awaiting face registration" list — the right panel when no employee is
+   selected. Scrolls inside the panel so the buttons below stay in place. */
+.awaiting-list {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.awaiting-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.awaiting-list-head p {
+  margin: 0;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.awaiting-list-head span {
+  min-width: 24px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #e8eef6;
+  color: #1a3a5c;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.awaiting-list ul {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+}
+
+.awaiting-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #dbe5ef;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.awaiting-list li > div {
+  min-width: 0;
+}
+
+.awaiting-list li strong {
+  display: block;
+  color: #0f172a;
+  font-size: 13.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.awaiting-list li span:not(.awaiting-tag) {
+  display: block;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.awaiting-list li.is-pending strong {
+  color: #64748b;
+}
+
+.awaiting-select {
+  flex-shrink: 0;
+  min-height: 32px;
+  padding: 0 14px;
+  font-size: 12px;
+}
+
+.awaiting-tag {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.awaiting-note {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+/* Registered face details (View): the capture-review icon list, in two
+   columns so six details stay compact. */
+.profile-info {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 18px;
+}
+
+.capture-review-info.profile-info > div + div {
+  border-top: 0;
+}
+
+.capture-review-info.profile-info > div:nth-child(n + 3) {
+  border-top: 1px solid #e3ebf4;
+}
+
+.capture-review-badge.is-archived {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+@media (max-width: 520px) {
+  .profile-info {
+    grid-template-columns: 1fr;
+  }
+
+  .capture-review-info.profile-info > div:nth-child(2) {
+    border-top: 1px solid #e3ebf4;
+  }
+}
+
+/* View registered face: wider, two columns (photo/name | details/actions)
+   so everything fits without scrolling; stacked on narrow screens. */
+.view-modal.profile-modal {
+  max-width: 760px;
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 28px;
+  align-items: center;
+}
+
+.profile-modal-side {
+  text-align: center;
+}
+
+.profile-modal-main .capture-review-info {
+  margin-bottom: 18px;
+}
+
+/* One column of details inside the right-hand side. */
+.profile-modal .profile-info {
+  grid-template-columns: 1fr;
+}
+
+.capture-review-info.profile-info > div:nth-child(2) {
+  border-top: 1px solid #e3ebf4;
+}
+
+@media (max-width: 720px) {
+  .view-modal.profile-modal {
+    grid-template-columns: 1fr;
+    gap: 16px;
   }
 }
