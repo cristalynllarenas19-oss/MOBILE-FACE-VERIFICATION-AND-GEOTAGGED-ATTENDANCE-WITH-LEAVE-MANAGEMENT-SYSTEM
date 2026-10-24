@@ -767,124 +767,116 @@ export function LeaveTypesTab({
           <section className="utilities-modal utilities-modal--view" role="dialog" aria-modal="true" aria-labelledby="view-type-title">
             <div className="utilities-modal-header">
               <div>
-                <h2 id="view-type-title">{viewLeaveType.name}</h2>
-                <p>Leave type details</p>
+                <div className="lt-view-title">
+                  <h2 id="view-type-title">{viewLeaveType.name}</h2>
+                  <Badge tone={viewLeaveType.isActive ? "success" : "neutral"}>
+                    {viewLeaveType.isActive ? "Active" : "Inactive"}
+                  </Badge>
+                </div>
+                <p>
+                  Created {formatDate(viewLeaveType.createdAt)}
+                  {actorDisplayName(viewLeaveType.createdByUser) ? ` by ${actorDisplayName(viewLeaveType.createdByUser)}` : ""}
+                </p>
               </div>
               <button className="icon-button" onClick={() => setViewLeaveType(null)} aria-label="Close">
                 <X size={18} />
               </button>
             </div>
 
-            <div className="utilities-modal-body utilities-leave-type-view-body">
-              <div className="utilities-audit-detail-grid utilities-leave-type-detail-grid">
-                <div className="utilities-leave-type-detail-item">
-                  <span>Default Days/Year</span>
-                  <strong>{formatDefaultDays(viewLeaveType)}</strong>
-                </div>
-                <div className="utilities-leave-type-detail-item">
-                  <span>Status</span>
-                  <Badge tone={viewLeaveType.isActive ? "success" : "neutral"}>
-                    {viewLeaveType.isActive ? "Active" : "Inactive"}
-                  </Badge>
-                </div>
-                <div className="utilities-leave-type-detail-item">
-                  <span>Leave Kind</span>
-                  <Badge tone={viewLeaveType.kind === "GENERAL" ? "neutral" : "warning"}>
-                    {LEAVE_TYPE_KIND_OPTIONS.find((o) => o.value === viewLeaveType.kind)?.label ?? viewLeaveType.kind}
-                  </Badge>
-                </div>
-                <div className="utilities-leave-type-detail-item">
-                  <span>Applicable Employee Types</span>
-                  <strong>{viewLeaveType.applicableStatuses.map(formatEmploymentStatus).join(", ")}</strong>
-                </div>
-                <div className="utilities-leave-type-detail-item">
-                  <span>Auto-Credited</span>
-                  <Badge tone={viewLeaveType.isAutoCredited ? "success" : "neutral"}>
-                    {viewLeaveType.isAutoCredited ? "Yes" : "No"}
-                  </Badge>
-                </div>
-                <div className="utilities-leave-type-detail-item">
-                  <span>Transferable</span>
-                  <Badge tone={viewLeaveType.isTransferable ? "warning" : "neutral"}>
-                    {viewLeaveType.isTransferable ? "Yes" : "No"}
-                  </Badge>
-                </div>
-                <div className="utilities-leave-type-detail-item">
-                  <span>Requires Document</span>
-                  <Badge tone={viewLeaveType.requiresDocument ? "warning" : "neutral"}>
-                    {viewLeaveType.requiresDocument
-                      ? viewLeaveType.supportingDocumentAfterDays
-                        ? `Required after ${viewLeaveType.supportingDocumentAfterDays}+ day(s)`
-                        : "Required"
-                      : "Not required"}
-                  </Badge>
-                </div>
-                <div className="utilities-leave-type-detail-item">
-                  <span>Requires HR Validation</span>
-                  <Badge tone={viewLeaveType.requiresHrValidation ? "warning" : "neutral"}>
-                    {viewLeaveType.requiresHrValidation ? "Required" : "Not required"}
-                  </Badge>
-                </div>
-                {viewLeaveType.requiresEhsActivation && (
-                  <div className="utilities-leave-type-detail-item">
-                    <span>EHS Activation</span>
-                    <Badge tone={viewLeaveType.ehsActivated ? "success" : "neutral"}>
-                      {viewLeaveType.ehsActivated ? "Active" : "Inactive"}
-                    </Badge>
-                  </div>
-                )}
-                <div className="utilities-leave-type-detail-item">
-                  <span>Admin-Grant Only</span>
-                  <Badge tone={viewLeaveType.requiresAdminGrant ? "warning" : "neutral"}>
-                    {viewLeaveType.requiresAdminGrant ? "Yes" : "No"}
-                  </Badge>
-                </div>
-                <div className="utilities-leave-type-detail-item">
-                  <span>Single Day Only</span>
-                  <Badge tone={viewLeaveType.isSingleDayOnly ? "warning" : "neutral"}>
-                    {viewLeaveType.isSingleDayOnly ? "Yes" : "No"}
-                  </Badge>
-                </div>
-                <div className="utilities-leave-type-detail-item">
-                  <span>Advance Filing</span>
-                  <Badge tone={viewLeaveType.advanceFilingAllowed ? "neutral" : "warning"}>
-                    {viewLeaveType.advanceFilingAllowed ? "Allowed" : "Today only"}
-                  </Badge>
-                </div>
-                <div className="utilities-leave-type-detail-item">
-                  <span>Cancellation Cutoff</span>
-                  <strong>{formatCancellationCutoff(viewLeaveType)}</strong>
-                </div>
-                <div className="utilities-leave-type-detail-item">
-                  <span>Created</span>
-                  <strong>
-                    {formatDate(viewLeaveType.createdAt)}
-                    {actorDisplayName(viewLeaveType.createdByUser) ? ` - ${actorDisplayName(viewLeaveType.createdByUser)}` : ""}
-                  </strong>
-                </div>
-              </div>
+            {/* Settings grouped by what they control: the basics, how it's
+                given, what it needs, and filing rules. */}
+            <div className="utilities-modal-body lt-view-body">
+              {[
+                {
+                  title: "Overview",
+                  rows: [
+                    { label: "Default Days/Year", on: null, value: formatDefaultDays(viewLeaveType) },
+                    {
+                      label: "Leave Kind",
+                      on: null,
+                      value: LEAVE_TYPE_KIND_OPTIONS.find((o) => o.value === viewLeaveType.kind)?.label ?? viewLeaveType.kind,
+                    },
+                    {
+                      label: "Applicable Employee Types",
+                      on: null,
+                      value: viewLeaveType.applicableStatuses.map(formatEmploymentStatus).join(", "),
+                    },
+                  ],
+                },
+                {
+                  title: "Granting",
+                  rows: [
+                    { label: "Auto-Credited", on: viewLeaveType.isAutoCredited, value: viewLeaveType.isAutoCredited ? "Yes" : "No" },
+                    { label: "Admin-Grant Only", on: viewLeaveType.requiresAdminGrant, value: viewLeaveType.requiresAdminGrant ? "Yes" : "No" },
+                    { label: "Transferable", on: viewLeaveType.isTransferable, value: viewLeaveType.isTransferable ? "Yes" : "No" },
+                    ...(viewLeaveType.requiresEhsActivation
+                      ? [{ label: "EHS Activation", on: viewLeaveType.ehsActivated, value: viewLeaveType.ehsActivated ? "Active" : "Inactive" }]
+                      : []),
+                  ],
+                },
+                {
+                  title: "Requirements",
+                  rows: [
+                    {
+                      label: "Supporting Document",
+                      on: viewLeaveType.requiresDocument,
+                      value: viewLeaveType.requiresDocument
+                        ? viewLeaveType.supportingDocumentAfterDays
+                          ? `Required after ${viewLeaveType.supportingDocumentAfterDays}+ day(s)`
+                          : "Required"
+                        : "Not required",
+                    },
+                    {
+                      label: "HR Validation",
+                      on: viewLeaveType.requiresHrValidation,
+                      value: viewLeaveType.requiresHrValidation ? "Required" : "Not required",
+                    },
+                  ],
+                },
+                {
+                  title: "Filing Rules",
+                  rows: [
+                    { label: "Advance Filing", on: viewLeaveType.advanceFilingAllowed, value: viewLeaveType.advanceFilingAllowed ? "Allowed" : "Today only" },
+                    { label: "Single Day Only", on: viewLeaveType.isSingleDayOnly, value: viewLeaveType.isSingleDayOnly ? "Yes" : "No" },
+                    { label: "Cancellation Cutoff", on: null, value: formatCancellationCutoff(viewLeaveType) },
+                  ],
+                },
+              ].map((section) => (
+                <section key={section.title} className="lt-view-section">
+                  <h3>{section.title}</h3>
+                  <dl>
+                    {section.rows.map((row) => (
+                      <div key={row.label}>
+                        <dt>{row.label}</dt>
+                        <dd className={row.on === null ? undefined : row.on ? "is-on" : "is-off"}>{row.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </section>
+              ))}
             </div>
 
-            <div className="utilities-modal-actions">
-              {canManage && (
-                <button className="utilities-edit-button" onClick={() => openEditForm(viewLeaveType)}>
-                  <Pencil size={13} /> Edit
+            {/* Archive/Restore on the left, away from Edit and Close. */}
+            <div className="utilities-modal-actions lt-view-actions">
+              {canManage && (viewLeaveType.isActive ? (
+                <button className="utilities-archive-button lt-view-archive" onClick={() => requestArchive(viewLeaveType)}>
+                  <Archive size={13} /> Archive
                 </button>
-              )}
+              ) : (
+                <button className="utilities-archive-button restore lt-view-archive" onClick={() => requestRestore(viewLeaveType)}>
+                  <RotateCcw size={13} /> Restore
+                </button>
+              ))}
               {canManage && viewLeaveType.requiresEhsActivation && (
                 <button className="utilities-edit-button" onClick={() => toggleEhsActivation(viewLeaveType)}>
                   <Zap size={13} /> {viewLeaveType.ehsActivated ? "Deactivate" : "Activate"}
                 </button>
               )}
-              {canManage && (viewLeaveType.isActive ? (
-                <button className="utilities-archive-button" onClick={() => requestArchive(viewLeaveType)}>
-                  <Archive size={13} /> Archive
+              {canManage && (
+                <button className="utilities-edit-button" onClick={() => openEditForm(viewLeaveType)}>
+                  <Pencil size={13} /> Edit
                 </button>
-              ) : (
-                <button className="utilities-archive-button restore" onClick={() => requestRestore(viewLeaveType)}>
-                  <RotateCcw size={13} /> Restore
-                </button>
-              ))}
+              )}
               <button className="outline-button" onClick={() => setViewLeaveType(null)}>
                 Close
               </button>

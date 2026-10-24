@@ -1352,7 +1352,19 @@ export function AnnouncementsTab({
               )}
             </div>
 
-            <div className="utilities-modal-actions">
+            <div className="utilities-modal-actions lt-view-actions">
+              {/* Archive/Unarchive on the left, away from Remind All and Close. */}
+              {canManage && viewDetail && (
+                viewDetail.archivedAt ? (
+                  <button className="outline-button lt-view-archive" onClick={() => unarchiveAnnouncement(viewDetail.id)}>
+                    <ArchiveRestore size={13} /> Unarchive
+                  </button>
+                ) : (
+                  <button className="outline-button outline-button--danger lt-view-archive" onClick={() => archiveAnnouncement(viewDetail.id)}>
+                    <Archive size={13} /> Archive
+                  </button>
+                )
+              )}
               {canManage && viewDetail && viewDetail.status === "PUBLISHED" && viewDetail.notViewedCount > 0 && (
                 <button
                   className="outline-button"
@@ -1361,17 +1373,6 @@ export function AnnouncementsTab({
                 >
                   <Bell size={13} /> {isRemindingAll ? "Reminding…" : `Remind All (${viewDetail.notViewedCount})`}
                 </button>
-              )}
-              {canManage && viewDetail && (
-                viewDetail.archivedAt ? (
-                  <button className="outline-button" onClick={() => unarchiveAnnouncement(viewDetail.id)}>
-                    <ArchiveRestore size={13} /> Unarchive
-                  </button>
-                ) : (
-                  <button className="outline-button outline-button--danger" onClick={() => archiveAnnouncement(viewDetail.id)}>
-                    <Archive size={13} /> Archive
-                  </button>
-                )
               )}
               <button className="outline-button" onClick={() => setViewId(null)}>
                 Close

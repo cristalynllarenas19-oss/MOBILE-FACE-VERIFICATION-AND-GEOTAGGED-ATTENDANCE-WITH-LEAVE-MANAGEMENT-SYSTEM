@@ -136,12 +136,13 @@ type EmployeeForm = {
   employeeTypeId: string;
   attendanceMode: AttendanceMode;
   soloParentStatus: "NOT_APPLICABLE" | "ELIGIBLE" | "INELIGIBLE";
-  civilStatus: "SINGLE" | "MARRIED" | "WIDOWED" | "SEPARATED" | "ANNULLED";
+  // "" only on a fresh Add Employee form, until one is picked.
+  civilStatus: "SINGLE" | "MARRIED" | "WIDOWED" | "SEPARATED" | "ANNULLED" | "";
   spouseEmployment: SpouseEmployment;
   spouseEmployerName: string;
   // "" = none picked yet; only meaningful while spouseEmployment is ULPI.
   spouseEmployeeId: string;
-  sex: "MALE" | "FEMALE";
+  sex: "MALE" | "FEMALE" | "";
   // "" = no supervisor assigned.
   supervisorId: string;
 };
@@ -159,11 +160,11 @@ const initialForm: EmployeeForm = {
   employeeTypeId: "",
   attendanceMode: "FIXED",
   soloParentStatus: "NOT_APPLICABLE",
-  civilStatus: "SINGLE",
+  civilStatus: "",
   spouseEmployment: "NONE",
   spouseEmployerName: "",
   spouseEmployeeId: "",
-  sex: "MALE",
+  sex: "",
   supervisorId: "",
 };
 
@@ -378,14 +379,30 @@ function getGenderLeaveLabel(sex: Employee["sex"]) {
 }
 
 // isTransferable identifies "Added Paternity Leave" (days transferred from
-// the spouse's unused maternity leave, RA 11210), so it's men-only.
+// the spouse's unused maternity leave, RA 11210), so it's men-only. Maternity
+// and Paternity Leave join this checklist once set to "Admin-grant only" in
+// Utilities > Leave Types: offered for the matching sex, never pre-ticked.
 function getAdminGrantTypes(leaveTypes: LeaveTypeRow[] | null | undefined, sex: Employee["sex"]) {
   if (!leaveTypes) return [];
   return leaveTypes.filter((t) => {
     if (!t.requiresAdminGrant || !t.isActive) return false;
     if (t.isTransferable && sex !== "MALE") return false;
+    if (t.kind === "MATERNITY" && sex !== "FEMALE") return false;
+    if (t.kind === "PATERNITY" && sex !== "MALE") return false;
     return true;
   });
+}
+
+const isGenderLeaveType = (type: LeaveTypeRow) => type.kind === "MATERNITY" || type.kind === "PATERNITY";
+
+// Maternity/Paternity Leave can be granted to Regular and Permanent Seasonal
+// employees (the same statuses the backend entitles to them); every other
+// admin-granted type stays Regular-only.
+const GENDER_LEAVE_GRANT_STATUSES = new Set(["REGULAR", "PERMANENT_SEASONAL"]);
+
+function canGrantLeaveType(type: LeaveTypeRow, employmentStatus: string | undefined) {
+  if (!employmentStatus) return false;
+  return isGenderLeaveType(type) ? GENDER_LEAVE_GRANT_STATUSES.has(employmentStatus) : employmentStatus === "REGULAR";
 }
 
 // Added Paternity Leave is seeded with 0 default days; a grant gives the
@@ -630,7 +647,8 @@ function SpouseFields({
 }: {
   form: EmployeeForm;
   setForm: React.Dispatch<React.SetStateAction<EmployeeForm>>;
-  employeeSex: "MALE" | "FEMALE";
+  // "" while Add Employee's Sex/Gender is still unpicked (fields disabled then).
+  employeeSex: "MALE" | "FEMALE" | "";
   // Edit Employee's saved spouse — kept selectable even if since archived.
   currentSpouse?: SpouseEmployeeRef | null;
   disabled?: boolean;
@@ -638,7 +656,7 @@ function SpouseFields({
   const isUlpi = form.spouseEmployment === "ULPI";
   const candidateSex = employeeSex === "MALE" ? "FEMALE" : "MALE";
   const candidatesCache = useCachedData<SpouseCandidate[]>(
-    isUlpi ? `spouse-candidates:${candidateSex}` : null,
+    isUlpi && employeeSex ? `spouse-candidates:${candidateSex}` : null,
     () => apiRequest<SpouseCandidate[]>(`/employees/spouse-candidates?sex=${candidateSex}`),
   );
   const candidates = candidatesCache.data ?? [];
@@ -727,7 +745,7 @@ function AdditionalLeaveGrants({
   form,
   setForm,
   isLoading,
-  isRegular,
+  employmentStatus,
 }: {
   types: LeaveTypeRow[];
   grantedTypeIds: Set<string>;
@@ -735,7 +753,8 @@ function AdditionalLeaveGrants({
   form: EmployeeForm;
   setForm: React.Dispatch<React.SetStateAction<EmployeeForm>>;
   isLoading: boolean;
-  isRegular: boolean;
+  // The Employee Type's status, which decides which types can be ticked.
+  employmentStatus: string | undefined;
 }) {
   if (types.length === 0) {
     return (
@@ -759,19 +778,23 @@ function AdditionalLeaveGrants({
     });
   };
 
-  const isCivilStatusSingle = form.civilStatus === "SINGLE";
+  // Not picked yet counts as Single: nothing spouse-based can be granted.
+  const isCivilStatusSingle = form.civilStatus === "SINGLE" || !form.civilStatus;
+  const grantableCount = types.filter((type) => canGrantLeaveType(type, employmentStatus)).length;
 
   return (
     <div className="employee-leave-grants">
       <p className="employee-leave-grants-title">
         <Info size={14} aria-hidden="true" /> Additional Leave Types{isLoading ? " (loading)" : ""}
       </p>
-      {/* Always listed so the admin sees what exists; only tickable for a
-          Regular employee, the only type that can be granted these. */}
+      {/* Always listed so the admin sees what exists; each is tickable only
+          for the Employee Types it can be granted to (see canGrantLeaveType). */}
       <p className="employee-leave-grants-hint">
-        {isRegular
-          ? "Tick a leave type to grant it to this employee."
-          : "Available only when the Employee Type is Regular."}
+        {grantableCount === 0
+          ? "Available only when the Employee Type is Regular."
+          : grantableCount < types.length
+            ? "Tick a leave type to grant it. The others need a Regular Employee Type."
+            : "Tick a leave type to grant it to this employee."}
       </p>
       {types.map((type) => {
         const isSoloParentLeave = isSoloParentLeaveType(type);
@@ -781,7 +804,8 @@ function AdditionalLeaveGrants({
         // even without one recorded — it just can't be newly granted.
         const needsUlpiSpouse = type.isTransferable && form.spouseEmployment !== "ULPI";
         const isGranted = grantedTypeIds.has(type.id);
-        const isLocked = !isRegular || isLoading || isIneligible || (needsUlpiSpouse && !isGranted);
+        const isLocked =
+          !canGrantLeaveType(type, employmentStatus) || isLoading || isIneligible || (needsUlpiSpouse && !isGranted);
         return (
           <div key={type.id} className="employee-leave-grant-line">
             {/* A locked line is greyed out as a whole (not just its box), so
@@ -897,8 +921,9 @@ function AddEmployeeModal({
   }, [departmentMode]);
 
   const leaveTypesCache = useLeaveTypes();
-  const genderLeaveType = useMemo(() => findGenderLeaveType(leaveTypesCache.data, form.sex), [leaveTypesCache.data, form.sex]);
-  const genderLeaveLabel = getGenderLeaveLabel(form.sex);
+  // Sex/Gender starts unpicked (""), which offers no sex-linked leave yet.
+  const genderLeaveType = useMemo(() => findGenderLeaveType(leaveTypesCache.data, form.sex || null), [leaveTypesCache.data, form.sex]);
+  const genderLeaveLabel = getGenderLeaveLabel(form.sex || null);
   // Whether the chosen Employee Type gets Paternity/Maternity leave — driven by
   // that leave type's Applicable Statuses (Utilities → Leave Types), not a
   // hardcoded list. Only decides what the allocation field shows.
@@ -906,17 +931,27 @@ function AddEmployeeModal({
     selectedEmploymentStatus && genderLeaveType?.applicableStatuses.includes(selectedEmploymentStatus),
   );
 
-  const adminGrantTypes = useMemo(() => getAdminGrantTypes(leaveTypesCache.data, form.sex), [leaveTypesCache.data, form.sex]);
+  const adminGrantTypes = useMemo(() => getAdminGrantTypes(leaveTypesCache.data, form.sex || null), [leaveTypesCache.data, form.sex]);
   const [grantedTypeIds, setGrantedTypeIds] = useState<Set<string>>(new Set());
   const isRegular = selectedEmploymentStatus === "REGULAR";
 
-  // The grant list stays visible (locked) for other types, so switching away
-  // from Regular clears any ticks rather than leaving them looking granted.
+  // The grant list stays visible (locked) for types this Employee Type can't
+  // get, so switching to one clears those ticks rather than leaving them
+  // looking granted.
   useEffect(() => {
-    if (isRegular) return;
-    setGrantedTypeIds((current) => (current.size === 0 ? current : new Set()));
-    setForm((current) => (current.soloParentStatus === "NOT_APPLICABLE" ? current : { ...current, soloParentStatus: "NOT_APPLICABLE" }));
-  }, [isRegular]);
+    setGrantedTypeIds((current) => {
+      const next = new Set(
+        [...current].filter((id) => {
+          const type = adminGrantTypes.find((candidate) => candidate.id === id);
+          return type && canGrantLeaveType(type, selectedEmploymentStatus);
+        }),
+      );
+      return next.size === current.size ? current : next;
+    });
+    if (!isRegular) {
+      setForm((current) => (current.soloParentStatus === "NOT_APPLICABLE" ? current : { ...current, soloParentStatus: "NOT_APPLICABLE" }));
+    }
+  }, [selectedEmploymentStatus, adminGrantTypes]);
 
   useSpouseDependentResets({
     civilStatus: form.civilStatus,
@@ -946,19 +981,20 @@ function AddEmployeeModal({
     if (!form.positionId) return "Position is required.";
     if (!form.employeeTypeId) return "Employee Type is required.";
     if (!form.hireDate) return "Hire Date is required.";
+    if (!form.sex) return "Sex/Gender is required.";
+    if (!form.civilStatus) return "Civil Status is required.";
     return validateSpouse(form);
   };
 
-  // Grants only exist for a Regular hire, and only for types still offered
-  // for the chosen sex (Added Paternity Leave is men-only) — and Added
-  // Paternity Leave only with a spouse who also works at ULPI.
-  const grantsToApply = isRegular
-    ? adminGrantTypes.filter(
-        (type) =>
-          grantedTypeIds.has(type.id) &&
-          !(type.isTransferable && (form.civilStatus !== "MARRIED" || form.spouseEmployment !== "ULPI")),
-      )
-    : [];
+  // Only ticked types this Employee Type can get, still offered for the
+  // chosen sex (Added Paternity / Paternity men-only, Maternity women-only),
+  // and Added Paternity Leave only with a spouse who also works at ULPI.
+  const grantsToApply = adminGrantTypes.filter(
+    (type) =>
+      grantedTypeIds.has(type.id) &&
+      canGrantLeaveType(type, selectedEmploymentStatus) &&
+      !(type.isTransferable && (form.civilStatus !== "MARRIED" || form.spouseEmployment !== "ULPI")),
+  );
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1217,7 +1253,9 @@ function AddEmployeeModal({
               {/* Read-only: a new hire gets the leave type's default allotment
                   from Utilities → Leave Types; says "Not applicable" when the
                   chosen Employee Type isn't entitled to it. */}
-              {genderLeaveLabel && genderLeaveType && (
+              {/* Hidden when the type is "Admin-grant only": it's then granted
+                  (or not) through the Leave Entitlements checklist instead. */}
+              {genderLeaveLabel && genderLeaveType && !genderLeaveType.requiresAdminGrant && (
                 <label>
                   {genderLeaveLabel}
                   <input
@@ -1243,7 +1281,7 @@ function AddEmployeeModal({
                 form={form}
                 setForm={setForm}
                 employeeSex={form.sex}
-                disabled={form.civilStatus !== "MARRIED"}
+                disabled={form.civilStatus !== "MARRIED" || !form.sex}
               />
             </FormSection>
             <FormSection icon={CalendarDays} title="Leave Entitlements">
@@ -1254,7 +1292,7 @@ function AddEmployeeModal({
                 form={form}
                 setForm={setForm}
                 isLoading={leaveTypesCache.isLoading}
-                isRegular={isRegular}
+                employmentStatus={selectedEmploymentStatus}
               />
             </FormSection>
           </div>
@@ -1517,7 +1555,7 @@ function EditEmployeeModal({
       employmentStatus: employee.employmentStatus === "SEPARATED" ? "SEPARATED" : selectedEmploymentStatus,
       attendanceMode: form.attendanceMode,
       soloParentStatus: form.soloParentStatus,
-      civilStatus: form.civilStatus,
+      civilStatus: form.civilStatus || undefined,
       spouseEmployerName: spousePayload.spouseEmployerName,
       spouseUnemployed: spousePayload.spouseUnemployed,
       spouseEmployeeId: spousePayload.spouseEmployeeId || null,
@@ -1767,7 +1805,7 @@ function EditEmployeeModal({
                   ariaLabel="Supervisor"
                 />
               </label>
-              {genderLeaveLabel && (isAllocationLoading || genderLeaveTypeId) && (
+              {genderLeaveLabel && (isAllocationLoading || genderLeaveTypeId) && !genderLeaveType?.requiresAdminGrant && (
                 <label>
                   {genderLeaveLabel}
                   {/* Read-only: allotments come from Utilities → Leave Types
@@ -1811,7 +1849,7 @@ function EditEmployeeModal({
                 form={form}
                 setForm={setForm}
                 isLoading={isGrantsLoading}
-                isRegular={selectedEmploymentStatus === "REGULAR"}
+                employmentStatus={selectedEmploymentStatus}
               />
             </FormSection>
           </div>

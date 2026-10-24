@@ -783,6 +783,11 @@ export class EmployeesService implements OnApplicationBootstrap {
     // Seasonal, so the correct sex-linked type lands then instead.
     if (!ENTITLED_TO_LEAVE_STATUSES.has(employmentStatus)) return;
 
+    // Set to "Admin-grant only" in Utilities → Leave Types: Sex/Gender alone
+    // never credits it — HR ticks it in the Leave Entitlements checklist on
+    // Add/Edit Employee, which grants it through LeaveBalancesService.grant.
+    if (leaveType.requiresAdminGrant) return;
+
     await this.prisma.leaveBalance.upsert({
       where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId: leaveType.id, year } },
       update: {},

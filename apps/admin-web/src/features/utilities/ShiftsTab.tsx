@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Archive, CalendarClock, Eye, Pencil, Plus, RotateCcw, Search, X } from "lucide-react";
+import { Archive, CalendarClock, CheckCircle2, Eye, MinusCircle, Pencil, Plus, RotateCcw, Search, X } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { ConfirmDialog, type ConfirmDialogConfig } from "../../components/ui/ConfirmDialog";
 import { apiRequest } from "../../lib/api";
@@ -721,7 +721,10 @@ export function ShiftsTab({
           <section className="utilities-modal utilities-modal--sm utilities-modal--shift-view" role="dialog" aria-modal="true" aria-labelledby="view-shift-title">
             <div className="utilities-modal-header">
               <div>
-                <h2 id="view-shift-title">{viewShift.name}</h2>
+                <div className="lt-view-title">
+                  <h2 id="view-shift-title">{viewShift.name}</h2>
+                  <ShiftStatusBadge shift={viewShift} />
+                </div>
                 <p>Shift details</p>
               </div>
               <button className="icon-button" onClick={() => setViewShift(null)} aria-label="Close">
@@ -732,34 +735,42 @@ export function ShiftsTab({
             <div className="utilities-modal-body shift-view-body">
               <div className="utilities-shift-summary">
                 <span>Time</span>
-                <strong>{formatTime12h(viewShift.startTime)} - {formatTime12h(viewShift.endTime)}</strong>
+                <strong>
+                  {formatTime12h(viewShift.startTime)} - {formatTime12h(viewShift.endTime)}
+                  {formatWorkingHoursLong(viewShift.startTime, viewShift.endTime) && (
+                    <small> · {formatWorkingHoursLong(viewShift.startTime, viewShift.endTime)}</small>
+                  )}
+                </strong>
               </div>
 
-              <div className="shift-view-form-grid">
-                <div className="shift-form-section">
-                  <div className="shift-view-readonly-row">
-                    <div>
-                      <span>{viewBreakLabel} Minutes</span>
-                      <strong>{viewShift.lunchBreakMinutes}</strong>
-                    </div>
-                    <div>
-                      <span>{viewBreakLabel} Time</span>
-                      <strong>{viewBreakRange ?? "—"}</strong>
-                    </div>
-                  </div>
+              {/* Six equal cards in three rows, then the working days. */}
+              <div className="shift-view-cards">
+                <div>
+                  <span>{viewBreakLabel}</span>
+                  <strong>{viewShift.lunchBreakMinutes} min</strong>
                 </div>
-
-                <div className="shift-form-section">
-                  <div className="shift-view-readonly-row">
-                    <div>
-                      <span>Late Threshold</span>
-                      <strong>{viewShift.lateThresholdMinutes}</strong>
-                    </div>
-                    <div>
-                      <span>Undertime Threshold</span>
-                      <strong>{viewShift.undertimeThresholdMinutes}</strong>
-                    </div>
-                  </div>
+                <div>
+                  <span>{viewBreakLabel} Time</span>
+                  <strong>{viewBreakRange ?? "—"}</strong>
+                </div>
+                <div>
+                  <span>Late Threshold</span>
+                  <strong>{viewShift.lateThresholdMinutes} min</strong>
+                </div>
+                <div>
+                  <span>Undertime Threshold</span>
+                  <strong>{viewShift.undertimeThresholdMinutes} min</strong>
+                </div>
+                <div>
+                  <span>Rounding Rules</span>
+                  <strong className={`shift-view-rounding${viewShift.enableRounding ? " is-on" : ""}`}>
+                    {viewShift.enableRounding ? <CheckCircle2 size={15} /> : <MinusCircle size={15} />}
+                    {viewShift.enableRounding ? `Every ${viewShift.roundingIntervalMinutes} min` : "Disabled"}
+                  </strong>
+                </div>
+                <div>
+                  <span>Employees Assigned</span>
+                  <strong>{viewShift._count?.schedules ?? 0}</strong>
                 </div>
               </div>
 
@@ -774,39 +785,6 @@ export function ShiftsTab({
                       {day.label}
                     </span>
                   ))}
-                </div>
-              </div>
-
-              <div className="shift-form-options shift-view-options">
-                <div className="shift-view-check-row">
-                  <span className={viewShift.enableRounding ? "checked" : ""} />
-                  <strong>Rounding rules</strong>
-                  <em>{viewShift.enableRounding ? `Every ${viewShift.roundingIntervalMinutes} min` : "Disabled"}</em>
-                </div>
-              </div>
-
-              <div className="shift-view-meta-grid">
-                <div>
-                  <span>Employees Assigned</span>
-                  <strong>{viewShift._count?.schedules ?? 0}</strong>
-                </div>
-                <div>
-                  <span>Status</span>
-                  <strong>{SHIFT_STATUS_META[getShiftStatus(viewShift)].label}</strong>
-                </div>
-                <div>
-                  <span>Created</span>
-                  <strong>
-                    {formatDate(viewShift.createdAt)}
-                    {actorDisplayName(viewShift.createdByUser) ? ` - ${actorDisplayName(viewShift.createdByUser)}` : ""}
-                  </strong>
-                </div>
-                <div>
-                  <span>Last Updated</span>
-                  <strong>
-                    {formatDate(viewShift.updatedAt)}
-                    {actorDisplayName(viewShift.updatedByUser) ? ` - ${actorDisplayName(viewShift.updatedByUser)}` : ""}
-                  </strong>
                 </div>
               </div>
 
@@ -872,21 +850,22 @@ export function ShiftsTab({
               </div>
             </div>
 
-            <div className="utilities-modal-actions">
+            {/* Archive/Restore on the left, away from Edit and Close. */}
+            <div className="utilities-modal-actions lt-view-actions">
               {canManageShifts && (
                 <>
-                  <button className="utilities-edit-button" onClick={() => openEditForm(viewShift)}>
-                    <Pencil size={13} /> Edit
-                  </button>
                   {viewShift.isActive ? (
-                    <button className="utilities-archive-button" onClick={() => requestArchive(viewShift)}>
+                    <button className="utilities-archive-button lt-view-archive" onClick={() => requestArchive(viewShift)}>
                       <Archive size={13} /> Archive
                     </button>
                   ) : (
-                    <button className="utilities-archive-button restore" onClick={() => requestRestore(viewShift)}>
+                    <button className="utilities-archive-button restore lt-view-archive" onClick={() => requestRestore(viewShift)}>
                       <RotateCcw size={13} /> Restore
                     </button>
                   )}
+                  <button className="utilities-edit-button" onClick={() => openEditForm(viewShift)}>
+                    <Pencil size={13} /> Edit
+                  </button>
                 </>
               )}
               <button className="outline-button" onClick={() => setViewShift(null)}>

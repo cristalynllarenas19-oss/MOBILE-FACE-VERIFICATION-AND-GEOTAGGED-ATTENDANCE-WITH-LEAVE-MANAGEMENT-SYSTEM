@@ -402,19 +402,20 @@ export function DepartmentsTab({
             </div>
 
             {canManage && (
-              <div className="utilities-modal-actions">
-                <button className="utilities-edit-button" onClick={() => openEditForm(viewDepartment)}>
-                  <Pencil size={13} /> Edit
-                </button>
+              <div className="utilities-modal-actions lt-view-actions">
+                {/* Archive/Restore on the left, away from Edit and Close. */}
                 {viewDepartment.isActive ? (
-                  <button className="utilities-archive-button" onClick={() => requestArchive(viewDepartment)}>
+                  <button className="utilities-archive-button lt-view-archive" onClick={() => requestArchive(viewDepartment)}>
                     <Archive size={13} /> Archive
                   </button>
                 ) : (
-                  <button className="utilities-archive-button restore" onClick={() => requestRestore(viewDepartment)}>
+                  <button className="utilities-archive-button restore lt-view-archive" onClick={() => requestRestore(viewDepartment)}>
                     <RotateCcw size={13} /> Restore
                   </button>
                 )}
+                <button className="utilities-edit-button" onClick={() => openEditForm(viewDepartment)}>
+                  <Pencil size={13} /> Edit
+                </button>
                 <button className="outline-button" onClick={() => setViewDepartment(null)}>
                   Close
                 </button>

@@ -396,21 +396,22 @@ export function PositionsTab({
               </div>
             </div>
 
-            <div className="utilities-modal-actions">
+            <div className="utilities-modal-actions lt-view-actions">
               {canManage && (
                 <>
-                  <button className="utilities-edit-button" onClick={() => openForm(viewPosition)}>
-                    <Pencil size={13} /> Edit
-                  </button>
+                  {/* Archive/Restore on the left, away from Edit and Close. */}
                   {viewPosition.isActive ? (
-                    <button className="utilities-archive-button" onClick={() => requestArchive(viewPosition)}>
+                    <button className="utilities-archive-button lt-view-archive" onClick={() => requestArchive(viewPosition)}>
                       <Archive size={13} /> Archive
                     </button>
                   ) : (
-                    <button className="utilities-archive-button restore" onClick={() => requestRestore(viewPosition)}>
+                    <button className="utilities-archive-button restore lt-view-archive" onClick={() => requestRestore(viewPosition)}>
                       <RotateCcw size={13} /> Restore
                     </button>
                   )}
+                  <button className="utilities-edit-button" onClick={() => openForm(viewPosition)}>
+                    <Pencil size={13} /> Edit
+                  </button>
                 </>
               )}
               <button className="outline-button" onClick={() => setViewPosition(null)}>

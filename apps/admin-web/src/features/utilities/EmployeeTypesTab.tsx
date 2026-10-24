@@ -412,21 +412,22 @@ export function EmployeeTypesTab({
               </div>
             </div>
 
-            <div className="utilities-modal-actions">
+            <div className="utilities-modal-actions lt-view-actions">
               {canManage && (
                 <>
-                  <button className="utilities-edit-button" onClick={() => openEditForm(viewType)}>
-                    <Pencil size={13} /> Edit
-                  </button>
+                  {/* Archive/Restore on the left, away from Edit and Close. */}
                   {viewType.isActive ? (
-                    <button className="utilities-archive-button" onClick={() => requestArchive(viewType)}>
+                    <button className="utilities-archive-button lt-view-archive" onClick={() => requestArchive(viewType)}>
                       <Archive size={13} /> Archive
                     </button>
                   ) : (
-                    <button className="utilities-archive-button restore" onClick={() => requestRestore(viewType)}>
+                    <button className="utilities-archive-button restore lt-view-archive" onClick={() => requestRestore(viewType)}>
                       <RotateCcw size={13} /> Restore
                     </button>
                   )}
+                  <button className="utilities-edit-button" onClick={() => openEditForm(viewType)}>
+                    <Pencil size={13} /> Edit
+                  </button>
                 </>
               )}
               <button className="outline-button" onClick={() => setViewType(null)}>
