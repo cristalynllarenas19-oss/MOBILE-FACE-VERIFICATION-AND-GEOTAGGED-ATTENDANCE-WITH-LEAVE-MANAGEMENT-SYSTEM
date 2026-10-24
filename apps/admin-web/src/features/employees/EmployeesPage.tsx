@@ -520,6 +520,103 @@ function FormSection({ icon: Icon, title, children }: { icon: typeof UserRound; 
   );
 }
 
+// The same role grant as User Management → Add User (HR Admin or
+// Supervisor on the employee's existing login), offered from Add/Edit
+// Employee too. Saved through the same /users endpoints.
+type SystemRoleCode = "ADMIN" | "SUPERVISOR";
+
+type RoleAssignment = { enabled: boolean; role: SystemRoleCode };
+
+type RoleUserRow = {
+  id: string;
+  email: string;
+  status: string;
+  userRoles: { role: { code: string } }[];
+};
+
+const SYSTEM_ROLE_OPTIONS = [
+  { value: "ADMIN", label: "HR Admin" },
+  { value: "SUPERVISOR", label: "Supervisor" },
+];
+
+function getSystemRoleCode(user: RoleUserRow): SystemRoleCode | null {
+  const codes = user.userRoles.map((userRole) => userRole.role.code);
+  if (codes.includes("ADMIN")) return "ADMIN";
+  if (codes.includes("SUPERVISOR")) return "SUPERVISOR";
+  return null;
+}
+
+// /users only lists ADMIN/SUPERVISOR accounts — loaded once per open modal.
+function useRoleUsers(enabled: boolean) {
+  return useCachedData<RoleUserRow[]>(enabled ? "users" : null, () => apiRequest<RoleUserRow[]>("/users"));
+}
+
+function SystemRoleFields({
+  value,
+  onChange,
+  roleUsers,
+  employeeEmail,
+  inactiveRole,
+}: {
+  value: RoleAssignment;
+  onChange: (value: RoleAssignment) => void;
+  roleUsers: RoleUserRow[];
+  employeeEmail?: string;
+  // Edit Employee: a role that was deactivated in User Management.
+  inactiveRole?: SystemRoleCode | null;
+}) {
+  // Same rule as User Management: only one HR Admin is active at a time, and
+  // the current one loses it once this employee first logs in.
+  const replacesAdmin =
+    value.enabled &&
+    value.role === "ADMIN" &&
+    roleUsers.some(
+      (user) =>
+        user.email.toLowerCase() !== employeeEmail?.trim().toLowerCase() &&
+        getSystemRoleCode(user) === "ADMIN",
+    );
+
+  // A whole section of its own: the checkbox sits in the heading, and the
+  // Role dropdown is always shown but locked until it's ticked.
+  return (
+    <section className="employee-form-section">
+      <h3 className="employee-form-section-title">
+        <label className="employee-role-toggle">
+          <input
+            type="checkbox"
+            checked={value.enabled}
+            onChange={(event) => onChange({ ...value, enabled: event.target.checked })}
+          />
+          Assign a Role
+        </label>
+      </h3>
+      <div className="employee-form-section-body">
+        <label>
+          Role
+          <FormSelectDropdown
+            value={value.role}
+            onChange={(role) => onChange({ ...value, role: role as SystemRoleCode })}
+            options={SYSTEM_ROLE_OPTIONS}
+            placeholder="Select a role"
+            ariaLabel="Role"
+            disabled={!value.enabled}
+          />
+          {inactiveRole && !value.enabled && (
+            <span className="employee-form-hint">
+              {inactiveRole === "ADMIN" ? "HR Admin" : "Supervisor"} access is deactivated. Tick to reactivate it.
+            </span>
+          )}
+          {replacesAdmin && (
+            <span className="employee-form-hint employee-form-hint--error">
+              Only one HR Admin is active at a time — the current HR Admin loses access once this employee logs in.
+            </span>
+          )}
+        </label>
+      </div>
+    </section>
+  );
+}
+
 // Spouse's Employment (one dropdown) plus the detail field that choice
 // needs. Always shown, and disabled (not removed) unless Married, so
 // changing Civil Status never resizes the modal. Same stored fields as
@@ -726,6 +823,8 @@ function AddEmployeeModal({
   onClose,
   onCreated,
   onImport,
+  canAssignRoles,
+  onRoleChanged,
 }: {
   departments: DepartmentOption[];
   supervisors: SupervisorOption[];
@@ -734,11 +833,16 @@ function AddEmployeeModal({
   onCreated: (employee: Employee) => void;
   // Opens Batch Employee Import (bottom-left of this modal's footer).
   onImport?: () => void;
+  // Shows the System Role section (anyone with User Management access).
+  canAssignRoles: boolean;
+  onRoleChanged: () => void;
 }) {
   const [form, setForm] = useState<EmployeeForm>(() => ({
     ...initialForm,
     department: lockedDepartmentName ?? initialForm.department,
   }));
+  const [roleAssignment, setRoleAssignment] = useState<RoleAssignment>({ enabled: false, role: "SUPERVISOR" });
+  const roleUsersCache = useRoleUsers(canAssignRoles);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
   // Set when the employee was created but a leave grant failed — shown before
@@ -921,6 +1025,20 @@ function AddEmployeeModal({
         }
       }
 
+      // Like the grants, needs the new employee's id; a failure keeps the hire.
+      if (canAssignRoles && roleAssignment.enabled) {
+        try {
+          await apiRequest("/users", {
+            method: "POST",
+            body: JSON.stringify({ employeeId: employee.id, role: roleAssignment.role }),
+          });
+          onRoleChanged();
+        } catch (err) {
+          const roleError = `The system role could not be assigned: ${extractErrorMessage(err, "unknown error")} Assign it from Edit Employee or User Management.`;
+          grantError = grantError ? `${grantError} ${roleError}` : roleError;
+        }
+      }
+
       if (grantError) {
         setPostCreateIssues({ employee, grantError });
         return;
@@ -964,51 +1082,62 @@ function AddEmployeeModal({
       <form className="employee-form" onSubmit={handleSubmit}>
         {/* Three side-by-side columns, one per section, fields stacked. */}
         <div className="employee-form-sections">
-          <FormSection icon={UserRound} title="Personal Information">
-            <div className="employee-form-stack">
-              <label>
-                <span>First Name <RequiredMark /></span>
-                <input type="text" value={form.firstName} onChange={updateField("firstName")} placeholder="e.g. Juan" required />
-              </label>
-              <label>
-                <span>
-                  Middle Name <span className="employee-form-optional">(Optional)</span>
-                </span>
-                <input type="text" value={form.middleName} onChange={updateField("middleName")} placeholder="e.g. Santos" />
-              </label>
-              <label>
-                <span>Last Name <RequiredMark /></span>
-                <input type="text" value={form.lastName} onChange={updateField("lastName")} placeholder="e.g. Dela Cruz" required />
-              </label>
-              <label>
-                <span>Email <RequiredMark /></span>
-                <input type="email" value={form.email} onChange={updateField("email")} placeholder="e.g. employee@example.com" required />
-              </label>
-              <label>
-                <span>Sex/Gender <RequiredMark /></span>
-                <FormSelectDropdown
-                  value={form.sex}
-                  onChange={(value) => setForm((current) => ({ ...current, sex: value as EmployeeForm["sex"] }))}
-                  options={[
-                    { value: "MALE", label: "Male" },
-                    { value: "FEMALE", label: "Female" },
-                  ]}
-                  placeholder="Select sex/gender"
-                  ariaLabel="Sex/Gender"
-                />
-              </label>
-              <label>
-                <span>Civil Status <RequiredMark /></span>
-                <FormSelectDropdown
-                  value={form.civilStatus}
-                  onChange={(value) => setForm((current) => ({ ...current, civilStatus: value as EmployeeForm["civilStatus"] }))}
-                  options={CIVIL_STATUS_OPTIONS}
-                  placeholder="Select civil status"
-                  ariaLabel="Civil Status"
-                />
-              </label>
-            </div>
-          </FormSection>
+          {/* First column: Personal Information, then Assign a Role. */}
+          <div className="employee-form-stack">
+            <FormSection icon={UserRound} title="Personal Information">
+              <div className="employee-form-stack">
+                <label>
+                  <span>First Name <RequiredMark /></span>
+                  <input type="text" value={form.firstName} onChange={updateField("firstName")} placeholder="e.g. Juan" required />
+                </label>
+                <label>
+                  <span>
+                    Middle Name <span className="employee-form-optional">(Optional)</span>
+                  </span>
+                  <input type="text" value={form.middleName} onChange={updateField("middleName")} placeholder="e.g. Santos" />
+                </label>
+                <label>
+                  <span>Last Name <RequiredMark /></span>
+                  <input type="text" value={form.lastName} onChange={updateField("lastName")} placeholder="e.g. Dela Cruz" required />
+                </label>
+                <label>
+                  <span>Email <RequiredMark /></span>
+                  <input type="email" value={form.email} onChange={updateField("email")} placeholder="e.g. employee@example.com" required />
+                </label>
+                <label>
+                  <span>Sex/Gender <RequiredMark /></span>
+                  <FormSelectDropdown
+                    value={form.sex}
+                    onChange={(value) => setForm((current) => ({ ...current, sex: value as EmployeeForm["sex"] }))}
+                    options={[
+                      { value: "MALE", label: "Male" },
+                      { value: "FEMALE", label: "Female" },
+                    ]}
+                    placeholder="Select sex/gender"
+                    ariaLabel="Sex/Gender"
+                  />
+                </label>
+                <label>
+                  <span>Civil Status <RequiredMark /></span>
+                  <FormSelectDropdown
+                    value={form.civilStatus}
+                    onChange={(value) => setForm((current) => ({ ...current, civilStatus: value as EmployeeForm["civilStatus"] }))}
+                    options={CIVIL_STATUS_OPTIONS}
+                    placeholder="Select civil status"
+                    ariaLabel="Civil Status"
+                  />
+                </label>
+              </div>
+            </FormSection>
+            {canAssignRoles && (
+              <SystemRoleFields
+                value={roleAssignment}
+                onChange={setRoleAssignment}
+                roleUsers={roleUsersCache.data ?? []}
+                employeeEmail={form.email}
+              />
+            )}
+          </div>
 
           <FormSection icon={Briefcase} title="Employment Details">
             <div className="employee-form-stack">
@@ -1162,6 +1291,8 @@ function EditEmployeeModal({
   onUpdated,
   onSynced,
   onSaveFailed,
+  canAssignRoles,
+  onRoleChanged,
 }: {
   employee: Employee;
   departments: DepartmentOption[];
@@ -1171,7 +1302,27 @@ function EditEmployeeModal({
   onUpdated: (employee: Employee) => void;
   onSynced: (employee: Employee) => void;
   onSaveFailed: (message: string) => void;
+  canAssignRoles: boolean;
+  onRoleChanged: () => void;
 }) {
+  // The employee's current role account (if any), matched by login email the
+  // same way User Management does.
+  const roleUsersCache = useRoleUsers(canAssignRoles);
+  const roleUser = roleUsersCache.data?.find(
+    (user) => user.email.toLowerCase() === employee.user?.email?.toLowerCase(),
+  );
+  const currentRole = roleUser ? getSystemRoleCode(roleUser) : null;
+  const isRoleActive = roleUser?.status === "ACTIVE";
+  const [roleAssignment, setRoleAssignment] = useState<RoleAssignment>({ enabled: false, role: "SUPERVISOR" });
+  // Seeded once the /users list arrives (instantly on a warm cache), never
+  // overwriting what the admin has already changed.
+  const roleSeededRef = useRef(false);
+  useEffect(() => {
+    if (roleSeededRef.current || !roleUsersCache.data) return;
+    roleSeededRef.current = true;
+    if (currentRole) setRoleAssignment({ enabled: isRoleActive, role: currentRole });
+  }, [roleUsersCache.data, currentRole, isRoleActive]);
+
   const [form, setForm] = useState<EditEmployeeForm>({
     firstName: employee.firstName,
     middleName: employee.middleName ?? "",
@@ -1431,9 +1582,32 @@ function EditEmployeeModal({
         ? [employee.spouseEmployeeId, spousePayload.spouseEmployeeId].filter((id): id is string => Boolean(id))
         : [];
 
+    // Role changes use User Management's own actions: Add User grants or
+    // switches the role, Deactivate/Activate removes or restores it.
+    const runRoleChange = async () => {
+      if (!canAssignRoles || !roleSeededRef.current) return;
+      const wasActive = Boolean(currentRole && isRoleActive);
+      if (roleAssignment.enabled) {
+        if (wasActive && roleAssignment.role === currentRole) return;
+        await apiRequest("/users", {
+          method: "POST",
+          body: JSON.stringify({ employeeId: employee.id, role: roleAssignment.role }),
+        });
+        if (roleUser && !isRoleActive) {
+          await apiRequest(`/users/${roleUser.id}/status`, { method: "PATCH", body: JSON.stringify({ status: "ACTIVE" }) });
+        }
+      } else if (wasActive && roleUser) {
+        await apiRequest(`/users/${roleUser.id}/status`, { method: "PATCH", body: JSON.stringify({ status: "INACTIVE" }) });
+      } else {
+        return;
+      }
+      onRoleChanged();
+    };
+
     patchPromise
       .then(async (response) => {
         if (changedTypeIds.length > 0) await runGrants();
+        await runRoleChange();
         onSynced(response.data);
         // The grant POST above writes straight to the server, bypassing the
         // shared leave-balances cache — without this, reopening Edit
@@ -1455,43 +1629,55 @@ function EditEmployeeModal({
       <form className="employee-form" onSubmit={handleSubmit}>
         {/* Same three columns as Add Employee: Personal | Employment | Spouse. */}
         <div className="employee-form-sections">
-          <FormSection icon={UserRound} title="Personal Information">
-            <div className="employee-form-stack">
-              <label>
-                <span>First Name <RequiredMark /></span>
-                <input type="text" value={form.firstName} onChange={updateField("firstName")} required />
-              </label>
-              <label>
-                <span>
-                  Middle Name <span className="employee-form-optional">(Optional)</span>
-                </span>
-                <input type="text" value={form.middleName} onChange={updateField("middleName")} />
-              </label>
-              <label>
-                <span>Last Name <RequiredMark /></span>
-                <input type="text" value={form.lastName} onChange={updateField("lastName")} required />
-              </label>
-              <label>
-                <span>Email <RequiredMark /></span>
-                <input type="email" value={form.email} onChange={updateField("email")} required />
-              </label>
-              <label>
-                Sex/Gender
-                {/* Not editable after creation. */}
-                <input type="text" value={employee.sex === "FEMALE" ? "Female" : employee.sex === "MALE" ? "Male" : "Not set"} disabled readOnly />
-              </label>
-              <label>
-                <span>Civil Status <RequiredMark /></span>
-                <FormSelectDropdown
-                  value={form.civilStatus}
-                  onChange={(value) => setForm((current) => ({ ...current, civilStatus: value as EmployeeForm["civilStatus"] }))}
-                  options={CIVIL_STATUS_OPTIONS}
-                  placeholder="Select civil status"
-                  ariaLabel="Civil Status"
-                />
-              </label>
-            </div>
-          </FormSection>
+          {/* First column: Personal Information, then Assign a Role. */}
+          <div className="employee-form-stack">
+            <FormSection icon={UserRound} title="Personal Information">
+              <div className="employee-form-stack">
+                <label>
+                  <span>First Name <RequiredMark /></span>
+                  <input type="text" value={form.firstName} onChange={updateField("firstName")} required />
+                </label>
+                <label>
+                  <span>
+                    Middle Name <span className="employee-form-optional">(Optional)</span>
+                  </span>
+                  <input type="text" value={form.middleName} onChange={updateField("middleName")} />
+                </label>
+                <label>
+                  <span>Last Name <RequiredMark /></span>
+                  <input type="text" value={form.lastName} onChange={updateField("lastName")} required />
+                </label>
+                <label>
+                  <span>Email <RequiredMark /></span>
+                  <input type="email" value={form.email} onChange={updateField("email")} required />
+                </label>
+                <label>
+                  Sex/Gender
+                  {/* Not editable after creation. */}
+                  <input type="text" value={employee.sex === "FEMALE" ? "Female" : employee.sex === "MALE" ? "Male" : "Not set"} disabled readOnly />
+                </label>
+                <label>
+                  <span>Civil Status <RequiredMark /></span>
+                  <FormSelectDropdown
+                    value={form.civilStatus}
+                    onChange={(value) => setForm((current) => ({ ...current, civilStatus: value as EmployeeForm["civilStatus"] }))}
+                    options={CIVIL_STATUS_OPTIONS}
+                    placeholder="Select civil status"
+                    ariaLabel="Civil Status"
+                  />
+                </label>
+              </div>
+            </FormSection>
+            {canAssignRoles && (
+              <SystemRoleFields
+                value={roleAssignment}
+                onChange={setRoleAssignment}
+                roleUsers={roleUsersCache.data ?? []}
+                employeeEmail={employee.user?.email}
+                inactiveRole={roleUser && !isRoleActive ? currentRole : null}
+              />
+            )}
+          </div>
 
           <FormSection icon={Briefcase} title="Employment Details">
             <div className="employee-form-stack">
@@ -1656,6 +1842,7 @@ function ViewEmployeeModal({
   canWrite,
   canRegisterFace,
   onRegisterFace,
+  systemRole,
 }: {
   employee: Employee;
   attendanceModeOptions: AttendanceModeOption[];
@@ -1666,6 +1853,8 @@ function ViewEmployeeModal({
   canWrite: boolean;
   canRegisterFace: boolean;
   onRegisterFace?: () => void;
+  // Active HR Admin/Supervisor role, shown as a badge beside the name.
+  systemRole?: SystemRoleCode | null;
 }) {
   // Same condition the "Register Face" button below is disabled for — the
   // banner explains why (see FaceRegistrationPage's own "Employee Consent
@@ -1688,41 +1877,59 @@ function ViewEmployeeModal({
   const show = (value?: string | null) => (value && value.trim() ? value : "—");
 
   return (
-    <EmployeeModal title="Employee Details" description={getEmployeeName(employee)} onClose={onClose} split>
+    <EmployeeModal
+      title="Employee Details"
+      description={getEmployeeName(employee)}
+      onClose={onClose}
+      split
+    >
       {/* Same three columns as Add/Edit Employee, showing values instead of
           inputs: Personal | Employment | Spouse Employment. */}
       <div className="employee-detail-body">
         <div className="employee-form-sections">
-          <FormSection icon={UserRound} title="Personal Information">
-            <div className="employee-form-stack">
-              <div className="employee-view-field">
-                <span>First Name</span>
-                <strong>{show(employee.firstName)}</strong>
+          {/* First column: Personal Information, then the role (only for
+              employees who hold one), same place as in Add/Edit Employee. */}
+          <div className="employee-form-stack">
+            <FormSection icon={UserRound} title="Personal Information">
+              <div className="employee-form-stack">
+                <div className="employee-view-field">
+                  <span>First Name</span>
+                  <strong>{show(employee.firstName)}</strong>
+                </div>
+                <div className="employee-view-field">
+                  <span>Middle Name</span>
+                  <strong>{show(employee.middleName)}</strong>
+                </div>
+                <div className="employee-view-field">
+                  <span>Last Name</span>
+                  <strong>{show(employee.lastName)}</strong>
+                </div>
+                <div className="employee-view-field">
+                  <span>Email</span>
+                  <strong>{employee.user?.email ?? "Unassigned"}</strong>
+                </div>
+                <div className="employee-view-field">
+                  <span>Sex/Gender</span>
+                  <strong>{employee.sex === "FEMALE" ? "Female" : employee.sex === "MALE" ? "Male" : "Not set"}</strong>
+                </div>
+                <div className="employee-view-field">
+                  <span>Civil Status</span>
+                  <strong>
+                    {employee.civilStatus ? employee.civilStatus.charAt(0) + employee.civilStatus.slice(1).toLowerCase() : "Single"}
+                  </strong>
+                </div>
               </div>
-              <div className="employee-view-field">
-                <span>Middle Name</span>
-                <strong>{show(employee.middleName)}</strong>
-              </div>
-              <div className="employee-view-field">
-                <span>Last Name</span>
-                <strong>{show(employee.lastName)}</strong>
-              </div>
-              <div className="employee-view-field">
-                <span>Email</span>
-                <strong>{employee.user?.email ?? "Unassigned"}</strong>
-              </div>
-              <div className="employee-view-field">
-                <span>Sex/Gender</span>
-                <strong>{employee.sex === "FEMALE" ? "Female" : employee.sex === "MALE" ? "Male" : "Not set"}</strong>
-              </div>
-              <div className="employee-view-field">
-                <span>Civil Status</span>
-                <strong>
-                  {employee.civilStatus ? employee.civilStatus.charAt(0) + employee.civilStatus.slice(1).toLowerCase() : "Single"}
-                </strong>
-              </div>
-            </div>
-          </FormSection>
+            </FormSection>
+            {systemRole && (
+              <FormSection icon={UserCheck} title="Assigned Role">
+                <div className="employee-view-field">
+                  <span>Role</span>
+                  {/* Same wording as User Management's Role column. */}
+                  <strong>{systemRole === "ADMIN" ? "HR Admin" : `${employee.department.name} Supervisor`}</strong>
+                </div>
+              </FormSection>
+            )}
+          </div>
 
           <FormSection icon={Briefcase} title="Employment Details">
             <div className="employee-form-stack">
@@ -1766,7 +1973,15 @@ function ViewEmployeeModal({
               <div className="employee-view-field">
                 <span>Supervisor</span>
                 <strong>
-                  {employee.supervisor ? `${employee.supervisor.firstName} ${employee.supervisor.lastName}` : "Unassigned"}
+                  {/* A supervisor/HR Admin has no one above them — say so
+                      rather than "Unassigned", which reads as missing data. */}
+                  {employee.supervisor
+                    ? `${employee.supervisor.firstName} ${employee.supervisor.lastName}`
+                    : systemRole === "SUPERVISOR"
+                      ? "None (department supervisor)"
+                      : systemRole === "ADMIN"
+                        ? "None (HR Admin)"
+                        : "Unassigned"}
                 </strong>
               </div>
             </div>
@@ -2037,9 +2252,21 @@ export function EmployeesPage({
   const roles = user?.roles ?? [];
   const isDepartmentLocked = roles.includes("SUPERVISOR") && !roles.includes("ADMIN");
   const lockedDepartmentName = isDepartmentLocked ? user?.department : undefined;
+  // Same access as the User Management page; a department-locked supervisor
+  // never grants roles.
+  const canAssignRoles = Boolean(user?.permissions.includes(permissions.usersRead)) && !isDepartmentLocked;
 
   const [departmentFilter, setDepartmentFilter] = useState("ALL");
   const [positionFilter, setPositionFilter] = useState("ALL");
+  const [roleFilter, setRoleFilter] = useState("ALL");
+  // Active system role per login email — what the Role filter matches on.
+  // A role deactivated in User Management counts as No Role.
+  const roleUsersCache = useRoleUsers(canAssignRoles);
+  const activeRoleByEmail = new Map(
+    (roleUsersCache.data ?? [])
+      .filter((roleUser) => roleUser.status === "ACTIVE")
+      .map((roleUser) => [roleUser.email.toLowerCase(), getSystemRoleCode(roleUser)] as const),
+  );
   const [nameSort, setNameSort] = useState<"asc" | "desc" | null>(null);
   const [showArchivedOnly, setShowArchivedOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -2113,6 +2340,10 @@ export function EmployeesPage({
   const visibleEmployees = employees.filter((employee) => {
     if (departmentFilter !== "ALL" && employee.department.name !== departmentFilter) return false;
     if (activePositionFilter !== "ALL" && employee.positionId !== activePositionFilter) return false;
+    if (canAssignRoles && roleFilter !== "ALL") {
+      const role = activeRoleByEmail.get(employee.user?.email?.toLowerCase() ?? "") ?? null;
+      if (roleFilter === "ANY_ROLE" ? !role : role !== roleFilter) return false;
+    }
     if (showArchivedOnly) {
       if (employee.employmentStatus !== "SEPARATED") return false;
     } else {
@@ -2133,7 +2364,7 @@ export function EmployeesPage({
     setNameSort((current) => (current === "asc" ? "desc" : current === "desc" ? null : "asc"));
   };
 
-  useEffect(() => setPage(1), [departmentFilter, activePositionFilter, showArchivedOnly, searchQuery, nameSort]);
+  useEffect(() => setPage(1), [departmentFilter, activePositionFilter, roleFilter, showArchivedOnly, searchQuery, nameSort]);
   const pageCount = Math.max(1, Math.ceil(sortedVisibleEmployees.length / EMPLOYEES_PAGE_SIZE));
   const pageSafe = Math.min(page, pageCount);
   const pagedEmployees = sortedVisibleEmployees.slice(
@@ -2175,6 +2406,13 @@ export function EmployeesPage({
     employeesCache.setData(employees.map((item) => (item.id === employee.id ? employee : item)));
     setViewEmployee((current) => (current?.id === employee.id ? employee : current));
     refreshIfSpouseLinked(employee);
+  };
+
+  // A new/changed Supervisor role changes the Supervisor dropdowns, and the
+  // System Role section reads the /users list.
+  const handleRoleChanged = () => {
+    supervisorsCache.refresh().catch(() => undefined);
+    revalidateCached("users", () => apiRequest("/users")).catch(() => undefined);
   };
 
   const handleEmployeeSaveFailed = (message: string) => {
@@ -2259,6 +2497,22 @@ export function EmployeesPage({
               allLabel="All Departments"
               menuLabel="Filter by department"
               ariaLabel="Filter employees by department"
+            />
+          </div>
+        )}
+
+        {canAssignRoles && (
+          <div className="employees-filter-group">
+            <label className="employees-filter-label">Role</label>
+            <DropdownFilter
+              className="department-select"
+              value={roleFilter}
+              onChange={setRoleFilter}
+              options={[{ value: "ANY_ROLE", label: "HR Admin & Supervisor" }, ...SYSTEM_ROLE_OPTIONS]}
+              allLabel="All Roles"
+              hideAllOption
+              menuLabel="Filter by role"
+              ariaLabel="Filter employees by role"
             />
           </div>
         )}
@@ -2385,6 +2639,7 @@ export function EmployeesPage({
       {viewEmployee && (
         <ViewEmployeeModal
           employee={viewEmployee}
+          systemRole={activeRoleByEmail.get(viewEmployee.user?.email?.toLowerCase() ?? "") ?? null}
           attendanceModeOptions={allAttendanceModeOptions}
           onClose={() => setViewEmployee(null)}
           onEdit={() => openEditEmployee(viewEmployee)}
@@ -2419,6 +2674,8 @@ export function EmployeesPage({
           }}
           onSynced={handleEmployeeSynced}
           onSaveFailed={handleEmployeeSaveFailed}
+          canAssignRoles={canAssignRoles}
+          onRoleChanged={handleRoleChanged}
         />
       )}
 
@@ -2433,6 +2690,8 @@ export function EmployeesPage({
             setIsAddOpen(false);
             setIsImportOpen(true);
           }}
+          canAssignRoles={canAssignRoles}
+          onRoleChanged={handleRoleChanged}
         />
       )}
 

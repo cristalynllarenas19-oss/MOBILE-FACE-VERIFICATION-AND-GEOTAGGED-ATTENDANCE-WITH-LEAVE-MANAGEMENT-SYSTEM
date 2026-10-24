@@ -447,6 +447,80 @@
   width: min(1060px, 100%);
 }
 
+/* Add/Edit Employee on a desktop screen: compact spacing so every field and
+   the footer fit on one screen. The modal keeps its own overflow only as a
+   fallback for very short windows; the form itself never scrolls. */
+@media (min-width: 901px) {
+  .employee-modal--split {
+    max-height: calc(100vh - 24px);
+  }
+
+  .employee-modal--split .employee-form {
+    overflow: visible;
+    gap: 8px;
+    padding: 10px 20px 12px;
+  }
+
+  .employee-modal--split .employee-modal-header {
+    padding: 12px 20px 10px;
+  }
+
+  .employee-modal--split .employee-modal-header p {
+    margin-top: 2px;
+  }
+
+  .employee-modal--split .employee-form label {
+    gap: 3px;
+  }
+
+  .employee-modal--split .employee-form input:not([type="checkbox"]),
+  .employee-modal--split .form-select-dropdown-trigger {
+    height: 32px;
+  }
+
+  .employee-modal--split .employee-form-section {
+    gap: 8px;
+  }
+
+  .employee-modal--split .employee-form-section-title {
+    padding-bottom: 5px;
+  }
+
+  .employee-modal--split .employee-form-section-body,
+  .employee-modal--split .employee-form-stack,
+  .employee-modal--split .employee-form-sections > .employee-form-section,
+  .employee-modal--split .employee-form-sections > .employee-form-stack,
+  .employee-modal--split .employee-form-sections > .employee-form-section > .employee-form-section-body > .employee-form-stack {
+    gap: 8px;
+  }
+
+  /* A little more room between one section and the next in a column. */
+  .employee-modal--split .employee-form-sections > .employee-form-stack {
+    gap: 12px;
+  }
+
+  .employee-modal--split .employee-form-sections > * {
+    padding-bottom: 10px;
+  }
+
+  .employee-modal--split .employee-form-sections {
+    margin-bottom: -8px;
+  }
+
+  .employee-modal--split .employee-leave-grants {
+    padding: 8px 12px;
+  }
+
+  .employee-modal--split .employee-leave-grants .employee-leave-grant-row {
+    padding: 2px 6px;
+  }
+
+  /* Out-ranks the later .employee-modal--split .employee-form-actions. */
+  .employee-modal--split .employee-form .employee-form-actions {
+    padding-top: 10px;
+  }
+}
+
 .employee-form-columns {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 340px;
@@ -569,6 +643,27 @@
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+/* "Assign a Role" heading: the checkbox sits beside the title, which keeps
+   the heading's own look instead of the field-label style. */
+.employee-form .employee-role-toggle {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  color: inherit;
+  font-size: inherit;
+  cursor: pointer;
+}
+
+.employee-form .employee-role-toggle input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  padding: 0;
+  flex-shrink: 0;
+  accent-color: #1a3a5c;
+  cursor: pointer;
 }
 
 .employee-form-section-body {

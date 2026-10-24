@@ -14,6 +14,7 @@ export function DropdownFilter({
   allValue = "ALL",
   ariaLabel,
   className = "",
+  hideAllOption = false,
 }: {
   value: string;
   options: DropdownFilterOption[];
@@ -23,6 +24,8 @@ export function DropdownFilter({
   allValue?: string;
   ariaLabel?: string;
   className?: string;
+  // Leaves allLabel off the menu (still shown on the trigger); Clear resets.
+  hideAllOption?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const shellRef = useRef<HTMLDivElement>(null);
@@ -106,16 +109,18 @@ export function DropdownFilter({
                 </button>
               )}
             </div>
-            <button
-              type="button"
-              className={`dropdown-filter-option ${!isFiltered ? "active" : ""}`}
-              onClick={() => {
-                onChange(allValue);
-                setOpen(false);
-              }}
-            >
-              {allLabel}
-            </button>
+            {!hideAllOption && (
+              <button
+                type="button"
+                className={`dropdown-filter-option ${!isFiltered ? "active" : ""}`}
+                onClick={() => {
+                  onChange(allValue);
+                  setOpen(false);
+                }}
+              >
+                {allLabel}
+              </button>
+            )}
             {options.map((option) => (
               <button
                 type="button"
