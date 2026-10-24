@@ -111,6 +111,10 @@ const REPORT_TYPE_LABELS: Record<ReportTab, string> = {
 
 // "All Reports" bundles these four tabs — spelled out in the print/PDF
 // header since "All Reports" alone doesn't say what's included.
+// All Reports' first page: the department counts only, under this title;
+// the DTR / Attendance records follow on the next page.
+const ALL_REPORTS_SUMMARY_TITLE = "DTR / Attendance Summary";
+
 const ALL_REPORTS_INCLUDES = ["DTR", "Attendance", REPORT_TYPE_LABELS.leave, REPORT_TYPE_LABELS.undertime, REPORT_TYPE_LABELS.schedules].join(" | ");
 
 const UNDERTIME_STATUS_FILTERS = ["PENDING", "APPROVED", "REJECTED"] as const;
@@ -283,6 +287,49 @@ function isInDateRange(dateStr: string, from: string, to: string) {
   return date >= fromTime && date <= toTime;
 }
 
+// One printed part of a report. The browser repeats its <thead> — logo,
+// title and generated range — at the top of every page the part spans, and
+// in All Reports each part starts on its own page with its own title
+// ("Leave Report", ...). Laid out as plain blocks on screen (see
+// .reports-print-frame), where the print header itself stays hidden.
+function PrintFrame({
+  title,
+  subtitle,
+  rangeLabel,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  rangeLabel: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <table className="reports-print-frame">
+      <thead>
+        <tr>
+          <td>
+            <div className="reports-print-header">
+              <img src={logo} alt="Universal Leaf Philippines, Inc." className="reports-print-logo" />
+              <div className="reports-print-heading">
+                <h1 className="reports-print-title">{title}</h1>
+                {subtitle && <p className="reports-print-subtitle">{subtitle}</p>}
+              </div>
+            </div>
+            <div className="reports-print-meta">
+              <span>{rangeLabel}</span>
+            </div>
+          </td>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>{children}</td>
+        </tr>
+      </tbody>
+    </table>
+  );
+}
+
 export function ReportsPage({
   user,
 }: {
@@ -345,6 +392,57 @@ export function ReportsPage({
       return deptMatch && dateMatch && statusMatch && matchesEmployeeQuery(record.employee, search);
     });
   }, [data, filters, search, attendanceStatusFilter]);
+
+  // Department Attendance Summary (All Reports): the same department, date
+  // and search filters as the DTR table, but every status, so it always
+  // shows the full breakdown even while the Status filter narrows the table.
+  // One AttendanceRecord per employee per day, so a multi-day range counts
+  // employee-days. Pending Review / Flagged only count toward Total.
+  const departmentSummary = useMemo(() => {
+    type Counts = { present: number; late: number; absent: number; onLeave: number; total: number };
+    const empty = (): Counts => ({ present: 0, late: 0, absent: 0, onLeave: 0, total: 0 });
+    const byDepartment = new Map<string, Counts>();
+    // Every active department is listed, with 0s where it has no records —
+    // just the chosen one when filtered, and only matching ones while
+    // searching for an employee.
+    if (!search.trim()) {
+      for (const name of filters.department === "ALL" ? departments : [filters.department]) {
+        byDepartment.set(name, empty());
+      }
+    }
+    const total = empty();
+    for (const record of data?.attendance ?? []) {
+      if (filters.department !== "ALL" && record.employee.department.name !== filters.department) continue;
+      if (!isInDateRange(record.attendanceDate, filters.from, filters.to)) continue;
+      if (!matchesEmployeeQuery(record.employee, search)) continue;
+      const name = record.employee.department.name;
+      const row = byDepartment.get(name) ?? empty();
+      byDepartment.set(name, row);
+      const key: keyof Counts | null =
+        record.status === "PRESENT"
+          ? "present"
+          : record.status === "LATE"
+            ? "late"
+            : record.status === "ABSENT"
+              ? "absent"
+              : record.status === "ON_LEAVE"
+                ? "onLeave"
+                : null;
+      for (const counts of [row, total]) {
+        if (key) counts[key] += 1;
+        counts.total += 1;
+      }
+    }
+    const rows = [...byDepartment.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([department, counts]) => ({ department, ...counts }));
+    const other = total.total - total.present - total.late - total.absent - total.onLeave;
+    return { rows, total, other };
+  }, [data, filters, search, departments]);
+  // Printed title of one part: "Leave Report" etc. inside All Reports, the
+  // tab's own name otherwise.
+  const partTitle = (part: ReportTab) => (tab === "ALL" ? `${REPORT_TYPE_LABELS[part]} Report` : REPORT_TYPE_LABELS[tab]);
+  const departmentSummaryTitle = `Department Attendance Summary${filters.from !== filters.to ? " (employee-days)" : ""}`;
 
   const leavesInRange = useMemo(() => {
     if (!data) return [];
@@ -513,41 +611,76 @@ export function ReportsPage({
 
     // Header matches the on-screen print header: centered logo, the report
     // type as a title below it, then the generated date range as plain text.
-    let startY = 32;
+    // Drawn on every page (tables call it from didDrawPage), and every table
+    // starts below it, so it never covers data.
+    let logoImage: { dataUrl: string; width: number; height: number } | null = null;
     try {
       const { dataUrl, width, height } = await loadImageDataUrl(logo);
       const maxSize = 140;
       const scale = Math.min(maxSize / width, maxSize / height);
-      const drawWidth = width * scale;
-      const drawHeight = height * scale;
-      doc.addImage(dataUrl, "PNG", pageWidth / 2 - drawWidth / 2, startY, drawWidth, drawHeight);
-      startY += drawHeight + 16;
+      logoImage = { dataUrl, width: width * scale, height: height * scale };
     } catch {
       // Logo failed to load — still produce the report without it.
     }
 
-    doc.setFontSize(16);
-    doc.setTextColor(26, 58, 92);
-    doc.text(REPORT_TYPE_LABELS[tab], pageWidth / 2, startY, { align: "center" });
-    startY += 20;
+    // The header's title/subtitle: the report's own at first; in All Reports
+    // each later part (Leave, Undertime, Schedules) switches it to its own.
+    let header: { title: string; subtitle?: string } = {
+      title: tab === "ALL" ? ALL_REPORTS_SUMMARY_TITLE : REPORT_TYPE_LABELS[tab],
+      subtitle: tab === "ALL" ? `Includes: ${ALL_REPORTS_INCLUDES}` : undefined,
+    };
 
-    if (tab === "ALL") {
-      doc.setFontSize(8);
-      doc.setTextColor(107, 130, 153);
-      doc.text(`Includes: ${ALL_REPORTS_INCLUDES}`, pageWidth / 2, startY, { align: "center" });
-      startY += 14;
-    }
+    // Draws the header on the current page and returns the y just below it.
+    const drawHeader = () => {
+      let y = 32;
+      if (logoImage) {
+        doc.addImage(logoImage.dataUrl, "PNG", pageWidth / 2 - logoImage.width / 2, y, logoImage.width, logoImage.height);
+        y += logoImage.height + 16;
+      }
 
-    doc.setFontSize(9);
-    doc.setTextColor(45, 74, 101);
-    doc.text(generatedRangeLabel, pageWidth / 2, startY, { align: "center" });
-    startY += 10;
-    doc.setDrawColor(215, 226, 236);
-    doc.line(margin, startY, pageWidth - margin, startY);
-    startY += 18;
+      doc.setFontSize(16);
+      doc.setTextColor(26, 58, 92);
+      doc.text(header.title, pageWidth / 2, y, { align: "center" });
+      y += 20;
 
-    const addSection = (title: string, head: string[], body: (string | number)[][]) => {
+      if (header.subtitle) {
+        doc.setFontSize(8);
+        doc.setTextColor(107, 130, 153);
+        doc.text(header.subtitle, pageWidth / 2, y, { align: "center" });
+        y += 14;
+      }
+
+      doc.setFontSize(9);
+      doc.setTextColor(45, 74, 101);
+      doc.text(generatedRangeLabel, pageWidth / 2, y, { align: "center" });
+      y += 10;
+      doc.setDrawColor(215, 226, 236);
+      doc.line(margin, y, pageWidth - margin, y);
+      return y + 18;
+    };
+
+    let headerBottom = drawHeader();
+    let startY = headerBottom;
+    let headerDrawnOnPage = doc.internal.getNumberOfPages();
+    let sectionsDrawn = 0;
+
+    const addSection = (
+      title: string,
+      head: string[],
+      body: (string | number)[][],
+      // centerFrom: columns from this index on (counts) are centered.
+      options: { boldLastRow?: boolean; partTitle?: string; centerFrom?: number } = {},
+    ) => {
       if (body.length === 0) return;
+      // A new part of All Reports: its own page, headed with its own title.
+      if (options.partTitle && tab === "ALL" && sectionsDrawn > 0) {
+        doc.addPage();
+        header = { title: options.partTitle };
+        headerBottom = drawHeader();
+        startY = headerBottom;
+        headerDrawnOnPage = doc.internal.getNumberOfPages();
+      }
+      sectionsDrawn += 1;
       doc.setFontSize(10);
       doc.setTextColor(26, 58, 92);
       doc.text(title, 40, startY);
@@ -559,11 +692,47 @@ export function ReportsPage({
         headStyles: { fillColor: [26, 58, 92] as [number, number, number], textColor: [255, 255, 255] as [number, number, number], fontSize: 8, fontStyle: "bold" as const },
         bodyStyles: { fontSize: 8, textColor: [30, 41, 59] as [number, number, number] },
         alternateRowStyles: { fillColor: [244, 247, 251] as [number, number, number] },
-        margin: { left: 40, right: 40 },
+        // Pages a table flows onto start below the repeated header; its
+        // column headings repeat there too (autoTable's default).
+        margin: { left: 40, right: 40, top: headerBottom },
+        didDrawPage: () => {
+          const page = doc.internal.getNumberOfPages();
+          if (page !== headerDrawnOnPage) {
+            drawHeader();
+            headerDrawnOnPage = page;
+          }
+        },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        didParseCell: (cell: any) => {
+          if (options.centerFrom !== undefined && cell.column.index >= options.centerFrom) {
+            cell.cell.styles.halign = "center";
+          }
+          if (options.boldLastRow && cell.section === "body" && cell.row.index === body.length - 1) {
+            cell.cell.styles.fontStyle = "bold";
+          }
+          // An open-ended schedule's "Present", green bold as on screen.
+          if (cell.section === "body" && cell.cell.raw === "Present" && head[cell.column.index] === "Until") {
+            cell.cell.styles.fontStyle = "bold";
+            cell.cell.styles.textColor = [46, 125, 50];
+          }
+        },
       });
       startY = doc.lastAutoTable.finalY + 24;
     };
 
+    if (tab === "ALL") {
+      addSection(
+        departmentSummaryTitle,
+        ["Department", "Present", "Late", "Absent", "On Leave", "Total"],
+        departmentSummary.rows.length === 0
+          ? []
+          : [
+              ...departmentSummary.rows.map((row) => [row.department, row.present, row.late, row.absent, row.onLeave, row.total]),
+              ["Grand Total", departmentSummary.total.present, departmentSummary.total.late, departmentSummary.total.absent, departmentSummary.total.onLeave, departmentSummary.total.total],
+            ],
+        { boldLastRow: true, centerFrom: 1 },
+      );
+    }
     if (tab === "ALL" || tab === "attendance") {
       addSection("DTR / Attendance",
         ["Employee", "Department", "Site", "Date", "Time In", "Time Out", "Lunch / Break", "Status"],
@@ -571,7 +740,8 @@ export function ReportsPage({
           employeeName(r), r.employee.department.name, r.workLocation?.name ?? "—", formatDate(r.attendanceDate),
           formatTime(r.timeInAt, r.status), formatTime(r.timeOutAt, r.status),
           r.lunchOutAt ? `${r.breakKind === "BREAK" ? "Break " : ""}${formatTime(r.lunchOutAt)} - ${formatTime(r.lunchInAt)}` : "—", r.status,
-        ])
+        ]),
+        { partTitle: partTitle("attendance") },
       );
     }
     if (tab === "ALL" || tab === "leave") {
@@ -580,19 +750,22 @@ export function ReportsPage({
         filteredLeaves.map((r) => [
           employeeName(r), r.employee.department.name, formatEmploymentStatus(r.employee.employmentStatus), r.leaveType.name,
           formatDate(r.startDate), formatDate(r.endDate), r.totalDays, leaveStatusText(r),
-        ])
+        ]),
+        { partTitle: partTitle("leave") },
       );
     }
     if (tab === "ALL" || tab === "undertime") {
-      addSection("Undertime", UNDERTIME_HEAD, filteredUndertime.map(undertimeCells));
+      addSection("Undertime", UNDERTIME_HEAD, filteredUndertime.map(undertimeCells), { partTitle: partTitle("undertime") });
     }
     if (tab === "ALL" || tab === "schedules") {
       addSection("Schedules",
-        ["Employee", "Department", "Position", "Shift", "Time", "Effective Dates"],
+        // Start and end in their own columns so each lines up in the PDF.
+        ["Employee", "Department", "Position", "Shift", "Time", "Effective From", "Until"],
         filteredSchedules.map((s) => [
           employeeName(s), s.employee.department.name, s.employee.position?.title ?? "—", s.shift.name,
-          `${s.shift.startTime} - ${s.shift.endTime}`, `${formatDate(s.startsOn)} - ${s.endsOn ? formatDate(s.endsOn) : "Present"}`,
-        ])
+          `${s.shift.startTime} - ${s.shift.endTime}`, formatDate(s.startsOn), s.endsOn ? formatDate(s.endsOn) : "Present",
+        ]),
+        { partTitle: partTitle("schedules") },
       );
     }
     if (tab === "employees") {
@@ -743,16 +916,63 @@ export function ReportsPage({
           on the rest of the document in @media print, so this doesn't rely
           on hiding every other element by name. ── */}
       <div className="reports-printable">
-        <div className="reports-print-header">
-          <img src={logo} alt="Universal Leaf Philippines, Inc." className="reports-print-logo" />
-          <div className="reports-print-heading">
-            <h1 className="reports-print-title">{REPORT_TYPE_LABELS[tab]}</h1>
-            {tab === "ALL" && <p className="reports-print-subtitle">Includes: {ALL_REPORTS_INCLUDES}</p>}
-          </div>
-        </div>
-        <div className="reports-print-meta">
-          <span>{generatedRangeLabel}</span>
-        </div>
+        {/* All Reports' first page: the department summary on its own. */}
+        {tab === "ALL" && (
+        <PrintFrame
+          title={ALL_REPORTS_SUMMARY_TITLE}
+          subtitle={`Includes: ${ALL_REPORTS_INCLUDES}`}
+          rangeLabel={generatedRangeLabel}
+        >
+        {/* ── Department Attendance Summary (All Reports only) ── */}
+        {tab === "ALL" && (
+        <section className="table-card reports-table-card reports-summary-card">
+          <div className="reports-table-label">{departmentSummaryTitle}</div>
+          <table>
+            <thead>
+              <tr>
+                <th>Department</th><th>Present</th><th>Late</th><th>Absent</th><th>On Leave</th><th>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {departmentSummary.rows.length === 0 ? (
+                <tr><td colSpan={6} className="reports-empty">No attendance records match the current filters.</td></tr>
+              ) : (
+                <>
+                  {departmentSummary.rows.map((row) => (
+                    <tr key={row.department}>
+                      <td>{row.department}</td>
+                      <td>{row.present}</td>
+                      <td>{row.late}</td>
+                      <td>{row.absent}</td>
+                      <td>{row.onLeave}</td>
+                      <td>{row.total}</td>
+                    </tr>
+                  ))}
+                  <tr className="reports-summary-total">
+                    <td>Grand Total</td>
+                    <td>{departmentSummary.total.present}</td>
+                    <td>{departmentSummary.total.late}</td>
+                    <td>{departmentSummary.total.absent}</td>
+                    <td>{departmentSummary.total.onLeave}</td>
+                    <td>{departmentSummary.total.total}</td>
+                  </tr>
+                </>
+              )}
+            </tbody>
+          </table>
+          {departmentSummary.other > 0 && (
+            <p className="reports-summary-note">
+              Total includes {departmentSummary.other} record{departmentSummary.other === 1 ? "" : "s"} still pending review or flagged.
+            </p>
+          )}
+        </section>
+        )}
+        </PrintFrame>
+        )}
+
+        {/* DTR / Attendance records: page 2 of All Reports. */}
+        {(tab === "ALL" || tab === "attendance") && (
+        <PrintFrame title={partTitle("attendance")} rangeLabel={generatedRangeLabel}>
 
         {/* ── Tables ── */}
         {(tab === "ALL" || tab === "attendance") && (
@@ -784,8 +1004,11 @@ export function ReportsPage({
           </table>
         </section>
       )}
+        </PrintFrame>
+        )}
 
       {(tab === "ALL" || tab === "leave") && (
+        <PrintFrame title={partTitle("leave")} rangeLabel={generatedRangeLabel}>
         <section className="table-card reports-table-card">
           {tab === "ALL" && <div className="reports-table-label">Leave</div>}
           <div className="reports-status-tabs">
@@ -823,9 +1046,11 @@ export function ReportsPage({
             </tbody>
           </table>
         </section>
+        </PrintFrame>
       )}
 
       {(tab === "ALL" || tab === "undertime") && (
+        <PrintFrame title={partTitle("undertime")} rangeLabel={generatedRangeLabel}>
         <section className="table-card reports-table-card">
           {tab === "ALL" && <div className="reports-table-label">Undertime</div>}
           <div className="reports-status-tabs">
@@ -863,9 +1088,11 @@ export function ReportsPage({
             </tbody>
           </table>
         </section>
+        </PrintFrame>
       )}
 
       {(tab === "ALL" || tab === "schedules") && (
+        <PrintFrame title={partTitle("schedules")} rangeLabel={generatedRangeLabel}>
         <section className="table-card reports-table-card">
           {tab === "ALL" && <div className="reports-table-label">Schedules</div>}
           <table>
@@ -884,21 +1111,31 @@ export function ReportsPage({
                   <td>{schedule.employee.department.name}</td>
                   <td>{schedule.employee.position?.title ?? "—"}</td>
                   <td>{schedule.shift.name}</td>
-                  <td>{schedule.shift.startTime} – {schedule.shift.endTime}</td>
-                  <td>
-                    {formatDate(schedule.startsOn)} –{" "}
-                    {schedule.endsOn
-                      ? formatDate(schedule.endsOn)
-                      : <span className="reports-ongoing">Present</span>}
+                  {/* One line each, so every row lines up the same. */}
+                  <td className="reports-nowrap">{schedule.shift.startTime} – {schedule.shift.endTime}</td>
+                  <td className="reports-nowrap">
+                    {/* Fixed-width start/end slots keep the dash and
+                        "Present" in one straight column down the table. */}
+                    <span className="reports-date-range">
+                      <span>{formatDate(schedule.startsOn)}</span>
+                      <span>–</span>
+                      <span>
+                        {schedule.endsOn
+                          ? formatDate(schedule.endsOn)
+                          : <span className="reports-ongoing">Present</span>}
+                      </span>
+                    </span>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </section>
+        </PrintFrame>
       )}
 
       {tab === "employees" && (
+        <PrintFrame title={REPORT_TYPE_LABELS[tab]} rangeLabel={generatedRangeLabel}>
         <section className="table-card reports-table-card">
           <table>
             <thead>
@@ -920,9 +1157,11 @@ export function ReportsPage({
             </tbody>
           </table>
         </section>
+        </PrintFrame>
       )}
 
       {tab === "leaveBalances" && (
+        <PrintFrame title={REPORT_TYPE_LABELS[tab]} rangeLabel={generatedRangeLabel}>
         <section className="table-card reports-table-card">
           <table>
             <thead>
@@ -948,6 +1187,7 @@ export function ReportsPage({
             </tbody>
           </table>
         </section>
+        </PrintFrame>
       )}
       </div>
     </>

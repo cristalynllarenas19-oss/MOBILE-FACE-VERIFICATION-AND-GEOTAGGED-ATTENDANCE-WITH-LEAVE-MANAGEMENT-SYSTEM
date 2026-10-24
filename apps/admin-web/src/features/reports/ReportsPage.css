@@ -516,3 +516,129 @@
     page-break-before: always;
   }
 }
+
+/* ── All Reports: repeating print header + Department Attendance Summary ── */
+
+/* The outer frame table (header in its <thead>, report in its <tbody>) is
+   plain blocks on screen, so the page looks exactly as before... */
+.reports-print-frame,
+.reports-print-frame > thead,
+.reports-print-frame > tbody,
+.reports-print-frame > * > tr,
+.reports-print-frame > * > tr > td {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+/* Parts of All Reports stack with the usual gap on screen. */
+.reports-print-frame + .reports-print-frame {
+  margin-top: 10px;
+}
+
+/* Compact summary card: as tall as its rows, not the fixed-height cards. */
+.reports-summary-card {
+  height: auto;
+  margin-bottom: 10px;
+}
+
+.reports-summary-card + .reports-table-card {
+  margin-top: 0;
+}
+
+.reports-summary-card .reports-summary-total td {
+  font-weight: 800;
+  color: #1a3a5c;
+  background: #f4f8fc;
+  border-top: 1.5px solid #d7e2ec;
+}
+
+.reports-summary-note {
+  margin: 6px 14px 10px;
+  color: #6b8299;
+  font-size: 11px;
+}
+
+@media print {
+  /* ...and a real table when printing: the browser repeats its <thead>
+     (the logo, title, includes and date range) on every page. */
+  .reports-print-frame {
+    display: table;
+    border-collapse: collapse;
+  }
+
+  .reports-print-frame > thead {
+    display: table-header-group;
+  }
+
+  .reports-print-frame > tbody {
+    display: table-row-group;
+  }
+
+  .reports-print-frame > * > tr {
+    display: table-row;
+  }
+
+  .reports-print-frame > * > tr > td {
+    display: table-cell;
+  }
+
+  /* Each part of All Reports (Leave, Undertime, Schedules) starts on its
+     own page, under its own repeated header. */
+  .reports-print-frame + .reports-print-frame {
+    margin-top: 0;
+    break-before: page;
+    page-break-before: always;
+  }
+
+  /* Report tables' own column headings repeat on each page they span. */
+  .reports-table-card thead {
+    display: table-header-group;
+  }
+
+  .reports-table-card tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* The summary stays together, and DTR / Attendance follows it on the
+     same page (only the later sections start on a new page). */
+  .reports-summary-card {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin-bottom: 14px;
+  }
+
+  .reports-summary-card + .reports-table-card {
+    break-before: auto;
+    page-break-before: auto;
+  }
+}
+
+/* Schedules: the shift time and effective-date range never wrap, so
+   "10/23/2026 – Present" stays on one line in every row (screen and print). */
+.reports-table-card td.reports-nowrap {
+  white-space: nowrap;
+}
+
+/* Effective Dates: start date right-aligned and end date left-aligned in
+   fixed slots (equal-width digits), so every row's dash and "Present" line
+   up regardless of how long the dates are. */
+.reports-date-range {
+  display: inline-grid;
+  grid-template-columns: 10ch auto 10ch;
+  align-items: center;
+  column-gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.reports-date-range > span:first-child {
+  text-align: right;
+}
+
+.reports-date-range > span:last-child {
+  text-align: left;
+}

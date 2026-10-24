@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { X } from "lucide-react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Search, X } from "lucide-react";
 import {
   MANUAL_ADMIN,
   MANUAL_EMPLOYEE,
@@ -51,6 +51,54 @@ function headingLabel(block: Heading) {
   return block.number ? `${block.number} ${block.text}` : block.text;
 }
 
+// Every piece of text a block shows, for search.
+function blockText(block: Block): string {
+  switch (block.type) {
+    case "heading":
+      return headingLabel(block);
+    case "subheading":
+    case "paragraph":
+    case "note":
+      return block.text;
+    case "list":
+      return block.items.map((item) => `${item.lead} ${item.text}`).join(" ");
+    case "figure":
+      return figureLabel(block);
+    case "callouts":
+      return block.items.map((item) => `${item.title} ${item.text} ${(item.bullets ?? []).join(" ")}`).join(" ");
+  }
+}
+
+// The manual split at every heading: search shows or hides whole sections
+// (a heading with its text, pictures and callouts) so results keep context.
+function toSections(blocks: Block[]) {
+  const sections: { blocks: Block[]; text: string }[] = [];
+  for (const block of blocks) {
+    if (block.type === "heading" || sections.length === 0) sections.push({ blocks: [], text: "" });
+    const section = sections[sections.length - 1];
+    section.blocks.push(block);
+    section.text += ` ${blockText(block).toLowerCase()}`;
+  }
+  return sections;
+}
+
+// Wraps every case-insensitive occurrence of the query in <mark>.
+function highlight(text: string, query: string): ReactNode {
+  if (!query) return text;
+  const lower = text.toLowerCase();
+  const parts: ReactNode[] = [];
+  let from = 0;
+  let at = lower.indexOf(query, from);
+  while (at !== -1) {
+    if (at > from) parts.push(text.slice(from, at));
+    parts.push(<mark key={at}>{text.slice(at, at + query.length)}</mark>);
+    from = at + query.length;
+    at = lower.indexOf(query, from);
+  }
+  if (from < text.length) parts.push(text.slice(from));
+  return parts.map((part, index) => <Fragment key={index}>{part}</Fragment>);
+}
+
 // Scrollable reader for the role's section of the user manual (Appendix J).
 // Closing it only unmounts the modal, so the page underneath keeps its state.
 // Default export so the layout can lazy-load it with the manual text.
@@ -63,7 +111,9 @@ export default function HelpManualModal({
 }) {
   const { title, blocks } = MANUALS[audience];
   const contentRef = useRef<HTMLDivElement>(null);
-  const closeRef = useRef<HTMLButtonElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [search, setSearch] = useState("");
+  const query = search.trim().toLowerCase();
 
   // The layout re-renders on every notification poll with a fresh onClose;
   // keep it in a ref so focus is only moved once, when the manual opens.
@@ -75,7 +125,7 @@ export default function HelpManualModal({
   zoomedRef.current = zoomed;
 
   useEffect(() => {
-    closeRef.current?.focus();
+    searchRef.current?.focus();
     const handleKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (zoomedRef.current) setZoomed(null);
@@ -85,16 +135,13 @@ export default function HelpManualModal({
     return () => document.removeEventListener("keydown", handleKey);
   }, []);
 
-  const tocEntries = blocks.filter(
-    (block): block is Extract<Block, { type: "heading" | "figure" }> =>
-      block.type === "heading" || block.type === "figure",
-  );
-  const headings = blocks.filter((block): block is Heading => block.type === "heading");
+  const sections = useMemo(() => toSections(blocks), [blocks]);
+  const visibleSections = query ? sections.filter((section) => section.text.includes(query)) : sections;
 
-  const jumpTo = (id: string) => {
-    const target = contentRef.current?.querySelector<HTMLElement>(`#${anchorId(id)}`);
-    target?.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
+  // New results start from the top.
+  useEffect(() => {
+    contentRef.current?.scrollTo({ top: 0 });
+  }, [query]);
 
   return (
     <div className="help-manual-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
@@ -104,43 +151,47 @@ export default function HelpManualModal({
             <h2 id="help-manual-title">User Manual</h2>
             <p>{title}</p>
           </div>
-          <button ref={closeRef} type="button" className="help-manual-close" onClick={onClose} aria-label="Close user manual">
+          <div className="help-manual-search">
+            <Search size={15} aria-hidden="true" />
+            <input
+              ref={searchRef}
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search the manual..."
+              aria-label="Search the manual"
+            />
+            {search && (
+              <button type="button" onClick={() => setSearch("")} aria-label="Clear search">
+                <X size={14} />
+              </button>
+            )}
+          </div>
+          <button type="button" className="help-manual-close" onClick={onClose} aria-label="Close user manual">
             <X size={18} />
           </button>
         </header>
 
         <div className="help-manual-body">
-          <nav className="help-manual-toc" aria-label="Manual contents">
-            <p className="help-manual-toc-caption">Contents</p>
-            {tocEntries.map((entry) => (
-              <button
-                key={entry.id}
-                type="button"
-                className={`help-manual-toc-link ${entry.type === "figure" ? "figure" : `level-${entry.level}`}`}
-                onClick={() => jumpTo(entry.id)}
-              >
-                {entry.type === "figure" ? figureLabel(entry) : headingLabel(entry)}
-              </button>
-            ))}
-          </nav>
-
-          <select
-            className="help-manual-jump"
-            aria-label="Jump to section"
-            value=""
-            onChange={(event) => event.target.value && jumpTo(event.target.value)}
-          >
-            <option value="">Jump to section…</option>
-            {headings.map((heading) => (
-              <option key={heading.id} value={heading.id}>
-                {headingLabel(heading)}
-              </option>
-            ))}
-          </select>
-
           <div className="help-manual-content" ref={contentRef}>
-            {blocks.map((block, index) => (
-              <ManualBlockView key={index} block={block} onOpenImage={(src, alt) => setZoomed({ src, alt })} />
+            {query && (
+              <p className="help-manual-results" role="status">
+                {visibleSections.length === 0
+                  ? `No results for "${search.trim()}".`
+                  : `${visibleSections.length} section${visibleSections.length === 1 ? "" : "s"} found for "${search.trim()}".`}
+              </p>
+            )}
+            {visibleSections.map((section, sectionIndex) => (
+              <Fragment key={sectionIndex}>
+                {section.blocks.map((block, index) => (
+                  <ManualBlockView
+                    key={index}
+                    block={block}
+                    query={query}
+                    onOpenImage={(src, alt) => setZoomed({ src, alt })}
+                  />
+                ))}
+              </Fragment>
             ))}
           </div>
         </div>
@@ -164,27 +215,36 @@ export default function HelpManualModal({
   );
 }
 
-function ManualBlockView({ block, onOpenImage }: { block: Block; onOpenImage: (src: string, alt: string) => void }) {
+function ManualBlockView({
+  block,
+  query,
+  onOpenImage,
+}: {
+  block: Block;
+  query: string;
+  onOpenImage: (src: string, alt: string) => void;
+}) {
+  const mark = (text: string) => highlight(text, query);
   switch (block.type) {
     case "heading": {
       const text = headingLabel(block);
       return block.level === 1 ? (
-        <h3 id={anchorId(block.id)} className="help-manual-h1">{text}</h3>
+        <h3 id={anchorId(block.id)} className="help-manual-h1">{mark(text)}</h3>
       ) : (
-        <h4 id={anchorId(block.id)} className="help-manual-h2">{text}</h4>
+        <h4 id={anchorId(block.id)} className="help-manual-h2">{mark(text)}</h4>
       );
     }
     case "subheading":
-      return <h5 className="help-manual-h3">{block.text}</h5>;
+      return <h5 className="help-manual-h3">{mark(block.text)}</h5>;
     case "paragraph":
-      return <p className="help-manual-paragraph">{block.text}</p>;
+      return <p className="help-manual-paragraph">{mark(block.text)}</p>;
     case "list":
       return (
         <ul className="help-manual-list">
           {block.items.map((item, index) => (
             <li key={index}>
-              {item.lead && <strong>{item.lead}: </strong>}
-              {item.text}
+              {item.lead && <strong>{mark(item.lead)}: </strong>}
+              {mark(item.text)}
             </li>
           ))}
         </ul>
@@ -193,7 +253,7 @@ function ManualBlockView({ block, onOpenImage }: { block: Block; onOpenImage: (s
       return (
         <div className="help-manual-note">
           <strong>Note: </strong>
-          {block.text}
+          {mark(block.text)}
         </div>
       );
     case "figure":
@@ -210,7 +270,7 @@ function ManualBlockView({ block, onOpenImage }: { block: Block; onOpenImage: (s
               <img src={image.src} width={image.width} height={image.height} loading="lazy" alt={figureLabel(block)} />
             </button>
           ))}
-          <figcaption>{figureLabel(block)}</figcaption>
+          <figcaption>{mark(figureLabel(block))}</figcaption>
         </figure>
       );
     case "callouts":
@@ -220,12 +280,12 @@ function ManualBlockView({ block, onOpenImage }: { block: Block; onOpenImage: (s
             <li key={index}>
               <span className="help-manual-callout-number">{item.n}</span>
               <div>
-                {item.title && <strong>{item.title}</strong>}
-                {item.text && <p>{item.text}</p>}
+                {item.title && <strong>{mark(item.title)}</strong>}
+                {item.text && <p>{mark(item.text)}</p>}
                 {item.bullets && (
                   <ul>
                     {item.bullets.map((bullet) => (
-                      <li key={bullet}>{bullet}</li>
+                      <li key={bullet}>{mark(bullet)}</li>
                     ))}
                   </ul>
                 )}
