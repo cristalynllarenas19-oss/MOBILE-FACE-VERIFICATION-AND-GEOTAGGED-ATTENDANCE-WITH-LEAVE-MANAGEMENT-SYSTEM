@@ -5,7 +5,7 @@ import { WebView } from "react-native-webview";
 import * as Location from "expo-location";
 import { WorkLocation, getMyWorkLocation, getMyWorkLocations } from "../api";
 import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
-import { distanceInMeters } from "../utils/geofence";
+import { GeofenceBoundary, distanceInMeters, distanceOutsideGeofence, isPolygonArea } from "../utils/geofence";
 import { LEAFLET_ICONS, MAP_WEBVIEW_CACHE_MODE, OSM_TILE_URL, leafletHeadHtml } from "../utils/leafletHtml";
 import AestheticScrollView from "../components/AestheticScrollView";
 import EmptyState from "../components/EmptyState";
@@ -25,7 +25,8 @@ const WORK_AREA_POLL_MS = 10000;
 // injectJavaScript on every change, so the marker, circle and centre move in
 // place instead of the whole Leaflet page being torn down and reloaded.
 type MapState = {
-  site: { name: string; lat: number; lon: number; radius: number };
+  // boundary set = a polygon area, drawn instead of the radius circle.
+  site: { name: string; lat: number; lon: number; radius: number; boundary: GeofenceBoundary | null };
   user: { lat: number; lon: number } | null;
 };
 
@@ -135,7 +136,7 @@ function buildMapHtml(initialState: MapState) {
       const sitePos = [site.lat, site.lon];
       const popupHtml =
         '<div class="site-popup-title">' + escapeHtml(site.name) + '</div>' +
-        '<div class="site-popup-meta">Radius: ' + site.radius + 'm</div>';
+        '<div class="site-popup-meta">' + (site.boundary ? 'Polygon area' : 'Radius: ' + site.radius + 'm') + '</div>';
 
       if (!siteMarker) {
         siteMarker = L.marker(sitePos, { icon: siteIcon }).addTo(map).bindPopup(popupHtml, {
@@ -144,14 +145,20 @@ function buildMapHtml(initialState: MapState) {
           // wrap/overlap the close button. Not so wide that it dwarfs the map.
           className: 'site-popup', minWidth: 130
         });
-        siteCircle = L.circle(sitePos, {
-          radius: site.radius, color: '#1680D8', fillColor: '#1680D8', fillOpacity: 0.15
-        }).addTo(map);
       } else {
         siteMarker.setLatLng(sitePos).setPopupContent(popupHtml);
-        siteCircle.setLatLng(sitePos);
-        siteCircle.setRadius(site.radius);
       }
+
+      // Rebuilt rather than moved — the area may have switched between a
+      // circle and a polygon.
+      if (siteCircle) map.removeLayer(siteCircle);
+      const areaStyle = { color: '#1680D8', fillColor: '#1680D8', fillOpacity: 0.15 };
+      siteCircle = (site.boundary
+        // One polygon per part (several buildings) — a plain list of rings
+        // would draw every part after the first as a hole.
+        ? L.polygon(site.boundary.map(function (ring) { return [ring]; }), areaStyle)
+        : L.circle(sitePos, Object.assign({ radius: site.radius }, areaStyle))
+      ).addTo(map);
 
       const hadUser = userMarker !== null;
       if (state.user) {
@@ -171,11 +178,15 @@ function buildMapHtml(initialState: MapState) {
       // Re-frame only when the area itself moved/resized (or a GPS fix first
       // appears) — a routine GPS update shouldn't yank the view away from
       // wherever the employee has panned/zoomed to.
-      const siteKey = site.lat + ',' + site.lon + ',' + site.radius;
+      const siteKey = site.lat + ',' + site.lon + ',' + site.radius + ',' + JSON.stringify(site.boundary);
       if (siteKey !== lastSiteKey || (!hadUser && userMarker)) {
         lastSiteKey = siteKey;
+        // A polygon is framed whole; a circle by its pin.
+        const bounds = site.boundary ? siteCircle.getBounds() : L.latLngBounds([sitePos]);
         if (state.user) {
-          map.fitBounds(L.latLngBounds([sitePos, [state.user.lat, state.user.lon]]), { padding: [40, 40] });
+          map.fitBounds(bounds.extend([state.user.lat, state.user.lon]), { padding: [40, 40] });
+        } else if (site.boundary) {
+          map.fitBounds(bounds, { padding: [40, 40] });
         } else {
           map.setView(sitePos, 16);
         }
@@ -268,6 +279,7 @@ export default function WorkAreaScreen({ employeeId, attendanceMode }: Props) {
           lat: Number(selectedSite.latitude),
           lon: Number(selectedSite.longitude),
           radius: Number(selectedSite.radiusMeters),
+          boundary: isPolygonArea(selectedSite) ? selectedSite.boundary! : null,
         },
         user: userLocation ? { lat: userLocation.latitude, lon: userLocation.longitude } : null,
       }
@@ -353,13 +365,20 @@ export default function WorkAreaScreen({ employeeId, attendanceMode }: Props) {
           Number(selectedSite.longitude),
         )
       : null;
-  const isInside = distance != null && selectedSite != null && distance <= Number(selectedSite.radiusMeters);
+  const outsideBy =
+    userLocation != null && selectedSite != null
+      ? distanceOutsideGeofence(userLocation.latitude, userLocation.longitude, selectedSite)
+      : null;
+  const isPolygon = selectedSite != null && isPolygonArea(selectedSite);
+  const isInside = outsideBy != null && outsideBy <= 0;
   // Inside, the headline number is "how far from the pin" (small = well
   // within range); outside, it's more useful as "how far past the fence"
-  // than the raw distance from a centre point you're nowhere near.
+  // than the raw distance from a centre point you're nowhere near. A
+  // polygon has no meaningful centre, so inside it's "how far in from the
+  // nearest edge" instead.
   const heroDistance =
-    distance != null && selectedSite != null
-      ? Math.round(isInside ? distance : distance - Number(selectedSite.radiusMeters))
+    distance != null && outsideBy != null
+      ? Math.round(isInside && !isPolygon ? distance : Math.abs(outsideBy))
       : null;
 
   return (
@@ -412,7 +431,9 @@ export default function WorkAreaScreen({ employeeId, attendanceMode }: Props) {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.cardTitle}>{selectedSite.name}</Text>
-                  <Text style={styles.cardSubtitle}>Authorized radius: {Number(selectedSite.radiusMeters)}m</Text>
+                  <Text style={styles.cardSubtitle}>
+                    {isPolygon ? "Authorized area: polygon" : `Authorized radius: ${Number(selectedSite.radiusMeters)}m`}
+                  </Text>
                 </View>
                 {distance != null && (
                   <View style={[styles.statusBadge, { backgroundColor: isInside ? "#ECFDF3" : "#FEF2F2" }]}>
@@ -437,7 +458,11 @@ export default function WorkAreaScreen({ employeeId, attendanceMode }: Props) {
                       <Text style={styles.distanceUnit}> m</Text>
                     </Text>
                     <Text style={styles.distanceLabel}>
-                      {isInside ? "from centre — inside the work area" : "beyond the boundary"}
+                      {isInside
+                        ? isPolygon
+                          ? "from the boundary — inside the work area"
+                          : "from centre — inside the work area"
+                        : "beyond the boundary"}
                     </Text>
                   </View>
                 </>

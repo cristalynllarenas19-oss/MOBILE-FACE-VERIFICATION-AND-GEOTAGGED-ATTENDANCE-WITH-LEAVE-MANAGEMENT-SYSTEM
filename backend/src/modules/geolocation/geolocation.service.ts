@@ -2,6 +2,12 @@ import { Injectable, BadRequestException, ForbiddenException, Logger, OnApplicat
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
+import {
+  GeofenceBoundary,
+  boundaryCenterAndRadius,
+  distanceInMeters,
+  distanceOutsideGeofence,
+} from "./geofence-shape.util";
 
 // Present only for a Supervisor (never for ADMIN — see getSupervisorDepartmentScope).
 // When set, every write below is confined to this department: the location
@@ -22,8 +28,18 @@ export type GeofenceInput = {
   siteLatitude: number;
   siteLongitude: number;
   radiusMeters: number;
+  boundary?: GeofenceBoundary | null;
   allowedAccuracyMeters: number;
 };
+
+// A polygon area's pin and radius always follow its boundary (see
+// boundaryCenterAndRadius) — whatever was submitted for them is ignored.
+function withBoundaryGeometry<T extends { latitude?: number; longitude?: number; radiusMeters?: number }>(
+  data: T,
+  boundary: GeofenceBoundary | null | undefined,
+): T {
+  return boundary ? { ...data, ...boundaryCenterAndRadius(boundary) } : data;
+}
 
 @Injectable()
 export class GeolocationService implements OnApplicationBootstrap {
@@ -107,6 +123,7 @@ export class GeolocationService implements OnApplicationBootstrap {
     latitude: number;
     longitude: number;
     radiusMeters: number;
+    boundary?: GeofenceBoundary | null;
     allowedAccuracyMeters?: number;
     employeeIds?: string[];
     departmentId?: string | null;
@@ -117,14 +134,16 @@ export class GeolocationService implements OnApplicationBootstrap {
     // department, regardless of what (if anything) was submitted — an Admin's
     // choice (or none, i.e. a shared/global area) is respected as-is.
     const departmentId = scope.departmentId ?? data.departmentId ?? null;
+    const geometry = withBoundaryGeometry(data, data.boundary);
 
     const created = await this.prisma.$transaction(async (tx) => {
       const workLocation = await tx.workLocation.create({
         data: {
           name: data.name,
-          latitude: data.latitude,
-          longitude: data.longitude,
-          radiusMeters: data.radiusMeters,
+          latitude: geometry.latitude,
+          longitude: geometry.longitude,
+          radiusMeters: geometry.radiusMeters,
+          boundary: data.boundary ?? Prisma.DbNull,
           allowedAccuracyMeters: data.allowedAccuracyMeters ?? 50,
           isActive: true,
           departmentId,
@@ -166,6 +185,8 @@ export class GeolocationService implements OnApplicationBootstrap {
       latitude?: number;
       longitude?: number;
       radiusMeters?: number;
+      // undefined = leave the shape as-is, null = make it a circle.
+      boundary?: GeofenceBoundary | null;
       allowedAccuracyMeters?: number;
       isActive?: boolean;
       employeeIds?: string[];
@@ -190,14 +211,17 @@ export class GeolocationService implements OnApplicationBootstrap {
       }
     }
 
+    const geometry = withBoundaryGeometry(data, data.boundary);
+
     const updated = await this.prisma.$transaction(async (tx) => {
       await tx.workLocation.update({
         where: { id },
         data: {
           ...(data.name !== undefined ? { name: data.name } : {}),
-          ...(data.latitude !== undefined ? { latitude: data.latitude } : {}),
-          ...(data.longitude !== undefined ? { longitude: data.longitude } : {}),
-          ...(data.radiusMeters !== undefined ? { radiusMeters: data.radiusMeters } : {}),
+          ...(geometry.latitude !== undefined ? { latitude: geometry.latitude } : {}),
+          ...(geometry.longitude !== undefined ? { longitude: geometry.longitude } : {}),
+          ...(geometry.radiusMeters !== undefined ? { radiusMeters: geometry.radiusMeters } : {}),
+          ...(data.boundary !== undefined ? { boundary: data.boundary ?? Prisma.DbNull } : {}),
           ...(data.allowedAccuracyMeters !== undefined
             ? { allowedAccuracyMeters: data.allowedAccuracyMeters }
             : {}),
@@ -229,6 +253,7 @@ export class GeolocationService implements OnApplicationBootstrap {
         latitude: before.latitude,
         longitude: before.longitude,
         radiusMeters: before.radiusMeters,
+        boundary: before.boundary,
         allowedAccuracyMeters: before.allowedAccuracyMeters,
         isActive: before.isActive,
         type: before.type,
@@ -450,8 +475,12 @@ export class GeolocationService implements OnApplicationBootstrap {
 
       if (position) {
         const outsideBy = (location: (typeof locations)[number]) =>
-          this.distanceInMeters(position.latitude, position.longitude, Number(location.latitude), Number(location.longitude)) -
-          Number(location.radiusMeters);
+          distanceOutsideGeofence(position.latitude, position.longitude, {
+            latitude: Number(location.latitude),
+            longitude: Number(location.longitude),
+            radiusMeters: Number(location.radiusMeters),
+            boundary: location.boundary as GeofenceBoundary | null,
+          });
         return locations.reduce((best, location) => (outsideBy(location) < outsideBy(best) ? location : best));
       }
       return locations.find((location) => location.name !== DEFAULT_OFFICE_LOCATION_NAME) ?? locations[0];
@@ -895,14 +924,22 @@ export class GeolocationService implements OnApplicationBootstrap {
   }
 
   validateGeofence(input: GeofenceInput) {
-    const distanceMeters = this.distanceInMeters(
+    // Still distance from the area's pin — it's what each AttendanceLog
+    // records as distanceFromSiteMeters. Inside/outside follows the shape.
+    const distanceMeters = distanceInMeters(
       input.latitude,
       input.longitude,
       input.siteLatitude,
       input.siteLongitude,
     );
     const accuracyAccepted = input.accuracyMeters <= input.allowedAccuracyMeters;
-    const insideGeofence = distanceMeters <= input.radiusMeters;
+    const insideGeofence =
+      distanceOutsideGeofence(input.latitude, input.longitude, {
+        latitude: input.siteLatitude,
+        longitude: input.siteLongitude,
+        radiusMeters: input.radiusMeters,
+        boundary: input.boundary,
+      }) <= 0;
 
     return {
       approved: accuracyAccepted && insideGeofence,
@@ -915,18 +952,6 @@ export class GeolocationService implements OnApplicationBootstrap {
           ? "Employee is outside the approved work location"
           : null,
     };
-  }
-
-  private distanceInMeters(lat1: number, lon1: number, lat2: number, lon2: number) {
-    const earthRadiusMeters = 6371000;
-    const toRadians = (value: number) => (value * Math.PI) / 180;
-    const dLat = toRadians(lat2 - lat1);
-    const dLon = toRadians(lon2 - lon1);
-    const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) *
-        Math.sin(dLon / 2) * Math.sin(dLon / 2);
-    return earthRadiusMeters * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
   // Resolves one address for a submitted lat/lon and is what attendance.

@@ -58,7 +58,7 @@ import {
 } from "./src/api";
 import { CACHE_KEYS, cacheGet, cacheSet, prefetchCached, revalidateCached, subscribeCache } from "./src/utils/dataCache";
 import { getFriendlyReason, getFlaggedAttemptMessage } from "./src/utils/attendanceMessages";
-import { distanceInMeters } from "./src/utils/geofence";
+import { distanceOutsideGeofence } from "./src/utils/geofence";
 import { Portal, GeofenceStatus } from "./src/types";
 
 // How often to re-check the employee's live GPS position against their
@@ -87,7 +87,7 @@ function workLocationsSignature(locations: WorkLocation[]) {
   return locations
     .map(
       (location) =>
-        `${location.id}:${location.name}:${Number(location.latitude)}:${Number(location.longitude)}:${Number(location.radiusMeters)}:${Number(location.allowedAccuracyMeters)}`,
+        `${location.id}:${location.name}:${Number(location.latitude)}:${Number(location.longitude)}:${Number(location.radiusMeters)}:${Number(location.allowedAccuracyMeters)}:${JSON.stringify(location.boundary ?? null)}`,
     )
     .sort()
     .join("|");
@@ -375,13 +375,7 @@ export default function App() {
       : currentPosition == null
         ? "checking"
         : locations.some(
-            (location) =>
-              distanceInMeters(
-                currentPosition.latitude,
-                currentPosition.longitude,
-                Number(location.latitude),
-                Number(location.longitude),
-              ) <= Number(location.radiusMeters),
+            (location) => distanceOutsideGeofence(currentPosition.latitude, currentPosition.longitude, location) <= 0,
           )
           ? "inside"
           : "outside";
@@ -800,13 +794,10 @@ export default function App() {
       }
 
       const position = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      // Nearest by distance to each site's edge, not its pin — a large
+      // polygon's pin can be far from where the employee actually is.
       const nearestSite = sites.reduce((closest, site) => {
-        const distance = distanceInMeters(
-          position.coords.latitude,
-          position.coords.longitude,
-          Number(site.latitude),
-          Number(site.longitude),
-        );
+        const distance = distanceOutsideGeofence(position.coords.latitude, position.coords.longitude, site);
         return distance < closest.distance ? { site, distance } : closest;
       }, { site: sites[0], distance: Infinity });
 

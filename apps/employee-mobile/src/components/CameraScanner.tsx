@@ -16,7 +16,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { captureRef } from "react-native-view-shot";
 import { manipulateAsync, SaveFormat } from "expo-image-manipulator";
 import { detectFace, FaceBox, WorkLocation } from "../api";
-import { distanceInMeters } from "../utils/geofence";
+import { distanceOutsideGeofence } from "../utils/geofence";
 
 type CameraScannerProps = {
   logType: "TIME_IN" | "TIME_OUT" | "LUNCH_OUT" | "LUNCH_IN";
@@ -546,25 +546,19 @@ export default function CameraScanner({ logType, isBreak, isField, onComplete, o
         if (workLocations.length === 0) return;
 
         // Mirrors the backend's own validateGeofence (accuracy gate, then
-        // distance-vs-radius) so this can only disagree with the eventual
-        // submission in the direction of catching something earlier, not
-        // approving something the backend would reject.
+        // inside the circle/polygon) so this can only disagree with the
+        // eventual submission in the direction of catching something
+        // earlier, not approving something the backend would reject.
         const accuracy = location.coords.accuracy ?? Infinity;
         // Set when the fix was too imprecise to accept for a site the
-        // employee could still actually be inside of (its radius overlaps
+        // employee could still actually be inside of (its edge is within
         // the fix's own margin of error) — a weak signal, not a wrong place.
         let weakSignal = false;
         const isWithinAnyLocation = workLocations.some((site) => {
           const accuracyAccepted = accuracy <= Number(site.allowedAccuracyMeters);
-          const distance = distanceInMeters(
-            location.coords.latitude,
-            location.coords.longitude,
-            Number(site.latitude),
-            Number(site.longitude),
-          );
-          const radius = Number(site.radiusMeters);
-          if (!accuracyAccepted && distance - accuracy <= radius) weakSignal = true;
-          return accuracyAccepted && distance <= radius;
+          const outside = distanceOutsideGeofence(location.coords.latitude, location.coords.longitude, site);
+          if (!accuracyAccepted && outside <= accuracy) weakSignal = true;
+          return accuracyAccepted && outside <= 0;
         });
 
         if (!isWithinAnyLocation) {

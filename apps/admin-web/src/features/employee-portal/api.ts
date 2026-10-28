@@ -1,4 +1,5 @@
 import { apiRequest } from "../../lib/api";
+import type { GeofenceBoundary } from "../../lib/geofenceShape";
 
 export type AttendanceRecordType = "OFFICE" | "FIELD";
 
@@ -143,6 +144,9 @@ export type WorkLocation = {
   latitude: string | number;
   longitude: string | number;
   radiusMeters: string | number;
+  // Set for a polygon area — check inside/outside with
+  // distanceOutsideGeofence (lib/geofenceShape), never radiusMeters alone.
+  boundary?: GeofenceBoundary | null;
   allowedAccuracyMeters: string | number;
   // Office or Field area — any Field area makes the employee a FIELD
   // employee (see GeolocationService.syncAttendanceModes on the backend).

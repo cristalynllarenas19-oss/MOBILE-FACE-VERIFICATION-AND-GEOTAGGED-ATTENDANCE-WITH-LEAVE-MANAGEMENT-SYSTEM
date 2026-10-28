@@ -510,6 +510,12 @@ model WorkLocation {
   latitude              Decimal
   longitude             Decimal
   radiusMeters          Decimal                @map("radius_meters")
+  // Null = a circle (latitude/longitude + radiusMeters). Otherwise a polygon
+  // area drawn on the map or imported from KML: a list of polygons, each a
+  // ring of [latitude, longitude] points — inside any one counts as inside.
+  // latitude/longitude/radiusMeters then hold its bounding-box centre and
+  // bounding radius (see geofence-shape.util.ts).
+  boundary              Json?                  @map("boundary")
   allowedAccuracyMeters Decimal                @map("allowed_accuracy_meters")
   isActive              Boolean                @default(true) @map("is_active")
   // Classifies the area itself as an Office or a Field site. A FIELD employee's

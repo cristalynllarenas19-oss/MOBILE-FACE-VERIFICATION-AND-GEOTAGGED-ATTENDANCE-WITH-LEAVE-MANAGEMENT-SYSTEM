@@ -1,8 +1,19 @@
-import { Body, Controller, Delete, ForbiddenException, Get, Param, Patch, Post, Req } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Param, Patch, Post, Req } from "@nestjs/common";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
 import { getAuditContext } from "../../common/utils/audit-context.util";
 import { getSupervisorDepartmentScope } from "../../common/utils/supervisor-scope.util";
+import { normalizeBoundary } from "./geofence-shape.util";
 import { GeolocationService } from "./geolocation.service";
+
+// undefined = not sent (leave the shape as-is), null/[] = a circle.
+function parseBoundary(value: unknown) {
+  if (value === undefined) return undefined;
+  try {
+    return normalizeBoundary(value);
+  } catch (error) {
+    throw new BadRequestException(error instanceof Error ? error.message : "Invalid area boundary.");
+  }
+}
 
 // Fields that change an area's own definition rather than who's assigned to
 // it — a Supervisor may never touch these (create/edit/delete/activate are
@@ -13,6 +24,7 @@ const AREA_METADATA_FIELDS = [
   "latitude",
   "longitude",
   "radiusMeters",
+  "boundary",
   "allowedAccuracyMeters",
   "isActive",
   "departmentId",
@@ -55,6 +67,7 @@ export class GeolocationController {
       latitude: Number(data.latitude),
       longitude: Number(data.longitude),
       radiusMeters: Number(data.radiusMeters),
+      boundary: parseBoundary(data.boundary),
       allowedAccuracyMeters: data.allowedAccuracyMeters !== undefined ? Number(data.allowedAccuracyMeters) : undefined,
       employeeIds: Array.isArray(data.employeeIds) ? data.employeeIds : [],
       departmentId: data.departmentId !== undefined ? data.departmentId : undefined,
@@ -80,6 +93,7 @@ export class GeolocationController {
       latitude: data.latitude !== undefined ? Number(data.latitude) : undefined,
       longitude: data.longitude !== undefined ? Number(data.longitude) : undefined,
       radiusMeters: data.radiusMeters !== undefined ? Number(data.radiusMeters) : undefined,
+      boundary: parseBoundary(data.boundary),
       allowedAccuracyMeters: data.allowedAccuracyMeters !== undefined ? Number(data.allowedAccuracyMeters) : undefined,
       isActive: data.isActive !== undefined ? Boolean(data.isActive) : undefined,
       employeeIds: Array.isArray(data.employeeIds) ? data.employeeIds : undefined,

@@ -25,6 +25,7 @@ import {
   unassignEmployeeFromLocation,
 } from "../../api";
 import { useCachedData } from "../../utils/dataCache";
+import { describeGeofence, isPolygonArea } from "../../utils/geofence";
 import { MAP_WEBVIEW_CACHE_MODE, OSM_TILE_URL, leafletHeadHtml } from "../../utils/leafletHtml";
 import { ui } from "../../styles/ui";
 
@@ -59,6 +60,7 @@ function buildAreasMapHtml(locations: GeotaggedLocation[]) {
     lat: Number(location.latitude),
     lon: Number(location.longitude),
     radius: Number(location.radiusMeters),
+    boundary: isPolygonArea(location) ? location.boundary : null,
     count: location.employees?.length ?? 0,
   }));
 
@@ -94,7 +96,13 @@ function buildAreasMapHtml(locations: GeotaggedLocation[]) {
       marker.on('click', () => {
         if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(p.id);
       });
-      L.circle([p.lat, p.lon], { radius: p.radius, color: '#0EA5E9', fillColor: '#0EA5E9', fillOpacity: 0.15, weight: 1.5 }).addTo(map);
+      const areaStyle = { color: '#0EA5E9', fillColor: '#0EA5E9', fillOpacity: 0.15, weight: 1.5 };
+      (p.boundary
+        // One polygon per part — a plain list of rings would draw every
+        // part after the first as a hole.
+        ? L.polygon(p.boundary.map((ring) => [ring]), areaStyle)
+        : L.circle([p.lat, p.lon], Object.assign({ radius: p.radius }, areaStyle))
+      ).addTo(map);
       markers[p.id] = marker;
     });
 
@@ -487,7 +495,7 @@ export default function GeotaggedAreasScreen({ onClose }: Props) {
                             {location.name}
                           </Text>
                           <Text style={styles.areaMeta} numberOfLines={1}>
-                            {location.type === "FIELD" ? "Field" : "Office"} · {Number(location.radiusMeters)}m radius
+                            {location.type === "FIELD" ? "Field" : "Office"} · {describeGeofence(location)}
                             {isDefaultOfficeLocation(location) ? " · Default" : ""}
                             {!isActive ? " · Inactive" : ""}
                           </Text>

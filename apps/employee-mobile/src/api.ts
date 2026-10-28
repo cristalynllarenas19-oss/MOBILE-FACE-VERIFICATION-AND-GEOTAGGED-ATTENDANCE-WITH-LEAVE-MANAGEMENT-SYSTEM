@@ -1,6 +1,7 @@
 import * as SecureStore from "expo-secure-store";
 import Constants from "expo-constants";
 import { clearDataCache } from "./utils/dataCache";
+import type { GeofenceBoundary } from "./utils/geofence";
 
 const DEFAULT_API_BASE_URL = "https://backend-production-b9de.up.railway.app/api/v1";
 // "http://localhost:3001/api/v1"
@@ -260,6 +261,9 @@ export type WorkLocation = {
   latitude: string | number;
   longitude: string | number;
   radiusMeters: string | number;
+  // Set for a polygon area — check inside/outside with
+  // distanceOutsideGeofence (utils/geofence), never radiusMeters alone.
+  boundary?: GeofenceBoundary | null;
   allowedAccuracyMeters: string | number;
   // Office or Field area — any Field area makes the employee a FIELD
   // employee (see GeolocationService.syncAttendanceModes on the backend).
@@ -1093,6 +1097,7 @@ export type GeotaggedLocation = {
   latitude: number;
   longitude: number;
   radiusMeters: number;
+  boundary?: GeofenceBoundary | null;
   isActive?: boolean;
   departmentId?: string | null;
   department?: { id: string; name: string } | null;

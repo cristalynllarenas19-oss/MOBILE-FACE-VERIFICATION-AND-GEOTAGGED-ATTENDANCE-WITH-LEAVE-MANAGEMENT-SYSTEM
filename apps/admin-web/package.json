@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@mapbox/vector-tile": "^2.0.3",
     "@vitejs/plugin-react": "^4.3.4",
     "axios": "^1.18.0",
     "face-api.js": "^0.22.2",
@@ -16,6 +17,8 @@
     "jspdf-autotable": "^5.0.8",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.468.0",
+    "pbf": "^4.0.1",
+    "polygon-clipping": "^0.15.7",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "vite": "^6.0.3",

@@ -11,6 +11,7 @@ import markerIconUrl from "leaflet/dist/images/marker-icon.png";
 import { AlertCircle, CheckCircle2, MapPin } from "lucide-react";
 import { WorkLocation, getMyWorkLocation, getMyWorkLocations, distanceInMeters } from "./api";
 import type { AuthUser } from "../../lib/api";
+import { distanceOutsideGeofence, isPolygonArea } from "../../lib/geofenceShape";
 import { CACHE_KEYS, useCachedData } from "../../lib/dataCache";
 
 type Props = { user: AuthUser };
@@ -56,7 +57,7 @@ export function WorkAreaPage({ user }: Props) {
 
   const mapRef      = useRef<L.Map | null>(null);
   const siteMarker  = useRef<L.Marker | null>(null);
-  const siteCircle  = useRef<L.Circle | null>(null);
+  const siteCircle  = useRef<L.Circle | L.Polygon | null>(null);
   const youMarker   = useRef<L.CircleMarker | null>(null);
   const watchId     = useRef<number | null>(null);
 
@@ -98,6 +99,7 @@ export function WorkAreaPage({ user }: Props) {
     const lat = Number(activeLocation.latitude);
     const lng = Number(activeLocation.longitude);
     const r   = Number(activeLocation.radiusMeters);
+    const areaLabel = isPolygonArea(activeLocation) ? "Polygon area" : `Radius: ${r}m`;
 
     siteMarker.current?.remove();
     siteCircle.current?.remove();
@@ -105,20 +107,21 @@ export function WorkAreaPage({ user }: Props) {
     siteMarker.current = L.marker([lat, lng], { icon: siteMarkerIcon })
       .addTo(map)
       .bindTooltip(
-        `<div class="site-tooltip-title">${activeLocation.name}</div><div class="site-tooltip-meta">Radius: ${r}m</div>`,
+        `<div class="site-tooltip-title">${activeLocation.name}</div><div class="site-tooltip-meta">${areaLabel}</div>`,
         // Hover, not click — matches the "You are here" tooltip below, so
         // neither label needs an extra click to read. Positioning comes
         // from the icon's own tooltipAnchor above.
         { className: "site-tooltip", direction: "top" },
       );
 
-    siteCircle.current = L.circle([lat, lng], {
-      radius: r,
-      color: "#1680D8",
-      fillColor: "#1680D8",
-      fillOpacity: 0.12,
-      weight: 2,
-    }).addTo(map);
+    const areaStyle = { color: "#1680D8", fillColor: "#1680D8", fillOpacity: 0.12, weight: 2 };
+    siteCircle.current = (
+      isPolygonArea(activeLocation)
+        ? // One polygon per part (several buildings) — a plain list of rings
+          // would draw every part after the first as a hole.
+          L.polygon(activeLocation.boundary!.map((ring) => [ring]), areaStyle)
+        : L.circle([lat, lng], { radius: r, ...areaStyle })
+    ).addTo(map);
   }, [activeLocation]);
 
   // ── Update "you are here" marker ──────────────────────────────────────────
@@ -161,14 +164,17 @@ export function WorkAreaPage({ user }: Props) {
     if (!map || !activeLocation || hasAutoFitRef.current) return;
     const lat = Number(activeLocation.latitude);
     const lng = Number(activeLocation.longitude);
+    // A polygon is framed whole; a circle by its pin (as before).
+    const areaBounds = isPolygonArea(activeLocation)
+      ? L.latLngBounds(activeLocation.boundary!.flat())
+      : L.latLngBounds([[lat, lng]]);
 
     if (myPosition) {
-      const bounds = L.latLngBounds([
-        [lat, lng],
-        [myPosition.coords.latitude, myPosition.coords.longitude],
-      ]);
+      const bounds = areaBounds.extend([myPosition.coords.latitude, myPosition.coords.longitude]);
       map.fitBounds(bounds, { padding: [40, 40] });
       hasAutoFitRef.current = true;
+    } else if (isPolygonArea(activeLocation)) {
+      map.fitBounds(areaBounds, { padding: [40, 40] });
     } else {
       map.setView([lat, lng], 16);
     }
@@ -183,12 +189,21 @@ export function WorkAreaPage({ user }: Props) {
   function getDistanceStatus(loc: WorkLocation): { inside: boolean; heroValue: number; label: string } | null {
     if (!myPosition) return null;
     const { latitude, longitude } = myPosition.coords;
+    const outside = distanceOutsideGeofence(latitude, longitude, loc);
+    const inside = outside <= 0;
+    // A polygon has no meaningful centre, so inside it the reading is how
+    // far in from the nearest edge instead.
+    if (isPolygonArea(loc)) {
+      return {
+        inside,
+        heroValue: Math.round(Math.abs(outside)),
+        label: inside ? "from the boundary — inside the work area" : "beyond the boundary",
+      };
+    }
     const dist = distanceInMeters(latitude, longitude, Number(loc.latitude), Number(loc.longitude));
-    const r = Number(loc.radiusMeters);
-    const inside = dist <= r;
     return {
       inside,
-      heroValue: Math.round(inside ? dist : dist - r),
+      heroValue: Math.round(inside ? dist : outside),
       label: inside ? "from centre — inside the work area" : "beyond the boundary",
     };
   }
@@ -233,7 +248,7 @@ export function WorkAreaPage({ user }: Props) {
                         {loc.name}
                       </p>
                       <p style={{ color: "#64748B", fontSize: 12.5, margin: "2px 0 0" }}>
-                        Authorized radius: {loc.radiusMeters}m
+                        {isPolygonArea(loc) ? "Authorized area: polygon" : `Authorized radius: ${loc.radiusMeters}m`}
                       </p>
                     </div>
                     {status && (

@@ -822,12 +822,6 @@
   font-size: 11.5px;
 }
 
-.coordinate-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
-
 /* Location name + 🔍 place search (Add mode only) */
 .place-search-wrap {
   position: relative;
@@ -930,26 +924,6 @@
   font-weight: 500;
 }
 
-.radius-input-wrap {
-  position: relative;
-}
-
-.radius-input-wrap input {
-  padding-right: 36px;
-}
-
-.radius-unit {
-  position: absolute;
-  right: 12px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: #94a3b8;
-  font-size: 12px;
-  font-weight: 700;
-  pointer-events: none;
-  text-transform: none;
-  letter-spacing: 0;
-}
 
 
 .geotagging-actions {
@@ -1910,4 +1884,133 @@
   .geotagging-modal-employee-meta span {
     text-align: left;
   }
+}
+
+/* Area boundary field — the polygon drawing / KML import controls. */
+.area-shape-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.area-shape-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.area-shape-label {
+  color: #334155;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Point count + size of the shape being drawn. */
+.boundary-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.boundary-status--neutral {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+.boundary-status--warning {
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.boundary-status--ok {
+  background: #ecfdf3;
+  color: #15803d;
+}
+
+.polygon-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1.5px dashed #c6d6ea;
+  border-radius: 12px;
+  background: #f8fafd;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+/* A KML file is being dragged over the box. */
+.polygon-editor.is-dragging {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+.polygon-editor-hint {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.polygon-editor-actions {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr;
+  gap: 6px;
+}
+
+.polygon-editor-actions .outline-button {
+  height: 32px;
+  padding: 0 8px;
+  gap: 5px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* Draggable corner handle on the polygon being drawn (Leaflet divIcon). */
+.polygon-vertex-handle {
+  border: 2px solid #1d4ed8;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.35);
+  cursor: move;
+}
+
+.polygon-vertex-handle:hover {
+  background: #dbeafe;
+}
+
+/* "Outline a building" — full width, highlighted while waiting for a click. */
+.polygon-editor .outline-pick-button {
+  width: 100%;
+  height: 34px;
+  font-size: 12.5px;
+}
+
+.polygon-editor .outline-pick-button.is-active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.polygon-editor-error {
+  margin: 0;
+  color: #b42318;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+/* Waiting for a building click — crosshair instead of the grab hand. */
+.geotagging-map.is-picking-outline.leaflet-container,
+.geotagging-map.is-picking-outline .leaflet-interactive {
+  cursor: crosshair;
 }

@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import { PrismaService, withPrismaRetry } from "../../prisma/prisma.service";
 import { FaceVerificationService } from "../face-verification/face-verification.service";
 import { GeolocationService } from "../geolocation/geolocation.service";
+import type { GeofenceBoundary } from "../geolocation/geofence-shape.util";
 import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { SubmitAttendanceDto } from "./dto/submit-attendance.dto";
@@ -1050,6 +1051,9 @@ export class AttendanceService {
         radiusMeters: Number(
           location.radiusMeters,
         ),
+
+        // A polygon area (null/absent = the circle above).
+        boundary: (location as { boundary?: unknown }).boundary as GeofenceBoundary | null | undefined,
 
         allowedAccuracyMeters,
       });

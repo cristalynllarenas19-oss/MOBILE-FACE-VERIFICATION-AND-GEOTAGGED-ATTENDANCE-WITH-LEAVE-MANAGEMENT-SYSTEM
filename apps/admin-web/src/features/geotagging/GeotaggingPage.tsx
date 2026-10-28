@@ -1,7 +1,7 @@
 import "leaflet/dist/leaflet.css";
 
-import { Component, FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, Edit3, Eye, MapPin, Plus, Power, PowerOff, Save, Search, Trash2, UserMinus, Users, X } from "lucide-react";
+import { ChangeEvent, Component, DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Building2, Check, ChevronDown, Edit3, Eye, MapPin, Plus, Power, PowerOff, Save, Search, Trash2, Undo2, Upload, UserMinus, Users, X } from "lucide-react";
 import L from "leaflet";
 import markerIcon2xUrl from "leaflet/dist/images/marker-icon-2x.png";
 import markerIconUrl from "leaflet/dist/images/marker-icon.png";
@@ -9,6 +9,21 @@ import markerShadowUrl from "leaflet/dist/images/marker-shadow.png";
 import "./GeotaggingPage.css";
 import { apiRequest } from "../../lib/api";
 import { useActiveDepartments } from "../../lib/departments";
+import {
+  GeofenceBoundary,
+  boundaryAreaSquareMeters,
+  describeGeofence,
+  distanceOutsideGeofence,
+  formatArea,
+  isPolygonArea,
+} from "../../lib/geofenceShape";
+import { parseKml } from "./kml";
+import {
+  findOutlinesAt,
+  hoverOutlineAt,
+  isOutlineDataLoaded,
+  prefetchOutlines,
+} from "./autoOutline";
 import { useLiveRefresh } from "../../lib/liveRefresh";
 import { ConfirmDialog, type ConfirmDialogConfig } from "../../components/ui/ConfirmDialog";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
@@ -35,6 +50,8 @@ type GeotaggedLocation = {
   latitude: number;
   longitude: number;
   radiusMeters: number;
+  // Set for a polygon area (drawn or imported from KML); null = a circle.
+  boundary?: GeofenceBoundary | null;
   employees?: Array<{ employee: EmployeeOption }>;
   employeeId?: string | null;
   employee?: EmployeeOption | null;
@@ -99,11 +116,33 @@ const initialForm = {
   name: "",
   latitude: "16.3222",
   longitude: "120.3656",
-  radiusMeters: "120",
   departmentId: "" as string, // "" = no specific department (visible to everyone)
   employeeIds: [] as string[],
   type: "OFFICE" as "OFFICE" | "FIELD",
+  // Every area is drawn as a polygon: each map click adds a corner to the
+  // last polygon, or a KML import replaces it. latitude/longitude above only
+  // steer the map camera (place search, KML import) — the server derives the
+  // stored pin and radius from the boundary. An older circle area keeps its
+  // circle until a polygon is drawn for it.
+  boundary: [] as GeofenceBoundary,
 };
+
+function boundaryBounds(boundary: GeofenceBoundary) {
+  return L.latLngBounds(boundary.flat());
+}
+
+// The polygon being drawn — blue, so it stands out from saved (grey/green) areas.
+const DRAFT_SHAPE_STYLE = { color: "#2563eb", fillColor: "#38bdf8", fillOpacity: 0.18 };
+
+// A draggable handle on each corner of the polygon being drawn.
+const vertexIcon = L.divIcon({ className: "polygon-vertex-handle", iconSize: [14, 14], iconAnchor: [7, 7] });
+const MAX_DRAGGABLE_VERTICES = 200;
+const MAX_UNDO_STEPS = 50;
+
+// Building outlines are only loaded/picked from this zoom in — further out
+// the view spans too many map tiles, and buildings are too small to click.
+const MIN_OUTLINE_ZOOM = 15;
+const OUTLINE_HOVER_STYLE = { color: "#f59e0b", weight: 3, fillColor: "#fbbf24", fillOpacity: 0.25, dashArray: "6 4" };
 
 const markerIcon = L.icon({
   iconRetinaUrl: markerIcon2xUrl,
@@ -191,7 +230,7 @@ function ViewAreaEmployeesModal({
               </span>
             </div>
             <p>
-              {Number(location.latitude).toFixed(5)}, {Number(location.longitude).toFixed(5)} · {location.radiusMeters}m radius
+              {Number(location.latitude).toFixed(5)}, {Number(location.longitude).toFixed(5)} · {describeGeofence(location)}
             </p>
           </div>
           <button className="icon-button" type="button" onClick={onClose} aria-label="Close area details">
@@ -340,9 +379,35 @@ function GeotaggingPageContent({
 
   const mapElementRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
-  const draftMarkerRef = useRef<L.Marker | null>(null);
-  const draftCircleRef = useRef<L.Circle | null>(null);
+  const draftPolygonRef = useRef<L.LayerGroup | null>(null);
   const savedLayerRef = useRef<L.LayerGroup | null>(null);
+  const kmlInputRef = useRef<HTMLInputElement | null>(null);
+  const [isDraggingKml, setIsDraggingKml] = useState(false);
+  // "Outline a building": while on, the next map click looks up the mapped
+  // outline there instead of adding a corner.
+  const [isPickingOutline, setIsPickingOutline] = useState(false);
+  const [outlineLookup, setOutlineLookup] = useState<{ loading: boolean; error: string }>({ loading: false, error: "" });
+  // The shape before each change, newest last — what Undo steps back
+  // through (a whole picked building, a corner, a drag, a Clear…).
+  const [boundaryHistory, setBoundaryHistory] = useState<GeofenceBoundary[]>([]);
+  // Always the latest shape, for handlers that run after an await or were
+  // bound before the last render.
+  const boundaryRef = useRef<GeofenceBoundary>(form.boundary);
+  boundaryRef.current = form.boundary;
+  // After a building is picked (or a KML imported), the next hand-drawn
+  // click starts a new shape instead of bending that one.
+  const startNewShapeRef = useRef(false);
+  // Bumped on every lookup (and cancel) so a late answer for an older click
+  // is ignored.
+  const outlineLookupSeqRef = useRef(0);
+  const [isTooZoomedOutForOutlines, setIsTooZoomedOutForOutlines] = useState(false);
+  // The building under the cursor while picking.
+  const outlineHoverRef = useRef<L.Polygon | null>(null);
+  // Read by the map's event handlers, which are bound once at map creation.
+  const isPickingOutlineRef = useRef(false);
+  isPickingOutlineRef.current = isPickingOutline;
+  const mapClickRef = useRef<(latitude: number, longitude: number) => void>(() => undefined);
+  const prefetchOutlinesRef = useRef<() => void>(() => undefined);
 
 
   useEffect(() => {
@@ -399,7 +464,6 @@ function GeotaggingPageContent({
 
   const latitude = Number(form.latitude);
   const longitude = Number(form.longitude);
-  const radiusMeters = Number(form.radiusMeters);
   const previewPosition = useMemo<[number, number]>(
     () => [
       Number.isFinite(latitude) ? latitude : 16.3222,
@@ -657,47 +721,199 @@ function GeotaggingPageContent({
     setSelectedLocationId(location.id);
     setEditingLocationId(location.id);
     setAssignmentError("");
+    resetAutoShape();
     setForm((current) => ({
       ...current,
       name: location.name,
       latitude: Number.isFinite(nextLatitude) ? nextLatitude.toFixed(6) : current.latitude,
       longitude: Number.isFinite(nextLongitude) ? nextLongitude.toFixed(6) : current.longitude,
-      radiusMeters: Number(location.radiusMeters).toString(),
       departmentId: scopedDepartmentId ?? location.departmentId ?? "",
       type: location.type ?? "OFFICE",
+      boundary: location.boundary ?? [],
       employeeIds:
         location.employees?.map((entry) => entry.employee.id) ??
         (location.employeeId ? [location.employeeId] : location.employee ? [location.employee.id] : []),
     }));
 
     const map = mapRef.current;
-    if (map && Number.isFinite(nextLatitude) && Number.isFinite(nextLongitude)) {
+    if (map && isPolygonArea(location)) {
+      // Not animated, so the pan-to-pin that follows (same centre) is a no-op
+      // instead of cutting this zoom short.
+      map.fitBounds(boundaryBounds(location.boundary!), { padding: [30, 30], animate: false });
+    } else if (map && Number.isFinite(nextLatitude) && Number.isFinite(nextLongitude)) {
       map.setView([nextLatitude, nextLongitude], map.getZoom(), {
         animate: true,
       });
     }
   }
 
-  const updateDraftOverlay = (map: L.Map, nextCenter: [number, number], nextRadius: number) => {
-    const currentMarker = draftMarkerRef.current;
-    const currentCircle = draftCircleRef.current;
+  // Every change to the shape goes through here, so Undo can step back
+  // through it.
+  function changeBoundary(next: GeofenceBoundary) {
+    const previous = boundaryRef.current;
+    boundaryRef.current = next;
+    setBoundaryHistory((history) => [...history.slice(-(MAX_UNDO_STEPS - 1)), previous]);
+    setForm((current) => ({ ...current, boundary: next }));
+  }
 
-    if (currentMarker) {
-      currentMarker.setLatLng(nextCenter);
+  // A fresh start for a different area (or a new one): no picking, nothing
+  // to undo.
+  function resetAutoShape() {
+    outlineLookupSeqRef.current += 1;
+    setIsPickingOutline(false);
+    setOutlineLookup({ loading: false, error: "" });
+    setBoundaryHistory([]);
+    startNewShapeRef.current = false;
+  }
+
+  function undoBoundaryChange() {
+    const previous = boundaryHistory[boundaryHistory.length - 1];
+    if (!previous) return;
+    boundaryRef.current = previous;
+    setBoundaryHistory((history) => history.slice(0, -1));
+    setForm((current) => ({ ...current, boundary: previous }));
+  }
+
+  function clearPolygon() {
+    startNewShapeRef.current = false;
+    changeBoundary([]);
+  }
+
+  // A map click: while picking, add (or remove) a building; otherwise add a
+  // corner to the shape being drawn — or start a new one right after a
+  // building was picked.
+  function handleMapClick(latitude: number, longitude: number) {
+    if (isPickingOutline) {
+      void pickOutlineAt(latitude, longitude);
+      return;
+    }
+    const point: [number, number] = [Number(latitude.toFixed(6)), Number(longitude.toFixed(6))];
+    const boundary = boundaryRef.current;
+    if (boundary.length === 0 || startNewShapeRef.current) {
+      startNewShapeRef.current = false;
+      changeBoundary([...boundary, [point]]);
+    } else {
+      changeBoundary([...boundary.slice(0, -1), [...boundary[boundary.length - 1], point]]);
+    }
+  }
+  mapClickRef.current = handleMapClick;
+
+  function toggleOutlinePicking() {
+    outlineLookupSeqRef.current += 1;
+    setOutlineLookup({ loading: false, error: "" });
+    if (!isPickingOutline) prefetchOutlinesInView();
+    setIsPickingOutline((current) => !current);
+  }
+
+  // Loads the building outlines for the map view in the background, so a
+  // click is answered from memory. Run on every pan/zoom.
+  function prefetchOutlinesInView() {
+    const map = mapRef.current;
+    if (!map) return;
+    const bounds = map.getBounds();
+    setIsTooZoomedOutForOutlines(
+      map.getZoom() < MIN_OUTLINE_ZOOM ||
+        !prefetchOutlines(bounds.getSouth(), bounds.getWest(), bounds.getNorth(), bounds.getEast()),
+    );
+  }
+  prefetchOutlinesRef.current = prefetchOutlinesInView;
+
+  // While picking, each click adds the building there to the area (picking
+  // stays on, so several can be added in a row). Clicking a part that's
+  // already in the area takes it out again. The outline added is the one
+  // highlighted under the cursor — the smallest at the spot, from the
+  // outlines already loaded for the view (click the lot outside a building
+  // to get the lot). Only waits on the network when the click lands
+  // somewhere not loaded yet.
+  async function pickOutlineAt(latitude: number, longitude: number) {
+    const seq = ++outlineLookupSeqRef.current;
+    setOutlineLookup({ loading: false, error: "" });
+
+    const existing = boundaryRef.current.findIndex(
+      (ring) =>
+        ring.length >= 3 &&
+        distanceOutsideGeofence(latitude, longitude, { latitude: 0, longitude: 0, radiusMeters: 0, boundary: [ring] }) <= 0,
+    );
+    if (existing !== -1) {
+      changeBoundary(boundaryRef.current.filter((_, index) => index !== existing));
+      return;
     }
 
-    if (currentCircle) {
-      currentCircle.setLatLng(nextCenter);
-      currentCircle.setRadius(nextRadius);
-    } else if (Number.isFinite(nextRadius) && nextRadius > 0) {
-      draftCircleRef.current = L.circle(nextCenter, {
-        radius: nextRadius,
-        color: "#2563eb",
-        fillColor: "#38bdf8",
-        fillOpacity: 0.18,
-      }).addTo(map);
+    if (!isOutlineDataLoaded(latitude, longitude)) setOutlineLookup({ loading: true, error: "" });
+    try {
+      const candidates = await findOutlinesAt(latitude, longitude);
+      if (seq !== outlineLookupSeqRef.current) return;
+      if (candidates.length === 0) {
+        setOutlineLookup({
+          loading: false,
+          error: "Nothing is mapped at that spot. Click right on a building, or draw the corners yourself.",
+        });
+        return;
+      }
+      setOutlineLookup({ loading: false, error: "" });
+      const [smallest] = candidates;
+      const next = [...boundaryRef.current, smallest.boundary[0]];
+      startNewShapeRef.current = true;
+      // Only a real name — not a bare "Building" — and only if none typed.
+      setForm((current) =>
+        current.name.trim() || smallest.name === smallest.kind ? current : { ...current, name: smallest.name },
+      );
+      changeBoundary(next);
+    } catch {
+      if (seq !== outlineLookupSeqRef.current) return;
+      setOutlineLookup({
+        loading: false,
+        error: "Couldn't load the map outlines right now. Try again in a moment, or draw the corners yourself.",
+      });
     }
-  };
+  }
+
+  function handleKmlFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    // Reset so picking the same file again still fires onChange.
+    event.target.value = "";
+    if (file) void importKmlFile(file);
+  }
+
+  function handleKmlDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setIsDraggingKml(false);
+    const file = event.dataTransfer.files?.[0];
+    if (file) void importKmlFile(file);
+  }
+
+  async function importKmlFile(file: File) {
+    setAssignmentError("");
+    if (/\.kmz$/i.test(file.name)) {
+      setAssignmentError("KMZ files aren't supported — export the area as .kml (in Google Earth: Save Place As → KML).");
+      return;
+    }
+
+    try {
+      const { boundary, name } = parseKml(await file.text());
+      // Replaces the shape (Undo brings the old one back); drawing after it
+      // starts a new part.
+      startNewShapeRef.current = true;
+      changeBoundary(boundary);
+      const bounds = boundaryBounds(boundary);
+      const center = bounds.getCenter();
+      setForm((current) => ({
+        ...current,
+        name: current.name.trim() ? current.name : name ?? current.name,
+        latitude: center.lat.toFixed(6),
+        longitude: center.lng.toFixed(6),
+      }));
+      mapRef.current?.fitBounds(bounds, { padding: [30, 30], animate: false });
+      const pointCount = boundary.reduce((sum, ring) => sum + ring.length, 0);
+      setNotice({
+        type: "success",
+        title: "KML Imported",
+        message: `Loaded ${boundary.length === 1 ? "1 polygon" : `${boundary.length} polygons`} (${pointCount} points) from "${file.name}". Check it on the map, then save.`,
+      });
+    } catch (error) {
+      setAssignmentError(error instanceof Error ? error.message : "Couldn't read this KML file.");
+    }
+  }
 
   useEffect(() => {
     if (!mapElementRef.current || mapRef.current) {
@@ -717,31 +933,45 @@ function GeotaggingPageContent({
       maxZoom: 19,
     }).addTo(map);
 
-    draftMarkerRef.current = L.marker(previewPosition, { icon: markerIcon }).addTo(map);
-    draftMarkerRef.current.bindPopup("Draft location");
-
+    // Adds a building or a corner — see handleMapClick.
     map.on("click", (event) => {
-      // A manual pin takes over from any search, so clearing the name
-      // afterwards won't pull the camera away from it.
+      // Drawing takes over from any search, so clearing the name afterwards
+      // won't pull the camera away from it.
       placeSearchUsedRef.current = false;
-      setForm((current) => ({
-        ...current,
-        latitude: event.latlng.lat.toFixed(6),
-        longitude: event.latlng.lng.toFixed(6),
-      }));
+      mapClickRef.current(event.latlng.lat, event.latlng.lng);
     });
+
+    // Only admins draw areas — Supervisors' copy of this map never needs
+    // building outlines.
+    if (canManageAreas) {
+      map.on("moveend", () => prefetchOutlinesRef.current());
+      prefetchOutlinesRef.current();
+
+      // While picking, highlight the building under the cursor, from the
+      // outlines already loaded for the view.
+      let hoveredRing: Array<[number, number]> | null = null;
+      map.on("mousemove", (event) => {
+        const ring = isPickingOutlineRef.current ? hoverOutlineAt(event.latlng.lat, event.latlng.lng) : null;
+        // Unchanged (and still drawn — picking may have been switched off
+        // and on, which clears the highlight) → nothing to do.
+        if (ring === hoveredRing && Boolean(ring) === Boolean(outlineHoverRef.current)) return;
+        hoveredRing = ring;
+        outlineHoverRef.current?.remove();
+        outlineHoverRef.current = ring ? L.polygon(ring, { ...OUTLINE_HOVER_STYLE, interactive: false }).addTo(map) : null;
+      });
+    }
 
     return () => {
       map.off();
       map.remove();
       mapRef.current = null;
-      draftMarkerRef.current = null;
-      draftCircleRef.current = null;
+      outlineHoverRef.current = null;
+      draftPolygonRef.current = null;
       savedLayerRef.current = null;
     };
-    // Create the map once. Pin/circle/view updates for later coordinate
-    // changes are handled by the effect below — re-running this one tore
-    // down the whole map on every click (zoom reset, saved areas vanished).
+    // Create the map once. Draft/view updates are handled by the effects
+    // below — re-running this one tore down the whole map on every click
+    // (zoom reset, saved areas vanished).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -752,16 +982,55 @@ function GeotaggingPageContent({
     }
 
     map.setView(previewPosition, map.getZoom(), { animate: true });
+  }, [previewPosition]);
 
-    if (!draftMarkerRef.current) {
-      draftMarkerRef.current = L.marker(previewPosition, { icon: markerIcon }).addTo(map);
-      draftMarkerRef.current.bindPopup("Draft location");
-    } else {
-      draftMarkerRef.current.setLatLng(previewPosition);
+  // Crosshair cursor while waiting for a building click. Toggled on the
+  // element directly — a React className change would wipe the classes
+  // Leaflet added to the same div.
+  useEffect(() => {
+    mapElementRef.current?.classList.toggle("is-picking-outline", isPickingOutline);
+    if (!isPickingOutline) {
+      outlineHoverRef.current?.remove();
+      outlineHoverRef.current = null;
+    }
+  }, [isPickingOutline]);
+
+  // The polygon being drawn/imported, with a draggable handle on each
+  // corner. The outline follows a handle live while it's dragged; the form
+  // is only updated on drop. A huge imported outline gets no handles — that
+  // many markers would bury the map (Clear and redraw, or re-import, instead).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) {
+      return;
     }
 
-    updateDraftOverlay(map, previewPosition, Number.isFinite(radiusMeters) && radiusMeters > 0 ? radiusMeters : 0);
-  }, [previewPosition, radiusMeters]);
+    draftPolygonRef.current?.remove();
+    const group = L.layerGroup();
+    const showHandles = form.boundary.reduce((sum, ring) => sum + ring.length, 0) <= MAX_DRAGGABLE_VERTICES;
+    form.boundary.forEach((ring, ringIndex) => {
+      const livePoints = ring.map((point) => L.latLng(point[0], point[1]));
+      const outline = ring.length >= 2 ? L.polygon(livePoints, { ...DRAFT_SHAPE_STYLE, interactive: false }).addTo(group) : null;
+      if (!showHandles) return;
+      ring.forEach((point, pointIndex) => {
+        const handle = L.marker(point, { icon: vertexIcon, draggable: true, title: "Drag to move this corner" }).addTo(group);
+        handle.on("drag", () => {
+          livePoints[pointIndex] = handle.getLatLng();
+          outline?.setLatLngs(livePoints);
+        });
+        handle.on("dragend", () => {
+          const { lat, lng } = handle.getLatLng();
+          const moved: [number, number] = [Number(lat.toFixed(6)), Number(lng.toFixed(6))];
+          changeBoundary(
+            boundaryRef.current.map((currentRing, r) =>
+              r === ringIndex ? currentRing.map((currentPoint, p) => (p === pointIndex ? moved : currentPoint)) : currentRing,
+            ),
+          );
+        });
+      });
+    });
+    draftPolygonRef.current = group.addTo(map);
+  }, [form.boundary]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -785,19 +1054,25 @@ function GeotaggingPageContent({
             ? `${location.employee.firstName} ${location.employee.lastName}`
           : getUnassignedAreaLabel(location);
 
-      L.circle([location.latitude, location.longitude], {
-        radius: location.radiusMeters,
+      const areaStyle = {
         color: isSelected ? "#15803d" : isActive ? "#64748b" : "#cbd5e1",
         fillColor: isSelected ? "#22c55e" : isActive ? "#94a3b8" : "#e2e8f0",
         fillOpacity: isActive ? 0.22 : 0.12,
-      }).addTo(layerGroup);
+      };
+      if (isPolygonArea(location)) {
+        // One polygon per part — a plain list of rings would make Leaflet
+        // draw every part after the first as a hole in it.
+        L.polygon(location.boundary!.map((ring) => [ring]), areaStyle).addTo(layerGroup);
+      } else {
+        L.circle([location.latitude, location.longitude], { radius: location.radiusMeters, ...areaStyle }).addTo(layerGroup);
+      }
 
       const marker = L.marker([location.latitude, location.longitude], {
         icon: markerIcon,
         opacity: isActive ? 1 : 0.45,
       }).addTo(layerGroup);
       marker.bindPopup(
-        `<div class="map-popup"><strong>${location.name}${isActive ? "" : " (Inactive)"}</strong><span>${empName}</span><span class="popup-radius">${location.radiusMeters}m radius</span></div>`,
+        `<div class="map-popup"><strong>${location.name}${isActive ? "" : " (Inactive)"}</strong><span>${empName}</span><span class="popup-radius">${describeGeofence(location)}</span></div>`,
       );
       marker.on("click", () => {
         setSelectedLocationId(location.id);
@@ -815,7 +1090,15 @@ function GeotaggingPageContent({
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!form.name.trim() || !Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    if (!form.name.trim()) {
+      return;
+    }
+
+    // An older circle area being edited keeps its circle unless a polygon
+    // is drawn for it; every other save needs a complete polygon.
+    const boundary = form.boundary.filter((ring) => ring.length >= 3);
+    if (!isKeepingCircle && (boundary.length === 0 || boundary.length !== form.boundary.length)) {
+      setAssignmentError("The area needs at least 3 points — click the map to add its corners, or import a KML file.");
       return;
     }
 
@@ -823,9 +1106,9 @@ function GeotaggingPageContent({
       setAssignmentError("");
       const areaPayload = {
         name: form.name.trim(),
-        latitude,
-        longitude,
-        radiusMeters: Number.isFinite(radiusMeters) && radiusMeters > 0 ? radiusMeters : 100,
+        // Omitted when keeping a circle (left as-is). The server derives the
+        // area's pin and radius from it, so those are never sent.
+        ...(isKeepingCircle ? {} : { boundary }),
         // A locked Supervisor's field always holds their own department; the
         // backend force-sets/verifies this regardless of what's sent here.
         departmentId: form.departmentId || null,
@@ -1115,6 +1398,7 @@ function GeotaggingPageContent({
       departmentId: scopedDepartmentId ?? "",
     }));
     setAssignmentError("");
+    resetAutoShape();
     invalidatePlaceSearch();
     placeSearchUsedRef.current = false;
   }
@@ -1157,6 +1441,39 @@ function GeotaggingPageContent({
     }));
   }
 
+  // What the Area boundary box says about the shape being drawn.
+  const boundaryPointCount = form.boundary.reduce((sum, ring) => sum + ring.length, 0);
+  const isBoundaryComplete = form.boundary.length > 0 && form.boundary.every((ring) => ring.length >= 3);
+  const isKeepingCircle = Boolean(editingLocation) && !isPolygonArea(editingLocation!) && form.boundary.length === 0;
+  const boundaryStatus = isKeepingCircle
+    ? { tone: "neutral", text: `Circle · ${Number(editingLocation!.radiusMeters)}m` }
+    : form.boundary.length === 0
+      ? { tone: "neutral", text: "Not drawn yet" }
+      : !isBoundaryComplete
+        ? { tone: "warning", text: `${boundaryPointCount} of 3+ points` }
+        : {
+            tone: "ok",
+            text: `${form.boundary.length > 1 ? `${form.boundary.length} parts · ` : ""}${boundaryPointCount} points · ${formatArea(boundaryAreaSquareMeters(form.boundary))}`,
+          };
+  function getBoundaryHint() {
+    if (outlineLookup.loading) return "Loading the map outlines for this spot…";
+    if (isPickingOutline && isTooZoomedOutForOutlines) return "Zoom in closer on the map, until buildings are easy to click.";
+    if (isPickingOutline) {
+      return form.boundary.length === 0
+        ? "Hover over a building (or market, school, compound) — it lights up — then click to add it. Add as many as you need."
+        : "Click more buildings to add them, or click one already added to take it out. Press Done when finished.";
+    }
+    if (isKeepingCircle) return "This older area is a circle. Draw or import a shape to replace it, or save as-is to keep it.";
+    if (form.boundary.length === 0) {
+      return "Pick one or more buildings, place each corner on the map, or drop a .kml file here.";
+    }
+    if (!isBoundaryComplete) return "Keep clicking the map to add corners — at least 3 are needed.";
+    return boundaryPointCount <= MAX_DRAGGABLE_VERTICES
+      ? "Drag a corner to adjust it, or pick more buildings to add them to this area."
+      : "Pick more buildings to add them to this area.";
+  }
+  const boundaryHint = getBoundaryHint();
+
   return (
     <div className="geotagging-page">
 
@@ -1180,7 +1497,11 @@ function GeotaggingPageContent({
           <section className="geotagging-map-panel" aria-label="OpenStreetMap geotagging map">
             <div className="map-panel-header">
               <MapPin size={15} className="map-panel-icon" />
-              <span>Street Map - Click anywhere to pin a location</span>
+              <span>
+                {isPickingOutline
+                  ? "Street Map - Click a building to use its outline"
+                  : "Street Map - Click to add the area's corner points"}
+              </span>
             </div>
             <div ref={mapElementRef} className="geotagging-map" />
             {loading && <div className="map-loading-overlay">Loading map...</div>}
@@ -1317,44 +1638,80 @@ function GeotaggingPageContent({
                   </select>
                 </label>
 
-                <div className="coordinate-grid">
-                  <label>
-                    Latitude
-                    <input
-                      type="number"
-                      step="0.000001"
-                      value={form.latitude}
-                      onChange={(event) => setForm((current) => ({ ...current, latitude: event.target.value }))}
-                      required
-                    />
-                  </label>
-                  <label>
-                    Longitude
-                    <input
-                      type="number"
-                      step="0.000001"
-                      value={form.longitude}
-                      onChange={(event) => setForm((current) => ({ ...current, longitude: event.target.value }))}
-                      required
-                    />
-                  </label>
-                </div>
-
-                <label>
-                  Area radius (meters)
-                  <div className="radius-input-wrap">
-                    <input
-                      type="number"
-                      min="25"
-                      max="1000"
-                      step="5"
-                      value={form.radiusMeters}
-                      onChange={(event) => setForm((current) => ({ ...current, radiusMeters: event.target.value }))}
-                      required
-                    />
-                    <span className="radius-unit">m</span>
+                <div className="area-shape-field">
+                  <div className="area-shape-heading">
+                    <span className="area-shape-label">Area boundary</span>
+                    <span className={`boundary-status boundary-status--${boundaryStatus.tone}`}>
+                      {boundaryStatus.tone === "ok" && <Check size={11} />}
+                      {boundaryStatus.text}
+                    </span>
                   </div>
-                </label>
+                  <div
+                    className={`polygon-editor${isDraggingKml ? " is-dragging" : ""}`}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      setIsDraggingKml(true);
+                    }}
+                    onDragLeave={() => setIsDraggingKml(false)}
+                    onDrop={handleKmlDrop}
+                  >
+                    <p className="polygon-editor-hint">
+                      {isDraggingKml ? "Drop the .kml file to import it." : boundaryHint}
+                    </p>
+                    {outlineLookup.error && <p className="polygon-editor-error">{outlineLookup.error}</p>}
+                    <button
+                      className={`outline-button outline-pick-button${isPickingOutline ? " is-active" : ""}`}
+                      type="button"
+                      onClick={toggleOutlinePicking}
+                      disabled={outlineLookup.loading}
+                    >
+                      <Building2 size={14} />
+                      <span>
+                        {outlineLookup.loading
+                          ? "Loading outlines…"
+                          : isPickingOutline
+                            ? "Done picking buildings"
+                            : form.boundary.length > 0
+                              ? "Add more buildings"
+                              : "Pick buildings on the map"}
+                      </span>
+                    </button>
+
+                    <div className="polygon-editor-actions">
+                      <button className="outline-button" type="button" onClick={() => kmlInputRef.current?.click()}>
+                        <Upload size={13} />
+                        <span>Import KML</span>
+                      </button>
+                      <button
+                        className="outline-button"
+                        type="button"
+                        onClick={undoBoundaryChange}
+                        disabled={boundaryHistory.length === 0}
+                        title="Undo the last change (a building, corner, move or clear)"
+                      >
+                        <Undo2 size={13} />
+                        <span>Undo</span>
+                      </button>
+                      <button
+                        className="outline-button outline-button--danger"
+                        type="button"
+                        onClick={clearPolygon}
+                        disabled={form.boundary.length === 0}
+                        title="Remove the whole shape"
+                      >
+                        <X size={13} />
+                        <span>Clear</span>
+                      </button>
+                    </div>
+                    <input
+                      ref={kmlInputRef}
+                      type="file"
+                      accept=".kml,.kmz,application/vnd.google-earth.kml+xml"
+                      onChange={handleKmlFile}
+                      hidden
+                    />
+                  </div>
+                </div>
 
                 <div className="geotagging-actions">
                   <button className="primary-button" type="submit" disabled={loading}>
@@ -1464,7 +1821,7 @@ function GeotaggingPageContent({
                 ) : (
                   <>
                     <p>No geotagged areas added yet.</p>
-                    <small>Click the map to drop a pin.</small>
+                    <small>Click the map to draw an area, or import a KML file.</small>
                   </>
                 )}
               </div>
@@ -1541,8 +1898,8 @@ function GeotaggingPageContent({
                       )}
                       <small className="assigned-location-coords">
                         <MapPin size={11} />
-                        {Number(location.latitude).toFixed(5)}, {Number(location.longitude).toFixed(5)} · {location.radiusMeters}
-                        m
+                        {Number(location.latitude).toFixed(5)}, {Number(location.longitude).toFixed(5)} ·{" "}
+                        {isPolygonArea(location) ? "Polygon" : `${location.radiusMeters}m`}
                       </small>
                     </button>
                     <div className="assigned-location-footer">

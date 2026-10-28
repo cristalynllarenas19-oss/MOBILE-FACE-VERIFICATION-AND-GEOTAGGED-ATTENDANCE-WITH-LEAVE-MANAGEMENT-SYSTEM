@@ -6,8 +6,9 @@ import {
 import {
   TodayAttendance, WorkLocation, AttendanceSubmitResult, AttendanceEligibility, GeofenceStatus,
   getTodayAttendance, submitAttendance, getMyWorkLocation, getMyWorkLocations,
-  distanceInMeters, getFriendlyReason, getFlaggedAttemptMessage, getMyProfile, getAttendanceHistory,
+  getFriendlyReason, getFlaggedAttemptMessage, getMyProfile, getAttendanceHistory,
 } from "./api";
+import { distanceOutsideGeofence } from "../../lib/geofenceShape";
 import CameraScanner, { GeoPoint } from "./components/CameraScanner";
 import type { AuthUser } from "../../lib/api";
 import { CACHE_KEYS, useCachedData, revalidateCached } from "../../lib/dataCache";
@@ -241,13 +242,7 @@ export function AttendancePage({ user }: Props) {
     : currentPosition == null
       ? "checking"
       : geofenceLocations.some(
-          (location) =>
-            distanceInMeters(
-              currentPosition.latitude,
-              currentPosition.longitude,
-              Number(location.latitude),
-              Number(location.longitude),
-            ) <= Number(location.radiusMeters),
+          (location) => distanceOutsideGeofence(currentPosition.latitude, currentPosition.longitude, location) <= 0,
         )
         ? "inside"
         : "outside";
@@ -391,14 +386,11 @@ export function AttendancePage({ user }: Props) {
       const pos = await new Promise<GeolocationPosition>((res, rej) =>
         navigator.geolocation.getCurrentPosition(res, rej, { enableHighAccuracy: false, timeout: 5000 }),
       );
+      // Nearest by distance to each site's edge, not its pin — a large
+      // polygon's pin can be far from where the employee actually is.
       const nearest = sites.reduce(
         (closest, site) => {
-          const distance = distanceInMeters(
-            pos.coords.latitude,
-            pos.coords.longitude,
-            Number(site.latitude),
-            Number(site.longitude),
-          );
+          const distance = distanceOutsideGeofence(pos.coords.latitude, pos.coords.longitude, site);
           return distance < closest.distance ? { site, distance } : closest;
         },
         { site: sites[0], distance: Infinity },
