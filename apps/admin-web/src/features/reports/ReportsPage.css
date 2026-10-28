@@ -195,6 +195,23 @@
   vertical-align: middle;
 }
 
+/* Department section heading inside a report table. */
+.reports-table-card tr.reports-department-row td {
+  padding: 9px 14px 7px;
+  border-bottom: 1.5px solid #d7e2ec;
+  background: #eef3f9;
+  color: #1a3a5c;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-align: left;
+}
+
+.reports-table-card tr.reports-department-row td span {
+  color: #6b8299;
+  font-weight: 600;
+}
+
 /* Every status pill is the same size regardless of label, like the Leave
    Management table — sized to fit the longest one, "LAPSED - REPORTED TO
    WORK", so it never spills past its column. */
@@ -602,6 +619,17 @@
   .reports-table-card tr {
     break-inside: avoid;
     page-break-inside: avoid;
+  }
+
+  /* Keep a department heading on the same page as its first records. */
+  .reports-table-card tr.reports-department-row {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  .reports-table-card tr.reports-department-row td {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
   /* The summary stays together, and DTR / Attendance follows it on the

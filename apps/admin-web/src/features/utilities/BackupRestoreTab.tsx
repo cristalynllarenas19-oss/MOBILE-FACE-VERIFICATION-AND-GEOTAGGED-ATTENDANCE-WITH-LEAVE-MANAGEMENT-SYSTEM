@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  AlertCircle,
+  Check,
   CheckCircle2,
+  Loader2,
+  XCircle,
   CloudDownload,
   CloudUpload,
   Download,
@@ -117,21 +121,88 @@ async function looksLikeBackupFile(file: File): Promise<boolean> {
   }
 }
 
+// The restore is one request: the file uploads, then the server validates
+// it, takes a safety backup and restores inside a single transaction before
+// it answers. Only the upload part reports real progress.
+type RestoreStage = "uploading" | "restoring";
+type RestoreModalState =
+  | { phase: "running"; stage: RestoreStage; uploadPercent: number | null }
+  | { phase: "success"; result: RestoreResult }
+  // "uncertain" = the connection dropped after the upload, so the server may
+  // still have finished the restore.
+  | { phase: "error"; message: string; uncertain: boolean };
+
+type CreateModalState =
+  | { phase: "running"; stage: "creating" | "saving" }
+  | { phase: "success"; name: string }
+  // savedName = the backup was made but saving the file failed.
+  | { phase: "error"; message: string; savedName?: string };
+
+class RestoreRequestError extends Error {
+  constructor(message: string, readonly uncertain: boolean) {
+    super(message);
+  }
+}
+
+// Nest errors come back as JSON ({ message }); fall back to the raw text.
+function readErrorMessage(body: string) {
+  try {
+    const parsed = JSON.parse(body);
+    const message = Array.isArray(parsed?.message) ? parsed.message.join(" ") : parsed?.message;
+    if (typeof message === "string" && message.trim()) return message;
+  } catch {
+    // not JSON
+  }
+  return body.trim() || "Restore failed.";
+}
+
 // Multipart upload, so this bypasses apiRequest the same way the download
 // helper does — a FormData body needs the browser to set its own
 // multipart Content-Type header (with boundary), which apiRequest's
-// hardcoded "application/json" header would clobber.
-async function uploadRestoreFile(file: File): Promise<RestoreResult> {
-  const token = localStorage.getItem("accessToken");
-  const formData = new FormData();
-  formData.append("file", file);
-  const response = await fetch(`${API_BASE_URL}/backups/restore-upload`, {
-    method: "POST",
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body: formData,
+// hardcoded "application/json" header would clobber. XHR instead of fetch
+// because only XHR reports upload progress.
+function uploadRestoreFile(
+  file: File,
+  onProgress: (stage: RestoreStage, uploadPercent: number | null) => void,
+): Promise<RestoreResult> {
+  return new Promise((resolve, reject) => {
+    const token = localStorage.getItem("accessToken");
+    const formData = new FormData();
+    formData.append("file", file);
+    const xhr = new XMLHttpRequest();
+    let uploadDone = false;
+    xhr.open("POST", `${API_BASE_URL}/backups/restore-upload`);
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.upload.onprogress = (event) => {
+      onProgress("uploading", event.lengthComputable ? Math.round((event.loaded / event.total) * 100) : null);
+    };
+    xhr.upload.onload = () => {
+      uploadDone = true;
+      onProgress("restoring", null);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch {
+          reject(new RestoreRequestError("The server finished but sent an unreadable reply.", true));
+        }
+      } else {
+        reject(new RestoreRequestError(readErrorMessage(xhr.responseText), false));
+      }
+    };
+    xhr.onerror = () =>
+      reject(
+        new RestoreRequestError(
+          uploadDone
+            ? "The connection to the server was lost while it was restoring."
+            : "Couldn't reach the server. Check your connection and try again.",
+          uploadDone,
+        ),
+      );
+    xhr.ontimeout = () => reject(new RestoreRequestError("The server took too long to respond.", uploadDone));
+    xhr.send(formData);
   });
-  if (!response.ok) throw new Error(await response.text());
-  return response.json();
 }
 
 export function BackupRestoreTab({ notify }: { notify: (notification: Notification) => void }) {
@@ -139,8 +210,10 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
   const [page, setPage] = useState(1);
-  const [isCreating, setIsCreating] = useState(false);
-  const [restoringLabel, setRestoringLabel] = useState<string | null>(null);
+  const [createModal, setCreateModal] = useState<CreateModalState | null>(null);
+  const isCreating = createModal?.phase === "running";
+  const [restoreModal, setRestoreModal] = useState<RestoreModalState | null>(null);
+  const isRestoring = restoreModal?.phase === "running";
   const [confirmConfig, setConfirmConfig] = useState<ConfirmDialogConfig | null>(null);
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -157,6 +230,18 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
   useEffect(() => {
     setPage(1);
   }, [search, statusFilter]);
+
+  // Browser's own "leave site?" prompt while a backup or restore is running.
+  const isBusy = isCreating || isRestoring;
+  useEffect(() => {
+    if (!isBusy) return;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [isBusy]);
 
   const visibleBackups = backups.filter((backup) => {
     if (statusFilter !== "ALL" && backup.status !== statusFilter) return false;
@@ -185,7 +270,7 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
       }
     }
 
-    setIsCreating(true);
+    setCreateModal({ phase: "running", stage: "creating" });
     let record: BackupRecord;
     try {
       record = await apiRequest<BackupRecord>("/backups", { method: "POST" });
@@ -193,15 +278,11 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
     } catch (err) {
       // The picker already created an empty file at the chosen location.
       await handle?.remove?.().catch(() => undefined);
-      notify({
-        type: "error",
-        title: "Couldn't Create Backup",
-        message: err instanceof Error ? err.message : "Failed to create backup.",
-      });
-      setIsCreating(false);
+      setCreateModal({ phase: "error", message: err instanceof Error ? err.message : "Failed to create backup." });
       return;
     }
 
+    setCreateModal({ phase: "running", stage: "saving" });
     try {
       const blob = await fetchBackupBlob(record.name);
       if (handle) {
@@ -211,16 +292,27 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
       } else {
         downloadBlob(blob, record.name);
       }
-      notify({ type: "success", title: "Backup Created", message: `"${record.name}" created successfully.` });
+      setCreateModal({ phase: "success", name: record.name });
     } catch (err) {
       await handle?.remove?.().catch(() => undefined);
-      notify({
-        type: "error",
-        title: "Backup Created, But Not Saved",
-        message: `"${record.name}" is in Backup History, but saving it to the chosen location failed${err instanceof Error && err.message ? `: ${err.message}` : "."}`,
+      setCreateModal({
+        phase: "error",
+        message: err instanceof Error && err.message ? err.message : "Saving the file failed.",
+        savedName: record.name,
       });
-    } finally {
-      setIsCreating(false);
+    }
+  };
+
+  // Created-but-not-saved only needs the file again, not a second backup.
+  const retryCreate = () => {
+    if (createModal?.phase !== "error") return;
+    const savedName = createModal.savedName;
+    setCreateModal(null);
+    if (savedName) {
+      const record = backups.find((backup) => backup.name === savedName);
+      if (record) downloadBackup(record);
+    } else {
+      createBackup();
     }
   };
 
@@ -247,23 +339,30 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
   };
 
   const confirmUploadRestore = async () => {
-    if (!selectedFile || fileValidation !== "valid") return;
+    if (!selectedFile || fileValidation !== "valid" || isRestoring) return;
     const file = selectedFile;
     closeUploadModal();
-    setRestoringLabel(file.name);
+    setRestoreModal({ phase: "running", stage: "uploading", uploadPercent: 0 });
     try {
-      const result = await uploadRestoreFile(file);
-      notify({
-        type: "success",
-        title: "Restore Complete",
-        message: `Restore complete. A safety backup of the data it replaced was saved as "${result.preRestoreSnapshot}".`,
-      });
-      loadBackups();
+      const result = await uploadRestoreFile(file, (stage, uploadPercent) =>
+        setRestoreModal({ phase: "running", stage, uploadPercent }),
+      );
+      setRestoreModal({ phase: "success", result });
     } catch (err) {
-      notify({ type: "error", title: "Restore Failed", message: err instanceof Error ? err.message : "Restore failed." });
+      setRestoreModal({
+        phase: "error",
+        message: err instanceof Error ? err.message : "Restore failed.",
+        uncertain: err instanceof RestoreRequestError && err.uncertain,
+      });
     } finally {
-      setRestoringLabel(null);
+      // Success adds a safety backup; a failed restore can too.
+      loadBackups();
     }
+  };
+
+  const retryRestore = () => {
+    setRestoreModal(null);
+    openUploadModal();
   };
 
   const requestDelete = (backup: BackupRecord) => {
@@ -309,13 +408,6 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
       </div>
       <p className="backup-restore-subtitle">Manage system data backups and restore when needed.</p>
 
-      {restoringLabel && (
-        <div className="backup-restore-progress-banner" role="status">
-          <span className="utilities-loading-dot" />
-          Restoring from &quot;{restoringLabel}&quot;… this may take a moment. Please don&apos;t close this page.
-        </div>
-      )}
-
       <div className="backup-restore-action-grid">
         <section className="backup-restore-action-card">
           <div className="backup-restore-action-icon backup-restore-action-icon--create">
@@ -323,7 +415,7 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
           </div>
           <h4>Create a Backup</h4>
           <p>Download a backup of your system data. The backup file will include all important records.</p>
-          <button className="primary-button" onClick={createBackup} disabled={isCreating || !!restoringLabel}>
+          <button className="primary-button" onClick={createBackup} disabled={isCreating || isRestoring}>
             {isCreating ? "Creating…" : "+ Create Backup"}
           </button>
           <span className="backup-restore-action-note">
@@ -337,7 +429,7 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
           </div>
           <h4>Restore Data</h4>
           <p>Restore your system data from a previously saved backup file.</p>
-          <button className="outline-button" onClick={openUploadModal} disabled={!!restoringLabel}>
+          <button className="outline-button" onClick={openUploadModal} disabled={isRestoring}>
             <CloudUpload size={14} /> Upload Backup File
           </button>
           <input
@@ -446,7 +538,7 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
                         <button
                           type="button"
                           className="backup-restore-icon-button"
-                          disabled={backup.status !== "SUCCESS" || !!restoringLabel}
+                          disabled={backup.status !== "SUCCESS" || isRestoring}
                           onClick={() => downloadBackup(backup)}
                           aria-label={`Download ${backup.name}`}
                         >
@@ -455,7 +547,7 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
                         <button
                           type="button"
                           className="backup-restore-icon-button backup-restore-icon-button--danger"
-                          disabled={!!restoringLabel}
+                          disabled={isRestoring}
                           onClick={() => requestDelete(backup)}
                           aria-label={`Delete ${backup.name}`}
                         >
@@ -563,6 +655,206 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
                 Restore Data
               </button>
             </div>
+          </section>
+        </div>
+      )}
+
+      {createModal && (
+        <div className="utilities-modal-backdrop" role="presentation">
+          <section
+            className="utilities-modal utilities-modal--sm backup-restore-status-modal"
+            role={createModal.phase === "error" ? "alertdialog" : "dialog"}
+            aria-modal="true"
+            aria-labelledby="create-status-title"
+            aria-busy={createModal.phase === "running"}
+          >
+            {createModal.phase === "running" && (
+              <>
+                <Loader2 size={34} className="backup-restore-status-spinner" />
+                <h2 id="create-status-title">Creating Backup...</h2>
+                <p>Please wait while we back up your system data. This may take a few moments.</p>
+
+                <ol className="backup-restore-steps">
+                  {(
+                    [
+                      ["creating", "Creating backup"],
+                      ["saving", "Saving file to your computer"],
+                    ] as const
+                  ).map(([stage, label]) => {
+                    const done = stage === "creating" && createModal.stage === "saving";
+                    const current = stage === createModal.stage;
+                    return (
+                      <li key={stage} className={done ? "done" : current ? "current" : ""}>
+                        <span className="backup-restore-step-marker">{done && <Check size={11} />}</span>
+                        <div className="backup-restore-step-body">
+                          <span>{label}</span>
+                          {current && (
+                            <div className="backup-restore-progress-track">
+                              <div className="backup-restore-progress-fill backup-restore-progress-fill--indeterminate" />
+                            </div>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+
+                <div className="backup-restore-status-note">
+                  <Info size={14} />
+                  <span>Please do not refresh or leave this page while the backup is being created.</span>
+                </div>
+              </>
+            )}
+
+            {createModal.phase === "success" && (
+              <>
+                <CheckCircle2 size={40} className="backup-restore-status-icon backup-restore-status-icon--success" />
+                <h2 id="create-status-title">Backup Created Successfully!</h2>
+                <p>Your system data has been backed up and saved.</p>
+                <p className="backup-restore-status-detail">&quot;{createModal.name}&quot;</p>
+                <div className="backup-restore-status-actions">
+                  <button className="primary-button" onClick={() => setCreateModal(null)} autoFocus>
+                    Done
+                  </button>
+                </div>
+              </>
+            )}
+
+            {createModal.phase === "error" && (
+              <>
+                <XCircle size={40} className="backup-restore-status-icon backup-restore-status-icon--error" />
+                <h2 id="create-status-title">
+                  {createModal.savedName ? "Backup Created, But Not Saved" : "Backup Creation Failed"}
+                </h2>
+                <p>
+                  {createModal.savedName
+                    ? `"${createModal.savedName}" is in Backup History, but saving it to your computer failed.`
+                    : "We couldn't back up your system data. Please try again or contact the system administrator."}
+                </p>
+                <div className="backup-restore-status-error">
+                  <AlertCircle size={14} />
+                  <span>
+                    <strong>Error:</strong> {createModal.message}
+                  </span>
+                </div>
+                <div className="backup-restore-status-actions">
+                  <button className="outline-button" onClick={() => setCreateModal(null)}>
+                    Close
+                  </button>
+                  <button className="primary-button" onClick={retryCreate}>
+                    {createModal.savedName ? "Download Again" : "Try Again"}
+                  </button>
+                </div>
+              </>
+            )}
+          </section>
+        </div>
+      )}
+
+      {restoreModal && (
+        <div className="utilities-modal-backdrop" role="presentation">
+          <section
+            className="utilities-modal utilities-modal--sm backup-restore-status-modal"
+            role={restoreModal.phase === "error" ? "alertdialog" : "dialog"}
+            aria-modal="true"
+            aria-labelledby="restore-status-title"
+            aria-busy={restoreModal.phase === "running"}
+          >
+            {restoreModal.phase === "running" && (
+              <>
+                <Loader2 size={34} className="backup-restore-status-spinner" />
+                <h2 id="restore-status-title">Restoring Backup...</h2>
+                <p>Please wait while we restore your system data. This may take a few moments.</p>
+
+                <ol className="backup-restore-steps">
+                  {(
+                    [
+                      ["uploading", "Uploading backup file"],
+                      ["restoring", "Validating and restoring database"],
+                    ] as const
+                  ).map(([stage, label]) => {
+                    const done = stage === "uploading" && restoreModal.stage === "restoring";
+                    const current = stage === restoreModal.stage;
+                    return (
+                      <li key={stage} className={done ? "done" : current ? "current" : ""}>
+                        <span className="backup-restore-step-marker">{done && <Check size={11} />}</span>
+                        <div className="backup-restore-step-body">
+                          <span>
+                            {label}
+                            {current && stage === "uploading" && restoreModal.uploadPercent != null && (
+                              <strong> {restoreModal.uploadPercent}%</strong>
+                            )}
+                          </span>
+                          {current && (
+                            <div className="backup-restore-progress-track">
+                              {stage === "uploading" && restoreModal.uploadPercent != null ? (
+                                <div
+                                  className="backup-restore-progress-fill"
+                                  style={{ width: `${restoreModal.uploadPercent}%` }}
+                                />
+                              ) : (
+                                <div className="backup-restore-progress-fill backup-restore-progress-fill--indeterminate" />
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+
+                <div className="backup-restore-status-note">
+                  <Info size={14} />
+                  <span>Please do not refresh or leave this page while restoration is in progress.</span>
+                </div>
+              </>
+            )}
+
+            {restoreModal.phase === "success" && (
+              <>
+                <CheckCircle2 size={40} className="backup-restore-status-icon backup-restore-status-icon--success" />
+                <h2 id="restore-status-title">Backup Restored Successfully!</h2>
+                <p>Your system data has been restored from the selected backup file.</p>
+                <p className="backup-restore-status-detail">
+                  A safety backup of the data it replaced was saved as &quot;{restoreModal.result.preRestoreSnapshot}&quot;.
+                </p>
+                <div className="backup-restore-status-actions">
+                  <button className="primary-button" onClick={() => setRestoreModal(null)} autoFocus>
+                    Done
+                  </button>
+                </div>
+              </>
+            )}
+
+            {restoreModal.phase === "error" && (
+              <>
+                <XCircle size={40} className="backup-restore-status-icon backup-restore-status-icon--error" />
+                <h2 id="restore-status-title">Backup Restoration Failed</h2>
+                <p>
+                  {restoreModal.uncertain
+                    ? "We couldn't confirm whether the restore finished."
+                    : "We couldn't restore your system data. Please check the file and try again or contact the system administrator."}
+                </p>
+                <div className="backup-restore-status-error">
+                  <AlertCircle size={14} />
+                  <span>
+                    <strong>Error:</strong> {restoreModal.message}
+                    {restoreModal.uncertain &&
+                      " The server may still have completed it. Check Backup History for a new \"Restored\" safety backup and review your data before trying again."}
+                  </span>
+                </div>
+                <div className="backup-restore-status-actions">
+                  <button className="outline-button" onClick={() => setRestoreModal(null)}>
+                    Close
+                  </button>
+                  {!restoreModal.uncertain && (
+                    <button className="primary-button" onClick={retryRestore}>
+                      Try Again
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
           </section>
         </div>
       )}

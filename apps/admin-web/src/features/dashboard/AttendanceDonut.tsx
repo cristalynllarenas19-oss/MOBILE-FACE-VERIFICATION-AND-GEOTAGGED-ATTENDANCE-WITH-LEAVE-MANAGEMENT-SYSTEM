@@ -2,6 +2,7 @@ import "./AttendanceDonut.css";
 
 const SEGMENTS = [
   { key: "present", label: "Present", color: "#1baf7a" },
+  { key: "late", label: "Late", color: "#eda100" },
   { key: "absent", label: "Absent", color: "#e34948" },
   { key: "onLeave", label: "On Leave", color: "#4a3aa7" },
 ] as const;
@@ -13,11 +14,11 @@ const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 
 const SEGMENT_GAP = 1;
 
-type DonutValues = { present: number; absent: number; onLeave: number };
+type DonutValues = { present: number; late: number; absent: number; onLeave: number };
 
-export function AttendanceDonutChart({ present, absent, onLeave }: DonutValues) {
-  const values: Record<(typeof SEGMENTS)[number]["key"], number> = { present, absent, onLeave };
-  const total = present + absent + onLeave;
+export function AttendanceDonutChart({ present, late, absent, onLeave }: DonutValues) {
+  const values: Record<(typeof SEGMENTS)[number]["key"], number> = { present, late, absent, onLeave };
+  const total = present + late + absent + onLeave;
 
   let cumulative = 0;
 
@@ -86,9 +87,9 @@ export function AttendanceDonutChart({ present, absent, onLeave }: DonutValues) 
   );
 }
 
-export function AttendanceDonutLegend({ present, absent, onLeave }: DonutValues) {
-  const values: Record<(typeof SEGMENTS)[number]["key"], number> = { present, absent, onLeave };
-  const total = present + absent + onLeave;
+export function AttendanceDonutLegend({ present, late, absent, onLeave }: DonutValues) {
+  const values: Record<(typeof SEGMENTS)[number]["key"], number> = { present, late, absent, onLeave };
+  const total = present + late + absent + onLeave;
 
   return (
     <div className="adn-legend">

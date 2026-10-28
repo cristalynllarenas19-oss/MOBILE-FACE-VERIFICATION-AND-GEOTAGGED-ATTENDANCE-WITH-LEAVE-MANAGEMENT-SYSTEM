@@ -1903,21 +1903,74 @@
   padding: 18px 24px 22px;
 }
 
-.accrual-employee {
+/* Employee header: three equal columns — Employee, Employee Type,
+   Department — split by thin dividers. */
+.accrual-employee-card {
   display: grid;
-  /* Name takes the spare room; the two fields size to their own text so a
-     long Employee Type never wraps and both labels sit on the same line. */
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  /* Employee Type sizes to its text so "Permanent Seasonal Employee" stays
+     on one line, keeping all three labels and values on the same rows. */
+  grid-template-columns: minmax(0, 1fr) max-content minmax(0, 1fr);
+  padding: 14px 4px;
+  border: 1px solid #e3e9f0;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.accrual-employee-col {
+  display: flex;
   align-items: center;
-  gap: 14px 32px;
+  gap: 12px;
+  min-width: 0;
+  padding: 0 16px;
+  border-left: 1px solid #e3e9f0;
 }
 
-.accrual-employee .accrual-avatar + .accrual-employee-name {
-  margin-left: -18px;
+.accrual-employee-col:first-child {
+  border-left: none;
 }
 
-.accrual-employee-field strong {
+.accrual-employee-col > svg {
+  flex-shrink: 0;
+  color: #6b8299;
+}
+
+.accrual-employee-col > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.accrual-employee-col span:not(.accrual-avatar) {
+  color: #7b8794;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.accrual-employee-col strong {
+  overflow: hidden;
+  color: #1a3a5c;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.accrual-employee-col--name strong {
+  color: #193d69;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+@media (max-width: 640px) {
+  .accrual-employee-card {
+    grid-template-columns: 1fr;
+    row-gap: 12px;
+  }
+
+  .accrual-employee-col {
+    border-left: none;
+  }
 }
 
 .accrual-avatar {
@@ -1932,22 +1985,6 @@
   font-weight: 700;
 }
 
-.accrual-employee-name,
-.accrual-employee-field {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.accrual-employee-name strong {
-  color: #193d69;
-  font-size: 15px;
-  font-weight: 700;
-}
-
-.accrual-employee-name span,
-.accrual-employee-field span,
 .accrual-summary span {
   color: #7b8794;
   font-size: 11px;
@@ -1955,7 +1992,6 @@
   white-space: nowrap;
 }
 
-.accrual-employee-field strong,
 .accrual-summary strong {
   color: #1a3a5c;
   font-size: 12.5px;
@@ -2025,64 +2061,289 @@
   text-transform: uppercase;
 }
 
+/* Selected Period strip: Start, End, Period Status, Status Today. */
+.accrual-summary--period {
+  grid-template-columns: repeat(4, 1fr);
+  margin-top: 0;
+}
+
+/* Accrual History: a card of clickable period rows. */
+.accrual-history-list {
+  overflow: hidden;
+  border: 1px solid #e3e9f0;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.accrual-history-head,
+.accrual-history-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+}
+
+.accrual-history-head {
+  padding-top: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e3e9f0;
+  background: #f5f8fc;
+  color: #4a6680;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+/* Full-width flex (not inline-flex) so the centered titles actually line
+   up with the centered badges / credits beneath them. */
+.accrual-history-head > span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.accrual-history-head > span:nth-child(2),
+.accrual-history-head > span:nth-child(3) {
+  justify-content: center;
+}
+
+.accrual-history-credits {
+  color: #7b8794;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.accrual-history-credits.earned {
+  color: #15803d;
+}
+
 /* Only this list scrolls (long-tenured employees), never the whole modal. */
 .accrual-history-scroll {
-  max-height: 176px;
+  max-height: 232px;
   overflow-y: auto;
-  border: 1px solid #e3e9f0;
-  border-radius: 10px;
   scrollbar-width: thin;
   scrollbar-color: #b8c7d8 #f4f7fb;
 }
 
-.accrual-history-table {
+.accrual-history-row {
   width: 100%;
+  min-height: 56px;
+  border: none;
+  border-bottom: 1px solid #eef2f6;
+  border-left: 3px solid transparent;
+  background: #ffffff;
+  color: #1a3a5c;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.accrual-history-row:last-child {
+  border-bottom: none;
+}
+
+.accrual-history-row:hover {
+  background: #f5f9ff;
+}
+
+.accrual-history-row.absent {
+  background: #fdeef0;
+}
+
+.accrual-history-row.absent:hover {
+  background: #fbe3e7;
+}
+
+.accrual-history-row.selected {
+  border-left-color: #1a3a5c;
+}
+
+.accrual-history-row:focus-visible {
+  outline: 2px solid #2979d0;
+  outline-offset: -2px;
+}
+
+.accrual-history-period {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.accrual-history-period > svg {
+  flex-shrink: 0;
+  color: #4a6680;
+}
+
+.accrual-history-period > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.accrual-history-period strong {
+  color: #193d69;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.accrual-history-period small {
+  color: #7b8794;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.accrual-history-status {
+  display: flex;
+  justify-content: center;
+}
+
+.accrual-history-chevron {
+  color: #7b8794;
+}
+
+/* A period's attendance (opened from a history row's arrow). */
+.accrual-period-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 16px 0 12px;
+}
+
+.accrual-back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px 6px 6px;
+  border: 1px solid #d7e2ec;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #1a3a5c;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.accrual-back-button:hover {
+  background: #f5f9ff;
+}
+
+.accrual-period-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: #4a6680;
+}
+
+.accrual-period-title strong {
+  color: #193d69;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.accrual-attendance-scroll {
+  max-height: 300px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid #e3e9f0;
+  border-radius: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: #b8c7d8 #f4f7fb;
+}
+
+.accrual-attendance-table {
+  width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
 }
 
-.accrual-history-table th {
-  position: sticky;
-  top: 0;
-  padding: 8px 12px;
-  background: #f8fafc;
-  border-bottom: 1px solid #e3e9f0;
-  color: #7b8794;
-  font-size: 10.5px;
-  font-weight: 700;
-  letter-spacing: 0.4px;
-  text-align: center;
-  text-transform: uppercase;
+.accrual-status-text {
+  font-weight: 600;
 }
 
-.accrual-history-table td {
-  padding: 7px 12px;
+.accrual-status-text--success { color: #15803d; }
+.accrual-status-text--danger { color: #b91c1c; }
+.accrual-status-text--warning { color: #b45309; }
+.accrual-status-text--neutral { color: #64748b; }
+
+/* Wider while a period's attendance is open, so all its columns fit. */
+.leave-modal--accrual-wide {
+  width: min(960px, 100%);
+}
+
+.accrual-attendance-table th:nth-child(1) { width: 11%; }
+.accrual-attendance-table th:nth-child(2) { width: 25%; }
+.accrual-attendance-table th:nth-child(3) { width: 10%; }
+.accrual-attendance-table th:nth-child(4),
+.accrual-attendance-table th:nth-child(5) { width: 10%; }
+.accrual-attendance-table th:nth-child(6) { width: 19%; }
+.accrual-attendance-table th:nth-child(7) { width: 15%; }
+
+/* Long site names wrap instead of widening the table. */
+.accrual-attendance-table td.accrual-attendance-site {
+  white-space: normal;
+  line-height: 1.35;
+}
+
+.accrual-attendance-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 10px 8px;
+  border-bottom: 1px solid #e3e9f0;
+  background: #f5f8fc;
+  color: #4a6680;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-align: center;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.accrual-attendance-table td {
+  padding: 9px 8px;
   border-bottom: 1px solid #eef2f6;
   color: #1a3a5c;
   font-size: 12px;
   font-weight: 500;
   text-align: center;
+  white-space: nowrap;
 }
 
-.accrual-history-table tr:last-child td {
+.accrual-attendance-table tr:last-child td {
   border-bottom: none;
 }
 
-/* The period this modal was opened from. */
-.accrual-history-table tr.current td {
-  background: #f5f9ff;
-  font-weight: 600;
+.accrual-attendance-table tr.absent td {
+  background: #fdeef0;
+}
+
+.accrual-attendance-empty {
+  padding: 22px 12px !important;
+  color: #7b8794 !important;
+}
+
+.accrual-history-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 2px 0;
+  color: #7b8794;
+  font-size: 11px;
 }
 
 @media (max-width: 640px) {
-  .accrual-employee {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .accrual-employee-field strong {
-    white-space: normal;
-  }
-
-  .accrual-summary {
+  .accrual-summary,
+  .accrual-summary--period {
     grid-template-columns: 1fr 1fr;
     row-gap: 12px;
   }

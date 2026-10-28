@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Download, FileText, Printer } from "lucide-react";
 import { jsPDF } from "jspdf";
 import { autoTable } from "jspdf-autotable";
@@ -11,6 +11,7 @@ import { useLiveRefresh } from "../../lib/liveRefresh";
 import { useActiveDepartments } from "../../lib/departments";
 import { formatEmploymentStatus } from "../../types/employment";
 import logo from "../../assets/unileaf-logo.png";
+import { formatDays } from "../../lib/leaveDays";
 import "./ReportsPage.css";
 
 type ReportData = {
@@ -109,13 +110,9 @@ const REPORT_TYPE_LABELS: Record<ReportTab, string> = {
   leaveBalances: "Remaining Leave",
 };
 
-// "All Reports" bundles these four tabs — spelled out in the print/PDF
-// header since "All Reports" alone doesn't say what's included.
 // All Reports' first page: the department counts only, under this title;
 // the DTR / Attendance records follow on the next page.
 const ALL_REPORTS_SUMMARY_TITLE = "DTR / Attendance Summary";
-
-const ALL_REPORTS_INCLUDES = ["DTR", "Attendance", REPORT_TYPE_LABELS.leave, REPORT_TYPE_LABELS.undertime, REPORT_TYPE_LABELS.schedules].join(" | ");
 
 const UNDERTIME_STATUS_FILTERS = ["PENDING", "APPROVED", "REJECTED"] as const;
 type UndertimeStatus = (typeof UNDERTIME_STATUS_FILTERS)[number];
@@ -151,6 +148,84 @@ function undertimeCells(row: UndertimeRow): (string | number)[] {
 function employeeName(row: { employee: { firstName: string; lastName: string } }) {
   return `${row.employee.firstName} ${row.employee.lastName}`;
 }
+
+// --- Department grouping: every report lists departments A–Z (Unassigned
+// last), employees A–Z within each. One sort, used by the screen, print,
+// PDF and CSV alike, so they always come out in the same order.
+type ReportPerson = { firstName: string; lastName: string; department?: { name: string } | null };
+
+const UNASSIGNED_DEPARTMENT = "Unassigned Department";
+
+function departmentOf(person: ReportPerson) {
+  return person.department?.name?.trim() || UNASSIGNED_DEPARTMENT;
+}
+
+function departmentHeading(name: string) {
+  return /department$/i.test(name) ? name : `${name} Department`;
+}
+
+function compareText(a: string, b: string) {
+  return a.localeCompare(b, undefined, { sensitivity: "base" });
+}
+
+// Stable, so one employee's own rows keep their original (date) order.
+function sortByDepartment<T>(rows: T[], person: (row: T) => ReportPerson): T[] {
+  return [...rows].sort((rowA, rowB) => {
+    const a = person(rowA);
+    const b = person(rowB);
+    const deptA = departmentOf(a);
+    const deptB = departmentOf(b);
+    if (deptA !== deptB) {
+      if (deptA === UNASSIGNED_DEPARTMENT) return 1;
+      if (deptB === UNASSIGNED_DEPARTMENT) return -1;
+      return compareText(deptA, deptB);
+    }
+    return compareText(`${a.firstName} ${a.lastName}`, `${b.firstName} ${b.lastName}`);
+  });
+}
+
+// Rows must already be sorted with sortByDepartment.
+function groupByDepartment<T>(rows: T[], person: (row: T) => ReportPerson) {
+  const groups: { department: string; rows: T[] }[] = [];
+  for (const row of rows) {
+    const department = departmentOf(person(row));
+    const last = groups[groups.length - 1];
+    if (last && last.department === department) last.rows.push(row);
+    else groups.push({ department, rows: [row] });
+  }
+  return groups;
+}
+
+// A table body split into department sections, each under a heading row.
+function DepartmentGroups<T>({
+  rows,
+  person,
+  colSpan,
+  renderRow,
+}: {
+  rows: T[];
+  person: (row: T) => ReportPerson;
+  colSpan: number;
+  renderRow: (row: T) => React.ReactNode;
+}) {
+  return (
+    <>
+      {groupByDepartment(rows, person).map((group) => (
+        <Fragment key={group.department}>
+          <tr className="reports-department-row">
+            <td colSpan={colSpan}>
+              {departmentHeading(group.department)} <span>({group.rows.length})</span>
+            </td>
+          </tr>
+          {group.rows.map(renderRow)}
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
+const personOfRow = (row: { employee: ReportPerson }) => row.employee;
+const personSelf = (row: ReportPerson) => row;
 
 function formatDate(value: string) {
   return new Date(value).toLocaleDateString();
@@ -385,12 +460,13 @@ export function ReportsPage({
   // --- Client-side filtering for all report types ---
   const filteredAttendance = useMemo(() => {
     if (!data) return [];
-    return data.attendance.filter((record) => {
+    const rows = data.attendance.filter((record) => {
       const deptMatch = filters.department === "ALL" || record.employee.department.name === filters.department;
       const dateMatch = isInDateRange(record.attendanceDate, filters.from, filters.to);
       const statusMatch = attendanceStatusFilter === "ALL" || record.status === attendanceStatusFilter;
       return deptMatch && dateMatch && statusMatch && matchesEmployeeQuery(record.employee, search);
     });
+    return sortByDepartment(rows, personOfRow);
   }, [data, filters, search, attendanceStatusFilter]);
 
   // Department Attendance Summary (All Reports): the same department, date
@@ -446,7 +522,7 @@ export function ReportsPage({
 
   const leavesInRange = useMemo(() => {
     if (!data) return [];
-    return data.leaves.filter((request) => {
+    const rows = data.leaves.filter((request) => {
       const deptMatch = filters.department === "ALL" || request.employee.department.name === filters.department;
       // Show leave if it overlaps the date range at all
       const startInRange = isInDateRange(request.startDate, filters.from, filters.to);
@@ -456,6 +532,7 @@ export function ReportsPage({
         new Date(request.endDate).getTime() >= parseLocalDateFilter(filters.from);
       return deptMatch && (startInRange || endInRange || spanRange) && matchesEmployeeQuery(request.employee, search);
     });
+    return sortByDepartment(rows, personOfRow);
   }, [data, filters, search]);
 
   const leaveStatusCounts = useMemo(() => {
@@ -471,7 +548,7 @@ export function ReportsPage({
 
   const undertimeInRange = useMemo(() => {
     if (!data) return [];
-    return (data.undertime ?? []).filter((filing) => {
+    const rows = (data.undertime ?? []).filter((filing) => {
       const deptMatch = filters.department === "ALL" || filing.employee.department.name === filters.department;
       return (
         deptMatch &&
@@ -479,6 +556,7 @@ export function ReportsPage({
         matchesEmployeeQuery(filing.employee, search)
       );
     });
+    return sortByDepartment(rows, personOfRow);
   }, [data, filters, search]);
 
   const undertimeStatusCounts = useMemo(() => {
@@ -498,7 +576,7 @@ export function ReportsPage({
 
   const filteredSchedules = useMemo(() => {
     if (!data) return [];
-    return data.schedules.filter((schedule) => {
+    const rows = data.schedules.filter((schedule) => {
       const deptMatch = filters.department === "ALL" || schedule.employee.department.name === filters.department;
       const startInRange = isInDateRange(schedule.startsOn, filters.from, filters.to);
       const endsOnOrOngoing = !schedule.endsOn || isInDateRange(schedule.endsOn, filters.from, filters.to);
@@ -507,24 +585,27 @@ export function ReportsPage({
         (!schedule.endsOn || new Date(schedule.endsOn).getTime() >= parseLocalDateFilter(filters.from));
       return deptMatch && (startInRange || endsOnOrOngoing || active) && matchesEmployeeQuery(schedule.employee, search);
     });
+    return sortByDepartment(rows, personOfRow);
   }, [data, filters, search]);
 
   // Employee directory / leave balances are point-in-time snapshots, not
   // bounded by the from/to range — only the department filter applies.
   const filteredEmployeesList = useMemo(() => {
     if (!data) return [];
-    return data.employees.filter(
+    const rows = data.employees.filter(
       (e) => (filters.department === "ALL" || e.department.name === filters.department) && matchesEmployeeQuery(e, search),
     );
+    return sortByDepartment(rows, personSelf);
   }, [data, filters.department, search]);
 
   const filteredLeaveBalances = useMemo(() => {
     if (!data) return [];
-    return data.leaveBalances.filter(
+    const rows = data.leaveBalances.filter(
       (b) =>
         (filters.department === "ALL" || b.employee.department.name === filters.department) &&
         matchesEmployeeQuery(b.employee, search),
     );
+    return sortByDepartment(rows, personOfRow);
   }, [data, filters.department, search]);
 
   // Filtered totals for stat cards
@@ -584,7 +665,7 @@ export function ReportsPage({
       ["Name", "Department", "Sex", "Leave Type", "Remaining", "Used", "Dates Used"],
       ...filteredLeaveBalances.map((b) => [
         `${b.employee.firstName} ${b.employee.lastName}`, b.employee.department.name, formatSex(b.employee.sex),
-        b.leaveTypeName, b.remainingDays.toFixed(0), b.usedDays.toFixed(0), formatUsedDates(b.usedDates),
+        b.leaveTypeName, formatDays(b.remainingDays), formatDays(b.usedDays), formatUsedDates(b.usedDates),
       ]),
     ];
     const rows =
@@ -627,7 +708,6 @@ export function ReportsPage({
     // each later part (Leave, Undertime, Schedules) switches it to its own.
     let header: { title: string; subtitle?: string } = {
       title: tab === "ALL" ? ALL_REPORTS_SUMMARY_TITLE : REPORT_TYPE_LABELS[tab],
-      subtitle: tab === "ALL" ? `Includes: ${ALL_REPORTS_INCLUDES}` : undefined,
     };
 
     // Draws the header on the current page and returns the y just below it.
@@ -669,7 +749,9 @@ export function ReportsPage({
       head: string[],
       body: (string | number)[][],
       // centerFrom: columns from this index on (counts) are centered.
-      options: { boldLastRow?: boolean; partTitle?: string; centerFrom?: number } = {},
+      // byDepartment: body is sorted by department (column 1) — each
+      // department is drawn as its own titled block.
+      options: { boldLastRow?: boolean; partTitle?: string; centerFrom?: number; byDepartment?: boolean } = {},
     ) => {
       if (body.length === 0) return;
       // A new part of All Reports: its own page, headed with its own title.
@@ -684,8 +766,44 @@ export function ReportsPage({
       doc.setFontSize(10);
       doc.setTextColor(26, 58, 92);
       doc.text(title, 40, startY);
+
+      if (!options.byDepartment) {
+        drawTable(head, body, startY + 8, options);
+        return;
+      }
+      startY += 22;
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const groups = groupByDepartment(body, (row) => ({
+        firstName: "",
+        lastName: "",
+        department: { name: String(row[1] ?? "") },
+      }));
+      for (const group of groups) {
+        // Heading + column headings + a couple of rows must fit, otherwise
+        // the department starts on the next page instead of being split
+        // from its records.
+        if (startY + 70 > pageHeight - 40) {
+          doc.addPage();
+          drawHeader();
+          headerDrawnOnPage = doc.internal.getNumberOfPages();
+          startY = headerBottom;
+        }
+        doc.setFontSize(9);
+        doc.setTextColor(26, 58, 92);
+        doc.text(`${departmentHeading(group.department)} (${group.rows.length})`, 40, startY);
+        drawTable(head, group.rows, startY + 6, options);
+        startY -= 10;
+      }
+    };
+
+    const drawTable = (
+      head: string[],
+      body: (string | number)[][],
+      tableStartY: number,
+      options: { boldLastRow?: boolean; centerFrom?: number },
+    ) => {
       autoTable(doc, {
-        startY: startY + 8,
+        startY: tableStartY,
         head: [head],
         body,
         theme: "striped" as const,
@@ -741,7 +859,7 @@ export function ReportsPage({
           formatTime(r.timeInAt, r.status), formatTime(r.timeOutAt, r.status),
           r.lunchOutAt ? `${r.breakKind === "BREAK" ? "Break " : ""}${formatTime(r.lunchOutAt)} - ${formatTime(r.lunchInAt)}` : "—", r.status,
         ]),
-        { partTitle: partTitle("attendance") },
+        { partTitle: partTitle("attendance"), byDepartment: true },
       );
     }
     if (tab === "ALL" || tab === "leave") {
@@ -751,11 +869,11 @@ export function ReportsPage({
           employeeName(r), r.employee.department.name, formatEmploymentStatus(r.employee.employmentStatus), r.leaveType.name,
           formatDate(r.startDate), formatDate(r.endDate), r.totalDays, leaveStatusText(r),
         ]),
-        { partTitle: partTitle("leave") },
+        { partTitle: partTitle("leave"), byDepartment: true },
       );
     }
     if (tab === "ALL" || tab === "undertime") {
-      addSection("Undertime", UNDERTIME_HEAD, filteredUndertime.map(undertimeCells), { partTitle: partTitle("undertime") });
+      addSection("Undertime", UNDERTIME_HEAD, filteredUndertime.map(undertimeCells), { partTitle: partTitle("undertime"), byDepartment: true });
     }
     if (tab === "ALL" || tab === "schedules") {
       addSection("Schedules",
@@ -765,13 +883,14 @@ export function ReportsPage({
           employeeName(s), s.employee.department.name, s.employee.position?.title ?? "—", s.shift.name,
           `${s.shift.startTime} - ${s.shift.endTime}`, formatDate(s.startsOn), s.endsOn ? formatDate(s.endsOn) : "Present",
         ]),
-        { partTitle: partTitle("schedules") },
+        { partTitle: partTitle("schedules"), byDepartment: true },
       );
     }
     if (tab === "employees") {
       addSection("List of Employees",
         ["Name", "Department", "Sex", "Hired Date"],
-        filteredEmployeesList.map((e) => [`${e.firstName} ${e.lastName}`, e.department.name, formatSex(e.sex), formatDate(e.hireDate)])
+        filteredEmployeesList.map((e) => [`${e.firstName} ${e.lastName}`, e.department.name, formatSex(e.sex), formatDate(e.hireDate)]),
+        { byDepartment: true },
       );
     }
     if (tab === "leaveBalances") {
@@ -779,8 +898,9 @@ export function ReportsPage({
         ["Name", "Department", "Sex", "Leave Type", "Remaining", "Used", "Dates Used"],
         filteredLeaveBalances.map((b) => [
           `${b.employee.firstName} ${b.employee.lastName}`, b.employee.department.name, formatSex(b.employee.sex),
-          b.leaveTypeName, b.remainingDays.toFixed(0), b.usedDays.toFixed(0), formatUsedDates(b.usedDates),
-        ])
+          b.leaveTypeName, formatDays(b.remainingDays), formatDays(b.usedDays), formatUsedDates(b.usedDates),
+        ]),
+        { byDepartment: true },
       );
     }
 
@@ -920,7 +1040,6 @@ export function ReportsPage({
         {tab === "ALL" && (
         <PrintFrame
           title={ALL_REPORTS_SUMMARY_TITLE}
-          subtitle={`Includes: ${ALL_REPORTS_INCLUDES}`}
           rangeLabel={generatedRangeLabel}
         >
         {/* ── Department Attendance Summary (All Reports only) ── */}
@@ -988,7 +1107,7 @@ export function ReportsPage({
             <tbody>
               {filteredAttendance.length === 0 ? (
                 <tr><td colSpan={8} className="reports-empty">No attendance records match the current filters.</td></tr>
-              ) : filteredAttendance.map((record) => (
+              ) : <DepartmentGroups rows={filteredAttendance} person={personOfRow} colSpan={8} renderRow={(record) => (
                 <tr key={record.id}>
                   <td>{employeeName(record)}</td>
                   <td>{record.employee.department.name}</td>
@@ -999,7 +1118,7 @@ export function ReportsPage({
                   <td>{record.lunchOutAt ? `${record.breakKind === "BREAK" ? "Break " : ""}${formatTime(record.lunchOutAt)} – ${formatTime(record.lunchInAt)}` : "—"}</td>
                   <td><Badge tone={statusTone(record.status)}>{record.status.replace(/_/g, " ")}</Badge></td>
                 </tr>
-              ))}
+              )} />}
             </tbody>
           </table>
         </section>
@@ -1032,7 +1151,7 @@ export function ReportsPage({
             <tbody>
               {filteredLeaves.length === 0 ? (
                 <tr><td colSpan={7} className="reports-empty">No leave records match the current filters.</td></tr>
-              ) : filteredLeaves.map((request) => (
+              ) : <DepartmentGroups rows={filteredLeaves} person={personOfRow} colSpan={7} renderRow={(request) => (
                 <tr key={request.id}>
                   <td>{employeeName(request)}</td>
                   <td>{request.employee.department.name}</td>
@@ -1042,7 +1161,7 @@ export function ReportsPage({
                   <td>{request.totalDays}</td>
                   <td><Badge tone={statusTone(request.status)}>{leaveStatusText(request)}</Badge></td>
                 </tr>
-              ))}
+              )} />}
             </tbody>
           </table>
         </section>
@@ -1073,7 +1192,7 @@ export function ReportsPage({
             <tbody>
               {filteredUndertime.length === 0 ? (
                 <tr><td colSpan={UNDERTIME_HEAD.length} className="reports-empty">No undertime filings match the current filters.</td></tr>
-              ) : filteredUndertime.map((filing) => (
+              ) : <DepartmentGroups rows={filteredUndertime} person={personOfRow} colSpan={UNDERTIME_HEAD.length} renderRow={(filing) => (
                 <tr key={filing.id}>
                   <td>{employeeName(filing)}</td>
                   <td>{filing.employee.department.name}</td>
@@ -1084,7 +1203,7 @@ export function ReportsPage({
                   <td><Badge tone={statusTone(filing.status)}>{filing.status}</Badge></td>
                   <td>{undertimeReviewer(filing)}</td>
                 </tr>
-              ))}
+              )} />}
             </tbody>
           </table>
         </section>
@@ -1105,7 +1224,7 @@ export function ReportsPage({
             <tbody>
               {filteredSchedules.length === 0 ? (
                 <tr><td colSpan={6} className="reports-empty">No schedule records match the current filters.</td></tr>
-              ) : filteredSchedules.map((schedule) => (
+              ) : <DepartmentGroups rows={filteredSchedules} person={personOfRow} colSpan={6} renderRow={(schedule) => (
                 <tr key={schedule.id}>
                   <td>{employeeName(schedule)}</td>
                   <td>{schedule.employee.department.name}</td>
@@ -1127,7 +1246,7 @@ export function ReportsPage({
                     </span>
                   </td>
                 </tr>
-              ))}
+              )} />}
             </tbody>
           </table>
         </section>
@@ -1146,14 +1265,14 @@ export function ReportsPage({
             <tbody>
               {filteredEmployeesList.length === 0 ? (
                 <tr><td colSpan={4} className="reports-empty">No employees match the current filters.</td></tr>
-              ) : filteredEmployeesList.map((e) => (
+              ) : <DepartmentGroups rows={filteredEmployeesList} person={personSelf} colSpan={4} renderRow={(e) => (
                 <tr key={e.id}>
                   <td>{e.firstName} {e.lastName}</td>
                   <td>{e.department.name}</td>
                   <td>{formatSex(e.sex)}</td>
                   <td>{formatDate(e.hireDate)}</td>
                 </tr>
-              ))}
+              )} />}
             </tbody>
           </table>
         </section>
@@ -1173,17 +1292,17 @@ export function ReportsPage({
             <tbody>
               {filteredLeaveBalances.length === 0 ? (
                 <tr><td colSpan={7} className="reports-empty">No leave balance records match the current filters.</td></tr>
-              ) : filteredLeaveBalances.map((b) => (
+              ) : <DepartmentGroups rows={filteredLeaveBalances} person={personOfRow} colSpan={7} renderRow={(b) => (
                 <tr key={`${b.employeeId}-${b.leaveTypeId}`}>
                   <td>{b.employee.firstName} {b.employee.lastName}</td>
                   <td>{b.employee.department.name}</td>
                   <td>{formatSex(b.employee.sex)}</td>
                   <td>{b.leaveTypeName}</td>
-                  <td>{b.remainingDays.toFixed(0)}</td>
-                  <td>{b.usedDays.toFixed(0)}</td>
+                  <td>{formatDays(b.remainingDays)}</td>
+                  <td>{formatDays(b.usedDays)}</td>
                   <td>{formatUsedDates(b.usedDates)}</td>
                 </tr>
-              ))}
+              )} />}
             </tbody>
           </table>
         </section>

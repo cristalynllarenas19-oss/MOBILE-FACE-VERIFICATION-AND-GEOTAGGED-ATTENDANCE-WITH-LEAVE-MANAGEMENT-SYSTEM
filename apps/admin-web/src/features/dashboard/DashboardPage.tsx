@@ -335,13 +335,12 @@ export function DashboardPage({
 
   // Attendance Breakdown donut tracks the same selected date + department
   // filter as the detail panel, so both always describe the same scope.
-  // The donut has no Late slice, so its Present includes late arrivals (the
-  // API's present is on-time only) to keep the three slices summing to total.
+  // Present is on-time only and Late is its own slice, matching the table.
   const donutSource = useMemo(() => {
     if (!selectedDay) return { present: 0, late: 0, absent: 0, onLeave: 0 };
     if (departmentFilter === "ALL") {
       return {
-        present: selectedDay.present + selectedDay.late,
+        present: selectedDay.present,
         late: selectedDay.late,
         absent: selectedDay.absent,
         onLeave: selectedDay.onLeave,
@@ -349,7 +348,7 @@ export function DashboardPage({
     }
     const row = selectedDay.departments.find((d) => d.department === departmentFilter);
     return {
-      present: (row?.present ?? 0) + (row?.late ?? 0),
+      present: row?.present ?? 0,
       late: row?.late ?? 0,
       absent: row?.absent ?? 0,
       onLeave: row?.onLeave ?? 0,
@@ -542,12 +541,14 @@ export function DashboardPage({
           <div className="donut-summary-row">
             <AttendanceDonutChart
               present={donutSource.present}
+              late={donutSource.late}
               absent={donutSource.absent}
               onLeave={donutSource.onLeave}
             />
             <div className="donut-summary-col">
               <AttendanceDonutLegend
                 present={donutSource.present}
+                late={donutSource.late}
                 absent={donutSource.absent}
                 onLeave={donutSource.onLeave}
               />

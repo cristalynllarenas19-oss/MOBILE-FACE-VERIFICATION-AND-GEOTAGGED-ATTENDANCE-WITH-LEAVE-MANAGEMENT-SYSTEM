@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
+  Award,
   Ban,
+  Building2,
   Calendar as CalendarIcon,
   ChevronDown,
   ChevronLeft,
@@ -13,6 +15,7 @@ import {
   Info,
   Paperclip,
   Search,
+  Users,
   X,
 } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
@@ -29,6 +32,7 @@ import {
   SELECTABLE_EMPLOYMENT_STATUS_OPTIONS,
 } from "../../types/employment";
 import { useEmployeeTypes } from "../../lib/employeeTypes";
+import { formatDays } from "../../lib/leaveDays";
 import "./LeavePage.css";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -381,16 +385,16 @@ function EmployeeSummaryDonut({ earnedDays, usedDays, remainingDays, balances }:
 
       <div className="employee-summary-stats">
         <div className="employee-summary-hero">
-          <span className="employee-summary-hero-value">{remainingDays.toFixed(0)}</span>
+          <span className="employee-summary-hero-value">{formatDays(remainingDays)}</span>
           <span className="employee-summary-hero-label">Remaining</span>
         </div>
         <div className="employee-summary-stat-row">
           <span className="employee-summary-stat-label">Earned</span>
-          <span className="employee-summary-stat-value">{earnedDays.toFixed(0)}</span>
+          <span className="employee-summary-stat-value">{formatDays(earnedDays)}</span>
         </div>
         <div className="employee-summary-stat-row">
           <span className="employee-summary-stat-label">Used</span>
-          <span className="employee-summary-stat-value">{usedDays.toFixed(0)}</span>
+          <span className="employee-summary-stat-value">{formatDays(usedDays)}</span>
         </div>
       </div>
     </div>
@@ -417,8 +421,171 @@ function formatPlannedAccrualEnd(start: string) {
   return formatDate(new Date(from.getFullYear(), from.getMonth() + 1, from.getDate()).toISOString());
 }
 
+// Leave days one period earned: "+1.25", or "0" when it earned nothing.
+function formatCredit(days: number) {
+  return days > 0 ? `+${days.toFixed(2)}` : "0";
+}
+
 function AccrualStatusBadge({ status }: { status: LeaveAccrualHistoryRow["attendanceStatus"] }) {
-  return <Badge tone={status === "PERFECT" ? "success" : "danger"}>{status === "PERFECT" ? "Perfect" : "Absent"}</Badge>;
+  // No Absence = a full month, credits earned; Has Absence = an unexcused
+  // absence cut it short, no credits.
+  return <Badge tone={status === "PERFECT" ? "success" : "danger"}>{status === "PERFECT" ? "No Absence" : "Has Absence"}</Badge>;
+}
+
+// Same labels/colors as the Attendance Management table, as plain colored
+// text so the period list stays quiet.
+function AttendanceStatusText({ status }: { status: string }) {
+  const label =
+    status === "PRESENT" ? "Present"
+    : status === "LATE" ? "Late"
+    : status === "ABSENT" ? "Absent"
+    : status === "ON_LEAVE" ? "On Leave"
+    : status.replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
+  const tone = status === "PRESENT" ? "success" : status === "ABSENT" ? "danger" : status === "ON_LEAVE" ? "neutral" : "warning";
+  return <span className={`accrual-status-text accrual-status-text--${tone}`}>{label}</span>;
+}
+
+function toDateKey(value: string) {
+  const date = new Date(value);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+type PeriodAttendanceRecord = {
+  id: string;
+  attendanceDate: string;
+  status: string;
+  recordType?: "OFFICE" | "FIELD";
+  timeInAt?: string | null;
+  timeOutAt?: string | null;
+  lunchOutAt?: string | null;
+  lunchInAt?: string | null;
+  breakKind?: "LUNCH" | "BREAK";
+  workLocation?: { name: string } | null;
+};
+
+// Absent / On Leave days never get a punch, so their times read "—".
+function formatPunch(value: string | null | undefined, status: string) {
+  if (!value || status === "ABSENT" || status === "ON_LEAVE") return "—";
+  return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+// One qualifying period's day-by-day attendance — the same rows the
+// Attendance Management page lists (real records plus rebuilt Absent /
+// On Leave days), for just this employee.
+function AccrualPeriodAttendance({
+  period,
+  onBack,
+}: {
+  period: LeaveAccrualHistoryRow;
+  onBack: () => void;
+}) {
+  const [records, setRecords] = useState<PeriodAttendanceRecord[] | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    setRecords(null);
+    setError("");
+    const params = new URLSearchParams({
+      employeeId: period.employeeId,
+      from: toDateKey(period.cycleStart),
+      to: toDateKey(period.cycleEnd),
+    });
+    apiRequest<PeriodAttendanceRecord[]>(`/attendance?${params.toString()}`)
+      .then((rows) => {
+        if (cancelled) return;
+        // The absence that ended a period is the accrual's own finding. The
+        // attendance list only rebuilds an Absent day while a shift schedule
+        // was active, so if it has nothing on that day, show it from here.
+        const endKey = toDateKey(period.cycleEnd);
+        const withAbsence =
+          period.attendanceStatus !== "PERFECT" && !rows.some((row) => toDateKey(row.attendanceDate) === endKey)
+            ? [...rows, { id: `accrual-absent-${period.id}`, attendanceDate: period.cycleEnd, status: "ABSENT" }]
+            : rows;
+        setRecords(
+          [...withAbsence].sort((a, b) => new Date(a.attendanceDate).getTime() - new Date(b.attendanceDate).getTime()),
+        );
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error && err.message ? err.message : "Couldn't load attendance.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [period.id, period.employeeId, period.cycleStart, period.cycleEnd, period.attendanceStatus]);
+
+  const counts = (records ?? []).reduce(
+    (acc, record) => {
+      if (record.status === "PRESENT") acc.present += 1;
+      else if (record.status === "LATE") acc.late += 1;
+      else if (record.status === "ABSENT") acc.absent += 1;
+      return acc;
+    },
+    { present: 0, late: 0, absent: 0 },
+  );
+
+  return (
+    <>
+      <div className="accrual-period-header">
+        <button type="button" className="accrual-back-button" onClick={onBack}>
+          <ChevronLeft size={15} /> Back
+        </button>
+        <div className="accrual-period-title">
+          <CalendarIcon size={16} />
+          <strong>{formatAccrualPeriod(period.cycleStart, period.cycleEnd)}</strong>
+          <AccrualStatusBadge status={period.attendanceStatus} />
+        </div>
+      </div>
+
+      <div className="accrual-summary accrual-summary--totals">
+        <div><span>Present</span><strong>{counts.present}</strong></div>
+        <div><span>Late</span><strong>{counts.late}</strong></div>
+        <div><span>Absent</span><strong>{counts.absent}</strong></div>
+      </div>
+
+      <p className="accrual-section-title">Attendance</p>
+      <div className="accrual-attendance-scroll">
+        <table className="accrual-attendance-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Site</th>
+              <th>Mode</th>
+              <th>Time In</th>
+              <th>Time Out</th>
+              <th>Lunch / Break</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {error ? (
+              <tr><td colSpan={7} className="accrual-attendance-empty">{error}</td></tr>
+            ) : records === null ? (
+              <tr><td colSpan={7} className="accrual-attendance-empty">Loading attendance…</td></tr>
+            ) : records.length === 0 ? (
+              <tr><td colSpan={7} className="accrual-attendance-empty">No attendance records for this period.</td></tr>
+            ) : (
+              records.map((record) => (
+                <tr key={record.id} className={record.status === "ABSENT" ? "absent" : ""}>
+                  <td>{formatDate(record.attendanceDate)}</td>
+                  <td className="accrual-attendance-site">{record.workLocation?.name ?? "—"}</td>
+                  <td>{record.recordType === "FIELD" ? "Field" : "Non-field"}</td>
+                  <td>{formatPunch(record.timeInAt, record.status)}</td>
+                  <td>{formatPunch(record.timeOutAt, record.status)}</td>
+                  <td>
+                    {record.lunchOutAt
+                      ? `${record.breakKind === "BREAK" ? "Break " : ""}${formatPunch(record.lunchOutAt, record.status)} – ${formatPunch(record.lunchInAt, record.status)}`
+                      : "—"}
+                  </td>
+                  <td><AttendanceStatusText status={record.status} /></td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
 }
 
 function AccrualDetailsModal({
@@ -445,6 +612,13 @@ function AccrualDetailsModal({
   const totalVacation = history.reduce((sum, entry) => sum + entry.vacationLeaveEarned, 0);
   const perfectPeriods = history.filter((entry) => entry.attendanceStatus === "PERFECT").length;
 
+  // The period shown in "Selected Period" — the one View was clicked on,
+  // until another row in the history list is picked.
+  const [selected, setSelected] = useState(row);
+  // A history row's arrow opens that period's attendance in place of the
+  // summary; Back returns to it.
+  const [attendancePeriod, setAttendancePeriod] = useState<LeaveAccrualHistoryRow | null>(null);
+
   // Today's attendance for this employee, from the same single-day list the
   // Attendance page shows (real records plus reconstructed Absent / On Leave
   // rows). undefined = still loading; null = nothing for today yet (not
@@ -470,7 +644,7 @@ function AccrualDetailsModal({
   return createPortal(
     <div className="leave-modal-backdrop" role="presentation" onClick={onClose}>
       <section
-        className="leave-modal leave-modal--accrual"
+        className={`leave-modal leave-modal--accrual${attendancePeriod ? " leave-modal--accrual-wide" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby="accrual-modal-title"
@@ -487,29 +661,47 @@ function AccrualDetailsModal({
         </div>
 
         <div className="accrual-modal-body">
-          <div className="accrual-employee">
-            <span className="accrual-avatar">{initials}</span>
-            <div className="accrual-employee-name">
-              <strong>{row.employeeName}</strong>
+          <div className="accrual-employee-card">
+            <div className="accrual-employee-col accrual-employee-col--name">
+              <span className="accrual-avatar">{initials}</span>
+              <div>
+                <span>Employee</span>
+                <strong>{row.employeeName}</strong>
+              </div>
             </div>
-            <div className="accrual-employee-field">
-              <span>Employee Type</span>
-              <strong>{formatEmploymentStatus(row.employeeType)}</strong>
+            <div className="accrual-employee-col">
+              <IdCard size={16} />
+              <div>
+                <span>Employee Type</span>
+                <strong>{formatEmploymentStatus(row.employeeType)}</strong>
+              </div>
             </div>
-            <div className="accrual-employee-field">
-              <span>Department</span>
-              <strong>{row.department}</strong>
+            <div className="accrual-employee-col">
+              <Building2 size={16} />
+              <div>
+                <span>Department</span>
+                <strong>{row.department}</strong>
+              </div>
             </div>
           </div>
 
-          <div className="accrual-summary">
+          {attendancePeriod ? (
+            <AccrualPeriodAttendance period={attendancePeriod} onBack={() => setAttendancePeriod(null)} />
+          ) : (
+          <>
+          <p className="accrual-section-title">Selected Period</p>
+          <div className="accrual-summary accrual-summary--period">
             <div>
               <span>Start Date</span>
-              <strong>{formatDate(row.cycleStart)}</strong>
+              <strong>{formatDate(selected.cycleStart)}</strong>
             </div>
             <div>
               <span>End Date</span>
-              <strong>{formatPlannedAccrualEnd(row.cycleStart)}</strong>
+              <strong>{formatPlannedAccrualEnd(selected.cycleStart)}</strong>
+            </div>
+            <div>
+              <span>Period Status</span>
+              <AccrualStatusBadge status={selected.attendanceStatus} />
             </div>
             <div>
               <span>Attendance Status Today</span>
@@ -533,18 +725,12 @@ function AccrualDetailsModal({
             </div>
           </div>
 
-          {row.attendanceStatus !== "PERFECT" && (
+          {selected.attendanceStatus !== "PERFECT" && (
             <p className="accrual-note accrual-note--ended">
               <Info size={14} />
-              Ended early: absent on {formatDate(row.cycleEnd)}. A new qualifying period started the next day.
+              Ended early: absent on {formatDate(selected.cycleEnd)}. A new qualifying period started the next day.
             </p>
           )}
-
-          <p className="accrual-note">
-            <Info size={14} />
-            Accruals are based on attendance records. A qualifying period with an unexcused absence earns no
-            leave credit.
-          </p>
 
           <p className="accrual-section-title">Total Leave Accrued</p>
           <div className="accrual-summary accrual-summary--totals">
@@ -563,24 +749,61 @@ function AccrualDetailsModal({
           </div>
 
           <p className="accrual-section-title">Accrual History</p>
-          <div className="accrual-history-scroll">
-            <table className="accrual-history-table">
-              <thead>
-                <tr>
-                  <th>Qualifying Period</th>
-                  <th>Attendance Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {history.map((entry) => (
-                  <tr key={entry.id} className={entry.id === row.id ? "current" : ""}>
-                    <td>{formatAccrualPeriod(entry.cycleStart, entry.cycleEnd)}</td>
-                    <td><AccrualStatusBadge status={entry.attendanceStatus} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="accrual-history-list">
+            <div className="accrual-history-head">
+              <span>
+                <CalendarIcon size={13} /> Qualifying Period
+              </span>
+              <span>
+                <Award size={13} /> Credits Earned
+              </span>
+              <span>
+                <Users size={13} /> Period Status
+              </span>
+              <span aria-hidden="true" />
+            </div>
+            <div className="accrual-history-scroll">
+              {history.map((entry) => {
+                const absent = entry.attendanceStatus !== "PERFECT";
+                return (
+                  <button
+                    type="button"
+                    key={entry.id}
+                    className={`accrual-history-row${absent ? " absent" : ""}${entry.id === selected.id ? " selected" : ""}`}
+                    onClick={() => {
+                      setSelected(entry);
+                      setAttendancePeriod(entry);
+                    }}
+                    aria-label={`View attendance for ${formatAccrualPeriod(entry.cycleStart, entry.cycleEnd)}`}
+                  >
+                    <span className="accrual-history-period">
+                      <CalendarIcon size={16} />
+                      <span>
+                        <strong>{formatAccrualPeriod(entry.cycleStart, entry.cycleEnd)}</strong>
+                        {absent && <small>Absent on {formatDate(entry.cycleEnd)}</small>}
+                      </span>
+                    </span>
+                    <span
+                      className={`accrual-history-credits${
+                        entry.sickLeaveEarned + entry.vacationLeaveEarned > 0 ? " earned" : ""
+                      }`}
+                    >
+                      {formatCredit(entry.sickLeaveEarned)} SL, {formatCredit(entry.vacationLeaveEarned)} VL
+                    </span>
+                    <span className="accrual-history-status">
+                      <AccrualStatusBadge status={entry.attendanceStatus} />
+                    </span>
+                    <ChevronRight size={16} className="accrual-history-chevron" />
+                  </button>
+                );
+              })}
+            </div>
           </div>
+          <p className="accrual-history-hint">
+            <Info size={12} /> A period with an unexcused absence ends early and earns no leave credit.
+          </p>
+          </>
+          )}
         </div>
       </section>
     </div>,
@@ -667,9 +890,9 @@ function EmployeeLeaveTypeRow({
         <span className="employee-leave-row-dot" style={{ background: color }} />
         {label}
       </span>
-      <span className="employee-balance-num">{earnedDays.toFixed(0)}</span>
-      <span className="employee-balance-num">{usedDays.toFixed(0)}</span>
-      <span className="employee-balance-num employee-balance-num--strong">{remainingDays.toFixed(0)}</span>
+      <span className="employee-balance-num">{formatDays(earnedDays)}</span>
+      <span className="employee-balance-num">{formatDays(usedDays)}</span>
+      <span className="employee-balance-num employee-balance-num--strong">{formatDays(remainingDays)}</span>
       <button
         type="button"
         className="employee-balance-link"
@@ -2013,7 +2236,7 @@ export function LeavePage({
                       <td data-label="Name" title={`${row.employee.firstName} ${row.employee.lastName}`}>{row.employee.firstName} {row.employee.lastName}</td>
                       <td data-label="Department" title={row.employee.department?.name ?? "Unassigned"}>{row.employee.department?.name ?? "Unassigned"}</td>
                       <td data-label="Employee Type">{formatEmploymentStatus(row.employee.employmentStatus)}</td>
-                      <td data-label="Total Remaining">{row.totalRemainingDays.toFixed(0)}</td>
+                      <td data-label="Total Remaining">{formatDays(row.totalRemainingDays)}</td>
                       <td data-label="Action">
                         <EmployeeListViewButton
                           employee={row.employee}

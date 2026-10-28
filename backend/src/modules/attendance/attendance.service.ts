@@ -38,6 +38,8 @@ type AttendanceFilters = {
   date?: string;
   from?: string;
   to?: string;
+  // One employee only (Leave → Accrual Details → a period's attendance).
+  employeeId?: string;
 };
 
 // Parses a "YYYY-MM-DD" query param into a local-midnight Date, matching how
@@ -160,6 +162,7 @@ export class AttendanceService {
 
     const records = await this.prisma.attendanceRecord.findMany({
       where: {
+        ...(filters.employeeId ? { employeeId: filters.employeeId } : {}),
         ...(filters.status && filters.status !== "ALL" ? { status: filters.status as any } : {}),
         ...(filters.recordType && filters.recordType !== "ALL" ? { recordType: filters.recordType as any } : {}),
         ...(attendanceDate
@@ -246,6 +249,7 @@ export class AttendanceService {
 
     const employees = await this.prisma.employee.findMany({
       where: {
+        ...(filters.employeeId ? { id: filters.employeeId } : {}),
         employmentStatus: { not: "SEPARATED" },
         ...(filters.departmentId
           ? { departmentId: filters.departmentId }
