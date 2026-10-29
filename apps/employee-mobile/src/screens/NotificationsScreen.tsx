@@ -503,10 +503,15 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
     });
   }
 
+  // Rejecting a request and denying a cancellation must both say why (the
+  // backend enforces it too) — the confirm button stays disabled until then.
+  const rejectNeedsRemarks = reviewAction !== null && !reviewRemarks.trim();
+
   function handleSubmitReject() {
     if (!detailTeamRequest) return;
     const targetId = detailTeamRequest.id;
     const remarksTrimmed = reviewRemarks.trim();
+    if (!remarksTrimmed) return;
     teamLeaveRequestsCache.setData(teamLeaveRequests.map((r) => (r.id === targetId ? { ...r, status: "REJECTED" } : r)));
     handleCloseDetail();
     setReviewResult({ status: "approved", title: "Rejected", message: "Leave request was rejected." });
@@ -532,6 +537,7 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
     if (!detailTeamRequest) return;
     const targetId = detailTeamRequest.id;
     const remarksTrimmed = reviewRemarks.trim();
+    if (!remarksTrimmed) return;
     teamLeaveRequestsCache.setData(teamLeaveRequests.map((r) => (r.id === targetId ? { ...r, status: "APPROVED" } : r)));
     handleCloseDetail();
     setReviewResult({ status: "approved", title: "Cancellation Denied", message: "The leave remains approved." });
@@ -956,7 +962,7 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                     ) : (
                       <>
                         <TextInput
-                          placeholder="Optional remarks"
+                          placeholder={reviewAction === "reject" ? "Reason for rejecting (required)" : "Reason for denying (required)"}
                           multiline
                           value={reviewRemarks}
                           onChangeText={setReviewRemarks}
@@ -968,8 +974,9 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                             <Text style={styles.reviewCancelButtonText}>Back</Text>
                           </Pressable>
                           <Pressable
-                            style={styles.reviewRejectButton}
+                            style={[styles.reviewRejectButton, rejectNeedsRemarks && { opacity: 0.5 }]}
                             onPress={reviewAction === "reject" ? handleSubmitReject : handleSubmitDenyCancellation}
+                            disabled={rejectNeedsRemarks}
                           >
                             <Text style={styles.reviewRejectButtonText}>
                               {reviewAction === "reject" ? "Confirm Reject" : "Confirm Deny"}

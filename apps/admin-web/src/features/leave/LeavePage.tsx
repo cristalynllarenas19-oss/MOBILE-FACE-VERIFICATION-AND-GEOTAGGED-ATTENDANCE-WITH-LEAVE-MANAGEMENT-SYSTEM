@@ -1755,9 +1755,17 @@ export function LeavePage({
   // background call actually fails.
   const reviewLeave = (action: "approve" | "reject") => {
     if (!reviewRequest) return;
+    const remarksTrimmed = remarks.trim();
+    if (action === "reject" && !remarksTrimmed) {
+      setNotification({
+        type: "error",
+        title: "Remarks Required",
+        message: "Please provide remarks explaining why this leave request is being rejected.",
+      });
+      return;
+    }
     const targetId = reviewRequest.id;
     const newStatus = action === "approve" ? "APPROVED" : requiresAdditionalRequirements ? "NEEDS_REVISION" : "REJECTED";
-    const remarksTrimmed = remarks.trim();
     const requirementDetailsTrimmed = requirementDetails.trim();
     const requiresAdditionalRequirementsSnapshot = requiresAdditionalRequirements;
 
@@ -1813,9 +1821,17 @@ export function LeavePage({
   // Same optimistic pattern as reviewLeave above.
   const reviewUndertimeFiling = (action: "approve" | "reject") => {
     if (!reviewUndertime) return;
+    const remarksTrimmed = undertimeRemarks.trim();
+    if (action === "reject" && !remarksTrimmed) {
+      setNotification({
+        type: "error",
+        title: "Remarks Required",
+        message: "Please provide remarks explaining why this undertime filing is being rejected.",
+      });
+      return;
+    }
     const targetId = reviewUndertime.id;
     const newStatus = action === "approve" ? "APPROVED" : "REJECTED";
-    const remarksTrimmed = undertimeRemarks.trim();
 
     undertimeCache.setData(undertimeFilings.map((f) => (f.id === targetId ? { ...f, status: newStatus } : f)));
     setReviewUndertime(null);
@@ -1893,8 +1909,16 @@ export function LeavePage({
   // approveCancellation/denyCancellation. Optimistic, same as reviewLeave.
   const decideCancellation = (decision: "approve" | "deny") => {
     if (!reviewRequest) return;
-    const targetId = reviewRequest.id;
     const remarksTrimmed = remarks.trim();
+    if (decision === "deny" && !remarksTrimmed) {
+      setNotification({
+        type: "error",
+        title: "Remarks Required",
+        message: "Please provide remarks explaining why this cancellation is being denied.",
+      });
+      return;
+    }
+    const targetId = reviewRequest.id;
     const revertStatus = reviewRequest.preCancellationStatus ?? "APPROVED";
     const newStatus = decision === "approve" ? "CANCELLED" : revertStatus;
 
@@ -1927,13 +1951,23 @@ export function LeavePage({
 
   const decideExtension = async (extensionApproved: boolean) => {
     if (!reviewRequest) return;
+    const remarksTrimmed = remarks.trim();
+    if (!extensionApproved && !remarksTrimmed) {
+      setNotification({
+        type: "error",
+        title: "Remarks Required",
+        message: "Please provide remarks explaining why this extension is being rejected.",
+      });
+      return;
+    }
     setIsSaving(true);
     try {
       await apiRequest(`/leave-requests/${reviewRequest.id}/extension-decision`, {
         method: "PATCH",
-        body: JSON.stringify({ extensionApproved }),
+        body: JSON.stringify({ extensionApproved, remarks: remarksTrimmed }),
       });
       setReviewRequest(null);
+      setRemarks("");
       setNotification({
         type: "success",
         title: extensionApproved ? "Extension Approved" : "Extension Rejected",
@@ -2654,7 +2688,7 @@ export function LeavePage({
                       <textarea
                         value={remarks}
                         onChange={(e) => setRemarks(e.target.value)}
-                        placeholder="Optional review notes"
+                        placeholder="Required when rejecting — optional when approving"
                       />
                     </label>
 
@@ -2706,11 +2740,28 @@ export function LeavePage({
                   <textarea
                     value={remarks}
                     onChange={(e) => setRemarks(e.target.value)}
-                    placeholder="Optional remarks for the employee, sent with your decision"
+                    placeholder="Required when denying — optional when approving"
                   />
                 </label>
               </div>
             )}
+            {!historyViewOnly &&
+              !canReviewRequest &&
+              !canDecideCancellation &&
+              isAdmin &&
+              reviewRequest.extensionRequested &&
+              reviewRequest.extensionApproved == null && (
+                <div className="leave-review-inputs leave-review-inputs--compact">
+                  <label className="leave-remarks-field leave-remarks-field--fill">
+                    Add Remarks
+                    <textarea
+                      value={remarks}
+                      onChange={(e) => setRemarks(e.target.value)}
+                      placeholder="Required when rejecting the extension — optional when approving"
+                    />
+                  </label>
+                </div>
+              )}
             </div>
             </div>
 
@@ -2828,7 +2879,7 @@ export function LeavePage({
                   <textarea
                     value={undertimeRemarks}
                     onChange={(e) => setUndertimeRemarks(e.target.value)}
-                    placeholder="Optional review notes"
+                    placeholder="Required when rejecting — optional when approving"
                   />
                 </label>
               )}

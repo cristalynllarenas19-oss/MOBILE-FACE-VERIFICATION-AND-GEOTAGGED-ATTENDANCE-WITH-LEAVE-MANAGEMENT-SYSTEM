@@ -1029,6 +1029,11 @@ export class LeaveService {
     const status: LeaveRequestStatus = requiresAdditionalRequirements ? "NEEDS_REVISION" : "REJECTED";
     const remarks = dto.remarks?.trim();
     const requirementDetails = dto.requirementDetails?.trim();
+    // The employee is told why in the rejection notification, so a reason is
+    // mandatory — whether it's an outright rejection or a resubmission request.
+    if (!remarks) {
+      throw new BadRequestException("Please provide remarks explaining why this leave request is being rejected.");
+    }
 
     const request = await this.prisma.leaveRequest.update({
       where: { id },
@@ -1485,6 +1490,9 @@ export class LeaveService {
     if (selfReviewEmployeeId && existing.employeeId === selfReviewEmployeeId) {
       throw new ForbiddenException("You cannot approve or deny your own leave cancellation — HR must review it.");
     }
+    if (!remarks?.trim()) {
+      throw new BadRequestException("Please provide remarks explaining why this cancellation is being denied.");
+    }
 
     const revertTo = (existing.preCancellationStatus ?? "APPROVED") as LeaveRequestStatus;
 
@@ -1749,7 +1757,12 @@ export class LeaveService {
     return request;
   }
 
-  async setExtensionDecision(id: string, extensionApproved: boolean, actorUserId?: string) {
+  async setExtensionDecision(id: string, extensionApproved: boolean, remarks: string | undefined, actorUserId?: string) {
+    const trimmedRemarks = remarks?.trim();
+    if (!extensionApproved && !trimmedRemarks) {
+      throw new BadRequestException("Please provide remarks explaining why this extension is being rejected.");
+    }
+
     const updated = await this.prisma.leaveRequest.update({
       where: { id },
       data: { extensionApproved },
@@ -1763,7 +1776,7 @@ export class LeaveService {
     if (updated.employee.userId) {
       await this.notifications.notifyUsers([updated.employee.userId], {
         title: extensionApproved ? "Maternity Extension Approved" : "Maternity Extension Rejected",
-        message: `Your request to extend your ${updated.leaveType.name} by 30 days without pay was ${extensionApproved ? "approved" : "rejected"}.`,
+        message: `Your request to extend your ${updated.leaveType.name} by 30 days without pay was ${extensionApproved ? "approved" : "rejected"}.${trimmedRemarks ? ` Remarks: ${trimmedRemarks}` : ""}`,
         type: extensionApproved ? "LEAVE_EXTENSION_APPROVED" : "LEAVE_EXTENSION_REJECTED",
         entityId: updated.id,
       });
@@ -1775,7 +1788,7 @@ export class LeaveService {
         action: "SET_MATERNITY_EXTENSION",
         entityType: "LeaveRequest",
         entityId: id,
-        newValues: { extensionApproved },
+        newValues: { extensionApproved, remarks: trimmedRemarks },
       },
     });
 

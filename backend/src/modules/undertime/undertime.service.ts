@@ -262,6 +262,9 @@ export class UndertimeService {
     }
 
     const trimmedRemarks = remarks?.trim();
+    if (status === "REJECTED" && !trimmedRemarks) {
+      throw new BadRequestException("Please provide remarks explaining why this undertime filing is being rejected.");
+    }
 
     const filing = await this.prisma.undertimeFiling.update({
       where: { id },

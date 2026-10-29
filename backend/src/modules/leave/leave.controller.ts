@@ -159,7 +159,7 @@ export class LeaveController {
   @RequirePermissions("leave:approve")
   setExtensionDecision(
     @Param("id") id: string,
-    @Body() body: { extensionApproved: boolean },
+    @Body() body: { extensionApproved: boolean; remarks?: string },
     @Req() request: Request,
   ) {
     const user = (request as any).user;
@@ -167,6 +167,6 @@ export class LeaveController {
     if (!roles.includes("ADMIN")) {
       throw new ForbiddenException("Only HR/Admin can decide a maternity leave extension.");
     }
-    return this.leaveService.setExtensionDecision(id, body.extensionApproved, user?.userId);
+    return this.leaveService.setExtensionDecision(id, body.extensionApproved, body.remarks, user?.userId);
   }
 }

@@ -180,9 +180,13 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
 
   function handleUndertimeReview(action: "approve" | "reject") {
     if (!reviewUndertime) return;
+    const remarksTrimmed = undertimeRemarks.trim();
+    if (action === "reject" && !remarksTrimmed) {
+      setResultModal({ status: "info", title: "Remarks Required", message: "Please provide remarks explaining why this undertime filing is being rejected." });
+      return;
+    }
     const targetId = reviewUndertime.id;
     const newStatus = action === "approve" ? "APPROVED" : "REJECTED";
-    const remarksTrimmed = undertimeRemarks.trim();
 
     setUndertimeData(undertimeFilings.map((f) => (f.id === targetId ? { ...f, status: newStatus } : f)));
     setReviewUndertime(null);
@@ -227,9 +231,13 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
   // the round trip, and only reverts if the background call actually fails.
   function handleCancellationDecision(decision: "approve" | "deny") {
     if (!reviewRequest) return;
+    const remarksTrimmed = remarks.trim();
+    if (decision === "deny" && !remarksTrimmed) {
+      setResultModal({ status: "info", title: "Remarks Required", message: "Please provide remarks explaining why this cancellation is being denied." });
+      return;
+    }
     const targetId = reviewRequest.id;
     const newStatus = decision === "approve" ? "CANCELLED" : "APPROVED";
-    const remarksTrimmed = remarks.trim();
 
     setData(requests.map((r) => (r.id === targetId ? { ...r, status: newStatus } : r)));
     setReviewRequest(null);
@@ -253,6 +261,10 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
   function handleReview(action: "approve" | "reject") {
     if (!reviewRequest) return;
 
+    if (action === "reject" && !remarks.trim()) {
+      setResultModal({ status: "info", title: "Remarks Required", message: "Please provide remarks explaining why this leave request is being rejected." });
+      return;
+    }
     if (action === "reject" && isRequestResubmission && !requirementDetails.trim()) {
       setResultModal({ status: "info", title: "Details Required", message: "Please describe what's needed from the employee before sending." });
       return;
@@ -478,7 +490,7 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
                       <TextInput
                         style={styles.textArea}
                         multiline
-                        placeholder="Optional remarks for the employee"
+                        placeholder="Required when denying — optional when approving"
                         value={remarks}
                         onChangeText={setRemarks}
                       />
@@ -501,10 +513,9 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
                       <TextInput
                         style={styles.textArea}
                         multiline
-                        placeholder="Optional remarks"
+                        placeholder="Required when rejecting — optional when approving"
                         value={remarks}
                         onChangeText={setRemarks}
-                        editable={!isRequestResubmission}
                       />
 
                       <Text style={styles.label}>Reject action</Text>
@@ -625,7 +636,7 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
                       <TextInput
                         style={styles.textArea}
                         multiline
-                        placeholder="Optional remarks"
+                        placeholder="Required when rejecting — optional when approving"
                         value={undertimeRemarks}
                         onChangeText={setUndertimeRemarks}
                       />
