@@ -1770,23 +1770,135 @@ export class AttendanceService {
       // Absent and on-leave days have no AttendanceRecord, so they're rebuilt
       // here for the same span the real rows cover (at least the last
       // HISTORY_MISSED_DAYS_WINDOW days) — see resolveMissedDays.
-      const missedRows = await this.buildMissedDayRows(employeeId, records.at(-1)?.attendanceDate);
+      const now = new Date();
+      const oldestRecordDate = records.at(-1)?.attendanceDate;
+      const defaultStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - HISTORY_MISSED_DAYS_WINDOW);
+      const windowStart =
+        oldestRecordDate && oldestRecordDate.getTime() < defaultStart.getTime() ? oldestRecordDate : defaultStart;
+      const missedRows = await this.buildMissedDayRows(employeeId, windowStart, now);
 
       return [...realRows, ...missedRows].sort((a, b) => b.attendanceDate.getTime() - a.attendanceDate.getTime());
     });
   }
 
-  private async buildMissedDayRows(employeeId: string, oldestRecordDate?: Date) {
-    const now = new Date();
+  // One calendar month of the caller's own DTR for the mobile "Download /
+  // Print DTR" feature. employeeId always comes from the JWT (see the
+  // controller's "me/dtr" route), never from a request parameter, so an
+  // employee can't pull someone else's DTR. Rows are the stored
+  // AttendanceRecords as-is (totalMinutes etc. were computed by the normal
+  // time-in/out rules) plus the same rebuilt absent/leave days getHistory()
+  // shows — nothing here invents a time or an hour count.
+  async getMonthlyDtr(employeeId: string, year: number, month: number) {
+    if (!Number.isInteger(year) || year < 2000 || year > 2100 || !Number.isInteger(month) || month < 1 || month > 12) {
+      throw new BadRequestException("Select a valid month and year.");
+    }
+
+    return withPrismaRetry(async () => {
+      const employee = await this.prisma.employee.findUnique({
+        where: { id: employeeId },
+        select: {
+          employeeNo: true,
+          firstName: true,
+          middleName: true,
+          lastName: true,
+          department: { select: { name: true } },
+          position: { select: { title: true } },
+          employeeType: { select: { name: true } },
+        },
+      });
+      if (!employee) throw new NotFoundException("Employee not found.");
+
+      const monthStart = new Date(year, month - 1, 1);
+      const monthEnd = new Date(year, month, 0, 23, 59, 59, 999);
+      const now = new Date();
+
+      const records =
+        monthStart.getTime() > now.getTime()
+          ? []
+          : await this.prisma.attendanceRecord.findMany({
+              where: { employeeId, attendanceDate: { gte: monthStart, lte: monthEnd } },
+              orderBy: [{ attendanceDate: "asc" }, { visitNumber: "asc" }],
+              select: {
+                id: true,
+                attendanceDate: true,
+                recordType: true,
+                visitNumber: true,
+                timeInAt: true,
+                timeOutAt: true,
+                lunchOutAt: true,
+                lunchInAt: true,
+                status: true,
+                totalMinutes: true,
+                lateMinutes: true,
+                undertimeMinutes: true,
+                overtimeMinutes: true,
+                workLocation: { select: { name: true } },
+                undertimeFilings: { where: { status: "APPROVED" }, select: { id: true }, take: 1 },
+              },
+            });
+
+      const realRows = records.map(({ undertimeFilings, ...record }) => ({
+        ...record,
+        leaveTypeName: null as string | null,
+        hasApprovedUndertime: undertimeFilings.length > 0,
+        isSynthetic: false,
+      }));
+
+      // Only up to today — a future day in the current month isn't absent yet.
+      const missedRows =
+        monthStart.getTime() > now.getTime()
+          ? []
+          : await this.buildMissedDayRows(employeeId, monthStart, monthEnd.getTime() < now.getTime() ? monthEnd : now);
+
+      const rows = [
+        ...realRows,
+        ...missedRows.map((row) => ({
+          id: row.id,
+          attendanceDate: row.attendanceDate,
+          recordType: row.recordType,
+          visitNumber: row.visitNumber,
+          timeInAt: null,
+          timeOutAt: null,
+          lunchOutAt: null,
+          lunchInAt: null,
+          status: row.status,
+          totalMinutes: 0,
+          lateMinutes: 0,
+          undertimeMinutes: 0,
+          overtimeMinutes: 0,
+          workLocation: null,
+          leaveTypeName: row.leaveTypeName,
+          hasApprovedUndertime: false,
+          isSynthetic: true,
+        })),
+      ].sort(
+        (a, b) => a.attendanceDate.getTime() - b.attendanceDate.getTime() || (a.visitNumber ?? 0) - (b.visitNumber ?? 0),
+      );
+
+      return {
+        employee: {
+          employeeNo: employee.employeeNo,
+          name: [employee.firstName, employee.middleName, employee.lastName].filter(Boolean).join(" "),
+          firstName: employee.firstName,
+          lastName: employee.lastName,
+          department: employee.department?.name ?? null,
+          position: employee.position?.title ?? null,
+          employeeType: employee.employeeType?.name ?? null,
+        },
+        year,
+        month,
+        generatedAt: now,
+        rows,
+      };
+    });
+  }
+
+  private async buildMissedDayRows(employeeId: string, windowStart: Date, now: Date) {
     const employee = await this.prisma.employee.findUnique({
       where: { id: employeeId },
       select: { hireDate: true, attendanceMode: true },
     });
     if (!employee) return [];
-
-    const defaultStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - HISTORY_MISSED_DAYS_WINDOW);
-    const windowStart =
-      oldestRecordDate && oldestRecordDate.getTime() < defaultStart.getTime() ? oldestRecordDate : defaultStart;
 
     const [recorded, leaves, schedules] = await Promise.all([
       this.prisma.attendanceRecord.findMany({

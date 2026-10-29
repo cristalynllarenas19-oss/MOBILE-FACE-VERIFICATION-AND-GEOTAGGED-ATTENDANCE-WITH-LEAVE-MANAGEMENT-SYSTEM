@@ -3,12 +3,14 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
 import { UpsertFaceProfileDto } from "./dto/upsert-face-profile.dto";
 import { ArchiveFaceProfileDto } from "./dto/archive-face-profile.dto";
+import { RegistrationLivenessService } from "../face-verification/registration-liveness.service";
 
 @Injectable()
 export class FaceProfilesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLogs: AuditLogsService,
+    private readonly liveness: RegistrationLivenessService,
   ) {}
 
   async findAll(includeArchived = false) {
@@ -42,12 +44,6 @@ export class FaceProfilesService {
     if (!dto.employeeId.trim()) {
       throw new BadRequestException("Employee is required.");
     }
-    if (!dto.referenceImageData.trim()) {
-      throw new BadRequestException("Reference image is required.");
-    }
-    if (!Array.isArray(dto.descriptors) || dto.descriptors.length === 0) {
-      throw new BadRequestException("Face descriptors are required.");
-    }
 
     const employee = await this.prisma.employee.findUnique({
       where: { id: dto.employeeId },
@@ -67,6 +63,13 @@ export class FaceProfilesService {
       );
     }
 
+    // The photo and face signature come only from a liveness session the
+    // server itself verified for this employee — never from the request — so
+    // skipping the guided capture, or sending any other photo, is refused.
+    const verified = this.liveness.getVerified(dto.livenessSessionId, employee.id, context.actorUserId);
+    const referenceImageData = verified.image;
+    const descriptors = [verified.descriptor];
+
     // An employee keeps at most one active profile: re-registering replaces
     // the existing photo/descriptors in place. Archived profiles stay behind
     // as history, so a fresh row is created after an archive.
@@ -78,8 +81,8 @@ export class FaceProfilesService {
       const updated = await this.prisma.faceProfile.update({
         where: { id: existing.id },
         data: {
-          referenceImageData: dto.referenceImageData as any,
-          descriptors: dto.descriptors as any,
+          referenceImageData: referenceImageData as any,
+          descriptors: descriptors as any,
           enrollmentStatus: "ACTIVE",
           enrolledAt: new Date(),
         } as any,
@@ -101,14 +104,15 @@ export class FaceProfilesService {
         newValues: { employeeId: updated.employeeId, enrollmentStatus: updated.enrollmentStatus },
       });
 
+      this.liveness.consume(dto.livenessSessionId);
       return updated;
     }
 
     const created = await this.prisma.faceProfile.create({
       data: {
         employeeId: employee.id,
-        referenceImageData: dto.referenceImageData as any,
-        descriptors: dto.descriptors as any,
+        referenceImageData: referenceImageData as any,
+        descriptors: descriptors as any,
         enrollmentStatus: "ACTIVE",
         enrolledAt: new Date(),
       } as any,
@@ -129,7 +133,16 @@ export class FaceProfilesService {
       newValues: { employeeId: created.employeeId, enrollmentStatus: created.enrollmentStatus },
     });
 
+    this.liveness.consume(dto.livenessSessionId);
     return created;
+  }
+
+  async createLivenessSession(employeeId: string, actorUserId?: string) {
+    const employee = await this.prisma.employee.findUnique({ where: { id: employeeId } });
+    if (!employee) {
+      throw new NotFoundException("Employee not found.");
+    }
+    return this.liveness.createSession(employee.id, actorUserId);
   }
 
   async archive(id: string, dto: ArchiveFaceProfileDto, context: AuditLogContext = {}) {

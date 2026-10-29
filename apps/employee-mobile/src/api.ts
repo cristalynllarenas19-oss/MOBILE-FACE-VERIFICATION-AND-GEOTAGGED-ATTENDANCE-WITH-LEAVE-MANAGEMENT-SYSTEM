@@ -747,6 +747,49 @@ export async function getAttendanceRecordPhotos(recordId: string) {
   );
 }
 
+// One calendar month of the signed-in employee's own DTR, for Download /
+// Print DTR. The server takes the employee from the login token, not from
+// this request, so there's no id to pass.
+export type MonthlyDtrRow = {
+  id: string;
+  attendanceDate: string;
+  recordType?: AttendanceRecordType;
+  visitNumber?: number;
+  timeInAt: string | null;
+  timeOutAt: string | null;
+  lunchOutAt?: string | null;
+  lunchInAt?: string | null;
+  status: string;
+  totalMinutes: number;
+  lateMinutes?: number;
+  undertimeMinutes?: number;
+  overtimeMinutes?: number;
+  workLocation?: { name: string } | null;
+  leaveTypeName?: string | null;
+  hasApprovedUndertime?: boolean;
+  isSynthetic?: boolean;
+};
+
+export type MonthlyDtr = {
+  employee: {
+    employeeNo: string;
+    name: string;
+    firstName: string;
+    lastName: string;
+    department: string | null;
+    position: string | null;
+    employeeType: string | null;
+  };
+  year: number;
+  month: number;
+  generatedAt: string;
+  rows: MonthlyDtrRow[];
+};
+
+export async function getMyMonthlyDtr(year: number, month: number) {
+  return apiRequest<MonthlyDtr>(`/attendance/me/dtr?year=${year}&month=${month}`);
+}
+
 export async function getMyWorkLocation() {
   return apiRequest<WorkLocation | null>("/geolocation/my-location");
 }

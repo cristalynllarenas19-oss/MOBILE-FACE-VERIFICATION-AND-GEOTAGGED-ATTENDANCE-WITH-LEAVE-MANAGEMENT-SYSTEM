@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from "@nestjs/common";
 import * as path from "path";
 import * as canvasLib from "canvas";
 import * as faceapi from "face-api.js";
+import * as ort from "onnxruntime-node";
 import { PrismaService } from "../../prisma/prisma.service";
 import { NotificationsService } from "../notifications/notifications.service";
 
@@ -32,6 +33,7 @@ const MISMATCH_NOTIFY_THRESHOLD = 3;
 export class FaceVerificationService implements OnModuleInit {
   private readonly logger = new Logger(FaceVerificationService.name);
   private modelsLoadingPromise: Promise<void> | null = null;
+  private antiSpoofLoadingPromise: Promise<{ session: ort.InferenceSession; scale: number }[]> | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -190,6 +192,187 @@ export class FaceVerificationService implements OnModuleInit {
     const right = eyeRatio(landmarks.getRightEye());
     if (left === null || right === null) return null;
     return (left + right) / 2;
+  }
+
+  // One key frame of a face-registration liveness session (see
+  // registration-liveness.service.ts), measured entirely here so the
+  // browser's own blink/turn verdicts are never trusted. Counts every face in
+  // the frame (registration needs exactly one) and, for the single face,
+  // returns: eye openness two ways (landmark EAR, and the eye-opening
+  // contrast the admin screen also uses because landmark eyelids often
+  // barely move on a blink), head yaw, a descriptor for checking it's the
+  // same person all session, and a tiny grayscale thumbnail of the whole
+  // frame for spotting a frozen/repeated camera image.
+  async analyzeRegistrationFrame(buffer: Buffer) {
+    await this.ensureModelsLoaded();
+    const image = await canvasLib.loadImage(buffer);
+    const results = await faceapi
+      // 320 rather than 416: about half the time per frame on the server's
+      // CPU, with the same faces found on 480px captures.
+      .detectAllFaces(image as any, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.6 }))
+      .withFaceLandmarks()
+      .withFaceDescriptors();
+
+    const thumbnail = this.grayThumbnail(image, 32);
+    if (results.length !== 1) {
+      return { faceCount: results.length, thumbnail, face: null };
+    }
+
+    const { landmarks, descriptor, detection } = results[0];
+    return {
+      faceCount: 1,
+      thumbnail,
+      face: {
+        realScore: await this.antiSpoofRealScore(image, detection.box),
+        ear: this.computeEyeAspectRatio(landmarks),
+        eyeContrast: this.eyeContrast(image, landmarks),
+        yaw: this.headYaw(landmarks),
+        faceWidth: detection.box.width,
+        descriptor,
+      },
+    };
+  }
+
+  // Passive anti-spoofing (presentation-attack detection) on a single frame:
+  // Minivision's Silent-Face-Anti-Spoofing MiniFASNet models (Apache-2.0,
+  // ONNX exports from github.com/yakhyo/face-anti-spoofing), trained to tell a
+  // live face from a printed photo or a phone/monitor screen by texture,
+  // moiré, glare and screen-border cues. Two models look at two crop sizes
+  // around the face (2.7x and 4x the face box) and their softmax outputs are
+  // averaged, as the original project does. Class 1 is "real"; returns the
+  // averaged real probability (0-1).
+  async antiSpoofRealScore(image: canvasLib.Image, box: { x: number; y: number; width: number; height: number }) {
+    const models = await this.ensureAntiSpoofLoaded();
+    let realSum = 0;
+    for (const { session, scale } of models) {
+      const input = this.antiSpoofInput(image, box, scale);
+      const output = await session.run({ input: new ort.Tensor("float32", input, [1, 3, 80, 80]) });
+      const logits = Array.from(output.output.data as Float32Array);
+      const max = Math.max(...logits);
+      const exps = logits.map((v) => Math.exp(v - max));
+      realSum += exps[1] / exps.reduce((sum, v) => sum + v, 0);
+    }
+    return realSum / models.length;
+  }
+
+  private ensureAntiSpoofLoaded() {
+    if (!this.antiSpoofLoadingPromise) {
+      this.antiSpoofLoadingPromise = Promise.all(
+        [
+          { file: "MiniFASNetV2.onnx", scale: 2.7 },
+          { file: "MiniFASNetV1SE.onnx", scale: 4.0 },
+        ].map(async ({ file, scale }) => ({
+          session: await ort.InferenceSession.create(path.join(MODELS_PATH, file)),
+          scale,
+        })),
+      );
+    }
+    return this.antiSpoofLoadingPromise;
+  }
+
+  // The models' own preprocessing: the face box grown to `scale` times its
+  // size around its centre (less if the frame isn't big enough), clamped to
+  // the frame, resized to 80x80, BGR channel order, raw 0-255 values, CHW.
+  private antiSpoofInput(
+    image: canvasLib.Image,
+    box: { x: number; y: number; width: number; height: number },
+    scale: number,
+  ) {
+    const srcW = image.width;
+    const srcH = image.height;
+    const s = Math.min((srcH - 1) / box.height, (srcW - 1) / box.width, scale);
+    const newW = box.width * s;
+    const newH = box.height * s;
+    const cx = box.x + box.width / 2;
+    const cy = box.y + box.height / 2;
+    const x1 = Math.max(0, Math.floor(cx - newW / 2));
+    const y1 = Math.max(0, Math.floor(cy - newH / 2));
+    const x2 = Math.min(srcW - 1, Math.floor(cx + newW / 2));
+    const y2 = Math.min(srcH - 1, Math.floor(cy + newH / 2));
+
+    const canvas = canvasLib.createCanvas(80, 80);
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(image as any, x1, y1, Math.max(1, x2 - x1 + 1), Math.max(1, y2 - y1 + 1), 0, 0, 80, 80);
+    const { data } = ctx.getImageData(0, 0, 80, 80);
+    const plane = 80 * 80;
+    const input = new Float32Array(3 * plane);
+    for (let i = 0; i < plane; i += 1) {
+      input[i] = data[i * 4 + 2]; // B
+      input[plane + i] = data[i * 4 + 1]; // G
+      input[2 * plane + i] = data[i * 4]; // R
+    }
+    return input;
+  }
+
+  // Same formula as the admin screen's headYaw(): nose tip offset from the eye
+  // midpoint, in eye-distances, on the raw (unmirrored) frame — positive is
+  // the person's own left. A flat photo tilted or rotated in front of the
+  // camera keeps this ratio roughly constant (the whole image foreshortens
+  // together), so only a real 3D head turn moves it far from zero.
+  private headYaw(landmarks: faceapi.FaceLandmarks68) {
+    const center = (points: faceapi.Point[]) => ({
+      x: points.reduce((sum, p) => sum + p.x, 0) / points.length,
+      y: points.reduce((sum, p) => sum + p.y, 0) / points.length,
+    });
+    const a = center(landmarks.getLeftEye());
+    const b = center(landmarks.getRightEye());
+    const eyeDistance = Math.hypot(a.x - b.x, a.y - b.y);
+    if (!eyeDistance) return 0;
+    return (landmarks.getNose()[3].x - (a.x + b.x) / 2) / eyeDistance;
+  }
+
+  // Port of the admin screen's eyeContrast(): average brightness of each eye
+  // opening minus its darkest 20% (iris/pupil). Closing the eye covers the
+  // iris with skin, so this drops sharply on a blink.
+  private eyeContrast(image: canvasLib.Image, landmarks: faceapi.FaceLandmarks68): number | null {
+    const center = (points: faceapi.Point[]) => ({
+      x: points.reduce((sum, p) => sum + p.x, 0) / points.length,
+      y: points.reduce((sum, p) => sum + p.y, 0) / points.length,
+    });
+    const p = center(landmarks.getLeftEye());
+    const q = center(landmarks.getRightEye());
+    const [a, b] = p.x <= q.x ? [p, q] : [q, p];
+    const d = Math.hypot(b.x - a.x, b.y - a.y);
+    if (d < 20) return null;
+    const angle = Math.atan2(b.y - a.y, b.x - a.x);
+
+    const w = 24;
+    const scale = w / (0.44 * d);
+    const h = Math.max(5, Math.round(0.2 * d * scale));
+    const canvas = canvasLib.createCanvas(w, h);
+    const ctx = canvas.getContext("2d");
+
+    let total = 0;
+    for (const eye of [a, b]) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+      ctx.translate(w / 2, h / 2);
+      ctx.scale(scale, scale);
+      ctx.rotate(-angle);
+      ctx.translate(-eye.x, -eye.y);
+      ctx.drawImage(image as any, 0, 0);
+      const { data } = ctx.getImageData(0, 0, w, h);
+      const gray: number[] = [];
+      for (let i = 0; i < data.length; i += 4) gray.push(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+      gray.sort((x, y) => x - y);
+      const darkCount = Math.max(1, Math.floor(gray.length * 0.2));
+      const darkMean = gray.slice(0, darkCount).reduce((sum, v) => sum + v, 0) / darkCount;
+      const mean = gray.reduce((sum, v) => sum + v, 0) / gray.length;
+      total += mean - darkMean;
+    }
+    return total / 2;
+  }
+
+  private grayThumbnail(image: canvasLib.Image, size: number) {
+    const canvas = canvasLib.createCanvas(size, size);
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(image as any, 0, 0, size, size);
+    const { data } = ctx.getImageData(0, 0, size, size);
+    const gray = new Float32Array(size * size);
+    for (let i = 0; i < gray.length; i++) {
+      gray[i] = 0.299 * data[i * 4] + 0.587 * data[i * 4 + 1] + 0.114 * data[i * 4 + 2];
+    }
+    return gray;
   }
 
   async extractDescriptor(buffer: Buffer): Promise<Float32Array | null> {

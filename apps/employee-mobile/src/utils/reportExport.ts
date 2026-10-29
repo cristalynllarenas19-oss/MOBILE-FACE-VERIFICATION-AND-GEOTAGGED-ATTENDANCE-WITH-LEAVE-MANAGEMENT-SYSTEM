@@ -34,7 +34,7 @@ function escapeHtml(value: string | number) {
 // bundle, so it cannot resolve a bundled asset path — the image has to
 // travel inside the HTML itself. A report without its logo is still a
 // report, so any failure here just leaves it out.
-async function loadLogoDataUri() {
+export async function loadLogoDataUri() {
   try {
     const asset = Asset.fromModule(require("../assets/unileaf-logo.png"));
     await asset.downloadAsync();

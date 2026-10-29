@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Patch,
   Post,
@@ -51,6 +52,20 @@ export class AttendanceController {
     @Query("limit") limit?: string,
   ) {
     return this.attendanceService.getHistory(employeeId, limit ? Number(limit) : undefined);
+  }
+
+  // The caller's own monthly DTR for the mobile Download/Print DTR. Takes no
+  // employee id at all — it's read from the JWT, so changing a request
+  // parameter can't return another employee's record.
+  @Get("me/dtr")
+  getMyMonthlyDtr(
+    @Req() request: Request,
+    @Query("year") year?: string,
+    @Query("month") month?: string,
+  ) {
+    const employeeId = (request as any).user?.employeeId;
+    if (!employeeId) throw new ForbiddenException("Only employees have a DTR.");
+    return this.attendanceService.getMonthlyDtr(employeeId, Number(year), Number(month));
   }
 
   // Lazily loaded by the DTR viewer's detail modal — see getHistory()'s

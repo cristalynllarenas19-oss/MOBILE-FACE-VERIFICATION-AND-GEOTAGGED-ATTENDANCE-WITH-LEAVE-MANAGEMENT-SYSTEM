@@ -21,6 +21,7 @@ import { CACHE_KEYS, useCachedData } from "../utils/dataCache";
 import SegmentedControl from "../components/SegmentedControl";
 import AestheticFlatList from "../components/AestheticFlatList";
 import CalendarPickerModal from "../components/CalendarPickerModal";
+import DtrExportModal from "../components/DtrExportModal";
 
 type Props = {
   employeeId?: string;
@@ -259,6 +260,7 @@ export default function DTRScreen({ employeeId, attendanceMode }: Props) {
   const [dateTo, setDateTo] = useState<Date | null>(null);
   const [isFromPickerVisible, setIsFromPickerVisible] = useState(false);
   const [isToPickerVisible, setIsToPickerVisible] = useState(false);
+  const [isExportVisible, setIsExportVisible] = useState(false);
   const activeLog = selectedRecord?.logs.find((l) => l.logType === photoTab) ?? null;
   const selectedBreakWord = selectedRecord?.breakKind === "BREAK" ? "Break" : "Lunch";
   // The GPS stamp is drawn from the log's own permanently stored address
@@ -363,12 +365,23 @@ export default function DTRScreen({ employeeId, attendanceMode }: Props) {
             which kind of record this list holds. */}
         <View style={styles.titleRow}>
           <Text style={styles.cardTitleInRow}>Daily Time Record</Text>
-          {!showFieldTab && (
-            <View style={styles.modeBadge}>
-              <Ionicons name="business-outline" size={12} color="#1680D8" />
-              <Text style={styles.modeBadgeText}>Office</Text>
-            </View>
-          )}
+          <View style={styles.titleActions}>
+            {!showFieldTab && (
+              <View style={styles.modeBadge}>
+                <Ionicons name="business-outline" size={12} color="#1680D8" />
+                <Text style={styles.modeBadgeText}>Office</Text>
+              </View>
+            )}
+            {/* Monthly DTR as a PDF or printout — see DtrExportModal. */}
+            <Pressable
+              style={({ pressed }) => [styles.exportButton, pressed && styles.exportButtonPressed]}
+              onPress={() => setIsExportVisible(true)}
+              hitSlop={6}
+            >
+              <Ionicons name="download-outline" size={14} color="#FFFFFF" />
+              <Text style={styles.exportButtonText}>Download / Print</Text>
+            </Pressable>
+          </View>
         </View>
 
         {/* Mirrors admin-web's CalendarPicker trigger (DtrPage.tsx / LeavePage.tsx
@@ -640,6 +653,8 @@ export default function DTRScreen({ employeeId, attendanceMode }: Props) {
     />
     </View>
 
+    <DtrExportModal visible={isExportVisible} onClose={() => setIsExportVisible(false)} />
+
     <Modal
       visible={!!selectedRecord}
       transparent
@@ -771,6 +786,28 @@ const styles = StyleSheet.create({
     color: "#062b59",
     fontSize: 18,
     fontWeight: "900",
+  },
+  titleActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  exportButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: "#1680D8",
+  },
+  exportButtonPressed: {
+    backgroundColor: "#0F6BBA",
+  },
+  exportButtonText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "800",
   },
   modeBadge: {
     flexDirection: "row",
