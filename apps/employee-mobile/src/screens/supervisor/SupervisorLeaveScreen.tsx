@@ -19,6 +19,8 @@ import StatusPill from "../../components/StatusPill";
 import SegmentedControl from "../../components/SegmentedControl";
 import LeaveTimeline from "../../components/LeaveTimeline";
 import AestheticScrollView from "../../components/AestheticScrollView";
+import { ZoomableImage } from "../../components/ZoomableImage";
+import { WebView } from "react-native-webview";
 import {
   TeamLeaveRequest,
   TeamUndertimeFiling,
@@ -41,6 +43,13 @@ import { CARD_SHADOW } from "../../styles/ui";
 // swaps tabs via plain state rather than routing) is the pragmatic way to
 // make that feel near-instant without adding real-time transport.
 const LEAVE_POLL_MS = 3000;
+
+// A 30-day Maternity Leave extension is filed under the Maternity Leave type
+// itself (see requestExtension in leave.service.ts) and reviewed like any
+// other request — titled so the reviewer knows what they're approving.
+function leaveRequestTitle(request: { extensionOfId?: string | null; leaveType: { name: string } }) {
+  return request.extensionOfId ? `${request.leaveType.name} Extension (30 days, without pay)` : request.leaveType.name;
+}
 
 function lateMinutesLabel(minutes: number) {
   return `${minutes} minute${minutes === 1 ? "" : "s"} undertime`;
@@ -65,6 +74,9 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
   const filter = requestType === "undertime" && selectedFilter === "LAPSED" ? "ALL" : selectedFilter;
 
   const [reviewRequest, setReviewRequest] = useState<TeamLeaveRequest | null>(null);
+  // A document opened from the review timeline (e.g. one sent with a
+  // cancellation request).
+  const [viewingDocument, setViewingDocument] = useState<{ mimeType: string; dataUri: string } | null>(null);
   const [remarks, setRemarks] = useState("");
   const [reviewMode, setReviewMode] = useState<"reject" | "resubmit">("reject");
   const [requirementDetails, setRequirementDetails] = useState("");
@@ -230,7 +242,7 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
           : "The leave remains approved.",
     });
 
-    (decision === "approve" ? approveLeaveCancellation(targetId) : denyLeaveCancellation(targetId, remarksTrimmed))
+    (decision === "approve" ? approveLeaveCancellation(targetId, remarksTrimmed) : denyLeaveCancellation(targetId, remarksTrimmed))
       .then(() => refresh())
       .catch((error) => {
         refresh().catch(() => undefined);
@@ -347,7 +359,7 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
                       </Text>
                       <StatusPill status={request.status} lapseReason={request.lapseReason} />
                     </View>
-                    <Text style={styles.leaveType}>{request.leaveType.name}</Text>
+                    <Text style={styles.leaveType}>{leaveRequestTitle(request)}</Text>
                     <Text style={styles.dateRange}>
                       {new Date(request.startDate).toLocaleDateString()} - {new Date(request.endDate).toLocaleDateString()} · {request.totalDays} day
                       {Number(request.totalDays) === 1 ? "" : "s"}
@@ -415,7 +427,7 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
                       <Text style={styles.modalTitle}>
                         {reviewRequest.employee.firstName} {reviewRequest.employee.lastName}
                       </Text>
-                      <Text style={styles.modalSubtitle}>{reviewRequest.leaveType.name}</Text>
+                      <Text style={styles.modalSubtitle}>{leaveRequestTitle(reviewRequest)}</Text>
                     </View>
                   </View>
                   <View style={styles.modalStatusRow}>
@@ -426,7 +438,22 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
                   </Text>
                   <Text style={styles.reasonText}>{reviewRequest.reason}</Text>
 
-                  <LeaveTimeline history={reviewRequest.history} status={reviewRequest.status} />
+                  <LeaveTimeline
+                    history={reviewRequest.history}
+                    status={reviewRequest.status}
+                    documents={(reviewRequest.notes ?? [])
+                      .filter((note) => note.type === "CANCELLED" && note.attachmentData && note.attachmentMimeType)
+                      .map((note) => ({
+                        label: "Cancellation Document",
+                        createdAt: note.createdAt,
+                        kind: "cancellation" as const,
+                        onPress: () =>
+                          setViewingDocument({
+                            mimeType: note.attachmentMimeType!,
+                            dataUri: `data:${note.attachmentMimeType};base64,${note.attachmentData}`,
+                          }),
+                      }))}
+                  />
 
                   {isOwnRequest && (
                     <Text style={styles.warningText}>This is your own leave request — you cannot approve or reject it.</Text>
@@ -445,6 +472,18 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
                       <Text style={styles.warningText}>This request has already been reviewed.</Text>
                     )}
 
+                  {canDecideCancellation && (
+                    <>
+                      <Text style={styles.label}>Remarks</Text>
+                      <TextInput
+                        style={styles.textArea}
+                        multiline
+                        placeholder="Optional remarks for the employee"
+                        value={remarks}
+                        onChangeText={setRemarks}
+                      />
+                    </>
+                  )}
                   {canDecideCancellation && (
                     <View style={styles.modalActions}>
                       <Pressable style={styles.rejectButton} onPress={() => handleCancellationDecision("deny")}>
@@ -608,6 +647,19 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
         </View>
       </Modal>
 
+      <Modal visible={!!viewingDocument} transparent animationType="fade" onRequestClose={() => setViewingDocument(null)}>
+        <View style={styles.documentViewerOverlay}>
+          {viewingDocument?.mimeType.startsWith("image/") ? (
+            <ZoomableImage uri={viewingDocument.dataUri} style={styles.documentViewerMedia} />
+          ) : viewingDocument ? (
+            <WebView source={{ uri: viewingDocument.dataUri }} style={styles.documentViewerMedia} />
+          ) : null}
+          <Pressable style={styles.documentViewerCloseButton} onPress={() => setViewingDocument(null)} hitSlop={10}>
+            <Ionicons name="close" size={22} color="#FFFFFF" />
+          </Pressable>
+        </View>
+      </Modal>
+
       <ResultModal
         visible={!!resultModal}
         status={resultModal?.status ?? "info"}
@@ -650,6 +702,22 @@ const styles = StyleSheet.create({
   leaveType: { fontSize: 13, color: "#334155", marginTop: 4, fontWeight: "600" },
   dateRange: { fontSize: 12, color: "#64748B", marginTop: 2 },
   modalOverlay: { flex: 1, backgroundColor: "rgba(6, 43, 89, 0.55)", alignItems: "center", justifyContent: "center", padding: 16 },
+  // Same look as the employee's own attachment viewer (LeaveScreen.tsx).
+  documentViewerOverlay: { flex: 1, backgroundColor: "rgba(15, 23, 42, 0.85)", alignItems: "center", justifyContent: "center", padding: 20 },
+  documentViewerMedia: { width: "100%", height: "78%", borderRadius: 12, backgroundColor: "#FFFFFF" },
+  documentViewerCloseButton: {
+    position: "absolute",
+    top: 50,
+    right: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.3)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   modalCard: { width: "100%", maxWidth: 480, maxHeight: "92%", backgroundColor: "#FFFFFF", borderRadius: 20, padding: 20 },
   modalCloseButton: {
     position: "absolute",

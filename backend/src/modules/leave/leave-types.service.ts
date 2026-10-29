@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, ConflictException } from "@nestjs/common";
+import { Injectable, ConflictException } from "@nestjs/common";
 import { EmploymentStatus, LeaveTypeKind } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
 
@@ -56,10 +56,6 @@ export class LeaveTypesService {
     const applicableStatuses = Array.from(
       new Set<EmploymentStatus>(["REGULAR", ...(dto.applicableStatuses ?? [])]),
     );
-
-    if (dto.cancellationAllowed && (dto.cancellationCutoffValue == null || !dto.cancellationCutoffUnit)) {
-      throw new BadRequestException("Cancellation cutoff period is required when employee cancellation is allowed.");
-    }
 
     // Leave type ids carry a category code taken from the name (LT-VL-001),
     // so the database hands out the next number for that code rather than a
@@ -158,10 +154,6 @@ export class LeaveTypesService {
     if (dto.name && dto.name !== existing.name) {
       const duplicate = await this.prisma.leaveType.findUnique({ where: { name: dto.name } });
       if (duplicate) throw new ConflictException(`Leave type "${dto.name}" already exists.`);
-    }
-
-    if (dto.cancellationAllowed && (dto.cancellationCutoffValue == null || !dto.cancellationCutoffUnit)) {
-      throw new BadRequestException("Cancellation cutoff period is required when employee cancellation is allowed.");
     }
 
     const applicableStatuses = dto.applicableStatuses

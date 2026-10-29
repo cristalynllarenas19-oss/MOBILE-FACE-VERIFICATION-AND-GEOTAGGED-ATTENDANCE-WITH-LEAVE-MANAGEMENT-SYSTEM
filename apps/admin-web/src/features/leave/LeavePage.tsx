@@ -77,6 +77,8 @@ type LeaveRequest = {
   attachmentData?: string | null;
   extensionRequested?: boolean;
   extensionApproved?: boolean | null;
+  // Set on a 30-day Maternity Leave extension — the leave it extends.
+  extensionOfId?: string | null;
   // Only set while status is CANCELLATION_PENDING — the status to revert to
   // if this cancellation request is denied.
   preCancellationStatus?: string | null;
@@ -131,6 +133,13 @@ const OPEN_LEAVE_STATUSES = new Set(["PENDING", "SUPERVISOR_APPROVED", "CANCELLA
 
 function isOpenLeaveRequest(r: { status: string; extensionRequested?: boolean; extensionApproved?: boolean | null }) {
   return OPEN_LEAVE_STATUSES.has(r.status) || Boolean(r.extensionRequested && r.extensionApproved == null);
+}
+
+// A 30-day Maternity Leave extension is filed under the Maternity Leave type
+// itself (see requestExtension in leave.service.ts) and reviewed like any
+// other request — titled so the reviewer knows what they're approving.
+function leaveRequestTitle(r: { extensionOfId?: string | null; leaveType: { name: string } }) {
+  return r.extensionOfId ? `${r.leaveType.name} Extension (30 days, without pay)` : r.leaveType.name;
 }
 
 function openRequestGroup(r: { status: string }): "PENDING" | "CANCELLATION" | "REVISION" {
@@ -1622,7 +1631,11 @@ export function LeavePage({
   useEffect(() => {
     setHistoryTab("progress");
   }, [reviewRequest?.id]);
-  const reviewHasNotes = Boolean(reviewRequest?.notes && reviewRequest.notes.length > 0);
+  // Only the reject <-> resubmit loop belongs in the Resubmission History
+  // tab. A cancellation's reason and document belong to its "Cancellation
+  // requested" step in Approval Progress instead (see the timeline below).
+  const resubmissionNotes = (reviewRequest?.notes ?? []).filter((note) => note.type === "REJECTED" || note.type === "RESUBMITTED");
+  const reviewHasNotes = resubmissionNotes.length > 0;
 
   // Approval is single-step now; SUPERVISOR_APPROVED only lingers on legacy
   // rows from the old two-step flow, and either role can finalize those.
@@ -1896,7 +1909,7 @@ export function LeavePage({
 
     apiRequest(`/leave-requests/${targetId}/${decision}-cancellation`, {
       method: "PATCH",
-      ...(decision === "deny" ? { body: JSON.stringify({ remarks: remarksTrimmed || undefined }) } : {}),
+      body: JSON.stringify({ remarks: remarksTrimmed || undefined }),
     })
       .then(() => {
         loadRequests();
@@ -2031,7 +2044,7 @@ export function LeavePage({
                       <td data-label="Employee">{getEmployeeName(r)}</td>
                       <td data-label="Department">{r.employee.department?.name ?? "Unassigned"}</td>
                       <td data-label="Employee Type">{formatEmploymentStatus(r.employee.employmentStatus)}</td>
-                      <td data-label="Leave Type">{r.leaveType.name}</td>
+                      <td data-label="Leave Type">{leaveRequestTitle(r)}</td>
                       <td data-label="Dates">
                         {formatDate(r.startDate)} – {formatDate(r.endDate)}
                       </td>
@@ -2130,7 +2143,7 @@ export function LeavePage({
                       <td data-label="Employee">{getEmployeeName(r)}</td>
                       <td data-label="Department">{r.employee.department?.name ?? "Unassigned"}</td>
                       <td data-label="Employee Type">{formatEmploymentStatus(r.employee.employmentStatus)}</td>
-                      <td data-label="Leave Type">{r.leaveType.name}</td>
+                      <td data-label="Leave Type">{leaveRequestTitle(r)}</td>
                       <td data-label="Date Filed">{formatDate(r.createdAt)}</td>
                       <td data-label="Days">{r.totalDays}</td>
                       <td data-label="Status">
@@ -2458,7 +2471,7 @@ export function LeavePage({
               </div>
               <div><span>Department</span><strong>{reviewRequest.employee.department?.name ?? "Unassigned"}</strong></div>
               <div><span>Employee Type</span><strong>{formatEmploymentStatus(reviewRequest.employee.employmentStatus)}</strong></div>
-              <div><span>Leave Type</span><strong>{reviewRequest.leaveType.name}</strong></div>
+              <div><span>Leave Type</span><strong>{leaveRequestTitle(reviewRequest)}</strong></div>
               <div><span>Date Filed</span><strong>{formatDate(reviewRequest.createdAt)}</strong></div>
               <div>
                 <span>Date Range</span>
@@ -2535,23 +2548,39 @@ export function LeavePage({
                   className={historyTab === "notes" ? "active" : ""}
                   onClick={() => setHistoryTab("notes")}
                 >
-                  Resubmission History ({reviewRequest.notes?.length ?? 0})
+                  Resubmission History ({resubmissionNotes.length})
                 </button>
               </div>
             )}
 
             {(!reviewHasNotes || historyTab === "progress") && (
               <div className="leave-review-timeline">
-                <LeaveTimeline history={reviewRequest.history} status={reviewRequest.status} />
+                <LeaveTimeline
+                  history={reviewRequest.history}
+                  status={reviewRequest.status}
+                  documents={(reviewRequest.notes ?? [])
+                    .filter((note) => note.type === "CANCELLED" && attachmentSrc(note.attachmentMimeType, note.attachmentData))
+                    .map((note) => ({
+                      label: "Cancellation Document",
+                      createdAt: note.createdAt,
+                      kind: "cancellation" as const,
+                      onPress: () =>
+                        setImagePreview({
+                          src: attachmentSrc(note.attachmentMimeType, note.attachmentData)!,
+                          name: note.attachmentName ?? "Cancellation Document",
+                          mimeType: note.attachmentMimeType ?? "application/octet-stream",
+                        }),
+                    }))}
+                />
               </div>
             )}
 
-            {reviewRequest.notes && reviewRequest.notes.length > 0 && historyTab === "notes" && (() => {
+            {reviewHasNotes && historyTab === "notes" && (() => {
               const documentLabels = resubmissionDocumentLabels(reviewRequest);
               return (
               <div className="leave-notes-thread">
                 <span className="leave-notes-thread-label">Requirements / Resubmission History</span>
-                {[...reviewRequest.notes].reverse().map((note) => {
+                {[...resubmissionNotes].reverse().map((note) => {
                   const documentLabel = documentLabels.get(note.id);
                   return (
                   <div key={note.id} className={`leave-note leave-note-${note.type.toLowerCase()}`}>
@@ -2561,11 +2590,9 @@ export function LeavePage({
                           ? note.requiresAdditionalRequirements
                             ? "Additional requirements requested"
                             : "Rejected"
-                          : note.type === "CANCELLED"
-                            ? "Cancellation requested"
-                            : note.message
-                              ? "Employee resubmitted"
-                              : "Document submitted"}
+                          : note.message
+                            ? "Employee resubmitted"
+                            : "Document submitted"}
                       </strong>
                       <time>{new Date(note.createdAt).toLocaleString()}</time>
                     </div>
@@ -2670,6 +2697,18 @@ export function LeavePage({
                     />
                   </label>
                 )}
+              </div>
+            )}
+            {!historyViewOnly && canDecideCancellation && (
+              <div className="leave-review-inputs leave-review-inputs--compact">
+                <label className="leave-remarks-field leave-remarks-field--fill">
+                  Add Remarks
+                  <textarea
+                    value={remarks}
+                    onChange={(e) => setRemarks(e.target.value)}
+                    placeholder="Optional remarks for the employee, sent with your decision"
+                  />
+                </label>
               </div>
             )}
             </div>

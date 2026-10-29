@@ -91,9 +91,11 @@ export class ReportsService {
       // Only a final "APPROVED" status ever touches LeaveBalance.usedDays
       // (see leave.service.ts adjustLeaveBalance) — mirroring that status
       // here keeps the "dates used" list consistent with the usedDays totals.
+      // A Maternity Leave extension (without pay) never counts toward usedDays.
       this.prisma.leaveRequest.findMany({
         where: {
           status: "APPROVED",
+          extensionOfId: null,
           startDate: { gte: new Date(balanceYear, 0, 1), lte: new Date(balanceYear, 11, 31, 23, 59, 59, 999) },
           ...departmentWhere,
         },

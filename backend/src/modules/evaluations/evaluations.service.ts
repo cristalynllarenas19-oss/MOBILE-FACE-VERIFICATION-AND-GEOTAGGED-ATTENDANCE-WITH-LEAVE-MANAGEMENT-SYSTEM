@@ -312,7 +312,7 @@ export class EvaluationsService {
 
     await this.notifications.notifyUsers(await this.notifications.adminUserIds(), {
       title: approved ? "Regularization Recommended" : "Regularization Not Recommended",
-      message: `${name}'s supervisor ${approved ? "recommends approving" : "recommends rejecting"} their regularization.${remarks ? ` Remarks: ${remarks}` : ""} Please review and decide.`,
+      message: `${name}'s supervisor ${approved ? "recommends approving" : "recommends rejecting"} their regularization. Please review and decide.${remarks ? ` Remarks: ${remarks}` : ""}`,
       type: SUPERVISOR_RECOMMENDATION_NOTIFICATION_TYPE,
       entityId: employeeId,
     });

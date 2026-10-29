@@ -97,6 +97,34 @@
   white-space: pre-wrap;
 }
 
+/* A reviewer's note split off the message (see splitNotificationNotes). */
+.notif-detail-note {
+  margin-top: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.notif-detail-note-label {
+  display: block;
+  margin-bottom: 4px;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.notif-detail-note-text {
+  margin: 0;
+  color: #062b59;
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .notif-detail-actions {
   display: flex;
   justify-content: center;

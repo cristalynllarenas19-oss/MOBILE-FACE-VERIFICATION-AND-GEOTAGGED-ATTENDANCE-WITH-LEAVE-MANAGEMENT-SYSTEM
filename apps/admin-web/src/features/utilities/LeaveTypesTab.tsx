@@ -25,7 +25,6 @@ import type { Notification } from "./UtilitiesPage";
 import "../employees/EmployeesPage.css";
 
 type LeaveTypeKind = "GENERAL" | "MATERNITY" | "PATERNITY";
-type CancellationCutoffUnit = "WORKING_DAYS_BEFORE_START" | "HOURS_BEFORE_SHIFT_START";
 
 type ActorRef = { email: string; employee?: { firstName: string; lastName: string } | null } | null;
 
@@ -50,8 +49,6 @@ type LeaveType = {
   advanceFilingAllowed: boolean;
   pastAbsenceFilingAllowed: boolean;
   cancellationAllowed: boolean;
-  cancellationCutoffValue: number | null;
-  cancellationCutoffUnit: CancellationCutoffUnit | null;
   kind: LeaveTypeKind;
   createdAt: string;
   updatedAt: string;
@@ -65,10 +62,6 @@ const LEAVE_TYPE_KIND_OPTIONS: { value: LeaveTypeKind; label: string }[] = [
   { value: "PATERNITY", label: "Paternity" },
 ];
 
-const CANCELLATION_CUTOFF_UNIT_OPTIONS: { value: CancellationCutoffUnit; label: string }[] = [
-  { value: "WORKING_DAYS_BEFORE_START", label: "Working days before start" },
-  { value: "HOURS_BEFORE_SHIFT_START", label: "Hours before shift start" },
-];
 
 const PAGE_SIZE = 10;
 
@@ -77,14 +70,11 @@ function formatDefaultDays(type: LeaveType) {
   return type.name.trim().toLowerCase() === "sick leave" ? "As needed" : type.defaultDays;
 }
 
-function formatCancellationCutoff(type: Pick<LeaveType, "cancellationAllowed" | "cancellationCutoffValue" | "cancellationCutoffUnit">) {
-  if (!type.cancellationAllowed) return "Not applicable";
-  if (type.cancellationCutoffValue == null || !type.cancellationCutoffUnit) return "Not configured";
-  const value = type.cancellationCutoffValue;
-  if (type.cancellationCutoffUnit === "HOURS_BEFORE_SHIFT_START") {
-    return value === 0 ? "Before shift starts" : `${value} hour(s) before shift start`;
-  }
-  return `${value} working day(s) before start`;
+// There's no cancellation cutoff: an employee may cancel an approved leave
+// of an allowed type until they time in on one of its days (see
+// getCancellationEligibility in leave.service.ts).
+function formatEmployeeCancellation(type: Pick<LeaveType, "cancellationAllowed">) {
+  return type.cancellationAllowed ? "Until time-in" : "Not allowed";
 }
 
 function formatDate(value: string) {
@@ -113,8 +103,6 @@ const emptyForm = {
   advanceFilingAllowed: true,
   pastAbsenceFilingAllowed: false,
   cancellationAllowed: false,
-  cancellationCutoffValue: "",
-  cancellationCutoffUnit: "WORKING_DAYS_BEFORE_START" as CancellationCutoffUnit,
   isAutoCredited: false,
   isTransferable: false,
   kind: "GENERAL" as LeaveTypeKind,
@@ -234,8 +222,6 @@ export function LeaveTypesTab({
       advanceFilingAllowed: type.advanceFilingAllowed,
       pastAbsenceFilingAllowed: type.pastAbsenceFilingAllowed,
       cancellationAllowed: type.cancellationAllowed,
-      cancellationCutoffValue: type.cancellationCutoffValue != null ? String(type.cancellationCutoffValue) : "",
-      cancellationCutoffUnit: type.cancellationCutoffUnit ?? "WORKING_DAYS_BEFORE_START",
       isAutoCredited: type.isAutoCredited,
       isTransferable: type.isTransferable,
       kind: type.kind,
@@ -253,7 +239,7 @@ export function LeaveTypesTab({
 
   const submitForm = async () => {
     const name = form.name.trim();
-    if (!name || (!form.isUnlimitedDays && !form.defaultDays) || (form.cancellationAllowed && form.cancellationCutoffValue === "")) return;
+    if (!name || (!form.isUnlimitedDays && !form.defaultDays)) return;
     setIsSaving(true);
     setNameError(null);
     try {
@@ -274,11 +260,8 @@ export function LeaveTypesTab({
         requiresAdminGrant: form.requiresAdminGrant,
         isSingleDayOnly: form.isSingleDayOnly,
         advanceFilingAllowed: form.advanceFilingAllowed,
-        // Only meaningful for a today-only type — see the checkbox below.
-        pastAbsenceFilingAllowed: !form.advanceFilingAllowed && form.pastAbsenceFilingAllowed,
+        pastAbsenceFilingAllowed: form.pastAbsenceFilingAllowed,
         cancellationAllowed: form.cancellationAllowed,
-        cancellationCutoffValue: form.cancellationAllowed ? Number(form.cancellationCutoffValue) : undefined,
-        cancellationCutoffUnit: form.cancellationAllowed ? form.cancellationCutoffUnit : undefined,
         isAutoCredited: form.isAutoCredited,
         isTransferable: form.isTransferable,
         kind: form.kind,
@@ -435,7 +418,7 @@ export function LeaveTypesTab({
             <tr>
               <th>NAME</th>
               <th>DEFAULT DAYS/YEAR</th>
-              <th>CANCELLATION CUTOFF</th>
+              <th>EMPLOYEE CANCELLATION</th>
               <th>STATUS</th>
               <th>ACTIONS</th>
             </tr>
@@ -459,7 +442,7 @@ export function LeaveTypesTab({
                 <tr key={type.id}>
                   <td data-label="Name">{type.name}</td>
                   <td data-label="Default Days/Year">{formatDefaultDays(type)}</td>
-                  <td data-label="Cancellation Cutoff">{formatCancellationCutoff(type)}</td>
+                  <td data-label="Employee Cancellation">{formatEmployeeCancellation(type)}</td>
                   <td data-label="Status">
                     <Badge tone={type.isActive ? "success" : "neutral"}>
                       {type.isActive ? "Active" : "Inactive"}
@@ -680,16 +663,14 @@ export function LeaveTypesTab({
                     <span>Allow advance filing (uncheck for a type like Sick Leave that can only be filed for today, never a future date)</span>
                   </label>
 
-                  {!form.advanceFilingAllowed && (
-                    <label className="utilities-checkbox">
-                      <input
-                        type="checkbox"
-                        checked={form.pastAbsenceFilingAllowed}
-                        onChange={(e) => setForm((c) => ({ ...c, pastAbsenceFilingAllowed: e.target.checked }))}
-                      />
-                      <span>Also allow filing for a past day the employee was absent (e.g. Sick Leave filed after returning to work)</span>
-                    </label>
-                  )}
+                  <label className="utilities-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={form.pastAbsenceFilingAllowed}
+                      onChange={(e) => setForm((c) => ({ ...c, pastAbsenceFilingAllowed: e.target.checked }))}
+                    />
+                    <span>Also allow filing for a past day the employee was absent (e.g. Sick or Compassionate Leave filed after returning to work)</span>
+                  </label>
 
                   <label className="utilities-checkbox">
                     <input
@@ -697,43 +678,8 @@ export function LeaveTypesTab({
                       checked={form.cancellationAllowed}
                       onChange={(e) => setForm((c) => ({ ...c, cancellationAllowed: e.target.checked }))}
                     />
-                    <span>Allow employee cancellation after approval</span>
+                    <span>Allow employee cancellation after approval (any time until they time in on a leave day)</span>
                   </label>
-
-                  {form.cancellationAllowed && (
-                    <div className="utilities-field-row utilities-cancellation-cutoff-row">
-                      <label className="utilities-field">
-                        <span className="utilities-field-label">Cancellation Cutoff</span>
-                        <input
-                          className="utilities-input"
-                          type="number"
-                          min={0}
-                          value={form.cancellationCutoffValue}
-                          onChange={(e) => setForm((c) => ({ ...c, cancellationCutoffValue: e.target.value }))}
-                        />
-                      </label>
-                      <label className="utilities-field">
-                        <span className="utilities-field-label">Unit</span>
-                        <select
-                          className="utilities-input"
-                          value={form.cancellationCutoffUnit}
-                          onChange={(e) =>
-                            setForm((c) => ({
-                              ...c,
-                              cancellationCutoffUnit: e.target.value as CancellationCutoffUnit,
-                            }))
-                          }
-                        >
-                          {CANCELLATION_CUTOFF_UNIT_OPTIONS.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                        <span className="utilities-field-hint">Use 0 hours for before shift starts.</span>
-                      </label>
-                    </div>
-                  )}
 
                   <label className="utilities-checkbox">
                     <input
@@ -763,8 +709,7 @@ export function LeaveTypesTab({
                 disabled={
                   isSaving ||
                   !form.name.trim() ||
-                  (!form.isUnlimitedDays && !form.defaultDays) ||
-                  (form.cancellationAllowed && form.cancellationCutoffValue === "")
+                  (!form.isUnlimitedDays && !form.defaultDays)
                 }
               >
                 {isSaving ? "Saving..." : formMode === "create" ? "Add Leave Type" : "Save Changes"}
@@ -856,13 +801,15 @@ export function LeaveTypesTab({
                       label: "Advance Filing",
                       on: viewLeaveType.advanceFilingAllowed,
                       value: viewLeaveType.advanceFilingAllowed
-                        ? "Allowed"
+                        ? viewLeaveType.pastAbsenceFilingAllowed
+                          ? "Allowed, plus past absent days"
+                          : "Allowed"
                         : viewLeaveType.pastAbsenceFilingAllowed
                           ? "Today or a past absent day"
                           : "Today only",
                     },
                     { label: "Single Day Only", on: viewLeaveType.isSingleDayOnly, value: viewLeaveType.isSingleDayOnly ? "Yes" : "No" },
-                    { label: "Cancellation Cutoff", on: null, value: formatCancellationCutoff(viewLeaveType) },
+                    { label: "Employee Cancellation", on: viewLeaveType.cancellationAllowed, value: formatEmployeeCancellation(viewLeaveType) },
                   ],
                 },
               ].map((section) => (

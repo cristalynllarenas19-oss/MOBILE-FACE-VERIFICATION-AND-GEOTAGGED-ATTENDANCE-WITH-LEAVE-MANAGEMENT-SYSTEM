@@ -3,7 +3,10 @@ import { RequirePermissions } from "../../common/decorators/permissions.decorato
 import { getAuditContext } from "../../common/utils/audit-context.util";
 import { getSupervisorDepartmentScope } from "../../common/utils/supervisor-scope.util";
 import { CreateLeaveRequestDto } from "./dto/create-leave-request.dto";
+import { CreateLeaveRequestsDto } from "./dto/create-leave-requests.dto";
+import { CancelLeaveRequestDto } from "./dto/cancel-leave-request.dto";
 import { RejectLeaveRequestDto } from "./dto/reject-leave-request.dto";
+import { RequestLeaveExtensionDto } from "./dto/request-leave-extension.dto";
 import { ResubmitLeaveRequestDto } from "./dto/resubmit-leave-request.dto";
 import { LeaveService } from "./leave.service";
 
@@ -50,6 +53,14 @@ export class LeaveController {
     return this.leaveService.create(dto, getAuditContext(request));
   }
 
+  // Several single-day requests of one type at once (Sick Leave picked for
+  // multiple absent days) — returns every created request.
+  @Post("batch")
+  @RequirePermissions("leave:write")
+  createForDates(@Body() dto: CreateLeaveRequestsDto, @Req() request: Request) {
+    return this.leaveService.createForDates(dto, getAuditContext(request));
+  }
+
   @Patch(":id/approve")
   @RequirePermissions("leave:approve")
   approve(@Param("id") id: string, @Body() body: { remarks?: string }, @Req() request: Request) {
@@ -78,7 +89,7 @@ export class LeaveController {
 
   @Patch(":id/cancel")
   @RequirePermissions("leave:write")
-  cancel(@Param("id") id: string, @Body() body: { note?: string }, @Req() request: Request) {
+  cancel(@Param("id") id: string, @Body() body: CancelLeaveRequestDto, @Req() request: Request) {
     const user = (request as any).user;
     const roles: string[] = user.roles ?? [user.role];
     // Cancelling is for the employee who filed the request, an ADMIN
@@ -94,12 +105,14 @@ export class LeaveController {
       isAdmin ? undefined : user?.employeeId,
       body?.note,
       supervisorDepartmentId,
+      body,
+      body?.dates,
     );
   }
 
   @Patch(":id/approve-cancellation")
   @RequirePermissions("leave:approve")
-  approveCancellation(@Param("id") id: string, @Req() request: Request) {
+  approveCancellation(@Param("id") id: string, @Body() body: { remarks?: string }, @Req() request: Request) {
     const user = (request as any).user;
     const roles: string[] = user.roles ?? [user.role];
     const isAdmin = roles.includes("ADMIN");
@@ -107,7 +120,7 @@ export class LeaveController {
     // Same self-review guard as approve/reject — a Supervisor can never
     // decide on their own leave, including their own cancellation request.
     const selfReviewEmployeeId = isAdmin ? undefined : user.employeeId;
-    return this.leaveService.approveCancellation(id, getAuditContext(request), departmentId, selfReviewEmployeeId);
+    return this.leaveService.approveCancellation(id, getAuditContext(request), departmentId, selfReviewEmployeeId, body?.remarks);
   }
 
   @Patch(":id/deny-cancellation")
@@ -128,6 +141,18 @@ export class LeaveController {
     const roles: string[] = user.roles ?? [user.role];
     const hasElevatedRole = roles.includes("ADMIN") || roles.includes("SUPERVISOR");
     return this.leaveService.resubmit(id, body, getAuditContext(request), hasElevatedRole ? undefined : user?.employeeId);
+  }
+
+  // Asks to extend an approved Maternity Leave by 30 days without pay — filed
+  // as its own request, decided through the normal approve/reject endpoints
+  // above (Supervisor for their department, or HR/Admin).
+  @Post(":id/extension")
+  @RequirePermissions("leave:write")
+  requestExtension(@Param("id") id: string, @Body() body: RequestLeaveExtensionDto, @Req() request: Request) {
+    const user = (request as any).user;
+    const roles: string[] = user.roles ?? [user.role];
+    const hasElevatedRole = roles.includes("ADMIN") || roles.includes("SUPERVISOR");
+    return this.leaveService.requestExtension(id, body, getAuditContext(request), hasElevatedRole ? undefined : user?.employeeId);
   }
 
   @Patch(":id/extension-decision")

@@ -1,6 +1,14 @@
 import { useMemo } from "react";
 
-export type TimelineDocument = { label: string; createdAt: string; onPress: () => void; isLoading?: boolean };
+export type TimelineDocument = {
+  label: string;
+  createdAt: string;
+  onPress: () => void;
+  isLoading?: boolean;
+  // "cancellation" = the supporting document sent with a cancellation; it
+  // belongs on the cancel step, never on a filing/resubmission step.
+  kind?: "submission" | "cancellation";
+};
 
 // How close a document's own createdAt has to land to a FILED/RESUBMIT_LEAVE
 // event's occurredAt to count as "that event's document" — the note and the
@@ -122,7 +130,13 @@ function eventToStep(event: LeaveRequestHistoryEvent, index: number): TimelineSt
       };
     case "APPROVE_CANCEL_LEAVE":
     case "CANCEL_LEAVE":
-      return { key: `cancelled-${index}`, tone: "danger", title: "Cancelled", when, detail: `Cancelled${by}.` };
+      return {
+        key: `cancelled-${index}`,
+        tone: "danger",
+        title: "Cancelled",
+        when,
+        detail: `Cancelled${by}.${event.action === "APPROVE_CANCEL_LEAVE" && event.remarks ? ` "${event.remarks}"` : ""}`,
+      };
     case "DENY_CANCEL_LEAVE":
       return {
         key: `deny-cancel-${index}`,
@@ -163,11 +177,14 @@ function buildTimelineSteps(
   const unmatchedDocs = [...documents];
   const steps = events.map((event, index) => {
     const step = eventToStep(event, index);
-    if (event.action === "FILED" || event.action === "RESUBMIT_LEAVE") {
+    const isSubmission = event.action === "FILED" || event.action === "RESUBMIT_LEAVE";
+    const isCancellation = event.action === "REQUEST_CANCEL_LEAVE" || event.action === "CANCEL_LEAVE";
+    if (isSubmission || isCancellation) {
       const eventTime = new Date(event.occurredAt).getTime();
       let bestIndex = -1;
       let bestDiff = Infinity;
       unmatchedDocs.forEach((doc, docIndex) => {
+        if ((doc.kind === "cancellation") !== isCancellation) return;
         const diff = Math.abs(new Date(doc.createdAt).getTime() - eventTime);
         if (diff < bestDiff) {
           bestDiff = diff;

@@ -405,7 +405,25 @@ export type LeaveRequest = {
   // Server-computed — whether an employee (not an admin override) could
   // cancel this request right now, and why not if not. Only meaningful for
   // an APPROVED request; PENDING/SUPERVISOR_APPROVED are always allowed.
-  cancellation?: { allowed: boolean; reason?: string; deadline?: string };
+  // workedDates: days of this leave the employee already timed in on —
+  // those can't be picked when cancelling only some days.
+  cancellation?: { allowed: boolean; reason?: string; workedDates?: string[] };
+  // Set on a 30-day Maternity Leave extension — the leave it extends.
+  extensionOfId?: string | null;
+  // Server-computed, only on an APPROVED Maternity Leave — whether its 30-day
+  // extension (without pay) can be requested now, and why not if not. It must
+  // be requested by `deadline` (45 days before the leave ends); startDate/
+  // endDate are the days it would cover.
+  extension?: LeaveExtensionEligibility | null;
+};
+
+export type LeaveExtensionEligibility = {
+  allowed: boolean;
+  reason?: string;
+  deadline: string;
+  startDate: string;
+  endDate: string;
+  extensionId?: string;
 };
 
 export type CreateLeaveRequestInput = {
@@ -418,6 +436,11 @@ export type CreateLeaveRequestInput = {
   attachmentName?: string;
   attachmentMimeType?: string;
   attachmentData?: string;
+};
+
+// Sick Leave picked for several days at once — one request per date.
+export type CreateLeaveRequestsInput = Omit<CreateLeaveRequestInput, "startDate" | "endDate" | "totalDays"> & {
+  dates: string[];
 };
 
 export type ResubmitLeaveRequestInput = {
@@ -852,6 +875,13 @@ export async function createLeaveRequest(input: CreateLeaveRequestInput) {
   });
 }
 
+export async function createLeaveRequests(input: CreateLeaveRequestsInput) {
+  return apiRequest<LeaveRequest[]>("/leave-requests/batch", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 export async function resubmitLeaveRequest(id: string, input: ResubmitLeaveRequestInput) {
   return apiRequest<LeaveRequest>(`/leave-requests/${id}/resubmit`, {
     method: "PATCH",
@@ -859,10 +889,30 @@ export async function resubmitLeaveRequest(id: string, input: ResubmitLeaveReque
   });
 }
 
-export async function cancelLeaveRequest(id: string, note: string) {
+// The supporting document is optional — kept on the cancellation's own note.
+export async function cancelLeaveRequest(
+  id: string,
+  note: string,
+  attachment?: { attachmentName: string; attachmentMimeType: string; attachmentData: string },
+  // Only these days are cancelled; omitted = the whole leave.
+  dates?: string[],
+) {
   return apiRequest<LeaveRequest>(`/leave-requests/${id}/cancel`, {
     method: "PATCH",
-    body: JSON.stringify({ note }),
+    body: JSON.stringify({ note, ...attachment, dates }),
+  });
+}
+
+// Files the 30-day Maternity Leave extension (without pay) of approved leave
+// `id` — a new request reviewed by the employee's Supervisor or HR/Admin.
+export async function requestLeaveExtension(
+  id: string,
+  reason: string,
+  attachment?: { attachmentName: string; attachmentMimeType: string; attachmentData: string },
+) {
+  return apiRequest<LeaveRequest>(`/leave-requests/${id}/extension`, {
+    method: "POST",
+    body: JSON.stringify({ reason, ...attachment }),
   });
 }
 
@@ -1177,7 +1227,20 @@ export type TeamLeaveRequest = {
   attachmentName?: string | null;
   extensionRequested?: boolean;
   extensionApproved?: boolean | null;
+  // Set on a 30-day Maternity Leave extension — the leave it extends.
+  extensionOfId?: string | null;
   history?: LeaveRequestHistoryEvent[];
+  // The team list is fetched with attachments included, so a note's
+  // document (e.g. one sent with a cancellation) can be opened directly.
+  notes?: Array<{
+    id: string;
+    type: string;
+    message?: string | null;
+    attachmentName?: string | null;
+    attachmentMimeType?: string | null;
+    attachmentData?: string | null;
+    createdAt: string;
+  }>;
   employee: {
     id: string;
     firstName: string;
@@ -1209,8 +1272,11 @@ export async function rejectLeaveRequest(
 // (see leave.service.ts's approveCancellation/denyCancellation) — approving
 // finalizes it to CANCELLED, denying reverts it to APPROVED as if nothing
 // happened.
-export async function approveLeaveCancellation(id: string) {
-  return apiRequest<TeamLeaveRequest>(`/leave-requests/${id}/approve-cancellation`, { method: "PATCH" });
+export async function approveLeaveCancellation(id: string, remarks?: string) {
+  return apiRequest<TeamLeaveRequest>(`/leave-requests/${id}/approve-cancellation`, {
+    method: "PATCH",
+    body: JSON.stringify({ remarks: remarks?.trim() || undefined }),
+  });
 }
 
 export async function denyLeaveCancellation(id: string, remarks?: string) {

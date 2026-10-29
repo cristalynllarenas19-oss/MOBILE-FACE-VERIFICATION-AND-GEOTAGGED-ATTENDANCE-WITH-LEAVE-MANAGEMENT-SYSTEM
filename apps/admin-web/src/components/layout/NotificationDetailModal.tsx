@@ -15,6 +15,24 @@ function formatFullDate(value: string) {
   });
 }
 
+// The backend appends a reviewer's note to the end of a notification as
+// " Remarks: …", " Reason: …" or " Requirement needed: …" — split those off
+// so each shows in its own box below the message. Mirrors employee-mobile's
+// NotificationsScreen.
+const NOTE_MARKER = /\s(Remarks|Reason|Requirement needed):\s/g;
+
+function splitNotificationNotes(message: string): { body: string; notes: Array<{ label: string; text: string }> } {
+  const matches = Array.from(message.matchAll(NOTE_MARKER));
+  if (matches.length === 0) return { body: message, notes: [] };
+  return {
+    body: message.slice(0, matches[0].index).trim(),
+    notes: matches.map((match, i) => ({
+      label: match[1],
+      text: message.slice(match.index! + match[0].length, matches[i + 1]?.index ?? message.length).trim(),
+    })),
+  };
+}
+
 // Employee-portal-only notification detail — shown in place of navigating
 // away, so clicking a notification never loses the employee's current page.
 // Mirrors employee-mobile's NotificationsScreen detail sheet (icon, title,
@@ -58,7 +76,20 @@ export function NotificationDetailModal({
         {notification.type === "ANNOUNCEMENT" ? (
           <div className="notif-detail-message">{renderFormattedText(notification.message)}</div>
         ) : (
-          <p className="notif-detail-message">{notification.message}</p>
+          (() => {
+            const { body, notes } = splitNotificationNotes(notification.message);
+            return (
+              <>
+                <p className="notif-detail-message">{body}</p>
+                {notes.map((note, i) => (
+                  <div key={i} className="notif-detail-note">
+                    <span className="notif-detail-note-label">{note.label}</span>
+                    <p className="notif-detail-note-text">{note.text}</p>
+                  </div>
+                ))}
+              </>
+            );
+          })()
         )}
 
         {onViewLeaveRequest && (

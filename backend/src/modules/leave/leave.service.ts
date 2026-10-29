@@ -3,10 +3,12 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
 import { CreateLeaveRequestDto } from "./dto/create-leave-request.dto";
+import { CreateLeaveRequestsDto } from "./dto/create-leave-requests.dto";
 import { RejectLeaveRequestDto } from "./dto/reject-leave-request.dto";
 import { ResubmitLeaveRequestDto } from "./dto/resubmit-leave-request.dto";
+import { RequestLeaveExtensionDto } from "./dto/request-leave-extension.dto";
 import { isEligibleForLeaveType } from "./leave-balances.service";
-import { isDayOff, isNonWorkingDay } from "../../common/utils/schedule.util";
+import { isNonWorkingDay } from "../../common/utils/schedule.util";
 import { resolveMissedDays } from "../attendance/attendance-missed-days.util";
 
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
@@ -19,13 +21,6 @@ type LeaveRequestStatus =
   | "CANCELLED"
   | "CANCELLATION_PENDING"
   | "LAPSED";
-
-// Leave-type cutoff modes for approved self-cancellation. An ADMIN override
-// cancelling on an employee's behalf is not bound by these windows.
-const CANCELLATION_CUTOFF_UNITS = {
-  WORKING_DAYS_BEFORE_START: "WORKING_DAYS_BEFORE_START",
-  HOURS_BEFORE_SHIFT_START: "HOURS_BEFORE_SHIFT_START",
-} as const;
 
 // Audit actions that represent a step in a request's approval timeline —
 // everything updateStatus/reject/cancel/resubmit/approveCancellation/
@@ -52,21 +47,37 @@ function toDateOnly(value: Date): Date {
   return new Date(value.getFullYear(), value.getMonth(), value.getDate());
 }
 
-function dateAtTime(date: Date, time: string | null | undefined) {
-  const [hours = 0, minutes = 0] = (time ?? "00:00").split(":").map((part) => Number(part));
-  const result = new Date(date);
-  result.setHours(Number.isFinite(hours) ? hours : 0, Number.isFinite(minutes) ? minutes : 0, 0, 0);
+// A Maternity Leave can be extended once, by this many calendar days without
+// pay, if the employee asks at least EXTENSION_NOTICE_DAYS before it ends
+// (RA 11210) — see getExtensionEligibility / requestExtension.
+const EXTENSION_DAYS = 30;
+const EXTENSION_NOTICE_DAYS = 45;
+// An extension in any of these still stands (or is still being decided), so
+// another one can't be requested for the same Maternity Leave.
+const ACTIVE_EXTENSION_STATUSES: LeaveRequestStatus[] = [
+  "PENDING",
+  "SUPERVISOR_APPROVED",
+  "NEEDS_REVISION",
+  "APPROVED",
+  "CANCELLATION_PENDING",
+];
+
+// `value` moved by `days` calendar days, keeping its time of day — so a
+// derived date is stored the same way as the one it came from.
+function addDays(value: Date, days: number): Date {
+  const result = new Date(value);
+  result.setDate(result.getDate() + days);
   return result;
 }
 
-function subtractWorkingDays(date: Date, days: number) {
-  const result = new Date(date);
-  let remaining = Math.max(0, days);
-  while (remaining > 0) {
-    result.setDate(result.getDate() - 1);
-    if (!isDayOff(result)) remaining -= 1;
+// Every calendar day from start to end (local midnights), inclusive.
+function calendarDays(start: Date, end: Date): Date[] {
+  const days: Date[] = [];
+  const last = toDateOnly(end).getTime();
+  for (let day = toDateOnly(start); day.getTime() <= last; day = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1)) {
+    days.push(day);
   }
-  return result;
+  return days;
 }
 
 @Injectable()
@@ -116,8 +127,12 @@ export class LeaveService {
       orderBy: { createdAt: "desc" },
     });
 
+    // Requests split off another one also need that one's history (see
+    // historyLineage) — fetched in the same query.
+    const lineage = await this.historyLineage(requests);
+    const ancestorIds = Array.from(lineage.values()).flatMap((chain) => chain.map((link) => link.id));
     const remarks = await this.prisma.auditLog.findMany({
-      where: { entityType: "LeaveRequest", entityId: { in: requests.map((request) => request.id) } },
+      where: { entityType: "LeaveRequest", entityId: { in: [...requests.map((request) => request.id), ...ancestorIds] } },
       include: { actor: { include: { employee: true } } },
       orderBy: { createdAt: "desc" },
     });
@@ -133,37 +148,46 @@ export class LeaveService {
       auditLogsByRequestId.set(log.entityId, list);
     }
 
-    // The cutoff math below only ever runs for APPROVED requests (see the
-    // early-return in getCancellationEligibility), so the schedule/shift join
-    // — the heaviest part of this query — is only worth fetching for the
-    // employees who actually have one. On a poll-heavy screen with mostly
-    // non-APPROVED history, this keeps most calls to a two-table query.
-    const employeeIdsNeedingSchedule = Array.from(
-      new Set(requests.filter((request) => request.status === "APPROVED").map((request) => request.employeeId)),
-    );
-    const schedulesByEmployeeId = new Map<string, Array<{ startsOn: Date; endsOn: Date | null; shift: { startTime: string } }>>();
-    if (employeeIdsNeedingSchedule.length > 0) {
-      const schedules = await this.prisma.employeeSchedule.findMany({
-        where: { employeeId: { in: employeeIdsNeedingSchedule }, isActive: true },
-        select: { employeeId: true, startsOn: true, endsOn: true, shift: { select: { startTime: true } } },
-        orderBy: { startsOn: "desc" },
+    // The time-in check in getCancellationEligibility only ever runs for
+    // APPROVED requests, so attendance is only fetched for those — one query
+    // spanning every approved request's dates, then matched per request.
+    const approvedRequests = requests.filter((request) => request.status === "APPROVED");
+    const workedDatesByEmployeeId = new Map<string, Date[]>();
+    if (approvedRequests.length > 0) {
+      const worked = await this.prisma.attendanceRecord.findMany({
+        where: {
+          employeeId: { in: Array.from(new Set(approvedRequests.map((request) => request.employeeId))) },
+          timeInAt: { not: null },
+          attendanceDate: {
+            gte: toDateOnly(new Date(Math.min(...approvedRequests.map((request) => request.startDate.getTime())))),
+            lte: toDateOnly(new Date(Math.max(...approvedRequests.map((request) => request.endDate.getTime())))),
+          },
+        },
+        select: { employeeId: true, attendanceDate: true },
       });
-      for (const schedule of schedules) {
-        const list = schedulesByEmployeeId.get(schedule.employeeId) ?? [];
-        list.push(schedule);
-        schedulesByEmployeeId.set(schedule.employeeId, list);
+      for (const record of worked) {
+        const list = workedDatesByEmployeeId.get(record.employeeId) ?? [];
+        list.push(record.attendanceDate);
+        workedDatesByEmployeeId.set(record.employeeId, list);
       }
     }
 
     return requests.map((request) => ({
       ...request,
       adminRemarks: remarks.find((remark) => remark.entityId === request.id)?.newValues,
-      // Lets the employee self-service UI disable Cancel and explain why
-      // instead of only finding out after a failed attempt — same rule the
-      // cancel() endpoint enforces, computed here so the client never has to
-      // duplicate the cutoff math (which needs the employee's shift).
-      cancellation: this.getCancellationEligibility(request, schedulesByEmployeeId.get(request.employeeId) ?? [], request.notes),
-      history: this.buildHistory(request, auditLogsByRequestId.get(request.id) ?? []),
+      // Lets the employee self-service UI disable Cancel (or individual
+      // days) and explain why instead of only finding out after a failed
+      // attempt — same rule the cancel() endpoint enforces.
+      cancellation: this.getCancellationEligibility(request, workedDatesByEmployeeId.get(request.employeeId) ?? [], request.notes),
+      // Same idea for the 30-day Maternity Leave extension — its extension
+      // (if any) is always in this same list, being the same employee's.
+      extension: this.getExtensionEligibility(request, requests),
+      history: this.buildHistory(request, [
+        ...(auditLogsByRequestId.get(request.id) ?? []),
+        ...(lineage.get(request.id) ?? []).flatMap((link) =>
+          (auditLogsByRequestId.get(link.id) ?? []).filter((log) => log.createdAt <= link.until),
+        ),
+      ]),
     }));
   }
 
@@ -189,13 +213,55 @@ export class LeaveService {
       throw new ForbiddenException("You can only view leave requests from your own department.");
     }
 
+    const chain = (await this.historyLineage([request])).get(request.id) ?? [];
     const logs = await this.prisma.auditLog.findMany({
-      where: { entityType: "LeaveRequest", entityId: id },
+      where: { entityType: "LeaveRequest", entityId: { in: [id, ...chain.map((link) => link.id)] } },
       include: { actor: { include: { employee: true } } },
       orderBy: { createdAt: "asc" },
     });
+    const ownAndInherited = logs.filter((log) => {
+      if (log.entityId === id) return true;
+      const link = chain.find((candidate) => candidate.id === log.entityId);
+      return !!link && log.createdAt <= link.until;
+    });
 
-    return { ...request, history: this.buildHistory(request, logs) };
+    return { ...request, history: this.buildHistory(request, ownAndInherited) };
+  }
+
+  // A request split off another one by a partial cancellation (see
+  // splitForCancellation) has no audit history of its own from before the
+  // split — its timeline inherits each request it came from, up to the
+  // moment it was split off. Returns, per request, those ancestors with the
+  // cutoff to apply to each one's history.
+  private async historyLineage(requests: Array<{ id: string; splitFromId: string | null; splitAt: Date | null }>) {
+    const known = new Map<string, { id: string; splitFromId: string | null; splitAt: Date | null }>(
+      requests.map((request) => [request.id, request]),
+    );
+    let missing = Array.from(new Set(requests.map((request) => request.splitFromId).filter((id): id is string => !!id && !known.has(id))));
+    while (missing.length > 0) {
+      const rows = await this.prisma.leaveRequest.findMany({
+        where: { id: { in: missing } },
+        select: { id: true, splitFromId: true, splitAt: true },
+      });
+      for (const row of rows) known.set(row.id, row);
+      missing = Array.from(new Set(rows.map((row) => row.splitFromId).filter((id): id is string => !!id && !known.has(id))));
+    }
+
+    const lineage = new Map<string, Array<{ id: string; until: Date }>>();
+    for (const request of requests) {
+      const chain: Array<{ id: string; until: Date }> = [];
+      let parentId = request.splitFromId;
+      let until = request.splitAt;
+      while (parentId && until) {
+        chain.push({ id: parentId, until });
+        const parent = known.get(parentId);
+        if (!parent) break;
+        if (parent.splitAt && parent.splitAt < until) until = parent.splitAt;
+        parentId = parent.splitFromId;
+      }
+      lineage.set(request.id, chain);
+    }
+    return lineage;
   }
 
   // Reconstructs a request's approval timeline — Filed, then whatever
@@ -249,20 +315,24 @@ export class LeaveService {
   }
 
   // Whether an EMPLOYEE (not an ADMIN override) could cancel this request
-  // right now, and why not if not. PENDING/SUPERVISOR_APPROVED never have a
-  // cutoff; APPROVED is gated by the leave type's configured cutoff window.
+  // right now, and why not if not. PENDING/SUPERVISOR_APPROVED can always be
+  // cancelled; APPROVED needs a leave type HR allows employees to cancel, and
+  // each day can be cancelled only while the employee hasn't timed in on it
+  // — there is no cutoff before the leave starts. workedDates lists the days
+  // that can no longer be picked.
   private getCancellationEligibility(
     request: {
       status: string;
       startDate: Date;
+      endDate: Date;
       leaveType: {
         name: string;
         cancellationAllowed: boolean;
-        cancellationCutoffValue: number | null;
-        cancellationCutoffUnit: string | null;
       };
     },
-    schedules: Array<{ startsOn: Date; endsOn: Date | null; shift: { startTime: string } }>,
+    // The employee's time-in dates — any range is fine, only the ones inside
+    // this request's own dates count.
+    workedDates: Date[],
     // Once a Supervisor/Admin denies a cancellation request (see
     // denyCancellation), the request permanently loses the ability to
     // request another one — this is what a CANCELLATION_DENIED note means.
@@ -270,7 +340,7 @@ export class LeaveService {
     // without this check it would look exactly like a leave that never had
     // a cancellation attempt at all.
     notes: Array<{ type: string }> = [],
-  ): { allowed: boolean; reason?: string; deadline?: Date } {
+  ): { allowed: boolean; reason?: string; workedDates?: string[] } {
     const cancellableStatuses: LeaveRequestStatus[] = ["PENDING", "SUPERVISOR_APPROVED", "APPROVED"];
     if (!cancellableStatuses.includes(request.status as LeaveRequestStatus)) {
       return { allowed: false };
@@ -291,48 +361,135 @@ export class LeaveService {
         reason: `${request.leaveType.name} is not available for employee cancellation. Please contact HR/Admin.`,
       };
     }
-    if (request.leaveType.cancellationCutoffValue == null || !request.leaveType.cancellationCutoffUnit) {
+    const start = toDateOnly(request.startDate).getTime();
+    const end = toDateOnly(request.endDate).getTime();
+    const workedOnLeave = Array.from(
+      new Set(
+        workedDates
+          .map((date) => toDateOnly(date).getTime())
+          .filter((day) => day >= start && day <= end),
+      ),
+    ).sort((a, b) => a - b);
+    if (workedOnLeave.length >= calendarDays(request.startDate, request.endDate).length) {
       return {
         allowed: false,
-        reason: `${request.leaveType.name} has no cancellation cutoff period configured. Please contact HR/Admin.`,
+        reason: `You already timed in on every day of this ${request.leaveType.name}, so it can no longer be cancelled. Please contact HR/Admin.`,
       };
     }
+    return { allowed: true, workedDates: workedOnLeave.map((day) => new Date(day).toISOString()) };
+  }
 
-    const requestStart = toDateOnly(request.startDate);
-    const schedule = schedules.find((assignment) => {
-      const startsOn = toDateOnly(assignment.startsOn);
-      const endsOn = assignment.endsOn ? toDateOnly(assignment.endsOn) : null;
-      return startsOn <= requestStart && (!endsOn || endsOn >= requestStart);
-    });
-    const leaveStartAtShiftTime = dateAtTime(request.startDate, schedule?.shift.startTime);
-    const cutoffValue = request.leaveType.cancellationCutoffValue;
-    const cutoffUnit = request.leaveType.cancellationCutoffUnit;
-    const cutoffDeadline =
-      cutoffUnit === CANCELLATION_CUTOFF_UNITS.HOURS_BEFORE_SHIFT_START
-        ? new Date(leaveStartAtShiftTime.getTime() - cutoffValue * 60 * 60 * 1000)
-        : subtractWorkingDays(leaveStartAtShiftTime, cutoffValue);
+  // Whether the employee could ask to extend this leave by 30 days without
+  // pay right now, and why not if not — null for anything but an APPROVED
+  // Maternity Leave (an extension itself can't be extended). It has to be
+  // asked at least 45 days before the leave ends, and only once per leave
+  // (a rejected or cancelled extension can be asked for again). startDate/
+  // endDate are the days the extension would cover.
+  private getExtensionEligibility(
+    request: {
+      id: string;
+      status: string;
+      endDate: Date;
+      extensionOfId: string | null;
+      leaveType: { kind: string; name: string };
+    },
+    // Any requests that may include this one's extension — only the ones
+    // pointing back to it count.
+    others: Array<{ id: string; status: string; extensionOfId: string | null }>,
+  ): { allowed: boolean; reason?: string; deadline: string; startDate: string; endDate: string; extensionId?: string } | null {
+    if (request.leaveType.kind !== "MATERNITY" || request.extensionOfId || request.status !== "APPROVED") {
+      return null;
+    }
+    const deadline = addDays(toDateOnly(request.endDate), -EXTENSION_NOTICE_DAYS);
+    const window = {
+      deadline: deadline.toISOString(),
+      startDate: addDays(request.endDate, 1).toISOString(),
+      endDate: addDays(request.endDate, EXTENSION_DAYS).toISOString(),
+    };
 
-    if (new Date() > cutoffDeadline) {
+    const existing = others.find(
+      (other) => other.extensionOfId === request.id && ACTIVE_EXTENSION_STATUSES.includes(other.status as LeaveRequestStatus),
+    );
+    if (existing) {
       return {
+        ...window,
         allowed: false,
-        reason: `The cutoff to cancel this approved ${request.leaveType.name} was ${cutoffDeadline.toLocaleString()}. Please contact HR/Admin.`,
-        deadline: cutoffDeadline,
+        extensionId: existing.id,
+        reason:
+          existing.status === "APPROVED" || existing.status === "CANCELLATION_PENDING"
+            ? `This ${request.leaveType.name} has already been extended by ${EXTENSION_DAYS} days.`
+            : `You already requested a ${EXTENSION_DAYS}-day extension of this ${request.leaveType.name} — it is awaiting review.`,
       };
     }
-    return { allowed: true, deadline: cutoffDeadline };
+    if (toDateOnly(new Date()) > deadline) {
+      return {
+        ...window,
+        allowed: false,
+        reason: `A ${EXTENSION_DAYS}-day extension must be requested at least ${EXTENSION_NOTICE_DAYS} days before your ${request.leaveType.name} ends — the last day to request it was ${deadline.toLocaleDateString()}.`,
+      };
+    }
+    return { ...window, allowed: true };
   }
 
   async create(dto: CreateLeaveRequestDto, context: AuditLogContext = {}) {
+    const [request] = await this.fileRequests(
+      dto,
+      [{ startDate: new Date(dto.startDate), endDate: new Date(dto.endDate), totalDays: Number(dto.totalDays) }],
+      false,
+      context,
+    );
+    return request;
+  }
+
+  // Sick Leave picked for several days at once — any mix of today and past
+  // absences. One single-day request per date (each reviewed on its own),
+  // all validated before any of them is created, so a bad date files none.
+  async createForDates(dto: CreateLeaveRequestsDto, context: AuditLogContext = {}) {
+    // Each date is stored exactly as sent, same as create(); only its local
+    // calendar day is used to drop a date picked twice.
+    const byDay = new Map<number, Date>();
+    for (const value of dto.dates) {
+      const date = new Date(value);
+      byDay.set(toDateOnly(date).getTime(), date);
+    }
+    const days = Array.from(byDay.values())
+      .sort((a, b) => a.getTime() - b.getTime())
+      .map((date) => ({ startDate: date, endDate: date, totalDays: 1 }));
+    return this.fileRequests(dto, days, true, context);
+  }
+
+  private async fileRequests(
+    dto: {
+      employeeId: string;
+      leaveTypeId: string;
+      reason: string;
+      attachmentName?: string;
+      attachmentMimeType?: string;
+      attachmentData?: string;
+      extensionRequested?: boolean;
+    },
+    days: Array<{ startDate: Date; endDate: Date; totalDays: number }>,
+    multipleDates: boolean,
+    context: AuditLogContext,
+  ) {
     if (dto.attachmentData && Buffer.byteLength(dto.attachmentData, "base64") > MAX_ATTACHMENT_BYTES) {
       throw new BadRequestException("Attachment must be 5MB or smaller.");
     }
 
     const leaveType = await this.prisma.leaveType.findUniqueOrThrow({ where: { id: dto.leaveTypeId } });
 
+    // Picking several dates in one go is only for single-day types that can
+    // be backfiled onto absences (Sick Leave) — every other type files one
+    // request (one date or one range) at a time.
+    if (multipleDates && !(leaveType.isSingleDayOnly && leaveType.pastAbsenceFilingAllowed)) {
+      throw new BadRequestException(`${leaveType.name} can only be filed for one date or date range per request.`);
+    }
+
     // An employee can have multiple leave types in flight at once, but not two
     // requests of the *same* type — they must wait for the existing one to be
     // fully APPROVED (or REJECTED/CANCELLED) before filing another of that
-    // type. A different type is always allowed.
+    // type. A different type is always allowed. Dates picked together in one
+    // multi-date filing count as one filing here.
     const activeRequestOfType = await this.prisma.leaveRequest.findFirst({
       where: {
         employeeId: dto.employeeId,
@@ -344,31 +501,6 @@ export class LeaveService {
     if (activeRequestOfType) {
       throw new BadRequestException(
         `You already have a ${leaveType.name} request awaiting review. Please wait until it is approved, rejected, or cancelled before filing another for this leave type.`,
-      );
-    }
-
-    // Any date already covered by another filed request — of *any* leave
-    // type, whether still awaiting review or already approved (including one
-    // whose cancellation is still pending) — is off-limits until that
-    // request is rejected or cancelled. One day can only ever be covered by
-    // a single leave.
-    const overlapping = await this.prisma.leaveRequest.findFirst({
-      where: {
-        employeeId: dto.employeeId,
-        status: { in: ["PENDING", "SUPERVISOR_APPROVED", "NEEDS_REVISION", "APPROVED", "CANCELLATION_PENDING"] },
-        startDate: { lte: new Date(dto.endDate) },
-        endDate: { gte: new Date(dto.startDate) },
-      },
-      include: { leaveType: { select: { name: true } } },
-    });
-
-    if (overlapping) {
-      const filedAs =
-        overlapping.status === "APPROVED" || overlapping.status === "CANCELLATION_PENDING" ? "approved" : "pending";
-      throw new BadRequestException(
-        `These dates overlap your ${filedAs} ${overlapping.leaveType.name} ` +
-          `(${overlapping.startDate.toLocaleDateString()} – ${overlapping.endDate.toLocaleDateString()}). ` +
-          `Cancel that request first if you need to change it.`,
       );
     }
 
@@ -390,12 +522,125 @@ export class LeaveService {
       throw new BadRequestException(`${leaveType.name} is not available for you.`);
     }
 
+    for (const day of days) {
+      await this.assertDatesFileable(dto.employeeId, leaveType, day);
+    }
+
+    // Paid, capped leave types must not be requestable past what's left in the
+    // employee's balance for the year — allowWithoutPay/isUnlimitedDays types
+    // (e.g. LWOP) are intentionally exempt, same as in adjustLeaveBalance below.
+    // Each request draws on its own start date's year, so a multi-date filing
+    // that crosses New Year is checked against both years' balances.
+    if (!leaveType.allowWithoutPay && !leaveType.isUnlimitedDays) {
+      const requestedByYear = new Map<number, number>();
+      for (const day of days) {
+        const year = day.startDate.getFullYear();
+        requestedByYear.set(year, (requestedByYear.get(year) ?? 0) + day.totalDays);
+      }
+
+      for (const [year, requestedDays] of requestedByYear) {
+        const balance = await this.prisma.leaveBalance.findUnique({
+          where: { employeeId_leaveTypeId_year: { employeeId: dto.employeeId, leaveTypeId: dto.leaveTypeId, year } },
+        });
+
+        // Admin-grant-only types (Solo Parent, Study Leave, Added Paternity
+        // Leave) never fall back to the type's default allotment — an employee
+        // has 0 days until HR/Admin explicitly grants them a balance.
+        if (!balance && leaveType.requiresAdminGrant) {
+          throw new BadRequestException(
+            `${leaveType.name} must be granted by HR/Admin before you can request it. Please apply to HR/Admin first.`,
+          );
+        }
+
+        const earnedDays = balance ? Number(balance.earnedDays) : Number(leaveType.defaultDays);
+        const usedDays = balance ? Number(balance.usedDays) : 0;
+        const remainingDays = Math.max(0, earnedDays - usedDays);
+
+        if (remainingDays <= 0) {
+          throw new BadRequestException("You have no remaining balance for this leave type.");
+        }
+
+        if (requestedDays > remainingDays) {
+          throw new BadRequestException(
+            `Insufficient ${leaveType.name} balance: you have ${remainingDays} day(s) remaining but requested ${requestedDays}.`,
+          );
+        }
+      }
+    }
+
+    // The 30-day unpaid extension only makes sense for a Maternity-kind leave
+    // type — a crafted request against any other leave type is silently
+    // ignored rather than trusted, even though the frontend already gates this.
+    const extensionRequested = Boolean(dto.extensionRequested) && leaveType.kind === "MATERNITY";
+
+    const requests = await this.prisma.$transaction(
+      days.map((day) =>
+        this.prisma.leaveRequest.create({
+          data: {
+            employeeId: dto.employeeId,
+            leaveTypeId: dto.leaveTypeId,
+            startDate: day.startDate,
+            endDate: day.endDate,
+            totalDays: day.totalDays,
+            reason: dto.reason,
+            attachmentName: dto.attachmentName,
+            attachmentMimeType: dto.attachmentMimeType,
+            attachmentData: dto.attachmentData,
+            extensionRequested,
+          },
+          include: {
+            employee: { include: { supervisor: true, department: true } },
+            leaveType: true,
+          },
+        }),
+      ),
+    );
+
+    await this.notifySubmission(requests);
+
+    for (const request of requests) {
+      await this.auditLogs.record({
+        ...context,
+        action: "CREATE_LEAVE_REQUEST",
+        module: "Leave",
+        entityType: "LeaveRequest",
+        entityId: request.id,
+        description: `${request.employee.firstName} ${request.employee.lastName} filed a ${request.leaveType.name} leave request.`,
+        newValues: {
+          employeeId: request.employeeId,
+          leaveType: request.leaveType.name,
+          startDate: request.startDate,
+          endDate: request.endDate,
+          totalDays: request.totalDays,
+          status: request.status,
+        },
+      });
+    }
+
+    return requests;
+  }
+
+  // Every date rule a single request's [startDate, endDate] has to pass —
+  // run once per request, so each date of a multi-date filing is held to
+  // exactly the same rules as a request filed on its own.
+  private async assertDatesFileable(
+    employeeId: string,
+    leaveType: {
+      name: string;
+      isSingleDayOnly: boolean;
+      advanceFilingAllowed: boolean;
+      pastAbsenceFilingAllowed: boolean;
+    },
+    day: { startDate: Date; endDate: Date; totalDays: number },
+  ) {
+    await this.assertNoOverlap(employeeId, day.startDate, day.endDate);
+
     // Sick Leave / Emergency Leave (and any other isSingleDayOnly type) are
     // always exactly one day — the frontend already forces this, but a
     // crafted request is validated the same way every other rule here is.
     if (leaveType.isSingleDayOnly) {
-      const sameDay = new Date(dto.startDate).toDateString() === new Date(dto.endDate).toDateString();
-      if (!sameDay || Number(dto.totalDays) !== 1) {
+      const sameDay = day.startDate.toDateString() === day.endDate.toDateString();
+      if (!sameDay || Number(day.totalDays) !== 1) {
         throw new BadRequestException(`${leaveType.name} can only be requested for a single day.`);
       }
     }
@@ -414,13 +659,20 @@ export class LeaveService {
     // days later. A multi-day !advanceFilingAllowed type (if HR ever
     // configures one) keeps the more lenient "today or earlier" rule.
     //
-    // pastAbsenceFilingAllowed (Sick Leave) additionally opens up a past
-    // date, but only one the employee was actually ABSENT on — checked
-    // further down (mustBeAbsentOn), after the day-off/worked-day checks so
-    // those keep their more specific messages.
+    // pastAbsenceFilingAllowed (Sick Leave, Compassionate Leave) additionally
+    // opens up a past start date, but only one the employee was actually
+    // ABSENT on — checked further down (mustBeAbsentOn), after the
+    // day-off/worked-day checks so those keep their more specific messages.
+    // Only the start date needs it: the overlap and worked-day checks already
+    // rule out every other past day in the range that isn't an absence.
     let mustBeAbsentOn: Date | null = null;
-    if (!leaveType.advanceFilingAllowed) {
-      const requestedStart = toDateOnly(new Date(dto.startDate));
+    if (leaveType.advanceFilingAllowed) {
+      const requestedStart = toDateOnly(day.startDate);
+      if (leaveType.pastAbsenceFilingAllowed && requestedStart < toDateOnly(new Date())) {
+        mustBeAbsentOn = requestedStart;
+      }
+    } else {
+      const requestedStart = toDateOnly(day.startDate);
       const today = toDateOnly(new Date());
       if (requestedStart > today) {
         throw new BadRequestException(
@@ -444,12 +696,12 @@ export class LeaveService {
     // bypass it. Only the request's boundary dates are checked: the days in
     // between a multi-day range are already implicitly off as part of a
     // normal working-week span and don't need to individually pass.
-    const boundaryDateStrings = new Set([dto.startDate, dto.endDate].map((d) => new Date(d).toDateString()));
+    const boundaryDateStrings = new Set([day.startDate, day.endDate].map((d) => d.toDateString()));
     for (const dateString of boundaryDateStrings) {
       const date = new Date(dateString);
       const scheduleOnDate = await this.prisma.employeeSchedule.findFirst({
         where: {
-          employeeId: dto.employeeId,
+          employeeId,
           isActive: true,
           startsOn: { lte: date },
           OR: [{ endsOn: null }, { endsOn: { gte: date } }],
@@ -467,96 +719,45 @@ export class LeaveService {
     // Same rule updateStatus enforces at approval — a day the employee already
     // worked can't become a leave day — checked here too so they find out
     // when filing instead of only when their reviewer tries to approve it.
-    const workedDays = await this.workedDaysInRange(dto.employeeId, new Date(dto.startDate), new Date(dto.endDate));
+    const workedDays = await this.workedDaysInRange(employeeId, day.startDate, day.endDate);
     if (workedDays) {
       throw new BadRequestException(
         `You already have attendance on ${workedDays}. A leave can't be filed for a day you worked.`,
       );
     }
 
-    if (mustBeAbsentOn && !(await this.isAbsentDay(dto.employeeId, mustBeAbsentOn))) {
+    if (mustBeAbsentOn && !(await this.isAbsentDay(employeeId, mustBeAbsentOn))) {
       throw new BadRequestException(
-        `${mustBeAbsentOn.toLocaleDateString()} isn't an absence on your record — ${leaveType.name} can only be filed for today or a past day you were absent.`,
+        `${mustBeAbsentOn.toLocaleDateString()} isn't an absence on your record — ${leaveType.name} can only be filed for a past day you were absent.`,
       );
     }
+  }
 
-    // Paid, capped leave types must not be requestable past what's left in the
-    // employee's balance for the year — allowWithoutPay/isUnlimitedDays types
-    // (e.g. LWOP) are intentionally exempt, same as in adjustLeaveBalance below.
-    if (!leaveType.allowWithoutPay && !leaveType.isUnlimitedDays) {
-      const year = new Date(dto.startDate).getFullYear();
-      const balance = await this.prisma.leaveBalance.findUnique({
-        where: { employeeId_leaveTypeId_year: { employeeId: dto.employeeId, leaveTypeId: dto.leaveTypeId, year } },
-      });
+  // Any date already covered by another filed request — of *any* leave type,
+  // whether still awaiting review or already approved (including one whose
+  // cancellation is still pending) — is off-limits until that request is
+  // rejected or cancelled. One day can only ever be covered by a single
+  // leave.
+  private async assertNoOverlap(employeeId: string, startDate: Date, endDate: Date) {
+    const overlapping = await this.prisma.leaveRequest.findFirst({
+      where: {
+        employeeId,
+        status: { in: ["PENDING", "SUPERVISOR_APPROVED", "NEEDS_REVISION", "APPROVED", "CANCELLATION_PENDING"] },
+        startDate: { lte: endDate },
+        endDate: { gte: startDate },
+      },
+      include: { leaveType: { select: { name: true } } },
+    });
 
-      // Admin-grant-only types (Solo Parent, Study Leave, Added Paternity
-      // Leave) never fall back to the type's default allotment — an employee
-      // has 0 days until HR/Admin explicitly grants them a balance.
-      if (!balance && leaveType.requiresAdminGrant) {
-        throw new BadRequestException(
-          `${leaveType.name} must be granted by HR/Admin before you can request it. Please apply to HR/Admin first.`,
-        );
-      }
-
-      const earnedDays = balance ? Number(balance.earnedDays) : Number(leaveType.defaultDays);
-      const usedDays = balance ? Number(balance.usedDays) : 0;
-      const remainingDays = Math.max(0, earnedDays - usedDays);
-
-      if (remainingDays <= 0) {
-        throw new BadRequestException("You have no remaining balance for this leave type.");
-      }
-
-      if (Number(dto.totalDays) > remainingDays) {
-        throw new BadRequestException(
-          `Insufficient ${leaveType.name} balance: you have ${remainingDays} day(s) remaining but requested ${dto.totalDays}.`,
-        );
-      }
+    if (overlapping) {
+      const filedAs =
+        overlapping.status === "APPROVED" || overlapping.status === "CANCELLATION_PENDING" ? "approved" : "pending";
+      throw new BadRequestException(
+        `These dates overlap your ${filedAs} ${overlapping.leaveType.name} ` +
+          `(${overlapping.startDate.toLocaleDateString()} – ${overlapping.endDate.toLocaleDateString()}). ` +
+          `Cancel that request first if you need to change it.`,
+      );
     }
-
-    // The 30-day unpaid extension only makes sense for a Maternity-kind leave
-    // type — a crafted request against any other leave type is silently
-    // ignored rather than trusted, even though the frontend already gates this.
-    const extensionRequested = Boolean(dto.extensionRequested) && leaveType.kind === "MATERNITY";
-
-    const request = await this.prisma.leaveRequest.create({
-      data: {
-        employeeId: dto.employeeId,
-        leaveTypeId: dto.leaveTypeId,
-        startDate: new Date(dto.startDate),
-        endDate: new Date(dto.endDate),
-        totalDays: dto.totalDays,
-        reason: dto.reason,
-        attachmentName: dto.attachmentName,
-        attachmentMimeType: dto.attachmentMimeType,
-        attachmentData: dto.attachmentData,
-        extensionRequested,
-      },
-      include: {
-        employee: { include: { supervisor: true, department: true } },
-        leaveType: true,
-      },
-    });
-
-    await this.notifySubmission(request);
-
-    await this.auditLogs.record({
-      ...context,
-      action: "CREATE_LEAVE_REQUEST",
-      module: "Leave",
-      entityType: "LeaveRequest",
-      entityId: request.id,
-      description: `${request.employee.firstName} ${request.employee.lastName} filed a ${request.leaveType.name} leave request.`,
-      newValues: {
-        employeeId: request.employeeId,
-        leaveType: request.leaveType.name,
-        startDate: request.startDate,
-        endDate: request.endDate,
-        totalDays: request.totalDays,
-        status: request.status,
-      },
-    });
-
-    return request;
   }
 
   // The days in [startDate, endDate] the employee timed in, formatted for an
@@ -626,24 +827,32 @@ export class LeaveService {
     return missed.some((entry) => entry.status === "ABSENT" && entry.date.getTime() === day.getTime());
   }
 
-  private async notifySubmission(request: {
-    id: string;
-    startDate: Date;
-    endDate: Date;
-    employee: { userId: string | null; firstName: string; lastName: string; supervisor: { userId: string | null } | null };
-    leaveType: { name: string };
-  }) {
+  // One notification per filing — a multi-date Sick Leave filing lists all
+  // its dates in a single message instead of one notification per day.
+  private async notifySubmission(
+    requests: Array<{
+      id: string;
+      startDate: Date;
+      endDate: Date;
+      employee: { userId: string | null; firstName: string; lastName: string; supervisor: { userId: string | null } | null };
+      leaveType: { name: string };
+    }>,
+  ) {
+    const [request] = requests;
     const recipientIds = await this.notifications.filingReviewerIds(
       request.employee.userId,
       request.employee.supervisor?.userId,
     );
 
     const employeeName = `${request.employee.firstName} ${request.employee.lastName}`;
-    const dateRange = `${request.startDate.toLocaleDateString()} - ${request.endDate.toLocaleDateString()}`;
+    const message =
+      requests.length === 1
+        ? `${employeeName} filed a ${request.leaveType.name} request for ${request.startDate.toLocaleDateString()} - ${request.endDate.toLocaleDateString()}.`
+        : `${employeeName} filed ${requests.length} ${request.leaveType.name} requests for ${requests.map((r) => r.startDate.toLocaleDateString()).join(", ")}.`;
 
     await this.notifications.notifyUsers(recipientIds, {
       title: "New Leave Request",
-      message: `${employeeName} filed a ${request.leaveType.name} request for ${dateRange}.`,
+      message,
       type: "LEAVE_SUBMITTED",
       entityId: request.id,
     });
@@ -725,6 +934,9 @@ export class LeaveService {
       LAPSED: "lapsed",
     };
 
+    // A Maternity Leave extension is reviewed like any request, but says so.
+    const subject = request.extensionOfId ? `${EXTENSION_DAYS}-day ${request.leaveType.name} extension` : request.leaveType.name;
+
     if (request.employee.userId && status !== "PENDING") {
       await this.notifications.notifyUsers([request.employee.userId], {
         title:
@@ -735,7 +947,7 @@ export class LeaveService {
               : status === "CANCELLED"
                 ? "Leave Request Cancelled"
                 : "Leave Request Supervisor-Approved",
-        message: `Your ${request.leaveType.name} request for ${request.startDate.toLocaleDateString()} - ${request.endDate.toLocaleDateString()} was ${statusLabel[status]}.${remarks?.trim() ? ` Remarks: ${remarks.trim()}` : ""}`,
+        message: `Your ${subject} request for ${request.startDate.toLocaleDateString()} - ${request.endDate.toLocaleDateString()} was ${statusLabel[status]}.${remarks?.trim() ? ` Remarks: ${remarks.trim()}` : ""}`,
         type:
           status === "APPROVED"
             ? "LEAVE_APPROVED"
@@ -753,9 +965,11 @@ export class LeaveService {
     // - APPROVED -> anything else (an admin reversing a prior approval): give the days back.
     // - SUPERVISOR_APPROVED is a pre-approval tier only — it never touches the balance,
     //   only the final HR-level APPROVED transition does.
-    if (!wasApproved && isNowApproved) {
+    // - A Maternity Leave extension is without pay — it never touches the balance.
+    const countsAgainstBalance = !request.extensionOfId;
+    if (countsAgainstBalance && !wasApproved && isNowApproved) {
       await this.adjustLeaveBalance(request.employeeId, request.leaveTypeId, request.startDate, Number(request.totalDays));
-    } else if (wasApproved && !isNowApproved && !options.skipBalanceRestore) {
+    } else if (countsAgainstBalance && wasApproved && !isNowApproved && !options.skipBalanceRestore) {
       await this.adjustLeaveBalance(request.employeeId, request.leaveTypeId, request.startDate, -Number(request.totalDays));
     }
 
@@ -880,26 +1094,35 @@ export class LeaveService {
     callerEmployeeId?: string,
     note?: string,
     supervisorDepartmentId?: string,
+    // Optional supporting document for the cancellation — kept on the
+    // CANCELLED note, the same way a resubmission's document is kept on its
+    // RESUBMITTED note, so reviewers see it alongside the reason.
+    attachment?: { attachmentName?: string; attachmentMimeType?: string; attachmentData?: string },
+    // Only these days of the leave are cancelled — the rest stay, as their
+    // own request(s) (see splitForCancellation). Omitted = the whole leave.
+    dates?: string[],
   ) {
     const trimmedNote = note?.trim();
     if (!trimmedNote) {
       throw new BadRequestException("Please provide a reason for cancelling this leave request.");
     }
+    if (attachment?.attachmentData && Buffer.byteLength(attachment.attachmentData, "base64") > MAX_ATTACHMENT_BYTES) {
+      throw new BadRequestException("Attachment must be 5MB or smaller.");
+    }
+    const noteAttachment = attachment?.attachmentData
+      ? {
+          attachmentName: attachment.attachmentName,
+          attachmentMimeType: attachment.attachmentMimeType,
+          attachmentData: attachment.attachmentData,
+        }
+      : {};
 
     const existing = await this.prisma.leaveRequest.findUniqueOrThrow({
       where: { id },
       include: {
         leaveType: true,
         notes: true,
-        employee: {
-          include: {
-            schedules: {
-              where: { isActive: true },
-              include: { shift: true },
-              orderBy: { startsOn: "desc" },
-            },
-          },
-        },
+        employee: true,
       },
     });
 
@@ -926,14 +1149,66 @@ export class LeaveService {
       throw new BadRequestException("You can only cancel your own leave request.");
     }
 
-    // Approved leave self-cancellation follows the leave type's configured
-    // cutoff (and is permanently blocked once a prior cancellation request
-    // was denied — see getCancellationEligibility). HR/Admin cancellation
-    // remains an override for manual correction, unaffected by either rule.
+    // A Maternity Leave extension runs from the day after the leave ends, so
+    // the leave itself can't change while an extension of it still stands.
+    const standingExtension = await this.prisma.leaveRequest.findFirst({
+      where: { extensionOfId: existing.id, status: { in: ACTIVE_EXTENSION_STATUSES } },
+      select: { id: true },
+    });
+    if (standingExtension) {
+      throw new BadRequestException(
+        `This ${existing.leaveType.name} has a ${EXTENSION_DAYS}-day extension filed against it. Cancel the extension first.`,
+      );
+    }
+
+    // Which days are being cancelled — every day of the leave unless the
+    // employee picked specific ones.
+    const leaveDays = calendarDays(existing.startDate, existing.endDate);
+    const leaveDayKeys = new Set(leaveDays.map((day) => day.getTime()));
+    let cancelDays = leaveDays;
+    if (dates && dates.length > 0) {
+      const picked = new Map<number, Date>();
+      for (const value of dates) {
+        const day = toDateOnly(new Date(value));
+        if (!leaveDayKeys.has(day.getTime())) {
+          throw new BadRequestException(`${day.toLocaleDateString()} isn't one of this leave's days.`);
+        }
+        picked.set(day.getTime(), day);
+      }
+      cancelDays = Array.from(picked.values()).sort((a, b) => a.getTime() - b.getTime());
+    }
+
+    // Approved leave self-cancellation is open for any day the employee
+    // hasn't timed in on (and is permanently blocked once a prior
+    // cancellation request was denied — see getCancellationEligibility).
+    // HR/Admin cancellation remains an override for manual correction,
+    // unaffected by either rule.
     if (existing.status === "APPROVED" && requestingEmployeeId) {
-      const eligibility = this.getCancellationEligibility(existing, existing.employee.schedules, existing.notes);
+      const eligibility = this.getCancellationEligibility(existing, [], existing.notes);
       if (!eligibility.allowed) {
         throw new BadRequestException(eligibility.reason ?? "This request can no longer be cancelled.");
+      }
+      const worked = await this.prisma.attendanceRecord.findMany({
+        where: {
+          employeeId: existing.employeeId,
+          timeInAt: { not: null },
+          attendanceDate: { gte: toDateOnly(existing.startDate), lte: toDateOnly(existing.endDate) },
+        },
+        select: { attendanceDate: true },
+      });
+      const cancelKeys = new Set(cancelDays.map((day) => day.getTime()));
+      const workedCancelDays = Array.from(
+        new Set(
+          worked
+            .map((record) => toDateOnly(record.attendanceDate))
+            .filter((day) => cancelKeys.has(day.getTime()))
+            .map((day) => day.toLocaleDateString()),
+        ),
+      );
+      if (workedCancelDays.length > 0) {
+        throw new BadRequestException(
+          `You already timed in on ${workedCancelDays.join(", ")}, so ${workedCancelDays.length === 1 ? "that day" : "those days"} can't be cancelled.`,
+        );
       }
     }
 
@@ -943,7 +1218,34 @@ export class LeaveService {
     // CANCELLATION_PENDING until a Supervisor/Admin approves or denies the
     // cancellation. Cancelling a PENDING/SUPERVISOR_APPROVED request (nothing
     // committed yet) or an ADMIN override still takes effect immediately.
-    if (existing.status === "APPROVED" && requestingEmployeeId) {
+    const awaitDecision = existing.status === "APPROVED" && !!requestingEmployeeId;
+    const targets =
+      cancelDays.length < leaveDays.length
+        ? await this.splitForCancellation(existing, cancelDays)
+        : [{ id: existing.id, startDate: existing.startDate }];
+
+    let result: unknown;
+    for (const target of targets) {
+      result = await this.cancelOne(target, existing.status, { awaitDecision, note: trimmedNote, noteAttachment, context });
+    }
+    return result;
+  }
+
+  // Cancels one request — the whole leave, or one cancelled piece of a
+  // partial cancellation (see cancel()).
+  private async cancelOne(
+    target: { id: string; startDate: Date },
+    previousStatus: string,
+    opts: {
+      awaitDecision: boolean;
+      note: string;
+      noteAttachment: { attachmentName?: string; attachmentMimeType?: string; attachmentData?: string };
+      context: AuditLogContext;
+    },
+  ) {
+    const { id } = target;
+    const { note: trimmedNote, noteAttachment, context } = opts;
+    if (opts.awaitDecision) {
       const request = await this.prisma.leaveRequest.update({
         where: { id },
         data: { status: "CANCELLATION_PENDING", preCancellationStatus: "APPROVED" },
@@ -951,7 +1253,7 @@ export class LeaveService {
       });
 
       await this.prisma.leaveRequestNote.create({
-        data: { leaveRequestId: id, type: "CANCELLED", message: trimmedNote, authorUserId: context.actorUserId },
+        data: { leaveRequestId: id, type: "CANCELLED", message: trimmedNote, authorUserId: context.actorUserId, ...noteAttachment },
       });
 
       // Same recipient routing as a fresh submission (notifySubmission).
@@ -974,7 +1276,7 @@ export class LeaveService {
         entityType: "LeaveRequest",
         entityId: id,
         description: `${request.employee.firstName} ${request.employee.lastName} requested to cancel their ${request.leaveType.name} leave request.`,
-        oldValues: { status: existing.status },
+        oldValues: { status: previousStatus },
         newValues: { note: trimmedNote, status: "CANCELLATION_PENDING" },
       });
 
@@ -983,7 +1285,7 @@ export class LeaveService {
 
     // The leave period has already started (or passed) — the days were
     // already taken, so cancelling now must not hand the balance back.
-    const alreadyUsed = existing.status === "APPROVED" && toDateOnly(existing.startDate) <= toDateOnly(new Date());
+    const alreadyUsed = previousStatus === "APPROVED" && toDateOnly(target.startDate) <= toDateOnly(new Date());
 
     const result = await this.updateStatus(id, "CANCELLED", undefined, context, undefined, undefined, {
       skipBalanceRestore: alreadyUsed,
@@ -995,16 +1297,121 @@ export class LeaveService {
         type: "CANCELLED",
         message: trimmedNote,
         authorUserId: context.actorUserId,
+        ...noteAttachment,
       },
     });
 
     return result;
   }
 
+  // Cancelling only some days of a multi-day request splits it into
+  // contiguous pieces — runs of cancelled days and runs of days that stay —
+  // so everything else (DTR, reports, balances, overlap checks) keeps reading
+  // plain date ranges. The original request becomes the first piece; the
+  // rest are new requests pointing back to it (splitFromId) whose timeline
+  // inherits its history up to splitAt (see historyLineage). Every piece
+  // keeps the original's status for now — cancelOne() then cancels the
+  // cancelled pieces exactly like a whole request. Returns those pieces.
+  private async splitForCancellation(
+    existing: {
+      id: string;
+      employeeId: string;
+      leaveTypeId: string;
+      startDate: Date;
+      endDate: Date;
+      totalDays: unknown;
+      reason: string;
+      status: string;
+      reviewedBy: string | null;
+      reviewedAt: Date | null;
+      createdAt: Date;
+      attachmentPath: string | null;
+      attachmentName: string | null;
+      attachmentMimeType: string | null;
+      attachmentData: string | null;
+      extensionRequested: boolean;
+      extensionApproved: boolean | null;
+      reviewClockStartedAt: Date | null;
+      extensionOfId: string | null;
+    },
+    cancelDays: Date[],
+  ) {
+    const cancelKeys = new Set(cancelDays.map((day) => day.getTime()));
+    const days = calendarDays(existing.startDate, existing.endDate);
+    const pieces: Array<{ start: Date; end: Date; cancel: boolean; dayCount: number }> = [];
+    for (const day of days) {
+      const cancel = cancelKeys.has(day.getTime());
+      const last = pieces[pieces.length - 1];
+      if (last && last.cancel === cancel) {
+        last.end = day;
+        last.dayCount += 1;
+      } else {
+        pieces.push({ start: day, end: day, cancel, dayCount: 1 });
+      }
+    }
+    // The outer edges keep the request's own stored start/end values.
+    pieces[0].start = existing.startDate;
+    pieces[pieces.length - 1].end = existing.endDate;
+
+    // Each piece's share of the request's days (normally one per calendar
+    // day), to the half day.
+    const daysPerCalendarDay = Number(existing.totalDays) / days.length;
+    const pieceTotal = (piece: { dayCount: number }) => Math.round(piece.dayCount * daysPerCalendarDay * 2) / 2;
+
+    const splitAt = new Date();
+    const [first, ...rest] = pieces;
+    const status = existing.status as LeaveRequestStatus;
+    const results = await this.prisma.$transaction([
+      this.prisma.leaveRequest.update({
+        where: { id: existing.id },
+        data: { startDate: first.start, endDate: first.end, totalDays: pieceTotal(first) },
+        select: { id: true, startDate: true },
+      }),
+      ...rest.map((piece) =>
+        this.prisma.leaveRequest.create({
+          data: {
+            employeeId: existing.employeeId,
+            leaveTypeId: existing.leaveTypeId,
+            startDate: piece.start,
+            endDate: piece.end,
+            totalDays: pieceTotal(piece),
+            reason: existing.reason,
+            status,
+            reviewedBy: existing.reviewedBy,
+            reviewedAt: existing.reviewedAt,
+            createdAt: existing.createdAt,
+            attachmentPath: existing.attachmentPath,
+            attachmentName: existing.attachmentName,
+            attachmentMimeType: existing.attachmentMimeType,
+            attachmentData: existing.attachmentData,
+            extensionRequested: existing.extensionRequested,
+            extensionApproved: existing.extensionApproved,
+            reviewClockStartedAt: existing.reviewClockStartedAt,
+            extensionOfId: existing.extensionOfId,
+            splitFromId: existing.id,
+            splitAt,
+          },
+          select: { id: true, startDate: true },
+        }),
+      ),
+    ]);
+
+    return results.filter((_, index) => pieces[index].cancel);
+  }
+
   // Approves an employee's pending request to cancel an already-APPROVED
   // leave — finalizes it to CANCELLED and restores the balance (unless the
   // leave period already started, same rule as an immediate cancel).
-  async approveCancellation(id: string, context: AuditLogContext = {}, scopeDepartmentId?: string, selfReviewEmployeeId?: string) {
+  async approveCancellation(
+    id: string,
+    context: AuditLogContext = {},
+    scopeDepartmentId?: string,
+    selfReviewEmployeeId?: string,
+    // Optional note from the reviewer — sent to the employee and shown on
+    // the request's timeline, same as denyCancellation's remarks.
+    remarks?: string,
+  ) {
+    const trimmedRemarks = remarks?.trim() || undefined;
     const existing = await this.prisma.leaveRequest.findUniqueOrThrow({
       where: { id },
       include: { employee: { select: { departmentId: true } } },
@@ -1020,7 +1427,8 @@ export class LeaveService {
     }
 
     const alreadyUsed = toDateOnly(existing.startDate) <= toDateOnly(new Date());
-    if (!alreadyUsed) {
+    // A Maternity Leave extension (without pay) never deducted anything.
+    if (!alreadyUsed && !existing.extensionOfId) {
       await this.adjustLeaveBalance(existing.employeeId, existing.leaveTypeId, existing.startDate, -Number(existing.totalDays));
     }
 
@@ -1033,7 +1441,7 @@ export class LeaveService {
     if (request.employee.userId) {
       await this.notifications.notifyUsers([request.employee.userId], {
         title: "Leave Cancellation Approved",
-        message: `Your request to cancel ${request.leaveType.name} (${request.startDate.toLocaleDateString()} - ${request.endDate.toLocaleDateString()}) was approved. This leave is now cancelled.`,
+        message: `Your request to cancel ${request.leaveType.name} (${request.startDate.toLocaleDateString()} - ${request.endDate.toLocaleDateString()}) was approved. This leave is now cancelled.${trimmedRemarks ? ` Remarks: ${trimmedRemarks}` : ""}`,
         type: "LEAVE_CANCELLED",
         entityId: request.id,
       });
@@ -1047,7 +1455,7 @@ export class LeaveService {
       entityId: id,
       description: `Approved ${request.employee.firstName} ${request.employee.lastName}'s request to cancel their ${request.leaveType.name} leave request.`,
       oldValues: { status: "CANCELLATION_PENDING" },
-      newValues: { status: "CANCELLED" },
+      newValues: { status: "CANCELLED", remarks: trimmedRemarks },
     });
 
     return request;
@@ -1243,6 +1651,102 @@ export class LeaveService {
       type: "LEAVE_RESUBMITTED",
       entityId: request.id,
     });
+  }
+
+  // The employee asks to extend an APPROVED Maternity Leave by 30 calendar
+  // days without pay — at least 45 days before it ends, and once (see
+  // getExtensionEligibility). Filed as its own request (extensionOfId) for
+  // the 30 days right after the leave, so the normal Supervisor/Admin
+  // approve/reject/cancel flow, the DTR, and the overlap checks all treat it
+  // like any other leave; only the balance is never touched (updateStatus).
+  async requestExtension(
+    id: string,
+    dto: RequestLeaveExtensionDto,
+    context: AuditLogContext = {},
+    requestingEmployeeId?: string,
+  ) {
+    const reason = dto.reason?.trim();
+    if (!reason) {
+      throw new BadRequestException("Please provide a reason for extending your leave.");
+    }
+    if (dto.attachmentData && Buffer.byteLength(dto.attachmentData, "base64") > MAX_ATTACHMENT_BYTES) {
+      throw new BadRequestException("Attachment must be 5MB or smaller.");
+    }
+
+    const existing = await this.prisma.leaveRequest.findUniqueOrThrow({
+      where: { id },
+      include: { leaveType: true },
+    });
+    if (requestingEmployeeId && existing.employeeId !== requestingEmployeeId) {
+      throw new ForbiddenException("You can only extend your own leave.");
+    }
+
+    const extensions = await this.prisma.leaveRequest.findMany({
+      where: { extensionOfId: id },
+      select: { id: true, status: true, extensionOfId: true },
+    });
+    const eligibility = this.getExtensionEligibility(existing, extensions);
+    if (!eligibility) {
+      throw new BadRequestException("Only an approved Maternity Leave can be extended.");
+    }
+    if (!eligibility.allowed) {
+      throw new BadRequestException(eligibility.reason);
+    }
+
+    const startDate = new Date(eligibility.startDate);
+    const endDate = new Date(eligibility.endDate);
+    await this.assertNoOverlap(existing.employeeId, startDate, endDate);
+
+    const request = await this.prisma.leaveRequest.create({
+      data: {
+        employeeId: existing.employeeId,
+        leaveTypeId: existing.leaveTypeId,
+        startDate,
+        endDate,
+        totalDays: EXTENSION_DAYS,
+        reason,
+        attachmentName: dto.attachmentData ? dto.attachmentName : undefined,
+        attachmentMimeType: dto.attachmentData ? dto.attachmentMimeType : undefined,
+        attachmentData: dto.attachmentData || undefined,
+        extensionOfId: id,
+      },
+      include: {
+        employee: { include: { supervisor: true, department: true } },
+        leaveType: true,
+      },
+    });
+
+    const recipientIds = await this.notifications.filingReviewerIds(
+      request.employee.userId,
+      request.employee.supervisor?.userId,
+    );
+    const employeeName = `${request.employee.firstName} ${request.employee.lastName}`;
+    await this.notifications.notifyUsers(recipientIds, {
+      title: "Maternity Leave Extension Requested",
+      message: `${employeeName} requested a ${EXTENSION_DAYS}-day extension of their ${request.leaveType.name}, without pay, for ${startDate.toLocaleDateString()} - ${endDate.toLocaleDateString()}.`,
+      type: "LEAVE_SUBMITTED",
+      entityId: request.id,
+    });
+
+    await this.auditLogs.record({
+      ...context,
+      action: "CREATE_LEAVE_REQUEST",
+      module: "Leave",
+      entityType: "LeaveRequest",
+      entityId: request.id,
+      description: `${employeeName} requested a ${EXTENSION_DAYS}-day extension of their ${request.leaveType.name}.`,
+      newValues: {
+        employeeId: request.employeeId,
+        leaveType: request.leaveType.name,
+        extensionOfId: id,
+        startDate: request.startDate,
+        endDate: request.endDate,
+        totalDays: request.totalDays,
+        status: request.status,
+      },
+    });
+
+    return request;
   }
 
   async setExtensionDecision(id: string, extensionApproved: boolean, actorUserId?: string) {

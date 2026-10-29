@@ -706,9 +706,10 @@ model LeaveType {
   advanceFilingAllowed         Boolean            @default(true) @map("advance_filing_allowed")
   // True for leave types that may also be filed after the fact for a past
   // day the employee was ABSENT (no time-in on a scheduled working day, not
-  // already covered by a leave) — Sick Leave. Widens a today-only
-  // (!advanceFilingAllowed) type to "today or a past absent day"; it never
-  // allows a future date.
+  // already covered by a leave) — Sick Leave, Compassionate Leave. Widens a
+  // today-only (!advanceFilingAllowed) type to "today or a past absent day"
+  // (never a future date); an advance-filable type keeps today/future and
+  // also gains past absent days.
   pastAbsenceFilingAllowed     Boolean            @default(false) @map("past_absence_filing_allowed")
   cancellationAllowed          Boolean            @default(false) @map("cancellation_allowed")
   cancellationCutoffValue      Int?               @map("cancellation_cutoff_value")
@@ -765,6 +766,16 @@ model LeaveRequest {
   // every requested day) or "NOT_DECIDED" (nobody decided in time, so the
   // days stand as absences). Null for every other status.
   lapseReason        String?            @map("lapse_reason")
+  // Set when this request was split off another one by cancelling only some
+  // of its days (LeaveService.cancel) — the request it came from, and when.
+  // Its timeline inherits that request's history up to splitAt.
+  splitFromId        String?            @map("split_from_id")
+  splitAt            DateTime?          @map("split_at")
+  // Set on a 30-day Maternity Leave extension (without pay) — the approved
+  // Maternity Leave request it extends (see LeaveService.requestExtension).
+  // It runs from the day after that leave ends, goes through the normal
+  // Supervisor/Admin review, and never touches the maternity balance.
+  extensionOfId      String?            @map("extension_of_id")
   employee           Employee           @relation(fields: [employeeId], references: [id])
   leaveType          LeaveType          @relation(fields: [leaveTypeId], references: [id])
   reviewer           User?              @relation(fields: [reviewedBy], references: [id])

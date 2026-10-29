@@ -5,10 +5,11 @@ import { LeaveController } from "./leave.controller";
 import { LeaveService } from "./leave.service";
 import { LeaveLapseService } from "./leave-lapse.service";
 import { LeaveSettingsController } from "./leave-settings.controller";
+import { ParentalReturnService } from "./parental-return.service";
 
 @Module({
   imports: [NotificationsModule, AuditLogsModule],
   controllers: [LeaveController, LeaveSettingsController],
-  providers: [LeaveService, LeaveLapseService],
+  providers: [LeaveService, LeaveLapseService, ParentalReturnService],
 })
 export class LeaveModule {}

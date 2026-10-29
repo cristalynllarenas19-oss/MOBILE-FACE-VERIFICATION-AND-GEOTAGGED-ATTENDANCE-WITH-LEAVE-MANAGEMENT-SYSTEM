@@ -1,11 +1,12 @@
 
 
 import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Calendar, CalendarClock, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronUp, Clock, FileText, Lock as LockIcon, Paperclip, Search, Timer, X, XCircle } from "lucide-react";
+import { AlertCircle, Calendar, CalendarClock, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, FileText, Lightbulb, Lock as LockIcon, Paperclip, Plane, Search, Stethoscope, Timer, Wallet, X, XCircle } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import "./EmployeePortal.css";
 import {
   LeaveType, LeaveBalance, LeaveRequest, UndertimeEligibility, UndertimeFiling, MySchedule, AttendanceHistoryRecord,
-  getLeaveTypes, getLeaveBalances, getLeaveRequests, createLeaveRequest, cancelLeaveRequest, resubmitLeaveRequest,
+  getLeaveTypes, getLeaveBalances, getLeaveRequests, createLeaveRequest, createLeaveRequests, cancelLeaveRequest, resubmitLeaveRequest, requestLeaveExtension,
   getUndertimeEligibility, getUndertimeFilings, fileUndertime, getMySchedules, getAttendanceHistory,
   filedMinutes, getMyProfile,
 } from "./api";
@@ -199,12 +200,34 @@ function requiredDocumentFor(name?: string) {
   return null;
 }
 
+// Leave types an employee is nudged to use first, in this order, before she
+// files Maternity Leave. Matched by name — they're GENERAL-kind types, so
+// there's no LeaveTypeKind to key on. Vacation keeps its usual blue (see
+// lib/leaveTypeColors). Mirrors mobile's LeaveScreen.
+const MATERNITY_ALTERNATIVES: { name: string; Icon: LucideIcon; color: string; bg: string }[] = [
+  { name: "vacation leave", Icon: Plane, color: "#3B82F6", bg: "#EFF6FF" },
+  { name: "sick leave", Icon: Stethoscope, color: "#16A34A", bg: "#ECFDF3" },
+  { name: "leave without pay", Icon: Wallet, color: "#D97706", bg: "#FFFBEB" },
+];
+
+function maternityAlternativeStyle(t: LeaveType) {
+  return MATERNITY_ALTERNATIVES.find((alt) => alt.name === t.name.trim().toLowerCase()) ?? MATERNITY_ALTERNATIVES[0];
+}
+
 function attachmentSrc(mimeType: string | null | undefined, data: string | null | undefined) {
   if (!mimeType || !data) return null;
   return `data:${mimeType};base64,${data}`;
 }
 
-type LeaveDocument = { key: string; label: string; createdAt: string; mimeType: string | null | undefined; data: string | null | undefined; name: string | null | undefined };
+type LeaveDocument = {
+  key: string;
+  label: string;
+  createdAt: string;
+  mimeType: string | null | undefined;
+  data: string | null | undefined;
+  name: string | null | undefined;
+  kind: "submission" | "cancellation";
+};
 
 // A request can cycle through reject -> resubmit any number of times; the
 // backend only keeps the latest attachment on the request row itself, but
@@ -217,7 +240,59 @@ type LeaveDocument = { key: string; label: string; createdAt: string; mimeType: 
 // original round's document, and matching by position alone would misattach
 // the one document it does have. Mirrors employee-mobile's LeaveScreen.tsx
 // getRequestDocuments.
+// Every calendar day of a leave (local midnights), inclusive.
+function leaveDaysOf(r: { startDate: string; endDate: string }) {
+  const start = new Date(r.startDate);
+  const end = new Date(r.endDate);
+  const days: Date[] = [];
+  for (
+    let day = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+    day <= new Date(end.getFullYear(), end.getMonth(), end.getDate());
+    day = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1)
+  ) {
+    days.push(day);
+  }
+  return days;
+}
+
+// The local-midnight times of the days the employee already timed in on.
+function workedDayTimes(r: LeaveRequest) {
+  return new Set(
+    (r.cancellation?.workedDates ?? []).map((iso) => {
+      const d = new Date(iso);
+      return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+    }),
+  );
+}
+
 function getRequestDocuments(r: LeaveRequest): LeaveDocument[] {
+  return [...getSubmissionDocuments(r), ...getCancellationDocuments(r)];
+}
+
+// A 30-day Maternity Leave extension is filed under the Maternity Leave type
+// itself (see requestExtension in leave.service.ts) — titled as such.
+function leaveRequestTitle(r: LeaveRequest) {
+  return r.extensionOfId ? `${r.leaveType.name} Extension (30 days, without pay)` : r.leaveType.name;
+}
+
+// A supporting document sent with a cancellation, kept on its CANCELLED note
+// (see cancel() in leave.service.ts) — labelled separately so it never shifts
+// the Document 1 / Document 2 / … numbering of the filing rounds.
+function getCancellationDocuments(r: LeaveRequest): LeaveDocument[] {
+  return (r.notes ?? [])
+    .filter((n) => n.type === "CANCELLED" && n.attachmentName)
+    .map((n) => ({
+      key: n.id,
+      label: "Cancellation Document",
+      createdAt: n.createdAt,
+      mimeType: n.attachmentMimeType,
+      data: n.attachmentData,
+      name: n.attachmentName,
+      kind: "cancellation" as const,
+    }));
+}
+
+function getSubmissionDocuments(r: LeaveRequest): LeaveDocument[] {
   const resubmissionNotes = (r.notes ?? [])
     .filter((n) => n.type === "RESUBMITTED" && n.attachmentName)
     .slice()
@@ -231,11 +306,12 @@ function getRequestDocuments(r: LeaveRequest): LeaveDocument[] {
       mimeType: n.attachmentMimeType,
       data: n.attachmentData,
       name: n.attachmentName,
+      kind: "submission" as const,
     }));
   }
 
   if (r.attachmentName) {
-    return [{ key: "current", label: "Document 1", createdAt: r.createdAt, mimeType: r.attachmentMimeType, data: r.attachmentData, name: r.attachmentName }];
+    return [{ key: "current", label: "Document 1", createdAt: r.createdAt, mimeType: r.attachmentMimeType, data: r.attachmentData, name: r.attachmentName, kind: "submission" }];
   }
 
   return [];
@@ -346,7 +422,6 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
     name: string; mimeType: string; sizeBytes: number; base64: string;
   } | null>(null);
   const [attachErr,     setAttachErr]     = useState<string | null>(null);
-  const [extensionRequested, setExtensionRequested] = useState(false);
 
   // Modals
   const [showPending,  setShowPending]   = useState(false);
@@ -375,12 +450,25 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
     requestsCache.refresh().catch(() => undefined);
   }
   const [resultModal,  setResultModal]   = useState<{ ok: boolean; title: string; msg: string } | null>(null);
+  const [maternityPrompt, setMaternityPrompt] = useState<{ maternity: LeaveType; alternatives: LeaveType[] } | null>(null);
   const [focusedRequestId, setFocusedRequestId] = useState<string | null>(null);
   // Cancel is a destructive, irreversible action — clicking Cancel opens this
   // confirm step instead of cancelling immediately. The backend requires a
   // reason (see leave.service.ts's cancel()), so it's collected right here.
   const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
   const [cancelReasonText, setCancelReasonText] = useState("");
+  // Optional supporting document for a cancellation (see the cancel modal).
+  const [cancelFile, setCancelFile] = useState<{ name: string; mimeType: string; sizeBytes: number; base64: string } | null>(null);
+  const [cancelFileErr, setCancelFileErr] = useState<string | null>(null);
+  const cancelFileRef = useRef<HTMLInputElement>(null);
+  // The days ticked for cancellation (local-midnight times) — every day the
+  // employee hasn't timed in on, until they untick some to keep them.
+  const [cancelDayTimes, setCancelDayTimes] = useState<number[]>([]);
+  // The approved Maternity Leave whose 30-day extension is being requested
+  // (see the extension modal), and the reason typed for it.
+  const [extendTargetId, setExtendTargetId] = useState<string | null>(null);
+  const [extendReasonText, setExtendReasonText] = useState("");
+  const [isExtending, setIsExtending] = useState(false);
 
   // Inline "attach requirement & resubmit" — shown unconditionally on a
   // NEEDS_REVISION request's detail view (mirrors employee-mobile's
@@ -544,6 +632,38 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
     return pendingRequests.some((r) => r.leaveType.id === t.id);
   }
 
+  // Same rules as the disabled dropdown entries.
+  function isLeaveTypeSelectable(t: LeaveType) {
+    return (
+      isLeaveTypeApplicable(t) &&
+      !isLeaveTypeExhausted(t) &&
+      !isLeaveTypeAlreadyPending(t) &&
+      !leaveTypeUnavailableTodayReason(t)
+    );
+  }
+
+  // The Vacation Leave, Sick Leave and Leave Without Pay she can still file
+  // right now — suggested before Maternity Leave.
+  function maternityAlternatives() {
+    return MATERNITY_ALTERNATIVES.flatMap(({ name }) =>
+      leaveTypes.filter(
+        (t) =>
+          t.name.trim().toLowerCase() === name &&
+          t.isActive &&
+          (!t.requiresEhsActivation || t.ehsActivated) &&
+          isLeaveTypeSelectable(t),
+      ),
+    );
+  }
+
+  // Picking Maternity Leave first suggests any of its alternatives that are
+  // still available; she can switch to one or go ahead with Maternity Leave.
+  function chooseLeaveType(t: LeaveType) {
+    const alternatives = t.kind === "MATERNITY" ? maternityAlternatives() : [];
+    if (alternatives.length > 0) setMaternityPrompt({ maternity: t, alternatives });
+    else setLeaveTypeId(t.id);
+  }
+
   // Admin-grant-only types (Solo Parent, Study Leave, Added Paternity Leave)
   // that this employee hasn't been granted yet shouldn't clutter the balance
   // view with a 0/0 row — they only show up there once HR/Admin grants them.
@@ -593,7 +713,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
       });
       return;
     }
-    setLeaveTypeId(id);
+    chooseLeaveType(type);
     setTab("request");
   }
 
@@ -667,22 +787,50 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
   // employee stays right where they were and sees the request's own status
   // flip to "Pending Cancellation"/"Cancelled" in place, instead of being
   // bounced back out to the list.
-  function handleCancel(requestId: string, note: string) {
+  function handleCancelFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setCancelFileErr(null);
+    if (file.size > MAX_BYTES) { setCancelFileErr("File too large — maximum 5 MB."); return; }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const full   = ev.target?.result as string;
+      const base64 = full.split(",")[1];
+      setCancelFile({ name: file.name, mimeType: file.type || "application/octet-stream", sizeBytes: file.size, base64 });
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function handleCancel(requestId: string, note: string, file: typeof cancelFile, dayTimes: number[]) {
     const target = requests.find((r) => r.id === requestId);
     if (!target) return;
     const newStatus = target.status === "APPROVED" ? "CANCELLATION_PENDING" : "CANCELLED";
+    // Only some days picked: the backend splits the leave around them, so
+    // the list only settles after the refresh below — no optimistic flip.
+    const partial = dayTimes.length < leaveDaysOf(target).length;
+    const dayLabel = `${dayTimes.length} day${dayTimes.length === 1 ? "" : "s"}`;
 
-    requestsCache.setData(requests.map((r) => (r.id === requestId ? { ...r, status: newStatus } : r)));
+    if (!partial) {
+      requestsCache.setData(requests.map((r) => (r.id === requestId ? { ...r, status: newStatus } : r)));
+    }
     setResultModal({
       ok: true,
       title: newStatus === "CANCELLATION_PENDING" ? "Cancellation Requested" : "Leave Request Cancelled",
       msg:
         newStatus === "CANCELLATION_PENDING"
-          ? "Your supervisor has been notified and will need to approve this cancellation."
-          : "This leave request has been cancelled.",
+          ? `Your supervisor has been notified and will need to approve this cancellation${partial ? ` of ${dayLabel}` : ""}.`
+          : partial
+            ? `${dayLabel} of this leave ${dayTimes.length === 1 ? "has" : "have"} been cancelled.`
+            : "This leave request has been cancelled.",
     });
 
-    cancelLeaveRequest(requestId, note)
+    cancelLeaveRequest(
+      requestId,
+      note,
+      file ? { attachmentName: file.name, attachmentMimeType: file.mimeType, attachmentData: file.base64 } : undefined,
+      partial ? dayTimes.map((time) => new Date(time).toISOString()) : undefined,
+    )
       .then(() => requestsCache.refresh())
       .catch((err) => {
         // The optimistic status above was wrong — re-sync with the real
@@ -694,6 +842,33 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
           msg: err instanceof Error ? err.message : "Unable to cancel this leave request.",
         });
       });
+  }
+
+  // Not optimistic, unlike handleCancel — the extension is a brand-new
+  // request the server creates (and may refuse, e.g. past the 45-day
+  // deadline or overlapping another leave), so the modal waits for it.
+  async function handleExtend(requestId: string, reason: string) {
+    setIsExtending(true);
+    try {
+      await requestLeaveExtension(requestId, reason);
+      await requestsCache.refresh();
+      setExtendTargetId(null);
+      setResultModal({
+        ok: true,
+        title: "Extension Requested",
+        msg: "Your supervisor has been notified and will need to approve your 30-day extension.",
+      });
+    } catch (err) {
+      setExtendTargetId(null);
+      requestsCache.refresh().catch(() => undefined);
+      setResultModal({
+        ok: false,
+        title: "Extension Not Requested",
+        msg: err instanceof Error ? err.message : "Unable to request an extension for this leave.",
+      });
+    } finally {
+      setIsExtending(false);
+    }
   }
 
   // Clears the resubmit form whenever a different request's detail view is
@@ -861,9 +1036,34 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
     return todayUnfileableReason();
   }
 
-  // Sick Leave (pastAbsenceFilingAllowed) widens today-only to "today or a
-  // past day you were absent" — still never a future date.
-  const allowsPastAbsence = selectedType?.advanceFilingAllowed === false && selectedType.pastAbsenceFilingAllowed === true;
+  // pastAbsenceFilingAllowed also opens past days the employee was absent
+  // on. Sick Leave (today-only) becomes "today or a past absence", still
+  // never a future date; Compassionate Leave (advance filing allowed) keeps
+  // today/future and gains past absences on top.
+  const allowsPastAbsence = selectedType?.pastAbsenceFilingAllowed === true;
+  // Sick Leave is picked as a Start–End range like any other leave type,
+  // but filed as one single-day request per working day in it (today and/or
+  // past absences) — see sickLeaveDaysInRange and createLeaveRequests.
+  // Mirrors employee-mobile's LeaveScreen.tsx.
+  const multiDate =
+    selectedType?.advanceFilingAllowed === false && allowsPastAbsence && Boolean(selectedType?.isSingleDayOnly);
+
+  // The working days ("YYYY-MM-DD") of Sick Leave's Start–End range — each
+  // becomes its own one-day request. Days off inside the range are skipped
+  // rather than filed.
+  function sickLeaveDaysInRange() {
+    if (!startDate || !endDate) return [];
+    const [sy, sm, sd] = startDate.split("-").map(Number);
+    const [ey, em, ed] = endDate.split("-").map(Number);
+    const end = new Date(ey, em - 1, ed);
+    const days: string[] = [];
+    for (let d = new Date(sy, sm - 1, sd); d <= end; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) {
+      if (isDateNonWorking(d)) continue;
+      days.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
+    }
+    return days;
+  }
+  const filingDays = multiDate ? sickLeaveDaysInRange().length : totalDays;
 
   // Leave types with advanceFilingAllowed === false (Sick Leave) cannot be
   // filed for a future date — driven by the selected type's own config so
@@ -879,20 +1079,24 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
   // to a past date either. A multi-day !advanceFilingAllowed type only gets
   // the max (today-or-earlier is fine for those, so it can still be filed
   // after the fact). Every other type is present/future only — no past dates.
-  // Sick Leave (allowsPastAbsence) also opens past days, but only the ones
-  // the employee was absent on (isPastNonAbsence greys out the rest).
+  // Sick/Compassionate Leave (allowsPastAbsence) also open past days, but
+  // only the ones the employee was absent on (isPastNonAbsence greys out the
+  // rest).
   const minStartDate = useMemo(() => {
     if (selectedType?.advanceFilingAllowed === false) {
       return selectedType.isSingleDayOnly && !allowsPastAbsence ? maxStartDate : undefined;
     }
-    return new Date().toISOString().slice(0, 10);
+    return allowsPastAbsence ? undefined : new Date().toISOString().slice(0, 10);
   }, [selectedType, maxStartDate, allowsPastAbsence]);
 
-  // Single-day-only types (Sick Leave, Emergency Leave) always mirror the end
-  // date to the start date the moment either one is known.
+  // Single-day-only types (Emergency Leave) always mirror the end date to the
+  // start date the moment either one is known. Sick Leave (multiDate) has its
+  // own end date, which just defaults to the start date until one is picked.
   useEffect(() => {
-    if (selectedType?.isSingleDayOnly && startDate) setEndDate(startDate);
-  }, [selectedType?.isSingleDayOnly, startDate]);
+    if (!startDate) return;
+    if (selectedType?.isSingleDayOnly && !multiDate) setEndDate(startDate);
+    else if (multiDate && (!endDate || endDate < startDate)) setEndDate(startDate);
+  }, [selectedType?.isSingleDayOnly, multiDate, startDate]);
 
   // Clamp a previously-picked end date if switching leave type (or the
   // remaining balance) shrinks the allowed range below it.
@@ -903,7 +1107,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
 
   const isDocumentRequired =
     Boolean(selectedType?.requiresDocument) &&
-    (selectedType?.supportingDocumentAfterDays == null || totalDays >= selectedType.supportingDocumentAfterDays);
+    (selectedType?.supportingDocumentAfterDays == null || filingDays >= selectedType.supportingDocumentAfterDays);
 
   function resetForm() {
     setLeaveTypeId("");
@@ -912,7 +1116,6 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
     setEndDate("");
     setAttachment(null);
     setAttachErr(null);
-    setExtensionRequested(false);
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -947,39 +1150,6 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
       setResultModal({ ok: false, title: "Reason Required", msg: "Please provide a reason for your leave." });
       return;
     }
-    // Mirrors the backend's own-day-off check (leave.service.ts) — catches
-    // dates set outside the calendar's disabled-day styling.
-    const requestedStartDate = new Date(startDate);
-    const requestedEndDate = new Date(endDate);
-    const nonWorkingBoundary = isDateNonWorking(requestedStartDate)
-      ? requestedStartDate
-      : isDateNonWorking(requestedEndDate)
-        ? requestedEndDate
-        : null;
-    if (nonWorkingBoundary) {
-      setResultModal({
-        ok: false,
-        title: "Non-Working Day",
-        msg: `${nonWorkingBoundary.toLocaleDateString()} is your day off / a non-working day. Leave can only be filed for a working day.`,
-      });
-      return;
-    }
-    // Mirrors the backend's worked-day check (leave.service.ts) — catches a
-    // range that spans a worked day, or today on a locked-to-today type.
-    for (
-      let d = new Date(requestedStartDate.getFullYear(), requestedStartDate.getMonth(), requestedStartDate.getDate());
-      d <= requestedEndDate;
-      d.setDate(d.getDate() + 1)
-    ) {
-      if (isDateWorked(d)) {
-        setResultModal({
-          ok: false,
-          title: "Already Worked",
-          msg: `You already have attendance on ${d.toLocaleDateString()}. Leave can't be filed for a day you worked.`,
-        });
-        return;
-      }
-    }
     // Mirrors the backend's check (leave.service.ts) so the error shows up
     // immediately instead of after a round trip — same type is blocked
     // regardless of dates, a different type is always fine.
@@ -992,26 +1162,80 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
       });
       return;
     }
-    // Any date already covered by another filed request — any leave type,
-    // pending or approved — is off-limits until that request is rejected or
-    // cancelled. Mirrors the backend's check in leave.service.ts.
-    const requestedStart = new Date(startDate);
-    const requestedEnd = new Date(endDate);
-    const overlapping = requests.find(
-      (r) =>
-        BLOCKING_LEAVE_STATUSES.includes(r.status) &&
-        new Date(r.startDate) <= requestedEnd &&
-        new Date(r.endDate) >= requestedStart,
-    );
-    if (overlapping) {
-      const filedAs =
-        overlapping.status === "APPROVED" || overlapping.status === "CANCELLATION_PENDING" ? "approved" : "pending";
-      setResultModal({
-        ok: false,
-        title: "Dates Unavailable",
-        msg: `These dates overlap your ${filedAs} ${overlapping.leaveType.name} (${new Date(overlapping.startDate).toLocaleDateString()} - ${new Date(overlapping.endDate).toLocaleDateString()}). Cancel that request first if you need to change it.`,
-      });
+    const sickLeaveDays = multiDate ? sickLeaveDaysInRange() : [];
+    if (multiDate && sickLeaveDays.length === 0) {
+      setResultModal({ ok: false, title: "Select Dates", msg: "Every day in that range is a day off. Please pick working days." });
       return;
+    }
+    // Each working day of a Sick Leave range is its own one-day request, so
+    // each one goes through the same checks a single request would.
+    const filingRanges = multiDate
+      ? sickLeaveDays.map((iso) => {
+          const [y, m, d] = iso.split("-").map(Number);
+          return { start: new Date(y, m - 1, d), end: new Date(y, m - 1, d) };
+        })
+      : [{ start: new Date(startDate), end: new Date(endDate) }];
+    for (const { start: requestedStart, end: requestedEnd } of filingRanges) {
+      // Mirrors the backend's own-day-off check (leave.service.ts) — catches
+      // dates set outside the calendar's disabled-day styling.
+      const nonWorkingBoundary = isDateNonWorking(requestedStart)
+        ? requestedStart
+        : isDateNonWorking(requestedEnd)
+          ? requestedEnd
+          : null;
+      if (nonWorkingBoundary) {
+        setResultModal({
+          ok: false,
+          title: "Non-Working Day",
+          msg: `${nonWorkingBoundary.toLocaleDateString()} is your day off / a non-working day. Leave can only be filed for a working day.`,
+        });
+        return;
+      }
+      // Mirrors the backend's worked-day check (leave.service.ts) — catches a
+      // range that spans a worked day, or today on a locked-to-today type.
+      for (
+        let d = new Date(requestedStart.getFullYear(), requestedStart.getMonth(), requestedStart.getDate());
+        d <= requestedEnd;
+        d.setDate(d.getDate() + 1)
+      ) {
+        if (isDateWorked(d)) {
+          setResultModal({
+            ok: false,
+            title: "Already Worked",
+            msg: `You already have attendance on ${d.toLocaleDateString()}. Leave can't be filed for a day you worked.`,
+          });
+          return;
+        }
+      }
+      // A past start date must be one the employee was absent on — mirrors
+      // the backend's isAbsentDay.
+      if (allowsPastAbsence && isPastNonAbsence(requestedStart)) {
+        setResultModal({
+          ok: false,
+          title: "Not an Absence",
+          msg: `${requestedStart.toLocaleDateString()} isn't an absence on your record. ${selectedType?.name} can only be filed for a past day you were absent.`,
+        });
+        return;
+      }
+      // Any date already covered by another filed request — any leave type,
+      // pending or approved — is off-limits until that request is rejected or
+      // cancelled. Mirrors the backend's check in leave.service.ts.
+      const overlapping = requests.find(
+        (r) =>
+          BLOCKING_LEAVE_STATUSES.includes(r.status) &&
+          new Date(r.startDate) <= requestedEnd &&
+          new Date(r.endDate) >= requestedStart,
+      );
+      if (overlapping) {
+        const filedAs =
+          overlapping.status === "APPROVED" || overlapping.status === "CANCELLATION_PENDING" ? "approved" : "pending";
+        setResultModal({
+          ok: false,
+          title: "Dates Unavailable",
+          msg: `These dates overlap your ${filedAs} ${overlapping.leaveType.name} (${new Date(overlapping.startDate).toLocaleDateString()} - ${new Date(overlapping.endDate).toLocaleDateString()}). Cancel that request first if you need to change it.`,
+        });
+        return;
+      }
     }
     if (isDocumentRequired && !attachment) {
       setResultModal({ ok: false, title: "Document Required", msg: `${selectedType?.name} requires a supporting document. Please attach one before submitting.` });
@@ -1027,8 +1251,8 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
         setResultModal({ ok: false, title: "No Remaining Balance", msg: "You have no remaining balance for this leave type." });
         return;
       }
-      if (totalDays > remainingDays) {
-        setResultModal({ ok: false, title: "Insufficient Balance", msg: `You have ${remainingDays} day(s) of ${selectedType.name} left, but requested ${totalDays}.` });
+      if (filingDays > remainingDays) {
+        setResultModal({ ok: false, title: "Insufficient Balance", msg: `You have ${remainingDays} day(s) of ${selectedType.name} left, but requested ${filingDays}.` });
         return;
       }
     }
@@ -1036,22 +1260,27 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
     // The checks above only mirror the backend using whatever is cached
     // locally (e.g. attendance history), so the server still has the final
     // say — wait for it before telling the employee it went through.
-    const payload = {
+    const shared = {
       employeeId:         user.employeeId,
       leaveTypeId,
-      startDate:          new Date(startDate).toISOString(),
-      endDate:            new Date(endDate).toISOString(),
-      totalDays,
       reason:             reason.trim(),
       attachmentName:     attachment?.name,
       attachmentMimeType: attachment?.mimeType,
       attachmentData:     attachment?.base64,
-      extensionRequested: selectedType?.kind === "MATERNITY" ? extensionRequested : undefined,
     };
 
     setIsSubmittingLeave(true);
     try {
-      await createLeaveRequest(payload);
+      if (multiDate) {
+        await createLeaveRequests({ ...shared, dates: sickLeaveDays.map((d) => new Date(d).toISOString()) });
+      } else {
+        await createLeaveRequest({
+          ...shared,
+          startDate:          new Date(startDate).toISOString(),
+          endDate:            new Date(endDate).toISOString(),
+          totalDays,
+        });
+      }
       resetForm();
       setResultModal({ ok: true, title: "Leave Request Submitted", msg: "Your HR/Admin and supervisor have been notified. You'll be informed once it's reviewed." });
       // Only `requests` actually changed (the new request itself) — balances
@@ -1095,7 +1324,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
       >
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
           <p style={{ fontWeight: 700, margin: 0, flex: 1, minWidth: 0 }}>
-            {r.leaveType.name}
+            {leaveRequestTitle(r)}
           </p>
           <span style={{
             display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0,
@@ -1121,7 +1350,8 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
     const canShowCancelSection =
       !needsRevision && (r.status === "PENDING" || r.status === "SUPERVISOR_APPROVED" || r.status === "APPROVED");
     // Server-computed (see getCancellationEligibility in leave.service.ts) —
-    // covers the cutoff window and the leave type's cancellationAllowed flag
+    // covers "not yet timed in on the leave's days" and the leave type's
+    // cancellationAllowed flag
     // so the button here is disabled with a real reason instead of just
     // failing after the fact. Falls back to "always allowed" for the rare
     // case this field is missing (e.g. a stale cached response).
@@ -1169,15 +1399,60 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
             return {
               label: doc.label,
               createdAt: doc.createdAt,
+              kind: doc.kind,
               onPress: () => src && setPreviewAttachment({ src, name: doc.label, mimeType: doc.mimeType! }),
             };
           })}
         />
 
+        {r.extension && (
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #E2E8F0" }}>
+            <button
+              onClick={() => {
+                setExtendTargetId(r.id);
+                setExtendReasonText("");
+              }}
+              disabled={!r.extension.allowed}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
+                width: "100%", borderRadius: 10, padding: "10px 12px",
+                fontWeight: 700, fontSize: 13,
+                ...(r.extension.allowed
+                  ? { border: "1px solid #BFDBFE", background: "#EFF6FF", color: "#1680D8", cursor: "pointer" }
+                  : { border: "1px solid #E2E8F0", background: "#F8FAFC", color: "#94A3B8", cursor: "not-allowed" }),
+              }}
+            >
+              <CalendarClock size={15} />
+              Request 30-Day Extension
+            </button>
+            {r.extension.allowed ? (
+              <p style={{ color: "#64748B", fontSize: 11.5, lineHeight: "16px", margin: "8px 0 0" }}>
+                Without pay, for {new Date(r.extension.startDate).toLocaleDateString()} – {new Date(r.extension.endDate).toLocaleDateString()}.
+                Must be requested by {new Date(r.extension.deadline).toLocaleDateString()} (45 days before your leave ends).
+              </p>
+            ) : r.extension.reason && (
+              <div style={{
+                display: "flex", alignItems: "flex-start", gap: 6, marginTop: 8,
+                background: "#FFFBEB", border: "1px solid #FEF3C7", borderRadius: 8, padding: "8px 10px",
+              }}>
+                <AlertCircle size={13} color="#92400E" style={{ flexShrink: 0, marginTop: 1 }} />
+                <p style={{ color: "#92400E", fontSize: 11.5, lineHeight: "16px", margin: 0 }}>{r.extension.reason}</p>
+              </div>
+            )}
+          </div>
+        )}
+
         {canShowCancelSection && (
           <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #E2E8F0" }}>
             <button
-              onClick={() => { setConfirmCancelId(r.id); setCancelReasonText(""); }}
+              onClick={() => {
+                const worked = workedDayTimes(r);
+                setConfirmCancelId(r.id);
+                setCancelReasonText("");
+                setCancelFile(null);
+                setCancelFileErr(null);
+                setCancelDayTimes(leaveDaysOf(r).map((d) => d.getTime()).filter((t) => !worked.has(t)));
+              }}
               disabled={!cancellation.allowed}
               style={{
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 7,
@@ -1363,7 +1638,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                             <button
                               key={t.id}
                               disabled={disabled}
-                              onClick={() => { setLeaveTypeId(t.id); setDropOpen(false); setSearchLeave(""); }}
+                              onClick={() => { chooseLeaveType(t); setDropOpen(false); setSearchLeave(""); }}
                               style={{
                                 display: "block", width: "100%", textAlign: "left",
                                 padding: "11px 14px", border: "none",
@@ -1399,8 +1674,10 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
             </div>
 
             {/* Dates */}
-            <label style={fldLbl}>{selectedType?.isSingleDayOnly ? "Date" : "Leave Duration"}</label>
-            {selectedType?.isSingleDayOnly ? (
+            <label style={fldLbl}>
+              {multiDate || !selectedType?.isSingleDayOnly ? "Leave Duration" : "Date"}
+            </label>
+            {selectedType?.isSingleDayOnly && !multiDate ? (
               <CalendarPicker
                 value={startDate}
                 onChange={setStartDate}
@@ -1428,10 +1705,12 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                   value={endDate}
                   onChange={setEndDate}
                   min={startDate || minStartDate}
-                  max={maxEndDate}
+                  // Sick Leave's range can't run past today either.
+                  max={multiDate && maxStartDate && (!maxEndDate || maxEndDate > maxStartDate) ? maxStartDate : maxEndDate}
                   isDateDisabled={isDateAlreadyFiled}
                   isDateNonWorking={isDateNonWorking}
                   isDateWorked={isDateWorked}
+                  isDateOutOfRange={allowsPastAbsence ? isPastNonAbsence : undefined}
                   placeholder="End date"
                   align="right"
                 />
@@ -1442,11 +1721,9 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                 {totalDays} day{totalDays === 1 ? "" : "s"} total
               </p>
             )}
-            {selectedType && allowsPastAbsence && (
-              <p style={{ fontSize: 11.5, fontWeight: 600, color: todayUnfileableReason() ? "#B45309" : "#94A3B8", margin: "4px 0 0" }}>
-                {todayUnfileableReason()
-                  ? `${todayUnfileableReason()!.replace(/^./, (c) => c.toUpperCase())} — pick a past day you were absent instead.`
-                  : `${selectedType.name} can be filed for today or a past day you were absent.`}
+            {selectedType && selectedType.advanceFilingAllowed === false && allowsPastAbsence && todayUnfileableReason() && (
+              <p style={{ fontSize: 11.5, fontWeight: 600, color: "#B45309", margin: "4px 0 0" }}>
+                {`${todayUnfileableReason()!.replace(/^./, (c) => c.toUpperCase())} — pick the past days you were absent instead.`}
               </p>
             )}
             {selectedType && selectedType.advanceFilingAllowed === false && !allowsPastAbsence && isDateNonWorking(todayStart) && (
@@ -1468,6 +1745,11 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
             {/* Attachment */}
             <label style={fldLbl}>
               Supporting Document{isDocumentRequired ? " (required)" : " (optional)"}
+              {requiredDocumentFor(selectedType?.name) && (
+                <span style={{ marginLeft: 8, fontSize: 11.5, fontWeight: 600, color: "#B45309" }}>
+                  Note: Please attach a {requiredDocumentFor(selectedType?.name)}.
+                </span>
+              )}
             </label>
             {attachment ? (
               <div style={{ display: "flex", alignItems: "center", gap: 10, border: "1px solid #E2E8F0", borderRadius: 12, padding: "10px 12px" }}>
@@ -1501,11 +1783,6 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
               </button>
             )}
             {attachErr && <p style={{ color: "#DC2626", fontSize: 12, fontWeight: 600, marginTop: 4 }}>{attachErr}</p>}
-            {requiredDocumentFor(selectedType?.name) && (
-              <p style={{ fontSize: 11.5, fontWeight: 600, color: "#B45309", margin: "4px 0 0" }}>
-                Note: Please attach a {requiredDocumentFor(selectedType?.name)}.
-              </p>
-            )}
             <input ref={fileRef} type="file" accept="image/*,.pdf" style={{ display: "none" }} onChange={handleFileChange} />
 
             {/* Reason */}
@@ -1521,17 +1798,6 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                 boxSizing: "border-box", fontFamily: "inherit", outline: "none",
               }}
             />
-
-            {selectedType?.kind === "MATERNITY" && (
-              <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14, cursor: "pointer" }}>
-                <input
-                  type="checkbox"
-                  checked={extensionRequested}
-                  onChange={(e) => setExtensionRequested(e.target.checked)}
-                />
-                <span style={{ fontSize: 13, color: "#475569" }}>Request 30-day extension without pay</span>
-              </label>
-            )}
 
             <button
               onClick={handleSubmit}
@@ -2195,7 +2461,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                   generic page title above — same reasoning as the back
                   row/title: it's orientation, not scrollable detail. */}
               <div style={{ background: "#F8FAFC", border: "1px solid #E2E8F0", borderRadius: 12, padding: 14 }}>
-                <p style={{ fontWeight: 700, margin: "0 0 3px", color: "#062B59" }}>{focusedRequest.leaveType.name}</p>
+                <p style={{ fontWeight: 700, margin: "0 0 3px", color: "#062B59" }}>{leaveRequestTitle(focusedRequest)}</p>
                 <p style={{ color: "#475569", fontSize: 13, margin: "0 0 8px" }}>
                   {new Date(focusedRequest.startDate).toLocaleDateString()} – {new Date(focusedRequest.endDate).toLocaleDateString()}
                 </p>
@@ -2217,6 +2483,55 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
         </div>
       )}
 
+      {/* ── Maternity Leave extension request ───────────────────────────────── */}
+      {extendTargetId && (() => {
+        const target = requests.find((r) => r.id === extendTargetId);
+        if (!target?.extension) return null;
+        const canSubmit = !!extendReasonText.trim() && !isExtending;
+        return (
+          <div style={overlayS}>
+            <div style={{ ...modalCard, maxWidth: 380, textAlign: "center" }}>
+              <button type="button" onClick={() => setExtendTargetId(null)} style={modalCloseBtn} aria-label="Close">
+                <X size={15} color="#64748B" />
+              </button>
+              <h3 style={{ color: "#062B59", fontWeight: 700, marginBottom: 8 }}>Extend your {target.leaveType.name}?</h3>
+              <p style={{ color: "#475569", fontSize: 14, lineHeight: "20px", marginBottom: 14 }}>
+                This requests 30 more days without pay, from{" "}
+                <strong>{new Date(target.extension.startDate).toLocaleDateString()}</strong> to{" "}
+                <strong>{new Date(target.extension.endDate).toLocaleDateString()}</strong>. Your supervisor or HR will need to approve it.
+              </p>
+              <textarea
+                value={extendReasonText}
+                onChange={(e) => setExtendReasonText(e.target.value)}
+                placeholder="Why do you need the extension?"
+                rows={3}
+                style={{
+                  width: "100%", border: "1px solid #E2E8F0", borderRadius: 10,
+                  padding: "10px 12px", fontSize: 13, resize: "vertical",
+                  boxSizing: "border-box", fontFamily: "inherit", outline: "none",
+                  textAlign: "left",
+                }}
+              />
+              <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+                <button
+                  onClick={() => setExtendTargetId(null)}
+                  style={{ ...primBtn, flex: 1, background: "#F1F5F9", color: "#334155" }}
+                >
+                  Not Now
+                </button>
+                <button
+                  onClick={() => handleExtend(target.id, extendReasonText.trim())}
+                  disabled={!canSubmit}
+                  style={{ ...primBtn, flex: 1, opacity: canSubmit ? 1 : 0.6, cursor: canSubmit ? "pointer" : "not-allowed" }}
+                >
+                  {isExtending ? "Requesting…" : "Request Extension"}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* ── Cancel confirmation ──────────────────────────────────────────────── */}
       {confirmCancelId && (
         <div style={overlayS}>
@@ -2228,6 +2543,53 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
             <p style={{ color: "#475569", fontSize: 14, lineHeight: "20px", marginBottom: 14 }}>
               This action cannot be undone. Your supervisor will need to approve the cancellation.
             </p>
+            {(() => {
+              const target = requests.find((r) => r.id === confirmCancelId);
+              if (!target) return null;
+              const days = leaveDaysOf(target);
+              if (days.length < 2) return null;
+              const worked = workedDayTimes(target);
+              return (
+                <>
+                  <label style={{ ...fldLbl, marginTop: 0, fontSize: 13, textAlign: "left" }}>Days to cancel</label>
+                  <div
+                    className="emp-scroll-thin"
+                    style={{ maxHeight: 180, overflowY: "auto", border: "1px solid #E2E8F0", borderRadius: 10, marginBottom: 12, textAlign: "left" }}
+                  >
+                    {days.map((day) => {
+                      const time = day.getTime();
+                      const timedIn = worked.has(time);
+                      return (
+                        <label
+                          key={time}
+                          style={{
+                            display: "flex", alignItems: "center", gap: 10, padding: "8px 12px",
+                            fontSize: 13, fontWeight: 600, color: timedIn ? "#CBD5E1" : "#334155",
+                            cursor: timedIn ? "not-allowed" : "pointer",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            disabled={timedIn}
+                            checked={cancelDayTimes.includes(time)}
+                            onChange={() =>
+                              setCancelDayTimes((current) =>
+                                current.includes(time) ? current.filter((t) => t !== time) : [...current, time].sort((a, b) => a - b),
+                              )
+                            }
+                            style={{ accentColor: "#DC2626", width: 16, height: 16 }}
+                          />
+                          <span style={{ flex: 1 }}>
+                            {day.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
+                          </span>
+                          {timedIn && <span style={{ fontSize: 11, color: "#94A3B8" }}>Timed in</span>}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </>
+              );
+            })()}
             <textarea
               value={cancelReasonText}
               onChange={(e) => setCancelReasonText(e.target.value)}
@@ -2237,10 +2599,46 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                 width: "100%", border: "1px solid #E2E8F0", borderRadius: 10,
                 padding: "10px 12px", fontSize: 13, resize: "vertical",
                 boxSizing: "border-box", fontFamily: "inherit", outline: "none",
-                marginBottom: 16, textAlign: "left",
+                marginBottom: 12, textAlign: "left",
               }}
             />
-            <div style={{ display: "flex", gap: 10 }}>
+            <label style={{ ...fldLbl, marginTop: 0, fontSize: 13, textAlign: "left" }}>Supporting Document (optional)</label>
+            {cancelFile ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, border: "1px solid #E2E8F0", borderRadius: 12, padding: "8px 12px", textAlign: "left" }}>
+                <Paperclip size={15} color="#1680D8" />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontWeight: 600, fontSize: 13, color: "#062B59", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {cancelFile.name}
+                  </p>
+                  <p style={{ color: "#94A3B8", fontSize: 11, margin: 0 }}>{fmtBytes(cancelFile.sizeBytes)}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCancelFile(null)}
+                  style={{ border: "none", background: "#F1F5F9", borderRadius: 13, width: 26, height: 26, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                >
+                  <X size={14} color="#64748B" />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => cancelFileRef.current?.click()}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                  width: "100%", height: 42,
+                  border: "1.5px dashed #BFDBFE", borderRadius: 12,
+                  background: "#F8FAFF", cursor: "pointer",
+                  color: "#1680D8", fontSize: 13, fontWeight: 600,
+                }}
+              >
+                <Paperclip size={16} color="#1680D8" />
+                Attach a photo or PDF
+              </button>
+            )}
+            {cancelFileErr && <p style={{ color: "#DC2626", fontSize: 12, fontWeight: 600, margin: "4px 0 0", textAlign: "left" }}>{cancelFileErr}</p>}
+            <input ref={cancelFileRef} type="file" accept="image/*,.pdf" style={{ display: "none" }} onChange={handleCancelFileChange} />
+            <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
               <button
                 onClick={() => setConfirmCancelId(null)}
                 style={{ ...primBtn, flex: 1, background: "#F1F5F9", color: "#334155" }}
@@ -2249,19 +2647,93 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
               </button>
               <button
                 onClick={() => {
-                  handleCancel(confirmCancelId, cancelReasonText.trim());
+                  handleCancel(confirmCancelId, cancelReasonText.trim(), cancelFile, cancelDayTimes);
+                  setCancelFile(null);
                   setConfirmCancelId(null);
                 }}
-                disabled={!cancelReasonText.trim()}
+                disabled={!cancelReasonText.trim() || cancelDayTimes.length === 0}
                 style={{
                   ...primBtn, flex: 1,
-                  background: cancelReasonText.trim() ? "#DC2626" : "#FCA5A5",
-                  cursor: cancelReasonText.trim() ? "pointer" : "not-allowed",
+                  background: cancelReasonText.trim() && cancelDayTimes.length > 0 ? "#DC2626" : "#FCA5A5",
+                  cursor: cancelReasonText.trim() && cancelDayTimes.length > 0 ? "pointer" : "not-allowed",
                 }}
               >
                 Yes, Cancel
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Maternity Leave alternatives prompt ─────────────────────────────── */}
+      {maternityPrompt && (
+        <div style={overlayS} onClick={() => setMaternityPrompt(null)}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="maternity-prompt-title"
+            onClick={(e) => e.stopPropagation()}
+            style={{ ...modalCard, maxWidth: 400, padding: 24, textAlign: "center", boxShadow: "0 8px 20px rgba(0,0,0,0.2)" }}
+          >
+            <button type="button" onClick={() => setMaternityPrompt(null)} style={modalCloseBtn} aria-label="Close">
+              <X size={15} color="#64748B" />
+            </button>
+            <div style={{ ...iconCircle("#FFFBEB"), width: 64, height: 64, marginBottom: 14 }}>
+              <Lightbulb size={30} color="#D97706" />
+            </div>
+            <h3 id="maternity-prompt-title" style={{ color: "#062B59", fontSize: 18, fontWeight: 700, margin: "0 0 6px" }}>
+              Before filing {maternityPrompt.maternity.name}
+            </h3>
+            <p style={{ color: "#475569", fontSize: 14, lineHeight: "20px", margin: 0 }}>
+              You still have other leave you can file. Consider using it first — your {maternityPrompt.maternity.name} will
+              still be available.
+            </p>
+            <p style={{ margin: "18px 0 8px", textAlign: "left", fontSize: 11, fontWeight: 700, letterSpacing: 0.6, color: "#94A3B8" }}>
+              FILE THIS INSTEAD
+            </p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {maternityPrompt.alternatives.map((t) => {
+                const remaining = remainingDaysFor(t);
+                const alt = maternityAlternativeStyle(t);
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    className="maternity-alt"
+                    onClick={() => { setLeaveTypeId(t.id); setMaternityPrompt(null); }}
+                    style={{ "--alt-color": alt.color, "--alt-bg": alt.bg } as CSSProperties}
+                  >
+                    <span
+                      style={{
+                        width: 40, height: 40, borderRadius: 12, flexShrink: 0,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        background: alt.bg,
+                      }}
+                    >
+                      <alt.Icon size={20} color={alt.color} />
+                    </span>
+                    <span style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ display: "block", color: "#062B59", fontSize: 15, fontWeight: 700 }}>{t.name}</span>
+                      <span style={{ display: "block", color: "#64748B", fontSize: 12, marginTop: 2 }}>
+                        {t.isUnlimitedDays
+                          ? "No day limit"
+                          : remaining > 0
+                            ? `${remaining} day${remaining === 1 ? "" : "s"} remaining`
+                            : "Can be filed without pay"}
+                      </span>
+                    </span>
+                    <ChevronRight size={18} color="#94A3B8" />
+                  </button>
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              onClick={() => { setLeaveTypeId(maternityPrompt.maternity.id); setMaternityPrompt(null); }}
+              style={{ ...outlineBtn, height: 46, marginTop: 18, border: "1px solid #CBD5E1", color: "#334155" }}
+            >
+              Continue with {maternityPrompt.maternity.name}
+            </button>
           </div>
         </div>
       )}

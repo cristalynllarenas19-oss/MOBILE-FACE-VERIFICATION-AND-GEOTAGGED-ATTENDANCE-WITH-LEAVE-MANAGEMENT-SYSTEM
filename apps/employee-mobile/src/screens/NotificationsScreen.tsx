@@ -134,6 +134,8 @@ const NOTIFICATION_ICON_MAP: Record<string, { name: keyof typeof Ionicons.glyphM
   LEAVE_CANCELLED: { name: "ban-outline", category: "neutral" },
   LEAVE_LAPSED: { name: "hourglass-outline", category: "neutral" },
   LEAVE_DECISION_OVERDUE: { name: "hourglass-outline", category: "pending" },
+  LEAVE_PARENTAL_ENDING: { name: "calendar-outline", category: "info" },
+  LEAVE_PARENTAL_RETURN: { name: "log-in-outline", category: "info" },
   ANNOUNCEMENT: { name: "megaphone-outline", category: "announce" },
   PROBATION_REGULARIZATION_DUE: { name: "ribbon-outline", category: "pending" },
   SUPERVISOR_EVALUATION_REQUIRED: { name: "clipboard-outline", category: "pending" },
@@ -195,6 +197,8 @@ const NOTIFICATION_GROUPS: NotificationGroup[] = [
       "LEAVE_CANCELLED",
       "LEAVE_LAPSED",
       "LEAVE_DECISION_OVERDUE",
+      "LEAVE_PARENTAL_ENDING",
+      "LEAVE_PARENTAL_RETURN",
     ],
   },
   {
@@ -257,15 +261,23 @@ function getAttachmentPreviewUri(attachment: PickedAttachment) {
   return `data:${attachment.mimeType};base64,${attachment.base64}`;
 }
 
-const REQUIREMENT_NOTE_MARKER = "Requirement needed:";
+// The backend appends a reviewer's note to the end of a notification as
+// " Remarks: …", " Reason: …" or " Requirement needed: …" (leave rejections,
+// requirement requests, cancellation requests, undertime decisions,
+// regularization) — split those off so the detail view can show the note in
+// its own box below the message instead of running on in one paragraph.
+const NOTE_MARKER = /\s(Remarks|Reason|Requirement needed):\s/g;
 
-// LEAVE_NEEDS_REQUIREMENTS messages always end with this exact phrase (see
-// the message template in leave.service.ts's reject()) — split it out so it
-// can be rendered bold instead of blending into the rest of the paragraph.
-function splitRequirementNote(message: string): { before: string; note: string } | null {
-  const index = message.indexOf(REQUIREMENT_NOTE_MARKER);
-  if (index === -1) return null;
-  return { before: message.slice(0, index).trimEnd(), note: message.slice(index) };
+function splitNotificationNotes(message: string): { body: string; notes: Array<{ label: string; text: string }> } {
+  const matches = Array.from(message.matchAll(NOTE_MARKER));
+  if (matches.length === 0) return { body: message, notes: [] };
+  return {
+    body: message.slice(0, matches[0].index).trim(),
+    notes: matches.map((match, i) => ({
+      label: match[1],
+      text: message.slice(match.index! + match[0].length, matches[i + 1]?.index ?? message.length).trim(),
+    })),
+  };
 }
 
 function FadeInView({
@@ -872,18 +884,17 @@ export default function NotificationsScreen({ visible, onClose, onUnreadCountCha
                     onImagePress={setViewingImage}
                   />
                 ) : (() => {
-                  const split = splitRequirementNote(detailNotification.message);
+                  const { body, notes } = splitNotificationNotes(detailNotification.message);
                   return (
-                    <Text style={[styles.detailMessage, styles.detailMessageCentered]}>
-                      {split ? (
-                        <>
-                          {split.before}{"\n"}
-                          <Text style={styles.detailMessageBold}>{split.note}</Text>
-                        </>
-                      ) : (
-                        detailNotification.message
-                      )}
-                    </Text>
+                    <>
+                      <Text style={[styles.detailMessage, styles.detailMessageCentered]}>{body}</Text>
+                      {notes.map((note, i) => (
+                        <View key={i} style={styles.detailNoteBox}>
+                          <Text style={styles.detailNoteLabel}>{note.label}</Text>
+                          <Text style={styles.detailNoteText}>{note.text}</Text>
+                        </View>
+                      ))}
+                    </>
                   );
                 })()}
 
@@ -1773,9 +1784,29 @@ const styles = StyleSheet.create({
   detailMessageCentered: {
     textAlign: "center",
   },
-  detailMessageBold: {
+  // A reviewer's note split off the message (see splitNotificationNotes) —
+  // its own left-aligned box under the centered message.
+  detailNoteBox: {
+    marginTop: 14,
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+  },
+  detailNoteLabel: {
+    fontSize: 11,
     fontWeight: "700",
+    color: "#64748B",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  detailNoteText: {
+    fontSize: 14,
     color: "#062B59",
+    lineHeight: 20,
   },
   logAttendanceButton: {
     flexDirection: "row",

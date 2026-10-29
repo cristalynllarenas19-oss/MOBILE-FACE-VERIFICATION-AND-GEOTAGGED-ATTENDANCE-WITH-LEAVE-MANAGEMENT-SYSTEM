@@ -698,11 +698,6 @@
   gap: 12px;
 }
 
-.utilities-cancellation-cutoff-row {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  align-items: start;
-}
-
 .utilities-equal-field-row {
   align-items: end;
 }

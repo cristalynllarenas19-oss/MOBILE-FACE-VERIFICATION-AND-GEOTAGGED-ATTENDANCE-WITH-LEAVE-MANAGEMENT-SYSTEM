@@ -89,3 +89,28 @@
   height: 0;
   width: 0;
 }
+
+/* Maternity Leave alternatives prompt (LeavePage) — each option card picks
+   up its leave type's color on hover/focus via --alt-color / --alt-bg. */
+.maternity-alt {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #E2E8F0;
+  border-radius: 14px;
+  background: #FFFFFF;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
+}
+.maternity-alt:hover,
+.maternity-alt:focus-visible {
+  border-color: var(--alt-color);
+  background: var(--alt-bg);
+  outline: none;
+}
+.maternity-alt:active {
+  transform: scale(0.99);
+}
