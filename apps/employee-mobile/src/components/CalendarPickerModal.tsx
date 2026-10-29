@@ -32,6 +32,10 @@ type Props = {
   // A day the employee already has attendance on (blue) — leave can't be
   // filed for a day they worked.
   isDateWorked?: (date: Date) => string | undefined;
+  // Extra per-day bound beyond min/max, rendered the same muted grey — e.g.
+  // a past day that isn't an absence, for a type that can only be backfiled
+  // onto absent days (Sick Leave).
+  isDateOutOfRange?: (date: Date) => boolean;
   onSelect: (date: Date) => void;
   onClose: () => void;
 };
@@ -45,6 +49,7 @@ export default function CalendarPickerModal({
   isDateDisabled,
   isDateNonWorking,
   isDateWorked,
+  isDateOutOfRange,
   onSelect,
   onClose,
 }: Props) {
@@ -119,7 +124,8 @@ export default function CalendarPickerModal({
               const nonWorkingReason = !conflict ? isDateNonWorking?.(date) : undefined;
               const nonWorking = Boolean(nonWorkingReason);
               const worked = !conflict && !nonWorking && Boolean(isDateWorked?.(date));
-              const outOfRange = !conflict && !nonWorking && !worked && ((min && date < min) || (max && date > max));
+              const outOfRange =
+                !conflict && !nonWorking && !worked && ((min && date < min) || (max && date > max) || Boolean(isDateOutOfRange?.(date)));
               const disabled = conflict || nonWorking || worked || outOfRange;
               const selected = selectedDate ? isSameDay(date, selectedDate) : false;
               return (

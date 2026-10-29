@@ -111,6 +111,15 @@ function isOneDayLeaveType(name?: string, isSingleDayOnly?: boolean) {
   return normalized.includes("adverse weather") || normalized === "sick leave" || normalized === "emergency leave";
 }
 
+// The specific document HR expects for a leave type, shown as a note under
+// the attachment picker. Types not listed here get no note.
+function requiredDocumentFor(name?: string) {
+  const normalized = (name ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+  if (normalized === "sick leave") return "Medical Certificate";
+  if (normalized === "bereavement leave") return "Death Certificate";
+  return null;
+}
+
 // SUPERVISOR_APPROVED only exists on legacy rows from the old two-step flow;
 // it stays amber because it still needs one more Approve click to finalize.
 type RequestStatusFilter = "ALL" | "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED" | "LAPSED";
@@ -133,6 +142,16 @@ const STATUS_FILTERS_BY_TAB: Record<"current" | "past", Exclude<RequestStatusFil
   current: ["PENDING", "APPROVED"],
   past: ["APPROVED", "REJECTED", "CANCELLED", "LAPSED"],
 };
+
+// A request in any of these still covers its dates, so no other leave (of
+// any type) can be filed over them. Mirrors leave.service.ts's create().
+const BLOCKING_LEAVE_STATUSES: string[] = [
+  "PENDING",
+  "SUPERVISOR_APPROVED",
+  "NEEDS_REVISION",
+  "APPROVED",
+  "CANCELLATION_PENDING",
+];
 
 // Buckets a request's raw status into one of the five filter chips —
 // SUPERVISOR_APPROVED joins APPROVED, and PENDING/NEEDS_REVISION/
@@ -450,6 +469,9 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
   // future date), driven by the leave type's own config so it isn't tied to
   // the type's name or its single-day-ness.
   const lockedToToday = selectedLeaveType?.advanceFilingAllowed === false;
+  // Sick Leave (pastAbsenceFilingAllowed) widens that to "today or a past day
+  // you were absent" — still never a future date. See isPastAbsenceDay.
+  const allowsPastAbsence = lockedToToday && selectedLeaveType?.pastAbsenceFilingAllowed === true;
   const today = useMemo(() => new Date(), []);
   const todayStart = useMemo(() => new Date(today.getFullYear(), today.getMonth(), today.getDate()), [today]);
   const filteredLeaveTypes = leaveTypes
@@ -525,17 +547,14 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
       setResultModal({
         status: "info",
         title: "Unavailable Today",
-        message: `${type.name} can only be filed for today's date, but ${unavailableTodayReason}.`,
+        message: type.pastAbsenceFilingAllowed
+          ? `${type.name} can only be filed for today or a past day you were absent, but ${unavailableTodayReason} and you have no absences left to file it for.`
+          : `${type.name} can only be filed for today's date, but ${unavailableTodayReason}.`,
       });
       return;
     }
     setLeaveTypeId(id);
-    if (type.isSingleDayOnly) {
-      setStartDate(todayStart);
-      setEndDate(todayStart);
-      setStartDateSelected(true);
-      setEndDateSelected(true);
-    }
+    if (type.isSingleDayOnly) preselectSingleDay(type);
     setActiveTab("request");
   }
 
@@ -795,31 +814,24 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
     return max;
   }, [selectedLeaveType, startDate, startDateSelected, remainingByLeaveType]);
 
-  // Date ranges already filed (any non-cancelled/rejected status) for the
-  // currently selected leave type — the calendar disables every individual
-  // day within them, and handleSubmit's overlap check (mirroring the
-  // backend) is the authoritative backstop regardless of what the UI shows.
-  const blockedRangesForSelectedType = useMemo(() => {
-    if (!leaveTypeId) return [];
+  // Date ranges already filed (any non-cancelled/rejected status) under any
+  // leave type — the calendar disables every individual day within them,
+  // and handleSubmit's overlap check (mirroring the backend) is the
+  // authoritative backstop regardless of what the UI shows.
+  const blockedRanges = useMemo(() => {
     return requests
-      .filter(
-        (r) =>
-          r.leaveType.id === leaveTypeId &&
-          (r.status === "PENDING" ||
-            r.status === "SUPERVISOR_APPROVED" ||
-            r.status === "NEEDS_REVISION" ||
-            r.status === "APPROVED"),
-      )
+      .filter((r) => BLOCKING_LEAVE_STATUSES.includes(r.status))
       .map((r) => ({
         start: new Date(new Date(r.startDate).getFullYear(), new Date(r.startDate).getMonth(), new Date(r.startDate).getDate()),
         end: new Date(new Date(r.endDate).getFullYear(), new Date(r.endDate).getMonth(), new Date(r.endDate).getDate()),
+        leaveTypeName: r.leaveType.name,
       }));
-  }, [requests, leaveTypeId]);
+  }, [requests]);
 
-  function isDateAlreadyFiledForType(date: Date) {
+  function isDateAlreadyFiled(date: Date) {
     const day = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    const hit = blockedRangesForSelectedType.some((range) => day >= range.start && day <= range.end);
-    return hit ? "Already filed for this leave type" : undefined;
+    const hit = blockedRanges.find((range) => day >= range.start && day <= range.end);
+    return hit ? `Already filed (${hit.leaveTypeName})` : undefined;
   }
 
   // Sunday is a company-wide rest day (mirrors backend/schedule.util.ts's
@@ -859,16 +871,59 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
       : undefined;
   }
 
+  // Past days the DTR shows as ABSENT — the history endpoint's synthetic rows:
+  // a scheduled working day with no time-in and no leave covering it. A
+  // pastAbsenceFilingAllowed type (Sick Leave) can be filed for any of these
+  // on top of today — mirrors the backend's isAbsentDay (leave.service.ts).
+  const pastAbsentDayKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const record of attendanceRecords) {
+      if (record.status !== "ABSENT") continue;
+      const d = new Date(record.attendanceDate);
+      if (d >= todayStart) continue;
+      keys.add(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`);
+    }
+    return keys;
+  }, [attendanceRecords, todayStart]);
+
+  function isPastAbsenceDay(date: Date) {
+    return pastAbsentDayKeys.has(`${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`);
+  }
+
+  // Greys out every past day that isn't an absence, for a type that can only
+  // be backfiled onto one.
+  function isPastNonAbsence(date: Date) {
+    return date < todayStart && !isPastAbsenceDay(date);
+  }
+
+  function todayUnfileableReason() {
+    if (isDateNonWorking(todayStart)) return "today is your day off / a non-working day";
+    if (isDateWorked(todayStart)) return "you already have attendance today";
+    return undefined;
+  }
+
   // A !advanceFilingAllowed type (Sick Leave, Emergency Leave, Adverse
   // Weather Leave) can only ever be filed for today — so if today happens to
   // be this employee's day off, or they already timed in today, the type is
   // entirely unfilable right now, not just on some dates. Surfaced up front
-  // (dropdown + Date section) instead of only failing at submit time.
+  // (dropdown + Date section) instead of only failing at submit time. A
+  // pastAbsenceFilingAllowed type stays available while there's a past
+  // absence left to file it for.
   function leaveTypeUnavailableTodayReason(item: LeaveType) {
     if (item.advanceFilingAllowed !== false) return undefined;
-    if (isDateNonWorking(todayStart)) return "today is your day off / a non-working day";
-    if (isDateWorked(todayStart)) return "you already have attendance today";
-    return undefined;
+    if (item.pastAbsenceFilingAllowed && pastAbsentDayKeys.size > 0) return undefined;
+    return todayUnfileableReason();
+  }
+
+  // Single-day types open on today — except a past-absence type when today
+  // itself can't take it, which opens blank so the employee picks the
+  // absent day instead of submitting a doomed "today".
+  function preselectSingleDay(item: LeaveType) {
+    const usable = !(item.advanceFilingAllowed === false && item.pastAbsenceFilingAllowed && todayUnfileableReason());
+    setStartDate(todayStart);
+    setEndDate(todayStart);
+    setStartDateSelected(usable);
+    setEndDateSelected(usable);
   }
 
   // Single-day-only types (Sick Leave, Emergency Leave) always mirror the end
@@ -882,11 +937,12 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
 
   useEffect(() => {
     if (!lockedToToday) return;
+    const usable = !(allowsPastAbsence && todayUnfileableReason());
     setStartDate(todayStart);
     setEndDate(todayStart);
-    setStartDateSelected(true);
-    setEndDateSelected(true);
-  }, [lockedToToday, todayStart]);
+    setStartDateSelected(usable);
+    setEndDateSelected(usable);
+  }, [lockedToToday, allowsPastAbsence, todayStart]);
 
   // Clamp a previously-picked end date if switching leave type (or the
   // remaining balance) shrinks the allowed range below it.
@@ -1105,21 +1161,22 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
       return;
     }
 
-    // Any date already covered by an APPROVED request of this *same* leave
-    // type is off-limits until that request is cancelled. Mirrors the
-    // backend's check in leave.service.ts.
-    const overlappingApproved = requests.find(
+    // Any date already covered by another filed request — any leave type,
+    // pending or approved — is off-limits until that request is rejected or
+    // cancelled. Mirrors the backend's check in leave.service.ts.
+    const overlapping = requests.find(
       (r) =>
-        r.leaveType.id === leaveTypeId &&
-        r.status === "APPROVED" &&
+        BLOCKING_LEAVE_STATUSES.includes(r.status) &&
         new Date(r.startDate) <= leaveEndDate &&
         new Date(r.endDate) >= leaveStartDate,
     );
-    if (overlappingApproved) {
+    if (overlapping) {
+      const filedAs =
+        overlapping.status === "APPROVED" || overlapping.status === "CANCELLATION_PENDING" ? "approved" : "pending";
       setResultModal({
         status: "error",
         title: "Dates Unavailable",
-        message: `These dates overlap your approved ${selectedLeaveType?.name} (${new Date(overlappingApproved.startDate).toLocaleDateString()} - ${new Date(overlappingApproved.endDate).toLocaleDateString()}). Cancel that request first if you need to change it.`,
+        message: `These dates overlap your ${filedAs} ${overlapping.leaveType.name} (${new Date(overlapping.startDate).toLocaleDateString()} - ${new Date(overlapping.endDate).toLocaleDateString()}). Cancel that request first if you need to change it.`,
       });
       return;
     }
@@ -1591,12 +1648,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                           disabled={disabled}
                           onPress={() => {
                             setLeaveTypeId(item.id);
-                            if (isOneDayLeaveType(item.name, item.isSingleDayOnly)) {
-                              setStartDate(todayStart);
-                              setEndDate(todayStart);
-                              setStartDateSelected(true);
-                              setEndDateSelected(true);
-                            }
+                            if (isOneDayLeaveType(item.name, item.isSingleDayOnly)) preselectSingleDay(item);
                             setIsDropdownOpen(false);
                             setSearchLeave("");
                           }}
@@ -1668,12 +1720,19 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
             ) : startDateSelected && endDateSelected ? (
               <Text style={styles.totalDaysText}>{totalDays} day{totalDays === 1 ? "" : "s"} total</Text>
             ) : null}
-            {selectedLeaveType && lockedToToday && isDateNonWorking(todayStart) && (
+            {selectedLeaveType && allowsPastAbsence && (
+              <Text style={todayUnfileableReason() ? styles.nonWorkingWarningText : styles.totalDaysText}>
+                {todayUnfileableReason()
+                  ? `${todayUnfileableReason()!.replace(/^./, (c) => c.toUpperCase())} — pick a past day you were absent instead.`
+                  : `${selectedLeaveType.name} can be filed for today or a past day you were absent.`}
+              </Text>
+            )}
+            {selectedLeaveType && lockedToToday && !allowsPastAbsence && isDateNonWorking(todayStart) && (
               <Text style={styles.nonWorkingWarningText}>
                 Today is your day off / a non-working day — {selectedLeaveType.name} can't be filed until your next working day.
               </Text>
             )}
-            {selectedLeaveType && lockedToToday && !isDateNonWorking(todayStart) && isDateWorked(todayStart) && (
+            {selectedLeaveType && lockedToToday && !allowsPastAbsence && !isDateNonWorking(todayStart) && isDateWorked(todayStart) && (
               <Text style={styles.nonWorkingWarningText}>
                 You already have attendance today — {selectedLeaveType.name} can't be filed for a day you worked.
               </Text>
@@ -1693,11 +1752,14 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
               // sick/emergency leave, if configured that way) is deliberately
               // left open below today — that's the only way to file it after
               // it already happened. Every other type is present/future only.
-              minimumDate={lockedToToday ? (isSingleDayLeave ? todayStart : undefined) : todayStart}
+              // Sick Leave (allowsPastAbsence) also opens past days, but only
+              // the ones the employee was absent on.
+              minimumDate={lockedToToday ? (isSingleDayLeave && !allowsPastAbsence ? todayStart : undefined) : todayStart}
               maximumDate={lockedToToday ? todayStart : undefined}
-              isDateDisabled={isDateAlreadyFiledForType}
+              isDateDisabled={isDateAlreadyFiled}
               isDateNonWorking={isDateNonWorking}
               isDateWorked={isDateWorked}
+              isDateOutOfRange={allowsPastAbsence ? isPastNonAbsence : undefined}
               onSelect={handleStartDateConfirm}
               onClose={() => setStartPickerVisibility(false)}
             />
@@ -1708,7 +1770,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
               selectedDate={endDateSelected ? endDate : undefined}
               minimumDate={startDateSelected ? startDate : todayStart}
               maximumDate={maxEndDate}
-              isDateDisabled={isDateAlreadyFiledForType}
+              isDateDisabled={isDateAlreadyFiled}
               isDateNonWorking={isDateNonWorking}
               isDateWorked={isDateWorked}
               onSelect={handleEndDateConfirm}
@@ -1746,6 +1808,11 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
               </Pressable>
             )}
             {attachmentError && <Text style={styles.attachmentErrorText}>{attachmentError}</Text>}
+            {requiredDocumentFor(selectedLeaveType?.name) && (
+              <Text style={styles.requiredDocumentNote}>
+                Note: Please attach a {requiredDocumentFor(selectedLeaveType?.name)}.
+              </Text>
+            )}
 
             <Text style={styles.label}>Reason</Text>
             <View style={styles.textAreaContainer}>
@@ -2917,6 +2984,12 @@ const styles = StyleSheet.create({
   attachmentHintText: {
     fontSize: 11,
     color: "#94A3B8",
+  },
+  requiredDocumentNote: {
+    fontSize: 11.5,
+    fontWeight: "600",
+    color: "#B45309",
+    marginTop: 4,
   },
   resubmitButtonDisabled: {
     backgroundColor: "#CBD5E1",

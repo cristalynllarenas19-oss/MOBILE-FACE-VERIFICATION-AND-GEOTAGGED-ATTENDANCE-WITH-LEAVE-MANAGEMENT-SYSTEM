@@ -26,6 +26,10 @@ export function decideLapse(params: {
   graceDays: number;
   // Days in the leave range the employee has an attendance record for.
   attendedDates: Date[];
+  // When the request was filed. A leave filed after its own dates (Sick
+  // Leave for a past absent day) gets its full grace period from the filing
+  // day, not from a leave end date that may already be past the grace.
+  filedAt?: Date;
 }): LapseDecision {
   const today = toLocalMidnight(params.now).getTime();
   const start = toLocalMidnight(params.startDate);
@@ -41,7 +45,9 @@ export function decideLapse(params: {
     return { lapse: true, reason: "REPORTED_FOR_WORK" };
   }
 
-  const graceEnds = new Date(end.getFullYear(), end.getMonth(), end.getDate() + Math.max(0, params.graceDays));
+  const filed = params.filedAt ? toLocalMidnight(params.filedAt) : end;
+  const graceFrom = filed.getTime() > end.getTime() ? filed : end;
+  const graceEnds = new Date(graceFrom.getFullYear(), graceFrom.getMonth(), graceFrom.getDate() + Math.max(0, params.graceDays));
   return graceEnds.getTime() < today ? { lapse: true, reason: "NOT_DECIDED" } : { lapse: false };
 }
 

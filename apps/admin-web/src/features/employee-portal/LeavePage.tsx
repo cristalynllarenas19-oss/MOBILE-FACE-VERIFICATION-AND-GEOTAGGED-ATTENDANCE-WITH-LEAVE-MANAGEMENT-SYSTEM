@@ -47,6 +47,16 @@ const STATUS_FILTERS_BY_TAB: Record<"current" | "past", Exclude<RequestStatusFil
   past: ["APPROVED", "REJECTED", "CANCELLED", "LAPSED"],
 };
 
+// A request in any of these still covers its dates, so no other leave (of
+// any type) can be filed over them. Mirrors leave.service.ts's create().
+const BLOCKING_LEAVE_STATUSES: string[] = [
+  "PENDING",
+  "SUPERVISOR_APPROVED",
+  "NEEDS_REVISION",
+  "APPROVED",
+  "CANCELLATION_PENDING",
+];
+
 // Buckets a request's raw status into one of the five filter chips — same
 // grouping as statusTone below (mirrors employee-mobile's LeaveScreen.tsx).
 function statusFilterBucket(status: string): Exclude<RequestStatusFilter, "ALL"> | null {
@@ -178,6 +188,15 @@ function fmtBytes(b: number) {
   if (b < 1024)         return `${b} B`;
   if (b < 1024 * 1024)  return `${(b / 1024).toFixed(0)} KB`;
   return `${(b / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// The specific document HR expects for a leave type, shown as a note under
+// the attachment picker. Types not listed here get no note.
+function requiredDocumentFor(name?: string) {
+  const normalized = (name ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+  if (normalized === "sick leave") return "Medical Certificate";
+  if (normalized === "bereavement leave") return "Death Certificate";
+  return null;
 }
 
 function attachmentSrc(mimeType: string | null | undefined, data: string | null | undefined) {
@@ -568,7 +587,9 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
       setResultModal({
         ok: false,
         title: "Unavailable Today",
-        msg: `${type.name} can only be filed for today's date, but ${unavailableTodayReason}.`,
+        msg: type.pastAbsenceFilingAllowed
+          ? `${type.name} can only be filed for today or a past day you were absent, but ${unavailableTodayReason} and you have no absences left to file it for.`
+          : `${type.name} can only be filed for today's date, but ${unavailableTodayReason}.`,
       });
       return;
     }
@@ -736,31 +757,24 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
     return max.toISOString().slice(0, 10);
   }, [selectedType, startDate, remainingByLeaveType]);
 
-  // Date ranges already filed (any non-cancelled/rejected status) for the
-  // currently selected leave type — the calendar disables every individual
-  // day within them, and handleSubmit's overlap check (mirroring the
-  // backend) is the authoritative backstop regardless of what the UI shows.
-  const blockedRangesForSelectedType = useMemo(() => {
-    if (!leaveTypeId) return [];
+  // Date ranges already filed (any non-cancelled/rejected status) under any
+  // leave type — the calendar disables every individual day within them,
+  // and handleSubmit's overlap check (mirroring the backend) is the
+  // authoritative backstop regardless of what the UI shows.
+  const blockedRanges = useMemo(() => {
     return requests
-      .filter(
-        (r) =>
-          r.leaveType.id === leaveTypeId &&
-          (r.status === "PENDING" ||
-            r.status === "SUPERVISOR_APPROVED" ||
-            r.status === "NEEDS_REVISION" ||
-            r.status === "APPROVED"),
-      )
+      .filter((r) => BLOCKING_LEAVE_STATUSES.includes(r.status))
       .map((r) => ({
         start: new Date(new Date(r.startDate).getFullYear(), new Date(r.startDate).getMonth(), new Date(r.startDate).getDate()),
         end: new Date(new Date(r.endDate).getFullYear(), new Date(r.endDate).getMonth(), new Date(r.endDate).getDate()),
+        leaveTypeName: r.leaveType.name,
       }));
-  }, [requests, leaveTypeId]);
+  }, [requests]);
 
-  function isDateAlreadyFiledForType(date: Date) {
+  function isDateAlreadyFiled(date: Date) {
     const day = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-    const hit = blockedRangesForSelectedType.some((range) => day >= range.start && day <= range.end);
-    return hit ? "Already filed for this leave type" : undefined;
+    const hit = blockedRanges.find((range) => day >= range.start && day <= range.end);
+    return hit ? `Already filed (${hit.leaveTypeName})` : undefined;
   }
 
   // Sunday is a company-wide rest day (mirrors backend/schedule.util.ts's
@@ -806,17 +820,50 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
       : undefined;
   }
 
-  // A !advanceFilingAllowed type (Sick Leave, Emergency Leave, Adverse
-  // Weather Leave) can only ever be filed for today — so if today happens to
-  // be this employee's day off, or they already timed in today, the type is
-  // entirely unfilable right now, not just on some dates. Surfaced up front
-  // (dropdown + Date section) instead of only failing at submit time.
-  function leaveTypeUnavailableTodayReason(t: LeaveType) {
-    if (t.advanceFilingAllowed !== false) return undefined;
+  // Past days the DTR shows as ABSENT — the history endpoint's synthetic rows:
+  // a scheduled working day with no time-in and no leave covering it. A
+  // pastAbsenceFilingAllowed type (Sick Leave) can be filed for any of these
+  // on top of today — mirrors the backend's isAbsentDay (leave.service.ts)
+  // and employee-mobile's LeaveScreen.tsx.
+  const pastAbsentDayKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const record of attendanceRecords ?? []) {
+      if (record.status !== "ABSENT") continue;
+      const d = new Date(record.attendanceDate);
+      if (d >= todayStart) continue;
+      keys.add(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`);
+    }
+    return keys;
+  }, [attendanceRecords, todayStart]);
+
+  // Greys out every past day that isn't an absence, for a type that can only
+  // be backfiled onto one.
+  function isPastNonAbsence(date: Date) {
+    return date < todayStart && !pastAbsentDayKeys.has(`${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`);
+  }
+
+  function todayUnfileableReason() {
     if (isDateNonWorking(todayStart)) return "today is your day off / a non-working day";
     if (isDateWorked(todayStart)) return "you already have attendance today";
     return undefined;
   }
+
+  // A !advanceFilingAllowed type (Sick Leave, Emergency Leave, Adverse
+  // Weather Leave) can only ever be filed for today — so if today happens to
+  // be this employee's day off, or they already timed in today, the type is
+  // entirely unfilable right now, not just on some dates. Surfaced up front
+  // (dropdown + Date section) instead of only failing at submit time. A
+  // pastAbsenceFilingAllowed type stays available while there's a past
+  // absence left to file it for.
+  function leaveTypeUnavailableTodayReason(t: LeaveType) {
+    if (t.advanceFilingAllowed !== false) return undefined;
+    if (t.pastAbsenceFilingAllowed && pastAbsentDayKeys.size > 0) return undefined;
+    return todayUnfileableReason();
+  }
+
+  // Sick Leave (pastAbsenceFilingAllowed) widens today-only to "today or a
+  // past day you were absent" — still never a future date.
+  const allowsPastAbsence = selectedType?.advanceFilingAllowed === false && selectedType.pastAbsenceFilingAllowed === true;
 
   // Leave types with advanceFilingAllowed === false (Sick Leave) cannot be
   // filed for a future date — driven by the selected type's own config so
@@ -832,12 +879,14 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
   // to a past date either. A multi-day !advanceFilingAllowed type only gets
   // the max (today-or-earlier is fine for those, so it can still be filed
   // after the fact). Every other type is present/future only — no past dates.
+  // Sick Leave (allowsPastAbsence) also opens past days, but only the ones
+  // the employee was absent on (isPastNonAbsence greys out the rest).
   const minStartDate = useMemo(() => {
     if (selectedType?.advanceFilingAllowed === false) {
-      return selectedType.isSingleDayOnly ? maxStartDate : undefined;
+      return selectedType.isSingleDayOnly && !allowsPastAbsence ? maxStartDate : undefined;
     }
     return new Date().toISOString().slice(0, 10);
-  }, [selectedType, maxStartDate]);
+  }, [selectedType, maxStartDate, allowsPastAbsence]);
 
   // Single-day-only types (Sick Leave, Emergency Leave) always mirror the end
   // date to the start date the moment either one is known.
@@ -943,23 +992,24 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
       });
       return;
     }
-    // Any date already covered by an APPROVED request of this *same* leave
-    // type is off-limits until that request is cancelled. Mirrors the
-    // backend's check in leave.service.ts.
+    // Any date already covered by another filed request — any leave type,
+    // pending or approved — is off-limits until that request is rejected or
+    // cancelled. Mirrors the backend's check in leave.service.ts.
     const requestedStart = new Date(startDate);
     const requestedEnd = new Date(endDate);
-    const overlappingApproved = requests.find(
+    const overlapping = requests.find(
       (r) =>
-        r.leaveType.id === leaveTypeId &&
-        r.status === "APPROVED" &&
+        BLOCKING_LEAVE_STATUSES.includes(r.status) &&
         new Date(r.startDate) <= requestedEnd &&
         new Date(r.endDate) >= requestedStart,
     );
-    if (overlappingApproved) {
+    if (overlapping) {
+      const filedAs =
+        overlapping.status === "APPROVED" || overlapping.status === "CANCELLATION_PENDING" ? "approved" : "pending";
       setResultModal({
         ok: false,
         title: "Dates Unavailable",
-        msg: `These dates overlap your approved ${selectedType?.name} (${new Date(overlappingApproved.startDate).toLocaleDateString()} - ${new Date(overlappingApproved.endDate).toLocaleDateString()}). Cancel that request first if you need to change it.`,
+        msg: `These dates overlap your ${filedAs} ${overlapping.leaveType.name} (${new Date(overlapping.startDate).toLocaleDateString()} - ${new Date(overlapping.endDate).toLocaleDateString()}). Cancel that request first if you need to change it.`,
       });
       return;
     }
@@ -1356,9 +1406,10 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                 onChange={setStartDate}
                 min={minStartDate}
                 max={maxStartDate}
-                isDateDisabled={isDateAlreadyFiledForType}
+                isDateDisabled={isDateAlreadyFiled}
                 isDateNonWorking={isDateNonWorking}
                 isDateWorked={isDateWorked}
+                isDateOutOfRange={allowsPastAbsence ? isPastNonAbsence : undefined}
               />
             ) : (
               <div style={{ display: "flex", gap: 10 }}>
@@ -1367,9 +1418,10 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                   onChange={setStartDate}
                   min={minStartDate}
                   max={maxStartDate}
-                  isDateDisabled={isDateAlreadyFiledForType}
+                  isDateDisabled={isDateAlreadyFiled}
                   isDateNonWorking={isDateNonWorking}
                   isDateWorked={isDateWorked}
+                  isDateOutOfRange={allowsPastAbsence ? isPastNonAbsence : undefined}
                   placeholder="Start date"
                 />
                 <CalendarPicker
@@ -1377,7 +1429,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                   onChange={setEndDate}
                   min={startDate || minStartDate}
                   max={maxEndDate}
-                  isDateDisabled={isDateAlreadyFiledForType}
+                  isDateDisabled={isDateAlreadyFiled}
                   isDateNonWorking={isDateNonWorking}
                   isDateWorked={isDateWorked}
                   placeholder="End date"
@@ -1390,12 +1442,19 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                 {totalDays} day{totalDays === 1 ? "" : "s"} total
               </p>
             )}
-            {selectedType && selectedType.advanceFilingAllowed === false && isDateNonWorking(todayStart) && (
+            {selectedType && allowsPastAbsence && (
+              <p style={{ fontSize: 11.5, fontWeight: 600, color: todayUnfileableReason() ? "#B45309" : "#94A3B8", margin: "4px 0 0" }}>
+                {todayUnfileableReason()
+                  ? `${todayUnfileableReason()!.replace(/^./, (c) => c.toUpperCase())} — pick a past day you were absent instead.`
+                  : `${selectedType.name} can be filed for today or a past day you were absent.`}
+              </p>
+            )}
+            {selectedType && selectedType.advanceFilingAllowed === false && !allowsPastAbsence && isDateNonWorking(todayStart) && (
               <p style={{ fontSize: 11.5, fontWeight: 600, color: "#B45309", margin: "4px 0 0" }}>
                 Today is your day off / a non-working day — {selectedType.name} can't be filed until your next working day.
               </p>
             )}
-            {selectedType && selectedType.advanceFilingAllowed === false && !isDateNonWorking(todayStart) && isDateWorked(todayStart) && (
+            {selectedType && selectedType.advanceFilingAllowed === false && !allowsPastAbsence && !isDateNonWorking(todayStart) && isDateWorked(todayStart) && (
               <p style={{ fontSize: 11.5, fontWeight: 600, color: "#B45309", margin: "4px 0 0" }}>
                 You already have attendance today — {selectedType.name} can't be filed for a day you worked.
               </p>
@@ -1442,6 +1501,11 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
               </button>
             )}
             {attachErr && <p style={{ color: "#DC2626", fontSize: 12, fontWeight: 600, marginTop: 4 }}>{attachErr}</p>}
+            {requiredDocumentFor(selectedType?.name) && (
+              <p style={{ fontSize: 11.5, fontWeight: 600, color: "#B45309", margin: "4px 0 0" }}>
+                Note: Please attach a {requiredDocumentFor(selectedType?.name)}.
+              </p>
+            )}
             <input ref={fileRef} type="file" accept="image/*,.pdf" style={{ display: "none" }} onChange={handleFileChange} />
 
             {/* Reason */}

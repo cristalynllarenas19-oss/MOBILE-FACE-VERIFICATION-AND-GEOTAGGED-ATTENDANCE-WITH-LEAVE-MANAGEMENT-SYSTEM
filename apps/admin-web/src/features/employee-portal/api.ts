@@ -213,6 +213,9 @@ export type LeaveType = {
   requiresAdminGrant: boolean;
   isSingleDayOnly: boolean;
   advanceFilingAllowed: boolean;
+  // Sick Leave: on top of today, may be filed for a past day the employee
+  // was absent (leave.service.ts create()).
+  pastAbsenceFilingAllowed?: boolean;
   cancellationAllowed: boolean;
   cancellationCutoffValue: number | null;
   cancellationCutoffUnit: "WORKING_DAYS_BEFORE_START" | "HOURS_BEFORE_SHIFT_START" | null;

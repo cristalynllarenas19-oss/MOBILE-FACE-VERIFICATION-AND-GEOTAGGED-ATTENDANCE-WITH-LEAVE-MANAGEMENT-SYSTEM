@@ -704,6 +704,12 @@ model LeaveType {
   // including for a doctor's appointment (a reason under this type, not a
   // separate leave type).
   advanceFilingAllowed         Boolean            @default(true) @map("advance_filing_allowed")
+  // True for leave types that may also be filed after the fact for a past
+  // day the employee was ABSENT (no time-in on a scheduled working day, not
+  // already covered by a leave) — Sick Leave. Widens a today-only
+  // (!advanceFilingAllowed) type to "today or a past absent day"; it never
+  // allows a future date.
+  pastAbsenceFilingAllowed     Boolean            @default(false) @map("past_absence_filing_allowed")
   cancellationAllowed          Boolean            @default(false) @map("cancellation_allowed")
   cancellationCutoffValue      Int?               @map("cancellation_cutoff_value")
   cancellationCutoffUnit       String?            @map("cancellation_cutoff_unit")

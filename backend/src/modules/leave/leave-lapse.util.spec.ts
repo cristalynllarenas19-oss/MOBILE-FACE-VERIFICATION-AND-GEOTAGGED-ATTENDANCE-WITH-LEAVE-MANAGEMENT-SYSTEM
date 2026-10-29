@@ -44,6 +44,14 @@ describe("decideLapse", () => {
     });
   });
 
+  it("counts the grace period from the filing day for a leave filed after its dates", () => {
+    // Sick Leave for a Sep 29 absence, filed Oct 10 — long past Sep 29's grace.
+    const backfiled = { ...base, filedAt: oct(10, 9) };
+    expect(decideLapse({ ...backfiled, now: oct(10, 10) })).toEqual({ lapse: false });
+    expect(decideLapse({ ...backfiled, now: oct(17, 9) })).toEqual({ lapse: false });
+    expect(decideLapse({ ...backfiled, now: oct(18, 1) })).toEqual({ lapse: true, reason: "NOT_DECIDED" });
+  });
+
   it("honours a zero-day grace period", () => {
     expect(decideLapse({ ...base, graceDays: 0, now: day(30, 1) })).toEqual({ lapse: true, reason: "NOT_DECIDED" });
   });

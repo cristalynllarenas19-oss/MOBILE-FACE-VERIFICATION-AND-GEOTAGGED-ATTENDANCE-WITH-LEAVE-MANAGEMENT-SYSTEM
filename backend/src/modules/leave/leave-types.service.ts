@@ -40,6 +40,7 @@ export class LeaveTypesService {
       requiresAdminGrant?: boolean;
       isSingleDayOnly?: boolean;
       advanceFilingAllowed?: boolean;
+      pastAbsenceFilingAllowed?: boolean;
       kind?: LeaveTypeKind;
       cancellationAllowed?: boolean;
       cancellationCutoffValue?: number;
@@ -83,6 +84,7 @@ export class LeaveTypesService {
         requiresAdminGrant: dto.requiresAdminGrant ?? false,
         isSingleDayOnly: dto.isSingleDayOnly ?? false,
         advanceFilingAllowed: dto.advanceFilingAllowed ?? true,
+        pastAbsenceFilingAllowed: dto.pastAbsenceFilingAllowed ?? false,
         kind: dto.kind ?? "GENERAL",
         cancellationAllowed: dto.cancellationAllowed ?? false,
         cancellationCutoffValue: dto.cancellationAllowed ? dto.cancellationCutoffValue : null,
@@ -113,6 +115,7 @@ export class LeaveTypesService {
           requiresAdminGrant: created.requiresAdminGrant,
           isSingleDayOnly: created.isSingleDayOnly,
           advanceFilingAllowed: created.advanceFilingAllowed,
+          pastAbsenceFilingAllowed: created.pastAbsenceFilingAllowed,
           kind: created.kind,
           cancellationAllowed: created.cancellationAllowed,
           cancellationCutoffValue: created.cancellationCutoffValue,
@@ -142,6 +145,7 @@ export class LeaveTypesService {
       requiresAdminGrant?: boolean;
       isSingleDayOnly?: boolean;
       advanceFilingAllowed?: boolean;
+      pastAbsenceFilingAllowed?: boolean;
       kind?: LeaveTypeKind;
       cancellationAllowed?: boolean;
       cancellationCutoffValue?: number;
@@ -182,6 +186,7 @@ export class LeaveTypesService {
         requiresAdminGrant: dto.requiresAdminGrant,
         isSingleDayOnly: dto.isSingleDayOnly,
         advanceFilingAllowed: dto.advanceFilingAllowed,
+        pastAbsenceFilingAllowed: dto.pastAbsenceFilingAllowed,
         kind: dto.kind,
         cancellationAllowed: dto.cancellationAllowed,
         cancellationCutoffValue:
@@ -222,6 +227,7 @@ export class LeaveTypesService {
           requiresAdminGrant: existing.requiresAdminGrant,
           isSingleDayOnly: existing.isSingleDayOnly,
           advanceFilingAllowed: existing.advanceFilingAllowed,
+          pastAbsenceFilingAllowed: existing.pastAbsenceFilingAllowed,
           kind: existing.kind,
           cancellationAllowed: existing.cancellationAllowed,
           cancellationCutoffValue: existing.cancellationCutoffValue,
@@ -243,6 +249,7 @@ export class LeaveTypesService {
           requiresAdminGrant: updated.requiresAdminGrant,
           isSingleDayOnly: updated.isSingleDayOnly,
           advanceFilingAllowed: updated.advanceFilingAllowed,
+          pastAbsenceFilingAllowed: updated.pastAbsenceFilingAllowed,
           kind: updated.kind,
           cancellationAllowed: updated.cancellationAllowed,
           cancellationCutoffValue: updated.cancellationCutoffValue,

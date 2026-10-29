@@ -36,6 +36,10 @@ type Props = {
   // A day the employee already has attendance on (blue) — leave can't be
   // filed for a day they worked.
   isDateWorked?: (date: Date) => string | undefined;
+  // Extra per-day bound beyond min/max, rendered the same muted grey — e.g.
+  // a past day that isn't an absence, for a type that can only be backfiled
+  // onto absent days (Sick Leave).
+  isDateOutOfRange?: (date: Date) => boolean;
   placeholder?: string;
   // Which edge the popover hangs from. A field near the right edge of its
   // container needs "right" so the 280px-wide popover opens leftward
@@ -47,7 +51,7 @@ type Props = {
 // min/max range — it can't grey out arbitrary individual days (e.g. dates
 // already covered by a filed leave of this type). This replaces it with a
 // small popover month-grid that can.
-export function CalendarPicker({ value, onChange, min, max, isDateDisabled, isDateNonWorking, isDateWorked, placeholder, align = "left" }: Props) {
+export function CalendarPicker({ value, onChange, min, max, isDateDisabled, isDateNonWorking, isDateWorked, isDateOutOfRange, placeholder, align = "left" }: Props) {
   const [open, setOpen] = useState(false);
   const selected = value ? parseIsoDate(value) : undefined;
   const [viewMonth, setViewMonth] = useState(() => toDateOnly(selected ?? new Date()));
@@ -150,7 +154,8 @@ export function CalendarPicker({ value, onChange, min, max, isDateDisabled, isDa
               const nonWorking = Boolean(nonWorkingReason);
               const workedReason = !conflict && !nonWorking ? isDateWorked?.(date) : undefined;
               const worked = Boolean(workedReason);
-              const outOfRange = !conflict && !nonWorking && !worked && ((minDate && date < minDate) || (maxDate && date > maxDate));
+              const outOfRange =
+                !conflict && !nonWorking && !worked && ((minDate && date < minDate) || (maxDate && date > maxDate) || Boolean(isDateOutOfRange?.(date)));
               const disabled = conflict || nonWorking || worked || outOfRange;
               const isSelected = selected && toIsoDate(date) === toIsoDate(selected);
               return (

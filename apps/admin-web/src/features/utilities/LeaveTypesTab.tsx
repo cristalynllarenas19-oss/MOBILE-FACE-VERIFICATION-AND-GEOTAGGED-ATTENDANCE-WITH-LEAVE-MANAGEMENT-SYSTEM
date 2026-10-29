@@ -48,6 +48,7 @@ type LeaveType = {
   requiresAdminGrant: boolean;
   isSingleDayOnly: boolean;
   advanceFilingAllowed: boolean;
+  pastAbsenceFilingAllowed: boolean;
   cancellationAllowed: boolean;
   cancellationCutoffValue: number | null;
   cancellationCutoffUnit: CancellationCutoffUnit | null;
@@ -110,6 +111,7 @@ const emptyForm = {
   requiresAdminGrant: false,
   isSingleDayOnly: false,
   advanceFilingAllowed: true,
+  pastAbsenceFilingAllowed: false,
   cancellationAllowed: false,
   cancellationCutoffValue: "",
   cancellationCutoffUnit: "WORKING_DAYS_BEFORE_START" as CancellationCutoffUnit,
@@ -230,6 +232,7 @@ export function LeaveTypesTab({
       requiresAdminGrant: type.requiresAdminGrant,
       isSingleDayOnly: type.isSingleDayOnly,
       advanceFilingAllowed: type.advanceFilingAllowed,
+      pastAbsenceFilingAllowed: type.pastAbsenceFilingAllowed,
       cancellationAllowed: type.cancellationAllowed,
       cancellationCutoffValue: type.cancellationCutoffValue != null ? String(type.cancellationCutoffValue) : "",
       cancellationCutoffUnit: type.cancellationCutoffUnit ?? "WORKING_DAYS_BEFORE_START",
@@ -271,6 +274,8 @@ export function LeaveTypesTab({
         requiresAdminGrant: form.requiresAdminGrant,
         isSingleDayOnly: form.isSingleDayOnly,
         advanceFilingAllowed: form.advanceFilingAllowed,
+        // Only meaningful for a today-only type — see the checkbox below.
+        pastAbsenceFilingAllowed: !form.advanceFilingAllowed && form.pastAbsenceFilingAllowed,
         cancellationAllowed: form.cancellationAllowed,
         cancellationCutoffValue: form.cancellationAllowed ? Number(form.cancellationCutoffValue) : undefined,
         cancellationCutoffUnit: form.cancellationAllowed ? form.cancellationCutoffUnit : undefined,
@@ -675,6 +680,17 @@ export function LeaveTypesTab({
                     <span>Allow advance filing (uncheck for a type like Sick Leave that can only be filed for today, never a future date)</span>
                   </label>
 
+                  {!form.advanceFilingAllowed && (
+                    <label className="utilities-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={form.pastAbsenceFilingAllowed}
+                        onChange={(e) => setForm((c) => ({ ...c, pastAbsenceFilingAllowed: e.target.checked }))}
+                      />
+                      <span>Also allow filing for a past day the employee was absent (e.g. Sick Leave filed after returning to work)</span>
+                    </label>
+                  )}
+
                   <label className="utilities-checkbox">
                     <input
                       type="checkbox"
@@ -836,7 +852,15 @@ export function LeaveTypesTab({
                 {
                   title: "Filing Rules",
                   rows: [
-                    { label: "Advance Filing", on: viewLeaveType.advanceFilingAllowed, value: viewLeaveType.advanceFilingAllowed ? "Allowed" : "Today only" },
+                    {
+                      label: "Advance Filing",
+                      on: viewLeaveType.advanceFilingAllowed,
+                      value: viewLeaveType.advanceFilingAllowed
+                        ? "Allowed"
+                        : viewLeaveType.pastAbsenceFilingAllowed
+                          ? "Today or a past absent day"
+                          : "Today only",
+                    },
                     { label: "Single Day Only", on: viewLeaveType.isSingleDayOnly, value: viewLeaveType.isSingleDayOnly ? "Yes" : "No" },
                     { label: "Cancellation Cutoff", on: null, value: formatCancellationCutoff(viewLeaveType) },
                   ],

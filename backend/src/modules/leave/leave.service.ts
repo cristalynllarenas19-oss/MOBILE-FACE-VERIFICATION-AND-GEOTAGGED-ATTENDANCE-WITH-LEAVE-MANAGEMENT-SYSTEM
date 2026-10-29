@@ -7,6 +7,7 @@ import { RejectLeaveRequestDto } from "./dto/reject-leave-request.dto";
 import { ResubmitLeaveRequestDto } from "./dto/resubmit-leave-request.dto";
 import { isEligibleForLeaveType } from "./leave-balances.service";
 import { isDayOff, isNonWorkingDay } from "../../common/utils/schedule.util";
+import { resolveMissedDays } from "../attendance/attendance-missed-days.util";
 
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 type LeaveRequestStatus =
@@ -346,25 +347,27 @@ export class LeaveService {
       );
     }
 
-    // Any date already covered by an APPROVED request of this *same* leave
-    // type is off-limits for a new one of that type — until the approved
-    // request is cancelled. Scoped to the same type only (not any type);
-    // a different type filed over the same dates is a separate business
-    // call this check doesn't make.
-    const overlappingApproved = await this.prisma.leaveRequest.findFirst({
+    // Any date already covered by another filed request — of *any* leave
+    // type, whether still awaiting review or already approved (including one
+    // whose cancellation is still pending) — is off-limits until that
+    // request is rejected or cancelled. One day can only ever be covered by
+    // a single leave.
+    const overlapping = await this.prisma.leaveRequest.findFirst({
       where: {
         employeeId: dto.employeeId,
-        leaveTypeId: dto.leaveTypeId,
-        status: "APPROVED",
+        status: { in: ["PENDING", "SUPERVISOR_APPROVED", "NEEDS_REVISION", "APPROVED", "CANCELLATION_PENDING"] },
         startDate: { lte: new Date(dto.endDate) },
         endDate: { gte: new Date(dto.startDate) },
       },
+      include: { leaveType: { select: { name: true } } },
     });
 
-    if (overlappingApproved) {
+    if (overlapping) {
+      const filedAs =
+        overlapping.status === "APPROVED" || overlapping.status === "CANCELLATION_PENDING" ? "approved" : "pending";
       throw new BadRequestException(
-        `These dates overlap your approved ${leaveType.name} ` +
-          `(${overlappingApproved.startDate.toLocaleDateString()} – ${overlappingApproved.endDate.toLocaleDateString()}). ` +
+        `These dates overlap your ${filedAs} ${overlapping.leaveType.name} ` +
+          `(${overlapping.startDate.toLocaleDateString()} – ${overlapping.endDate.toLocaleDateString()}). ` +
           `Cancel that request first if you need to change it.`,
       );
     }
@@ -410,15 +413,28 @@ export class LeaveService {
     // meant to be filed the day the employee is actually out, not backfiled
     // days later. A multi-day !advanceFilingAllowed type (if HR ever
     // configures one) keeps the more lenient "today or earlier" rule.
+    //
+    // pastAbsenceFilingAllowed (Sick Leave) additionally opens up a past
+    // date, but only one the employee was actually ABSENT on — checked
+    // further down (mustBeAbsentOn), after the day-off/worked-day checks so
+    // those keep their more specific messages.
+    let mustBeAbsentOn: Date | null = null;
     if (!leaveType.advanceFilingAllowed) {
       const requestedStart = toDateOnly(new Date(dto.startDate));
       const today = toDateOnly(new Date());
-      if (leaveType.isSingleDayOnly) {
-        if (requestedStart.getTime() !== today.getTime()) {
+      if (requestedStart > today) {
+        throw new BadRequestException(
+          leaveType.isSingleDayOnly
+            ? `${leaveType.name} must be filed for today's date${leaveType.pastAbsenceFilingAllowed ? " or a past day you were absent" : " only"}.`
+            : `${leaveType.name} cannot be filed in advance — the date must be today or earlier.`,
+        );
+      }
+      if (requestedStart < today) {
+        if (leaveType.pastAbsenceFilingAllowed) {
+          mustBeAbsentOn = requestedStart;
+        } else if (leaveType.isSingleDayOnly) {
           throw new BadRequestException(`${leaveType.name} must be filed for today's date only.`);
         }
-      } else if (requestedStart > today) {
-        throw new BadRequestException(`${leaveType.name} cannot be filed in advance — the date must be today or earlier.`);
       }
     }
 
@@ -455,6 +471,12 @@ export class LeaveService {
     if (workedDays) {
       throw new BadRequestException(
         `You already have attendance on ${workedDays}. A leave can't be filed for a day you worked.`,
+      );
+    }
+
+    if (mustBeAbsentOn && !(await this.isAbsentDay(dto.employeeId, mustBeAbsentOn))) {
+      throw new BadRequestException(
+        `${mustBeAbsentOn.toLocaleDateString()} isn't an absence on your record — ${leaveType.name} can only be filed for today or a past day you were absent.`,
       );
     }
 
@@ -551,6 +573,57 @@ export class LeaveService {
     });
     if (worked.length === 0) return null;
     return Array.from(new Set(worked.map((record) => record.attendanceDate.toLocaleDateString()))).join(", ");
+  }
+
+  // Whether the employee was ABSENT on `date`, by the same reconstruction
+  // their DTR uses (see resolveMissedDays): a scheduled working day, on or
+  // after their hire date, with no attendance record and no leave — approved
+  // or still awaiting a decision — already covering it.
+  private async isAbsentDay(employeeId: string, date: Date) {
+    const day = toDateOnly(date);
+    const nextDay = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1);
+    const [employee, recorded, leaves, schedules] = await Promise.all([
+      this.prisma.employee.findUnique({ where: { id: employeeId }, select: { hireDate: true } }),
+      this.prisma.attendanceRecord.findMany({
+        where: { employeeId, attendanceDate: { gte: day, lt: nextDay } },
+        select: { attendanceDate: true },
+      }),
+      this.prisma.leaveRequest.findMany({
+        where: {
+          employeeId,
+          status: { in: ["APPROVED", "CANCELLATION_PENDING", "PENDING", "SUPERVISOR_APPROVED", "NEEDS_REVISION"] },
+          startDate: { lt: nextDay },
+          endDate: { gte: day },
+        },
+        select: { status: true, startDate: true, endDate: true, leaveType: { select: { name: true } } },
+      }),
+      this.prisma.employeeSchedule.findMany({
+        where: { employeeId, isActive: true },
+        orderBy: { startsOn: "desc" },
+        select: {
+          startsOn: true,
+          endsOn: true,
+          workingDays: true,
+          shift: { select: { name: true, startTime: true, endTime: true, lateThresholdMinutes: true } },
+        },
+      }),
+    ]);
+    if (!employee) return false;
+
+    const missed = resolveMissedDays({
+      windowStart: day,
+      now: new Date(),
+      hireDate: employee.hireDate,
+      recordedDates: recorded.map((record) => record.attendanceDate),
+      leaves: leaves.map((leave) => ({
+        startDate: leave.startDate,
+        endDate: leave.endDate,
+        leaveTypeName: leave.leaveType.name,
+        approved: leave.status === "APPROVED" || leave.status === "CANCELLATION_PENDING",
+      })),
+      schedules,
+    });
+    return missed.some((entry) => entry.status === "ABSENT" && entry.date.getTime() === day.getTime());
   }
 
   private async notifySubmission(request: {

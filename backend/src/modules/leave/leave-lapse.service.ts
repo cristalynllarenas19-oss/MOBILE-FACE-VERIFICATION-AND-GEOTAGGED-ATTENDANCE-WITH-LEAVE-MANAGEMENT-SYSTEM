@@ -122,6 +122,7 @@ export class LeaveLapseService {
         now,
         graceDays: lapseGraceDays,
         attendedDates: attendance.map((record) => record.attendanceDate),
+        filedAt: request.createdAt,
       });
       if (!decision.lapse) continue;
 

@@ -68,6 +68,10 @@ export class CreateLeaveTypeDto {
   advanceFilingAllowed?: boolean;
 
   @IsOptional()
+  @IsBoolean()
+  pastAbsenceFilingAllowed?: boolean;
+
+  @IsOptional()
   @IsEnum(LeaveTypeKind)
   kind?: LeaveTypeKind;
 
@@ -148,6 +152,10 @@ export class UpdateLeaveTypeDto {
   @IsOptional()
   @IsBoolean()
   advanceFilingAllowed?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  pastAbsenceFilingAllowed?: boolean;
 
   @IsOptional()
   @IsEnum(LeaveTypeKind)
