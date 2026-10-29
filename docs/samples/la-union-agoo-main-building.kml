@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Agoo Main Building</name>
+    <description>Sample geofence for testing KML upload — an L-shaped building footprint (about 70 m x 45 m) around the Universal Leaf Philippines Inc. - Agoo pin. Approximate outline, not a surveyed footprint.</description>
+    <Style id="building">
+      <LineStyle><color>ff0b5ed7</color><width>2</width></LineStyle>
+      <PolyStyle><color>550b5ed7</color></PolyStyle>
+    </Style>
+    <Placemark>
+      <name>Agoo Main Building</name>
+      <styleUrl>#building</styleUrl>
+      <Polygon>
+        <outerBoundaryIs>
+          <LinearRing>
+            <coordinates>
+              120.35318,16.35785,0
+              120.35384,16.35785,0
+              120.35384,16.35825,0
+              120.35345,16.35825,0
+              120.35345,16.35810,0
+              120.35318,16.35810,0
+              120.35318,16.35785,0
+            </coordinates>
+          </LinearRing>
+        </outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+  </Document>
+</kml>

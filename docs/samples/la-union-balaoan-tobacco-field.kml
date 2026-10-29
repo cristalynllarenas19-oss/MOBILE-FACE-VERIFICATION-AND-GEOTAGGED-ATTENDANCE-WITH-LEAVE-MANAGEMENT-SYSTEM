@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Balaoan Tobacco Field</name>
+    <description>Sample geofence for testing KML upload — one polygon in Balaoan, La Union (about 450 m x 350 m).</description>
+    <Style id="area">
+      <LineStyle><color>ff2f9e44</color><width>2</width></LineStyle>
+      <PolyStyle><color>552f9e44</color></PolyStyle>
+    </Style>
+    <Placemark>
+      <name>Balaoan Tobacco Field</name>
+      <styleUrl>#area</styleUrl>
+      <Polygon>
+        <outerBoundaryIs>
+          <LinearRing>
+            <coordinates>
+              120.4130,16.8160,0
+              120.4170,16.8158,0
+              120.4174,16.8180,0
+              120.4160,16.8193,0
+              120.4135,16.8190,0
+              120.4126,16.8175,0
+              120.4130,16.8160,0
+            </coordinates>
+          </LinearRing>
+        </outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+  </Document>
+</kml>

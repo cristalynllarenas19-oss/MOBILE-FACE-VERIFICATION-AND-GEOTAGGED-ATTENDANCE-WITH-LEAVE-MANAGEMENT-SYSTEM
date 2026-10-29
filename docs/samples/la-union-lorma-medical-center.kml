@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Lorma Medical Center</name>
+    <description>Sample geofence for testing KML upload — hospital building footprint of Lorma Medical Center, MacArthur Highway, Carlatan, San Fernando City, La Union. Outline from OpenStreetMap (way 239831339). Data © OpenStreetMap contributors, ODbL 1.0.</description>
+    <Style id="site">
+      <LineStyle><color>ff2b2bd6</color><width>2</width></LineStyle>
+      <PolyStyle><color>552b2bd6</color></PolyStyle>
+    </Style>
+    <Placemark>
+      <name>Lorma Medical Center</name>
+      <styleUrl>#site</styleUrl>
+      <Polygon>
+        <outerBoundaryIs>
+          <LinearRing>
+            <coordinates>
+              120.3180299,16.6313252,0
+              120.3181785,16.6313572,0
+              120.3186437,16.6314589,0
+              120.3186284,16.6316824,0
+              120.3183157,16.6316154,0
+              120.3183176,16.6316688,0
+              120.3183118,16.6317134,0
+              120.3182722,16.6318453,0
+              120.3181984,16.6318293,0
+              120.3181828,16.6318835,0
+              120.3181675,16.6319258,0
+              120.3180614,16.6318940,0
+              120.3180451,16.6319476,0
+              120.3179211,16.6319180,0
+              120.3179530,16.6317677,0
+              120.3178081,16.6317378,0
+              120.3176965,16.6317129,0
+              120.3177054,16.6316743,0
+              120.3177139,16.6316311,0
+              120.3177364,16.6315237,0
+              120.3176802,16.6315150,0
+              120.3176965,16.6314350,0
+              120.3177525,16.6314415,0
+              120.3177872,16.6312721,0
+              120.3180299,16.6313252,0
+            </coordinates>
+          </LinearRing>
+        </outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+  </Document>
+</kml>

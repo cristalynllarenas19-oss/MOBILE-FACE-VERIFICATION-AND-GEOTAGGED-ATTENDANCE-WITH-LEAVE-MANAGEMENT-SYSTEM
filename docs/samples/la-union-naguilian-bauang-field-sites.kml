@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>Naguilian and Bauang Field Sites</name>
+    <description>Sample geofence for testing KML upload — one area made of two separate polygons (Naguilian and Bauang, La Union). Being inside either polygon counts as inside the area.</description>
+    <Style id="area">
+      <LineStyle><color>ff1c7ed6</color><width>2</width></LineStyle>
+      <PolyStyle><color>551c7ed6</color></PolyStyle>
+    </Style>
+    <Placemark>
+      <name>Naguilian and Bauang Field Sites</name>
+      <styleUrl>#area</styleUrl>
+      <MultiGeometry>
+        <!-- Naguilian plot -->
+        <Polygon>
+          <outerBoundaryIs>
+            <LinearRing>
+              <coordinates>
+                120.3990,16.5285,0
+                120.4025,16.5282,0
+                120.4030,16.5305,0
+                120.4008,16.5315,0
+                120.3988,16.5303,0
+                120.3990,16.5285,0
+              </coordinates>
+            </LinearRing>
+          </outerBoundaryIs>
+        </Polygon>
+        <!-- Bauang plot -->
+        <Polygon>
+          <outerBoundaryIs>
+            <LinearRing>
+              <coordinates>
+                120.3445,16.5265,0
+                120.3480,16.5262,0
+                120.3484,16.5288,0
+                120.3450,16.5290,0
+                120.3445,16.5265,0
+              </coordinates>
+            </LinearRing>
+          </outerBoundaryIs>
+        </Polygon>
+      </MultiGeometry>
+    </Placemark>
+  </Document>
+</kml>

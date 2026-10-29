@@ -44,6 +44,7 @@ const NOTIFICATION_ICON_MAP: Record<string, { Icon: typeof BellIcon; category: s
   LEAVE_LWOP_ENDING: { Icon: CalendarClock, category: "pending" },
   LEAVE_LWOP_ENDING_TEAM: { Icon: CalendarClock, category: "pending" },
   LEAVE_LWOP_RETURN: { Icon: LogIn, category: "info" },
+  LEAVE_LWOP_RETURN_TEAM: { Icon: LogIn, category: "info" },
   ANNOUNCEMENT: { Icon: Megaphone, category: "announce" },
   PROBATION_REGULARIZATION_DUE: { Icon: UserCheck, category: "pending" },
   SUPERVISOR_EVALUATION_REQUIRED: { Icon: ClipboardList, category: "pending" },

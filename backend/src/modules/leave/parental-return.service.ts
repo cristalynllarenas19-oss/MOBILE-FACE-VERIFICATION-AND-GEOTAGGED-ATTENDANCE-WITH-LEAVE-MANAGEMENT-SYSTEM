@@ -33,6 +33,8 @@ export const LWOP_ENDING_NOTIFICATION_TYPE = "LEAVE_LWOP_ENDING";
 export const LWOP_ENDING_TEAM_NOTIFICATION_TYPE = "LEAVE_LWOP_ENDING_TEAM";
 // The employee's "welcome back" on the day they're due back after it.
 export const LWOP_RETURN_NOTIFICATION_TYPE = "LEAVE_LWOP_RETURN";
+// ...and the supervisor's and every Admin's on that same day.
+export const LWOP_RETURN_TEAM_NOTIFICATION_TYPE = "LEAVE_LWOP_RETURN_TEAM";
 // How far back a long LWOP can have ended and still be due its return-day
 // notice — covers rest days between its last day and the return day.
 const LWOP_RETURN_LOOKBACK_DAYS = 10;
@@ -62,9 +64,9 @@ function addDays(date: Date, days: number): Date {
 // The employee's pronouns for a notice written about them — from their
 // recorded sex, or "they" when it isn't recorded.
 function pronounsFor(sex: string | null) {
-  if (sex === "MALE") return { he: "he", He: "He", his: "his", is: "is" };
-  if (sex === "FEMALE") return { he: "she", He: "She", his: "her", is: "is" };
-  return { he: "they", He: "They", his: "their", is: "are" };
+  if (sex === "MALE") return { he: "he", He: "He", him: "him", his: "his", is: "is" };
+  if (sex === "FEMALE") return { he: "she", He: "She", him: "her", his: "her", is: "is" };
+  return { he: "they", He: "They", him: "them", his: "their", is: "are" };
 }
 
 // A Maternity Leave extension is filed under the Maternity type itself.
@@ -118,7 +120,8 @@ export class ParentalReturnService {
   // employee is told it ends tomorrow and that being absent after it means a
   // letter from their supervisor; the supervisor and every Admin get the same
   // in the third person. On the day the employee is due back, they get a
-  // "welcome back" with the same reminder. Each recipient once per notice.
+  // "welcome back" with the same reminder, and the supervisor and every Admin
+  // are told they're due back today. Each recipient once per notice.
   async remindLongUnpaidLeaveEnding(now = new Date()) {
     const today = toLocalMidnight(now);
     const candidates = await this.prisma.leaveRequest.findMany({
@@ -151,13 +154,38 @@ export class ParentalReturnService {
       const end = request.endDate.toLocaleDateString();
       const back = returnDate.toLocaleDateString();
 
-      // Due back today: the employee's "welcome back".
+      // Due back today: the employee's "welcome back", and the same news for
+      // the supervisor and every Admin.
       if (toLocalMidnight(returnDate).getTime() === today.getTime()) {
-        const already = await this.prisma.notification.findFirst({
-          where: { type: LWOP_RETURN_NOTIFICATION_TYPE, entityId: request.id, userId: request.employee.userId, createdAt: { gte: today } },
-          select: { id: true },
+        const returnNotified = await this.prisma.notification.findMany({
+          where: {
+            type: { in: [LWOP_RETURN_NOTIFICATION_TYPE, LWOP_RETURN_TEAM_NOTIFICATION_TYPE] },
+            entityId: request.id,
+            createdAt: { gte: today },
+          },
+          select: { userId: true },
         });
-        if (!already) {
+        const returnNotifiedIds = new Set(returnNotified.map((notification) => notification.userId));
+
+        const teamIds = Array.from(
+          new Set(
+            [request.employee.supervisor?.userId, ...adminIds].filter(
+              (id): id is string => Boolean(id) && id !== request.employee.userId,
+            ),
+          ),
+        ).filter((id) => !returnNotifiedIds.has(id));
+        if (teamIds.length > 0) {
+          const name = `${request.employee.firstName} ${request.employee.lastName}`;
+          const { he, his, is } = pronounsFor(request.employee.sex);
+          sent += await this.notifyLwopTeam(request, teamIds, {
+            title: "Returning from Leave Without Pay",
+            message: (letter) =>
+              `${name} is due back at work today (${back}) after ${his} ${leave} (${period}). If ${he} ${is} absent, ${letter}`,
+            type: LWOP_RETURN_TEAM_NOTIFICATION_TYPE,
+          });
+        }
+
+        if (!returnNotifiedIds.has(request.employee.userId)) {
           await this.notifications.notifyUsers([request.employee.userId], {
             title: "Welcome Back to Work",
             message:
@@ -204,20 +232,50 @@ export class ParentalReturnService {
       if (reviewers.length > 0) {
         const name = `${request.employee.firstName} ${request.employee.lastName}`;
         const { he, He, his, is } = pronounsFor(request.employee.sex);
-        await this.notifications.notifyUsers(reviewers, {
+        sent += await this.notifyLwopTeam(request, reviewers, {
           title: "Leave Without Pay Ending",
-          message:
+          message: (letter) =>
             `${name}'s ${leave} (${period}) ends ${when} (${end}). ${He} ${is} expected back at work on ${back}. ` +
-            `If ${he} ${is} absent after ${his} Leave Without Pay ends, ${he} will receive a letter from ${his} supervisor.`,
+            `If ${he} ${is} absent after ${his} Leave Without Pay ends, ${letter}`,
           type: LWOP_ENDING_TEAM_NOTIFICATION_TYPE,
-          entityId: request.id,
         });
-        sent += reviewers.length;
       }
     }
 
     if (sent > 0) this.logger.log(`Leave Without Pay ending check: ${sent} notification(s) sent.`);
     return { sent };
+  }
+
+  // A long-LWOP notice to the employee's supervisor and every Admin, worded
+  // for each: the supervisor is the one who issues the letter, so they're
+  // asked to; HR/Admin are told the supervisor will (or asked to, when the
+  // employee has no supervisor). Returns how many were sent.
+  private async notifyLwopTeam(
+    request: { id: string; employee: { sex: string | null; supervisor: { userId: string | null } | null } },
+    recipientIds: string[],
+    notice: { title: string; message: (letter: string) => string; type: string },
+  ) {
+    const { him, his } = pronounsFor(request.employee.sex);
+    const supervisorUserId = request.employee.supervisor?.userId ?? null;
+    const toSupervisor = recipientIds.filter((id) => id === supervisorUserId);
+    const toOthers = recipientIds.filter((id) => id !== supervisorUserId);
+    if (toSupervisor.length > 0) {
+      await this.notifications.notifyUsers(toSupervisor, {
+        title: notice.title,
+        message: notice.message(`please issue ${him} a letter.`),
+        type: notice.type,
+        entityId: request.id,
+      });
+    }
+    if (toOthers.length > 0) {
+      await this.notifications.notifyUsers(toOthers, {
+        title: notice.title,
+        message: notice.message(supervisorUserId ? `${his} supervisor will issue ${him} a letter.` : `please issue ${him} a letter.`),
+        type: notice.type,
+        entityId: request.id,
+      });
+    }
+    return recipientIds.length;
   }
 
   // Reminds the employee herself, twice per Maternity Leave, that the

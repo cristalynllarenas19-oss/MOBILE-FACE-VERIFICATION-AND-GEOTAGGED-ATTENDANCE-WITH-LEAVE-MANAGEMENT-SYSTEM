@@ -142,6 +142,7 @@ const NOTIFICATION_ICON_MAP: Record<string, { name: keyof typeof Ionicons.glyphM
   LEAVE_LWOP_ENDING: { name: "calendar-outline", category: "pending" },
   LEAVE_LWOP_ENDING_TEAM: { name: "calendar-outline", category: "pending" },
   LEAVE_LWOP_RETURN: { name: "log-in-outline", category: "info" },
+  LEAVE_LWOP_RETURN_TEAM: { name: "log-in-outline", category: "info" },
   ANNOUNCEMENT: { name: "megaphone-outline", category: "announce" },
   PROBATION_REGULARIZATION_DUE: { name: "ribbon-outline", category: "pending" },
   SUPERVISOR_EVALUATION_REQUIRED: { name: "clipboard-outline", category: "pending" },
@@ -211,6 +212,7 @@ const NOTIFICATION_GROUPS: NotificationGroup[] = [
       "LEAVE_LWOP_ENDING",
       "LEAVE_LWOP_ENDING_TEAM",
       "LEAVE_LWOP_RETURN",
+      "LEAVE_LWOP_RETURN_TEAM",
     ],
   },
   {
