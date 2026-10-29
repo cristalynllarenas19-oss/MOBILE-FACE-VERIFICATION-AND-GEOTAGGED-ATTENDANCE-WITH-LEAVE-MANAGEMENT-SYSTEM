@@ -140,11 +140,32 @@ export class LeaveBalancesService {
   async findForEmployee(employeeId: string, year: number) {
     await this.ensureAutoCreditedBalances(year, [employeeId]);
 
-    const [employee, leaveTypes, balances] = await Promise.all([
+    const [employee, leaveTypes, balances, extensions] = await Promise.all([
       this.prisma.employee.findUniqueOrThrow({ where: { id: employeeId }, select: { employmentStatus: true, sex: true } }),
       this.prisma.leaveType.findMany({ orderBy: { name: "asc" } }),
       this.prisma.leaveBalance.findMany({ where: { employeeId, year } }),
+      this.prisma.leaveRequest.findMany({
+        where: { employeeId, extensionOfId: { not: null }, status: { in: ["APPROVED", "CANCELLATION_PENDING"] } },
+        select: { leaveTypeId: true, totalDays: true, extensionOfId: true },
+      }),
     ]);
+    // An approved Maternity Leave extension never draws on the balance (see
+    // LeaveService.updateStatus), but the employee's balance shows it on top
+    // of the leave's own days — counted in the year of the leave it extends.
+    const extendedLeaves = extensions.length
+      ? await this.prisma.leaveRequest.findMany({
+          where: { id: { in: extensions.map((extension) => extension.extensionOfId!) } },
+          select: { id: true, startDate: true },
+        })
+      : [];
+    const extensionDaysFor = (leaveTypeId: string) =>
+      extensions
+        .filter(
+          (extension) =>
+            extension.leaveTypeId === leaveTypeId &&
+            extendedLeaves.find((leave) => leave.id === extension.extensionOfId)?.startDate.getFullYear() === year,
+        )
+        .reduce((sum, extension) => sum + Number(extension.totalDays), 0);
 
     return leaveTypes
       .filter(
@@ -176,6 +197,11 @@ export class LeaveBalancesService {
         earnedDays,
         usedDays,
         remainingDays: Math.max(0, earnedDays - usedDays),
+        // Approved extension days, shown on top of earnedDays/usedDays —
+        // never part of them (or of remainingDays).
+        extensionDays: extensionDaysFor(leaveType.id),
+        // "As needed" — no allotment, so there is no "of N days" to show.
+        isUnlimitedDays: leaveType.isUnlimitedDays,
       };
     });
   }

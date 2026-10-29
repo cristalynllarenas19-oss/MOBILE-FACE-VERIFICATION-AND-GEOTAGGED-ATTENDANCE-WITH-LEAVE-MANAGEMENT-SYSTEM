@@ -711,6 +711,10 @@ model LeaveType {
   // (never a future date); an advance-filable type keeps today/future and
   // also gains past absent days.
   pastAbsenceFilingAllowed     Boolean            @default(false) @map("past_absence_filing_allowed")
+  // Maternity-kind only: how many calendar days (without pay) an approved
+  // leave of this type may be extended by — see LeaveService.requestExtension.
+  // 0 = no extension.
+  extensionDays                Int                @default(0) @map("extension_days")
   cancellationAllowed          Boolean            @default(false) @map("cancellation_allowed")
   cancellationCutoffValue      Int?               @map("cancellation_cutoff_value")
   cancellationCutoffUnit       String?            @map("cancellation_cutoff_unit")

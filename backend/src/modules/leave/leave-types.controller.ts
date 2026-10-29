@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Req } from "@nestjs/common";
 import { EmploymentStatus, LeaveTypeKind } from "@prisma/client";
-import { IsArray, IsBoolean, IsEnum, IsIn, IsNumber, IsOptional, IsString, Min } from "class-validator";
+import { IsArray, IsBoolean, IsEnum, IsIn, IsInt, IsNumber, IsOptional, IsString, Max, Min } from "class-validator";
+import { MATERNITY_EXTENSION_MAX_DAYS } from "./parental-return.util";
 import { LeaveTypesService } from "./leave-types.service";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
 
@@ -70,6 +71,13 @@ export class CreateLeaveTypeDto {
   @IsOptional()
   @IsBoolean()
   pastAbsenceFilingAllowed?: boolean;
+
+  // Maternity-kind only; 0 = no extension.
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(MATERNITY_EXTENSION_MAX_DAYS)
+  extensionDays?: number;
 
   @IsOptional()
   @IsEnum(LeaveTypeKind)
@@ -156,6 +164,13 @@ export class UpdateLeaveTypeDto {
   @IsOptional()
   @IsBoolean()
   pastAbsenceFilingAllowed?: boolean;
+
+  // Maternity-kind only; 0 = no extension.
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(MATERNITY_EXTENSION_MAX_DAYS)
+  extensionDays?: number;
 
   @IsOptional()
   @IsEnum(LeaveTypeKind)

@@ -44,11 +44,11 @@ import { CARD_SHADOW } from "../../styles/ui";
 // make that feel near-instant without adding real-time transport.
 const LEAVE_POLL_MS = 3000;
 
-// A 30-day Maternity Leave extension is filed under the Maternity Leave type
+// A Maternity Leave extension is filed under the Maternity Leave type
 // itself (see requestExtension in leave.service.ts) and reviewed like any
 // other request — titled so the reviewer knows what they're approving.
 function leaveRequestTitle(request: { extensionOfId?: string | null; leaveType: { name: string } }) {
-  return request.extensionOfId ? `${request.leaveType.name} Extension (30 days, without pay)` : request.leaveType.name;
+  return request.extensionOfId ? `${request.leaveType.name} Extension` : request.leaveType.name;
 }
 
 function lateMinutesLabel(minutes: number) {

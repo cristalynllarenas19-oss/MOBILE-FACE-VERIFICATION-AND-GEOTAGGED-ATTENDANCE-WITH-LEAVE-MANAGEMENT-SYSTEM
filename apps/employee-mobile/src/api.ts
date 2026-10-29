@@ -333,6 +333,11 @@ export type LeaveBalance = {
   earnedDays: number;
   usedDays: number;
   remainingDays: number;
+  // Approved Maternity Leave extension days — shown on top of the leave's
+  // own days, never part of earnedDays/usedDays/remainingDays.
+  extensionDays?: number;
+  // "As needed" type: no allotment, so only the days used are shown.
+  isUnlimitedDays?: boolean;
 };
 
 // One step in a request's approval timeline — reconstructed server-side from
@@ -408,9 +413,9 @@ export type LeaveRequest = {
   // workedDates: days of this leave the employee already timed in on —
   // those can't be picked when cancelling only some days.
   cancellation?: { allowed: boolean; reason?: string; workedDates?: string[] };
-  // Set on a 30-day Maternity Leave extension — the leave it extends.
+  // Set on a Maternity Leave extension — the leave it extends.
   extensionOfId?: string | null;
-  // Server-computed, only on an APPROVED Maternity Leave — whether its 30-day
+  // Server-computed, only on an APPROVED Maternity Leave — whether its
   // extension (without pay) can be requested now, and why not if not. It must
   // be requested by `deadline` (45 days before the leave ends); startDate/
   // endDate are the days it would cover.
@@ -420,6 +425,9 @@ export type LeaveRequest = {
 export type LeaveExtensionEligibility = {
   allowed: boolean;
   reason?: string;
+  // How many days the extension covers — the leave type's configured
+  // extension days (Utilities → Leave Types).
+  days: number;
   deadline: string;
   startDate: string;
   endDate: string;
@@ -903,7 +911,7 @@ export async function cancelLeaveRequest(
   });
 }
 
-// Files the 30-day Maternity Leave extension (without pay) of approved leave
+// Files the Maternity Leave extension (without pay) of approved leave
 // `id` — a new request reviewed by the employee's Supervisor or HR/Admin.
 export async function requestLeaveExtension(
   id: string,
@@ -1227,7 +1235,7 @@ export type TeamLeaveRequest = {
   attachmentName?: string | null;
   extensionRequested?: boolean;
   extensionApproved?: boolean | null;
-  // Set on a 30-day Maternity Leave extension — the leave it extends.
+  // Set on a Maternity Leave extension — the leave it extends.
   extensionOfId?: string | null;
   history?: LeaveRequestHistoryEvent[];
   // The team list is fetched with attachments included, so a note's

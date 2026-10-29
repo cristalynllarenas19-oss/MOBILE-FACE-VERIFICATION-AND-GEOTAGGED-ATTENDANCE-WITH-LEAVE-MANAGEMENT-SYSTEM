@@ -61,17 +61,32 @@ type Props = {
   needsRevisionCount?: number;
 };
 
-export default function LeaveBalanceChart({ balances, loading, pendingCount, onPressPending, onPressViewAll, onRequestLeave, needsRevisionCount }: Props) {
-  const totalEarned = balances.reduce((sum, b) => sum + b.earnedDays, 0);
-  const totalUsed = balances.reduce((sum, b) => sum + b.usedDays, 0);
-  const totalRemaining = balances.reduce((sum, b) => sum + b.remainingDays, 0);
+// An approved Maternity Leave extension adds up on the balance: its days are
+// counted as both earned and used on top of the leave's own (98/98 + a
+// 30-day extension reads 128/128). remainingDays is unaffected.
+function withExtensionDays(balances: LeaveBalance[]): LeaveBalance[] {
+  return balances.map((balance) =>
+    balance.extensionDays
+      ? { ...balance, earnedDays: balance.earnedDays + balance.extensionDays, usedDays: balance.usedDays + balance.extensionDays }
+      : balance,
+  );
+}
+
+export default function LeaveBalanceChart({ balances: rawBalances, loading, pendingCount, onPressPending, onPressViewAll, onRequestLeave, needsRevisionCount }: Props) {
+  const balances = withExtensionDays(rawBalances);
+  // The ring and totals compare used days against an allotment, so an "As
+  // needed" type (no allotment) stays out of them — its bar shows its days.
+  const allotted = balances.filter((b) => !b.isUnlimitedDays);
+  const totalEarned = allotted.reduce((sum, b) => sum + b.earnedDays, 0);
+  const totalUsed = allotted.reduce((sum, b) => sum + b.usedDays, 0);
+  const totalRemaining = allotted.reduce((sum, b) => sum + b.remainingDays, 0);
   const usedPercent = totalEarned > 0 ? Math.round((totalUsed / totalEarned) * 100) : 0;
 
   let cumulativeOffset = 0;
   const ringSegments = totalEarned > 0
     ? balances
         .map((balance, index) => {
-          const length = (balance.usedDays / totalEarned) * RING_CIRCUMFERENCE;
+          const length = (balance.isUnlimitedDays ? 0 : balance.usedDays / totalEarned) * RING_CIRCUMFERENCE;
           const offset = cumulativeOffset;
           cumulativeOffset += length;
           return { id: balance.leaveTypeId, color: colorForLeaveType(balance.leaveTypeName, index), length, offset };
@@ -214,7 +229,9 @@ export default function LeaveBalanceChart({ balances, loading, pendingCount, onP
               <View style={styles.barTrack}>
                 <View style={[styles.barFill, { width: `${ratio * 100}%`, backgroundColor: color }]} />
               </View>
-              <Text style={styles.barValue}>{balance.usedDays}/{balance.earnedDays} days used</Text>
+              <Text style={styles.barValue}>
+                {balance.isUnlimitedDays ? `${balance.usedDays} days used` : `${balance.usedDays}/${balance.earnedDays} days used`}
+              </Text>
               {onRequestLeave && (
                 <Pressable
                   style={styles.requestButton}

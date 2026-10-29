@@ -1,0 +1,11 @@
+﻿First Name,Middle Name (Optional),Last Name,Email,Sex,Department,Position,Employee Type,"Hire Date (Optional, YYYY-MM-DD)",Supervisor Employee No (Optional),Civil Status (Optional),Spouse Employment (Optional),Spouse Company (Optional),Spouse Employee No (Optional)
+Andres,Bautista,Villanueva,andres.villanueva@example.org,Male,Production,Manager I,Regular Employee,2026-01-05,,Married,Other Company,Golden Leaf Trading,
+Bea,,Castillo,bea.castillo@example.org,Female,Production,Manager II,Probationary Employee,2026-03-16,,Single,,,
+Carlo,Mendoza,Ramos,carlo.ramos@example.org,Male,Production,Senior Manager,Permanent Seasonal Employee,2025-11-03,,Married,Unemployed,,
+Daisy,Lim,Aquino,daisy.aquino@example.org,Female,Production,Manager I,Probationary Seasonal Employee,,,,,,
+Emilio,,Torres,emilio.torres@example.org,Male,Quality Control,Manager I,Regular Employee,2025-08-18,,Single,,,
+Fatima,Garcia,Santiago,fatima.santiago@example.org,Female,Quality Control,Manager II,Regular Employee,2026-02-02,,Married,Not provided,,
+Gabriel,Reyes,Navarro,gabriel.navarro@example.org,Male,Quality Control,Senior Manager,Probationary Employee,2026-06-01,,Widowed,,,
+Hannah,,Dizon,hannah.dizon@example.org,Female,Human Resources,HR Manager I,Regular Employee,2025-10-13,,Single,,,
+Ivan,Cruz,Salazar,ivan.salazar@example.org,Male,Human Resources,Manager Trainee,Probationary Employee,2026-09-07,,Separated,,,
+Jasmine,Ocampo,Ferrer,jasmine.ferrer@example.org,Female,Human Resources,HR Manager II,Regular Employee,2024-12-09,,Married,Other Company,Bayanihan Foods Inc.,

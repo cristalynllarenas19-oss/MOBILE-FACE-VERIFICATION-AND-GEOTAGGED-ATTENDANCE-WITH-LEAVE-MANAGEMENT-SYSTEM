@@ -1,6 +1,8 @@
 import {
   MATERNITY_ENDING_NOTICE_DAYS,
   PATERNITY_ENDING_NOTICE_DAYS,
+  employeeEndingNoticeDue,
+  extensionReminderDue,
   findReturnDay,
   lastParentalLeaveDay,
   parentalNoticeDue,
@@ -14,9 +16,9 @@ const monToSat = () => [1, 2, 3, 4, 5, 6];
 
 describe("lastParentalLeaveDay", () => {
   it("is the request's own end date unless an extension was approved", () => {
-    expect(lastParentalLeaveDay(oct(9, 8), null)).toEqual(oct(9));
-    expect(lastParentalLeaveDay(oct(9, 8), false)).toEqual(oct(9));
-    expect(lastParentalLeaveDay(oct(9, 8), true)).toEqual(nov(8));
+    expect(lastParentalLeaveDay(oct(9, 8), null, 30)).toEqual(oct(9));
+    expect(lastParentalLeaveDay(oct(9, 8), false, 30)).toEqual(oct(9));
+    expect(lastParentalLeaveDay(oct(9, 8), true, 30)).toEqual(nov(8));
   });
 });
 
@@ -67,16 +69,18 @@ describe("parentalNoticeDue", () => {
     expect(parentalNoticeDue({ ...maternity, now: oct(8, 23) })).toBeNull();
   });
 
-  it("sends the ending notice during the window, up to the return day", () => {
+  it("sends the ending notice during the window, up to the day before the return", () => {
     expect(parentalNoticeDue({ ...maternity, now: oct(9, 0) })).toEqual({ kind: "ENDING", windowStart: oct(9) });
     expect(parentalNoticeDue({ ...maternity, now: oct(16, 12) })).toEqual({ kind: "ENDING", windowStart: oct(9) });
-    // The weekend between the last leave day and the return day.
-    expect(parentalNoticeDue({ ...maternity, now: oct(18, 12) })).toEqual({ kind: "ENDING", windowStart: oct(9) });
+    // The Saturday between the last leave day and the return day.
+    expect(parentalNoticeDue({ ...maternity, now: oct(17, 12) })).toEqual({ kind: "ENDING", windowStart: oct(9) });
   });
 
-  it("sends the return notice from the return day, late within the catch-up window", () => {
-    expect(parentalNoticeDue({ ...maternity, now: oct(19, 0) })).toEqual({ kind: "RETURN", windowStart: oct(19), late: false });
-    expect(parentalNoticeDue({ ...maternity, now: oct(26, 9) })).toEqual({ kind: "RETURN", windowStart: oct(19), late: true });
+  it("sends the return notice the day before the return, then again on the day (late within the catch-up window)", () => {
+    expect(parentalNoticeDue({ ...maternity, now: oct(18, 0) })).toEqual({ kind: "RETURN", windowStart: oct(18), daysUntilReturn: 1 });
+    // Its own window, so the day-before notice doesn't count as this one.
+    expect(parentalNoticeDue({ ...maternity, now: oct(19, 9) })).toEqual({ kind: "RETURN", windowStart: oct(19), daysUntilReturn: 0 });
+    expect(parentalNoticeDue({ ...maternity, now: oct(26, 9) })).toEqual({ kind: "RETURN", windowStart: oct(19), daysUntilReturn: -7 });
     expect(parentalNoticeDue({ ...maternity, now: oct(27, 0) })).toBeNull();
   });
 
@@ -85,12 +89,56 @@ describe("parentalNoticeDue", () => {
     const paternity = { startDate: oct(5), lastLeaveDay: oct(11), returnDate: oct(12), noticeDays: PATERNITY_ENDING_NOTICE_DAYS };
     expect(parentalNoticeDue({ ...paternity, now: oct(5, 9) })).toBeNull();
     expect(parentalNoticeDue({ ...paternity, now: oct(8, 0) })).toEqual({ kind: "ENDING", windowStart: oct(8) });
-    expect(parentalNoticeDue({ ...paternity, now: oct(12, 7) })).toEqual({ kind: "RETURN", windowStart: oct(12), late: false });
+    expect(parentalNoticeDue({ ...paternity, now: oct(11, 7) })).toEqual({ kind: "RETURN", windowStart: oct(11), daysUntilReturn: 1 });
   });
 
   it("skips the ending notice for a short leave that hasn't started yet", () => {
     expect(
       parentalNoticeDue({ startDate: oct(14), lastLeaveDay: oct(16), returnDate: oct(19), noticeDays: 7, now: oct(12) }),
     ).toBeNull();
+  });
+});
+
+describe("extensionReminderDue", () => {
+  // Maternity leave ending Thu Dec 31 2026 — the extension must be asked for
+  // by Mon Nov 16, 45 days earlier. Early reminder from Mon Nov 9, final one
+  // on Nov 16 itself.
+  const endDate = new Date(2026, 11, 31, 8);
+
+  it("sends nothing before the week leading up to the deadline", () => {
+    expect(extensionReminderDue({ endDate, now: nov(8, 23) })).toBeNull();
+  });
+
+  it("is due early from a week before the deadline, up to the day before", () => {
+    expect(extensionReminderDue({ endDate, now: nov(9, 0) })).toEqual({ deadline: nov(16), windowStart: nov(9), daysLeft: 7 });
+    expect(extensionReminderDue({ endDate, now: nov(15, 23) })).toEqual({ deadline: nov(16), windowStart: nov(9), daysLeft: 1 });
+  });
+
+  it("is due again, in its own window, on the deadline itself — 45 days before the leave ends", () => {
+    expect(extensionReminderDue({ endDate, now: nov(16, 0) })).toEqual({ deadline: nov(16), windowStart: nov(16), daysLeft: 0 });
+    expect(extensionReminderDue({ endDate, now: nov(16, 23) })).toEqual({ deadline: nov(16), windowStart: nov(16), daysLeft: 0 });
+  });
+
+  it("is no longer due once the deadline has passed", () => {
+    expect(extensionReminderDue({ endDate, now: nov(17, 0) })).toBeNull();
+  });
+});
+
+describe("employeeEndingNoticeDue", () => {
+  // Paternity leave Mon Oct 5 - Sun Oct 11.
+  const paternity = { startDate: oct(5), lastLeaveDay: oct(11, 8) };
+
+  it("sends nothing before the day before the last leave day", () => {
+    expect(employeeEndingNoticeDue({ ...paternity, now: oct(9, 23) })).toBeNull();
+  });
+
+  it("is due the day before the last leave day, or on it if that was missed", () => {
+    expect(employeeEndingNoticeDue({ ...paternity, now: oct(10, 0) })).toEqual({ windowStart: oct(10), daysUntilEnd: 1 });
+    expect(employeeEndingNoticeDue({ ...paternity, now: oct(11, 20) })).toEqual({ windowStart: oct(10), daysUntilEnd: 0 });
+  });
+
+  it("is no longer due once the leave is over, or before it has started", () => {
+    expect(employeeEndingNoticeDue({ ...paternity, now: oct(12, 0) })).toBeNull();
+    expect(employeeEndingNoticeDue({ startDate: oct(11), lastLeaveDay: oct(11), now: oct(10) })).toBeNull();
   });
 });

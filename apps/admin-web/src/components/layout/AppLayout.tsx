@@ -28,6 +28,7 @@ import {
   fetchUnreadCount,
   markAllNotificationsRead,
   markNotificationRead,
+  notificationViewFor,
 } from "../../lib/notifications";
 import { CACHE_KEYS, revalidateCached, useCachedData } from "../../lib/dataCache";
 import { EmployeeProfile, getLeaveRequests, getLeaveBalances, getMyProfile } from "../../features/employee-portal/api";
@@ -121,7 +122,12 @@ export function AppLayout({
   const [helpOpen, setHelpOpen] = useState(false);
   const [utilitiesOpen, setUtilitiesOpen] = useState(activePage === "utilities");
   // Cache-first 
-  const notificationsCache = useCachedData<AppNotification[]>(CACHE_KEYS.notifications, fetchNotifications);
+  // A Supervisor/Admin who is also an employee sees only team notifications
+  // in the admin portal and only their own in the employee portal.
+  const notificationView = notificationViewFor(activeView, user.roles);
+  const notificationsCache = useCachedData<AppNotification[]>(CACHE_KEYS.notifications(notificationView), () =>
+    fetchNotifications(notificationView),
+  );
   const notifications = notificationsCache.data ?? EMPTY_NOTIFICATIONS;
   const setNotifications = notificationsCache.setData;
   const notifLoading = notificationsCache.isLoading;
@@ -170,7 +176,7 @@ export function AppLayout({
   useEffect(() => {
     let lastKnownCount: number | null = null;
     const refreshUnreadCount = () => {
-      fetchUnreadCount()
+      fetchUnreadCount(notificationView)
         .then((data) => {
           setUnreadCount(data.count);
           
@@ -192,7 +198,7 @@ export function AppLayout({
     refreshUnreadCount();
     const interval = window.setInterval(refreshUnreadCount, NOTIFICATION_POLL_MS);
     return () => window.clearInterval(interval);
-  }, [user.employeeId]);
+  }, [user.employeeId, notificationView]);
 
   useEffect(() => {
     if (!notifOpen) return;
@@ -234,7 +240,7 @@ export function AppLayout({
   const handleMarkAllRead = () => {
     setNotifications(notifications.map((item) => ({ ...item, readAt: item.readAt ?? new Date().toISOString() })));
     setUnreadCount(0);
-    markAllNotificationsRead().catch(() => undefined);
+    markAllNotificationsRead(notificationView).catch(() => undefined);
   };
 
   const ATTENDANCE_NOTIFICATION_TYPES = ["ATTENDANCE_FLAGGED", "FACE_MISMATCH_STREAK", "ATTENDANCE_VALIDATED", "ATTENDANCE_FAKE_ATTEMPT"];

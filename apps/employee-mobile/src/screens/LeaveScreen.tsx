@@ -144,10 +144,10 @@ function leaveDaysOf(request: { startDate: string; endDate: string }) {
   return days;
 }
 
-// A 30-day Maternity Leave extension is filed under the Maternity Leave type
+// A Maternity Leave extension is filed under the Maternity Leave type
 // itself (see requestExtension in leave.service.ts) — titled as such.
 function leaveRequestTitle(request: { extensionOfId?: string | null; leaveType: { name: string } }) {
-  return request.extensionOfId ? `${request.leaveType.name} Extension (30 days, without pay)` : request.leaveType.name;
+  return request.extensionOfId ? `${request.leaveType.name} Extension` : request.leaveType.name;
 }
 
 function requiredDocumentFor(name?: string) {
@@ -399,7 +399,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
   // confirm step instead of cancelling immediately. The backend requires a
   // reason (see leave.service.ts's cancel()), so it's collected right here.
   const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
-  // The approved Maternity Leave whose 30-day extension is being requested
+  // The approved Maternity Leave whose extension is being requested
   // (see the extension modal), and the reason typed for it.
   const [extendTargetId, setExtendTargetId] = useState<string | null>(null);
   const [extendReasonText, setExtendReasonText] = useState("");
@@ -896,7 +896,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
       setResultModal({
         status: "approved",
         title: "Extension Requested",
-        message: "Your supervisor has been notified and will need to approve your 30-day extension.",
+        message: "Your supervisor has been notified and will need to approve your extension.",
       });
     } catch (err) {
       setExtendTargetId(null);
@@ -2192,7 +2192,50 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                             )}
                           </View>
                         )}
-                        {request.extension && (
+                        {(() => {
+                          // Already extended (or awaiting review): show the
+                          // extension itself, with View opening its details,
+                          // instead of a disabled Request button.
+                          const extensionRequest = request.extension?.extensionId
+                            ? requests.find((r) => r.id === request.extension?.extensionId)
+                            : undefined;
+                          if (!extensionRequest) return null;
+                          const extensionTone = statusTone(extensionRequest.status);
+                          return (
+                            <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: "#E2E8F0" }}>
+                              <Text style={styles.extensionSectionLabel}>{Number(extensionRequest.totalDays)}-DAY EXTENSION</Text>
+                              <View style={[styles.extensionRow, { borderLeftColor: extensionTone.color }]}>
+                                <View style={[styles.summaryTopRow, styles.summaryTopRowWrap]}>
+                                  <Text style={styles.extensionTitle}>{leaveRequestTitle(extensionRequest)}</Text>
+                                  <View style={[styles.statusPill, { backgroundColor: extensionTone.bg }]}>
+                                    <View style={[styles.statusDot, { backgroundColor: extensionTone.color }]} />
+                                    <Text style={[styles.statusPillText, { color: extensionTone.color }]} numberOfLines={1}>
+                                      {statusLabel(extensionRequest.status, extensionRequest.lapseReason)}
+                                    </Text>
+                                  </View>
+                                </View>
+                                <View style={[styles.summaryDateRow, { marginTop: 4 }]}>
+                                  <Ionicons name="calendar-outline" size={13} color="#94A3B8" />
+                                  <Text style={styles.summaryDateText}>
+                                    {new Date(extensionRequest.startDate).toLocaleDateString()} -{" "}
+                                    {new Date(extensionRequest.endDate).toLocaleDateString()}
+                                  </Text>
+                                </View>
+                                <Pressable
+                                  style={({ pressed }) => [styles.extensionViewButton, pressed && styles.summaryCardPressed]}
+                                  onPress={() => {
+                                    setExpandedRequestId(extensionRequest.id);
+                                    requestsCache.refresh().catch(() => undefined);
+                                  }}
+                                >
+                                  <Ionicons name="eye-outline" size={15} color="#1680D8" />
+                                  <Text style={styles.extensionViewButtonText}>View</Text>
+                                </Pressable>
+                              </View>
+                            </View>
+                          );
+                        })()}
+                        {request.extension && !(request.extension.extensionId && requests.some((r) => r.id === request.extension?.extensionId)) && (
                           <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: "#E2E8F0" }}>
                             <Pressable
                               style={[styles.extendLeaveButton, !request.extension.allowed && styles.cancelLeaveButtonDisabled]}
@@ -2208,7 +2251,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                                 color={request.extension.allowed ? "#1680D8" : "#94A3B8"}
                               />
                               <Text style={[styles.extendLeaveButtonText, !request.extension.allowed && styles.cancelLeaveButtonTextDisabled]}>
-                                Request 30-Day Extension
+                                Request {request.extension.days}-Day Extension
                               </Text>
                             </Pressable>
                             {request.extension.allowed ? (
@@ -2389,8 +2432,21 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                           : "No past leave requests."}
                     </Text>
                   ) : (
-                    (requestsListTab === "current" ? currentRequests : pastRequests).map((request) => {
+                    (() => {
+                      // A Maternity Leave extension shows inside the leave
+                      // it extends instead of as a card of its own — unless
+                      // that leave isn't in this list (e.g. it's already
+                      // under Past while the extension is Active).
+                      const listed = requestsListTab === "current" ? currentRequests : pastRequests;
+                      const listedIds = new Set(listed.map((r) => r.id));
+                      const isNested = (r: LeaveRequest) => Boolean(r.extensionOfId && listedIds.has(r.extensionOfId));
+                      return listed.filter((r) => !isNested(r)).map((request) => {
                       const tone = statusTone(request.status);
+                      // The extension that currently stands on this leave
+                      // (pending or approved), whichever tab it's in.
+                      const extension = request.extension?.extensionId
+                        ? requests.find((r) => r.id === request.extension?.extensionId)
+                        : undefined;
                       return (
                         <Pressable
                           key={request.id}
@@ -2421,9 +2477,30 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                               {new Date(request.startDate).toLocaleDateString()} - {new Date(request.endDate).toLocaleDateString()}
                             </Text>
                           </View>
+                          {extension && (
+                            // The extension's own dates, right under
+                            // the leave's — its details open from View
+                            // inside this leave's details.
+                            <View style={[styles.summaryDateRow, styles.summaryExtensionRow]}>
+                              <Ionicons name="calendar-number-outline" size={13} color="#94A3B8" />
+                              <Text style={styles.summaryDateText}>
+                                Extension: {new Date(extension.startDate).toLocaleDateString()} -{" "}
+                                {new Date(extension.endDate).toLocaleDateString()}
+                              </Text>
+                              {extension.status !== "APPROVED" && (
+                                <View style={[styles.statusPill, { backgroundColor: statusTone(extension.status).bg }]}>
+                                  <View style={[styles.statusDot, { backgroundColor: statusTone(extension.status).color }]} />
+                                  <Text style={[styles.statusPillText, { color: statusTone(extension.status).color }]} numberOfLines={1}>
+                                    {statusLabel(extension.status, extension.lapseReason)}
+                                  </Text>
+                                </View>
+                              )}
+                            </View>
+                          )}
                         </Pressable>
                       );
-                    })
+                    });
+                    })()
                   )}
                 </AestheticScrollView>
               </>
@@ -2703,7 +2780,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                 <>
                   <Text style={styles.modalTitle}>Extend your {target.leaveType.name}?</Text>
                   <Text style={{ color: "#475569", fontSize: 14 }}>
-                    This requests 30 more days without pay, from {new Date(target.extension.startDate).toLocaleDateString()} to{" "}
+                    This requests {target.extension.days} more days without pay, from {new Date(target.extension.startDate).toLocaleDateString()} to{" "}
                     {new Date(target.extension.endDate).toLocaleDateString()}. Your supervisor or HR will need to approve it.
                   </Text>
                   <TextInput
@@ -3289,6 +3366,32 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   summaryCardPressed: { backgroundColor: "#EEF2F7" },
+  // A Maternity Leave's extension dates, under its own on the list card.
+  summaryExtensionRow: { marginTop: 6, flexWrap: "wrap" },
+  // The extension card inside the Maternity Leave's details.
+  extensionRow: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderLeftWidth: 3,
+  },
+  extensionTitle: { fontSize: 14, fontWeight: "700", color: "#062B59", flexShrink: 1 },
+  extensionSectionLabel: { fontSize: 11, fontWeight: "700", color: "#64748B", letterSpacing: 0.6, marginBottom: 8 },
+  extensionViewButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#BFDBFE",
+    backgroundColor: "#EFF6FF",
+  },
+  extensionViewButtonText: { fontSize: 13, fontWeight: "700", color: "#1680D8" },
   summaryTopRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 8 },
   // Leave request cards: the title keeps its natural width and the status
   // pill drops to its own line when both can't fit — a long pill ("LAPSED -

@@ -48,6 +48,9 @@ type LeaveType = {
   isSingleDayOnly: boolean;
   advanceFilingAllowed: boolean;
   pastAbsenceFilingAllowed: boolean;
+  // Maternity-kind only: days (without pay) an approved leave may be
+  // extended by; 0 = no extension.
+  extensionDays: number;
   cancellationAllowed: boolean;
   kind: LeaveTypeKind;
   createdAt: string;
@@ -87,6 +90,10 @@ function actorDisplayName(actor: ActorRef | undefined) {
   return actor.email;
 }
 
+// Same cap as the backend (MATERNITY_EXTENSION_MAX_DAYS in
+// parental-return.util.ts).
+const MAX_EXTENSION_DAYS = 120;
+
 const emptyForm = {
   name: "",
   defaultDays: "15",
@@ -102,6 +109,8 @@ const emptyForm = {
   isSingleDayOnly: false,
   advanceFilingAllowed: true,
   pastAbsenceFilingAllowed: false,
+  extensionAllowed: false,
+  extensionDays: "30",
   cancellationAllowed: false,
   isAutoCredited: false,
   isTransferable: false,
@@ -221,6 +230,8 @@ export function LeaveTypesTab({
       isSingleDayOnly: type.isSingleDayOnly,
       advanceFilingAllowed: type.advanceFilingAllowed,
       pastAbsenceFilingAllowed: type.pastAbsenceFilingAllowed,
+      extensionAllowed: (type.extensionDays ?? 0) > 0,
+      extensionDays: String((type.extensionDays ?? 0) > 0 ? type.extensionDays : 30),
       cancellationAllowed: type.cancellationAllowed,
       isAutoCredited: type.isAutoCredited,
       isTransferable: type.isTransferable,
@@ -240,6 +251,16 @@ export function LeaveTypesTab({
   const submitForm = async () => {
     const name = form.name.trim();
     if (!name || (!form.isUnlimitedDays && !form.defaultDays)) return;
+    const extensionAllowed = form.kind === "MATERNITY" && form.extensionAllowed;
+    const extensionDays = Number(form.extensionDays);
+    if (extensionAllowed && (!Number.isInteger(extensionDays) || extensionDays < 1 || extensionDays > MAX_EXTENSION_DAYS)) {
+      notify({
+        type: "error",
+        title: "Invalid Extension Days",
+        message: `Extension days must be a whole number from 1 to ${MAX_EXTENSION_DAYS}.`,
+      });
+      return;
+    }
     setIsSaving(true);
     setNameError(null);
     try {
@@ -261,6 +282,8 @@ export function LeaveTypesTab({
         isSingleDayOnly: form.isSingleDayOnly,
         advanceFilingAllowed: form.advanceFilingAllowed,
         pastAbsenceFilingAllowed: form.pastAbsenceFilingAllowed,
+        // 0 = no extension (unchecked, or not a Maternity type).
+        extensionDays: extensionAllowed ? extensionDays : 0,
         cancellationAllowed: form.cancellationAllowed,
         isAutoCredited: form.isAutoCredited,
         isTransferable: form.isTransferable,
@@ -681,6 +704,35 @@ export function LeaveTypesTab({
                     <span>Allow employee cancellation after approval (any time until they time in on a leave day)</span>
                   </label>
 
+                  {/* Only a Maternity type can be extended (see requestExtension
+                      in leave.service.ts). */}
+                  {form.kind === "MATERNITY" && (
+                    <label className="utilities-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={form.extensionAllowed}
+                        onChange={(e) => setForm((c) => ({ ...c, extensionAllowed: e.target.checked }))}
+                      />
+                      <span>Allow extension (the employee may request extra days after an approved leave, at least 45 days before it ends)</span>
+                    </label>
+                  )}
+
+                  {form.kind === "MATERNITY" && form.extensionAllowed && (
+                    <label className="utilities-field">
+                      <span className="utilities-field-label">Extension days</span>
+                      <input
+                        className="utilities-input"
+                        type="number"
+                        min={1}
+                        max={MAX_EXTENSION_DAYS}
+                        step={1}
+                        value={form.extensionDays}
+                        onChange={(e) => setForm((c) => ({ ...c, extensionDays: e.target.value }))}
+                        placeholder="e.g. 30"
+                      />
+                    </label>
+                  )}
+
                   <label className="utilities-checkbox">
                     <input
                       type="checkbox"
@@ -808,6 +860,15 @@ export function LeaveTypesTab({
                           ? "Today or a past absent day"
                           : "Today only",
                     },
+                    ...(viewLeaveType.kind === "MATERNITY"
+                      ? [
+                          {
+                            label: "Extension",
+                            on: viewLeaveType.extensionDays > 0,
+                            value: viewLeaveType.extensionDays > 0 ? `${viewLeaveType.extensionDays} days` : "Not allowed",
+                          },
+                        ]
+                      : []),
                     { label: "Single Day Only", on: viewLeaveType.isSingleDayOnly, value: viewLeaveType.isSingleDayOnly ? "Yes" : "No" },
                     { label: "Employee Cancellation", on: viewLeaveType.cancellationAllowed, value: formatEmployeeCancellation(viewLeaveType) },
                   ],

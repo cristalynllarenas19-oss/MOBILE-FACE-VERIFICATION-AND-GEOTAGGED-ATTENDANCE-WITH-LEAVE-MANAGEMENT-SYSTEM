@@ -41,6 +41,7 @@ export class LeaveTypesService {
       isSingleDayOnly?: boolean;
       advanceFilingAllowed?: boolean;
       pastAbsenceFilingAllowed?: boolean;
+      extensionDays?: number;
       kind?: LeaveTypeKind;
       cancellationAllowed?: boolean;
       cancellationCutoffValue?: number;
@@ -81,6 +82,8 @@ export class LeaveTypesService {
         isSingleDayOnly: dto.isSingleDayOnly ?? false,
         advanceFilingAllowed: dto.advanceFilingAllowed ?? true,
         pastAbsenceFilingAllowed: dto.pastAbsenceFilingAllowed ?? false,
+        // A new Maternity type gets the usual 30 days unless HR sets otherwise.
+        extensionDays: (dto.kind ?? "GENERAL") === "MATERNITY" ? (dto.extensionDays ?? 30) : 0,
         kind: dto.kind ?? "GENERAL",
         cancellationAllowed: dto.cancellationAllowed ?? false,
         cancellationCutoffValue: dto.cancellationAllowed ? dto.cancellationCutoffValue : null,
@@ -112,6 +115,7 @@ export class LeaveTypesService {
           isSingleDayOnly: created.isSingleDayOnly,
           advanceFilingAllowed: created.advanceFilingAllowed,
           pastAbsenceFilingAllowed: created.pastAbsenceFilingAllowed,
+          extensionDays: created.extensionDays,
           kind: created.kind,
           cancellationAllowed: created.cancellationAllowed,
           cancellationCutoffValue: created.cancellationCutoffValue,
@@ -142,6 +146,7 @@ export class LeaveTypesService {
       isSingleDayOnly?: boolean;
       advanceFilingAllowed?: boolean;
       pastAbsenceFilingAllowed?: boolean;
+      extensionDays?: number;
       kind?: LeaveTypeKind;
       cancellationAllowed?: boolean;
       cancellationCutoffValue?: number;
@@ -179,6 +184,7 @@ export class LeaveTypesService {
         isSingleDayOnly: dto.isSingleDayOnly,
         advanceFilingAllowed: dto.advanceFilingAllowed,
         pastAbsenceFilingAllowed: dto.pastAbsenceFilingAllowed,
+        extensionDays: dto.extensionDays,
         kind: dto.kind,
         cancellationAllowed: dto.cancellationAllowed,
         cancellationCutoffValue:
@@ -196,6 +202,19 @@ export class LeaveTypesService {
         updatedByUser: ACTOR_SELECT,
       },
     });
+
+    // A new default allotment (or a switch from "As needed" to fixed days)
+    // reaches this year's balances that still hold the old default — the
+    // rows seeded from it. A balance HR adjusted for one employee, or an
+    // admin-grant-only type's per-employee grant, is left alone.
+    const oldDefault = existing.isUnlimitedDays ? 0 : Number(existing.defaultDays);
+    const newDefault = updated.isUnlimitedDays ? 0 : Number(updated.defaultDays);
+    if (newDefault !== oldDefault && !updated.requiresAdminGrant) {
+      await this.prisma.leaveBalance.updateMany({
+        where: { leaveTypeId: id, year: new Date().getFullYear(), earnedDays: oldDefault },
+        data: { earnedDays: newDefault },
+      });
+    }
 
     await this.prisma.auditLog.create({
       data: {
@@ -220,6 +239,7 @@ export class LeaveTypesService {
           isSingleDayOnly: existing.isSingleDayOnly,
           advanceFilingAllowed: existing.advanceFilingAllowed,
           pastAbsenceFilingAllowed: existing.pastAbsenceFilingAllowed,
+          extensionDays: existing.extensionDays,
           kind: existing.kind,
           cancellationAllowed: existing.cancellationAllowed,
           cancellationCutoffValue: existing.cancellationCutoffValue,
@@ -242,6 +262,7 @@ export class LeaveTypesService {
           isSingleDayOnly: updated.isSingleDayOnly,
           advanceFilingAllowed: updated.advanceFilingAllowed,
           pastAbsenceFilingAllowed: updated.pastAbsenceFilingAllowed,
+          extensionDays: updated.extensionDays,
           kind: updated.kind,
           cancellationAllowed: updated.cancellationAllowed,
           cancellationCutoffValue: updated.cancellationCutoffValue,

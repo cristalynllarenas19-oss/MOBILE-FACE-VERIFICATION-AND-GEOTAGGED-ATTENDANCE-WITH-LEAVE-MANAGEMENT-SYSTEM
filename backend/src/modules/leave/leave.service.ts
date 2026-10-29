@@ -10,6 +10,7 @@ import { RequestLeaveExtensionDto } from "./dto/request-leave-extension.dto";
 import { isEligibleForLeaveType } from "./leave-balances.service";
 import { isNonWorkingDay } from "../../common/utils/schedule.util";
 import { resolveMissedDays } from "../attendance/attendance-missed-days.util";
+import { MATERNITY_EXTENSION_NOTICE_DAYS } from "./parental-return.util";
 
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 type LeaveRequestStatus =
@@ -47,14 +48,15 @@ function toDateOnly(value: Date): Date {
   return new Date(value.getFullYear(), value.getMonth(), value.getDate());
 }
 
-// A Maternity Leave can be extended once, by this many calendar days without
-// pay, if the employee asks at least EXTENSION_NOTICE_DAYS before it ends
-// (RA 11210) — see getExtensionEligibility / requestExtension.
-const EXTENSION_DAYS = 30;
-const EXTENSION_NOTICE_DAYS = 45;
+// A Maternity Leave can be extended once, by its leave type's extensionDays
+// (calendar days, without pay — HR configures it, 30 by default), if the
+// employee asks at least EXTENSION_NOTICE_DAYS before it ends (RA 11210) —
+// see getExtensionEligibility / requestExtension.
+// Shared with ParentalReturnService's deadline reminder.
+const EXTENSION_NOTICE_DAYS = MATERNITY_EXTENSION_NOTICE_DAYS;
 // An extension in any of these still stands (or is still being decided), so
 // another one can't be requested for the same Maternity Leave.
-const ACTIVE_EXTENSION_STATUSES: LeaveRequestStatus[] = [
+export const ACTIVE_EXTENSION_STATUSES: LeaveRequestStatus[] = [
   "PENDING",
   "SUPERVISOR_APPROVED",
   "NEEDS_REVISION",
@@ -179,7 +181,7 @@ export class LeaveService {
       // days) and explain why instead of only finding out after a failed
       // attempt — same rule the cancel() endpoint enforces.
       cancellation: this.getCancellationEligibility(request, workedDatesByEmployeeId.get(request.employeeId) ?? [], request.notes),
-      // Same idea for the 30-day Maternity Leave extension — its extension
+      // Same idea for the Maternity Leave extension — its extension
       // (if any) is always in this same list, being the same employee's.
       extension: this.getExtensionEligibility(request, requests),
       history: this.buildHistory(request, [
@@ -379,32 +381,35 @@ export class LeaveService {
     return { allowed: true, workedDates: workedOnLeave.map((day) => new Date(day).toISOString()) };
   }
 
-  // Whether the employee could ask to extend this leave by 30 days without
-  // pay right now, and why not if not — null for anything but an APPROVED
-  // Maternity Leave (an extension itself can't be extended). It has to be
+  // Whether the employee could ask to extend this leave (by its type's
+  // extensionDays, without pay) right now, and why not if not — null for
+  // anything but an APPROVED Maternity Leave whose type allows an extension
+  // (an extension itself can't be extended). It has to be
   // asked at least 45 days before the leave ends, and only once per leave
   // (a rejected or cancelled extension can be asked for again). startDate/
-  // endDate are the days the extension would cover.
+  // endDate are the days the extension would cover, `days` how many.
   private getExtensionEligibility(
     request: {
       id: string;
       status: string;
       endDate: Date;
       extensionOfId: string | null;
-      leaveType: { kind: string; name: string };
+      leaveType: { kind: string; name: string; extensionDays: number };
     },
     // Any requests that may include this one's extension — only the ones
     // pointing back to it count.
     others: Array<{ id: string; status: string; extensionOfId: string | null }>,
-  ): { allowed: boolean; reason?: string; deadline: string; startDate: string; endDate: string; extensionId?: string } | null {
-    if (request.leaveType.kind !== "MATERNITY" || request.extensionOfId || request.status !== "APPROVED") {
+  ): { allowed: boolean; reason?: string; days: number; deadline: string; startDate: string; endDate: string; extensionId?: string } | null {
+    const days = request.leaveType.extensionDays;
+    if (request.leaveType.kind !== "MATERNITY" || days <= 0 || request.extensionOfId || request.status !== "APPROVED") {
       return null;
     }
     const deadline = addDays(toDateOnly(request.endDate), -EXTENSION_NOTICE_DAYS);
     const window = {
+      days,
       deadline: deadline.toISOString(),
       startDate: addDays(request.endDate, 1).toISOString(),
-      endDate: addDays(request.endDate, EXTENSION_DAYS).toISOString(),
+      endDate: addDays(request.endDate, days).toISOString(),
     };
 
     const existing = others.find(
@@ -417,15 +422,15 @@ export class LeaveService {
         extensionId: existing.id,
         reason:
           existing.status === "APPROVED" || existing.status === "CANCELLATION_PENDING"
-            ? `This ${request.leaveType.name} has already been extended by ${EXTENSION_DAYS} days.`
-            : `You already requested a ${EXTENSION_DAYS}-day extension of this ${request.leaveType.name} — it is awaiting review.`,
+            ? `This ${request.leaveType.name} has already been extended.`
+            : `You already requested an extension of this ${request.leaveType.name} — it is awaiting review.`,
       };
     }
     if (toDateOnly(new Date()) > deadline) {
       return {
         ...window,
         allowed: false,
-        reason: `A ${EXTENSION_DAYS}-day extension must be requested at least ${EXTENSION_NOTICE_DAYS} days before your ${request.leaveType.name} ends — the last day to request it was ${deadline.toLocaleDateString()}.`,
+        reason: `A ${days}-day extension must be requested at least ${EXTENSION_NOTICE_DAYS} days before your ${request.leaveType.name} ends — the last day to request it was ${deadline.toLocaleDateString()}.`,
       };
     }
     return { ...window, allowed: true };
@@ -568,10 +573,11 @@ export class LeaveService {
       }
     }
 
-    // The 30-day unpaid extension only makes sense for a Maternity-kind leave
-    // type — a crafted request against any other leave type is silently
-    // ignored rather than trusted, even though the frontend already gates this.
-    const extensionRequested = Boolean(dto.extensionRequested) && leaveType.kind === "MATERNITY";
+    // The unpaid extension only makes sense for a Maternity-kind leave type
+    // that allows one — a crafted request against any other leave type is
+    // silently ignored rather than trusted, even though the frontend already
+    // gates this.
+    const extensionRequested = Boolean(dto.extensionRequested) && leaveType.kind === "MATERNITY" && leaveType.extensionDays > 0;
 
     const requests = await this.prisma.$transaction(
       days.map((day) =>
@@ -935,7 +941,7 @@ export class LeaveService {
     };
 
     // A Maternity Leave extension is reviewed like any request, but says so.
-    const subject = request.extensionOfId ? `${EXTENSION_DAYS}-day ${request.leaveType.name} extension` : request.leaveType.name;
+    const subject = request.extensionOfId ? `${Number(request.totalDays)}-day ${request.leaveType.name} extension` : request.leaveType.name;
 
     if (request.employee.userId && status !== "PENDING") {
       await this.notifications.notifyUsers([request.employee.userId], {
@@ -1061,7 +1067,8 @@ export class LeaveService {
 
     // Reverse a prior approval's balance deduction if an admin is now rejecting
     // (or sending back for revision) a request that had already been approved.
-    if (wasApproved) {
+    // A Maternity Leave extension never deducted anything, so nothing comes back.
+    if (wasApproved && !request.extensionOfId) {
       await this.adjustLeaveBalance(request.employeeId, request.leaveTypeId, request.startDate, -Number(request.totalDays));
     }
 
@@ -1162,7 +1169,7 @@ export class LeaveService {
     });
     if (standingExtension) {
       throw new BadRequestException(
-        `This ${existing.leaveType.name} has a ${EXTENSION_DAYS}-day extension filed against it. Cancel the extension first.`,
+        `This ${existing.leaveType.name} has an extension filed against it. Cancel the extension first.`,
       );
     }
 
@@ -1661,10 +1668,11 @@ export class LeaveService {
     });
   }
 
-  // The employee asks to extend an APPROVED Maternity Leave by 30 calendar
-  // days without pay — at least 45 days before it ends, and once (see
+  // The employee asks to extend an APPROVED Maternity Leave by its type's
+  // extensionDays (calendar days, without pay) — at least 45 days before it
+  // ends, and once (see
   // getExtensionEligibility). Filed as its own request (extensionOfId) for
-  // the 30 days right after the leave, so the normal Supervisor/Admin
+  // the days right after the leave, so the normal Supervisor/Admin
   // approve/reject/cancel flow, the DTR, and the overlap checks all treat it
   // like any other leave; only the balance is never touched (updateStatus).
   async requestExtension(
@@ -1711,7 +1719,7 @@ export class LeaveService {
         leaveTypeId: existing.leaveTypeId,
         startDate,
         endDate,
-        totalDays: EXTENSION_DAYS,
+        totalDays: eligibility.days,
         reason,
         attachmentName: dto.attachmentData ? dto.attachmentName : undefined,
         attachmentMimeType: dto.attachmentData ? dto.attachmentMimeType : undefined,
@@ -1731,7 +1739,7 @@ export class LeaveService {
     const employeeName = `${request.employee.firstName} ${request.employee.lastName}`;
     await this.notifications.notifyUsers(recipientIds, {
       title: "Maternity Leave Extension Requested",
-      message: `${employeeName} requested a ${EXTENSION_DAYS}-day extension of their ${request.leaveType.name}, without pay, for ${startDate.toLocaleDateString()} - ${endDate.toLocaleDateString()}.`,
+      message: `${employeeName} requested a ${eligibility.days}-day extension of their ${request.leaveType.name}, without pay, for ${startDate.toLocaleDateString()} - ${endDate.toLocaleDateString()}.`,
       type: "LEAVE_SUBMITTED",
       entityId: request.id,
     });
@@ -1742,7 +1750,7 @@ export class LeaveService {
       module: "Leave",
       entityType: "LeaveRequest",
       entityId: request.id,
-      description: `${employeeName} requested a ${EXTENSION_DAYS}-day extension of their ${request.leaveType.name}.`,
+      description: `${employeeName} requested a ${eligibility.days}-day extension of their ${request.leaveType.name}.`,
       newValues: {
         employeeId: request.employeeId,
         leaveType: request.leaveType.name,
@@ -1776,7 +1784,7 @@ export class LeaveService {
     if (updated.employee.userId) {
       await this.notifications.notifyUsers([updated.employee.userId], {
         title: extensionApproved ? "Maternity Extension Approved" : "Maternity Extension Rejected",
-        message: `Your request to extend your ${updated.leaveType.name} by 30 days without pay was ${extensionApproved ? "approved" : "rejected"}.${trimmedRemarks ? ` Remarks: ${trimmedRemarks}` : ""}`,
+        message: `Your request to extend your ${updated.leaveType.name} by ${updated.leaveType.extensionDays} days without pay was ${extensionApproved ? "approved" : "rejected"}.${trimmedRemarks ? ` Remarks: ${trimmedRemarks}` : ""}`,
         type: extensionApproved ? "LEAVE_EXTENSION_APPROVED" : "LEAVE_EXTENSION_REJECTED",
         entityId: updated.id,
       });

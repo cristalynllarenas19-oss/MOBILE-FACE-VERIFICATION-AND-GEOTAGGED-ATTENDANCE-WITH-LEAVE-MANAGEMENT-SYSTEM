@@ -60,8 +60,10 @@ const STORE_NAME = "kv";
 // resource.
 export const CACHE_KEYS = {
   myProfile: "my-profile",
-  notifications: "notifications",
-  notificationsUnreadCount: "notifications:unread-count",
+  // Per inbox view (see notificationViewFor), so the admin and employee
+  // portals never show each other's cached list.
+  notifications: (view?: string) => `notifications:${view ?? "all"}`,
+  notificationsUnreadCount: (view?: string) => `notifications:unread-count:${view ?? "all"}`,
   leaveTypes: "leave-types",
   todayAttendance: (employeeId: string) => `today-attendance:${employeeId}`,
   attendanceHistory: (employeeId: string) => `attendance-history:${employeeId}`,

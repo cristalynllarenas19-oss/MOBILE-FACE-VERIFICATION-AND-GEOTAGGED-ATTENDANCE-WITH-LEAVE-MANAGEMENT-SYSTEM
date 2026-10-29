@@ -1,7 +1,7 @@
 
 
 import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Calendar, CalendarClock, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, FileText, Lightbulb, Lock as LockIcon, Paperclip, Plane, Search, Stethoscope, Timer, Wallet, X, XCircle } from "lucide-react";
+import { AlertCircle, Calendar, CalendarClock, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, Eye, FileText, Lightbulb, Lock as LockIcon, Paperclip, Plane, Search, Stethoscope, Timer, Wallet, X, XCircle } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import "./EmployeePortal.css";
 import {
@@ -269,10 +269,10 @@ function getRequestDocuments(r: LeaveRequest): LeaveDocument[] {
   return [...getSubmissionDocuments(r), ...getCancellationDocuments(r)];
 }
 
-// A 30-day Maternity Leave extension is filed under the Maternity Leave type
+// A Maternity Leave extension is filed under the Maternity Leave type
 // itself (see requestExtension in leave.service.ts) — titled as such.
 function leaveRequestTitle(r: LeaveRequest) {
-  return r.extensionOfId ? `${r.leaveType.name} Extension (30 days, without pay)` : r.leaveType.name;
+  return r.extensionOfId ? `${r.leaveType.name} Extension` : r.leaveType.name;
 }
 
 // A supporting document sent with a cancellation, kept on its CANCELLED note
@@ -464,7 +464,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
   // The days ticked for cancellation (local-midnight times) — every day the
   // employee hasn't timed in on, until they untick some to keep them.
   const [cancelDayTimes, setCancelDayTimes] = useState<number[]>([]);
-  // The approved Maternity Leave whose 30-day extension is being requested
+  // The approved Maternity Leave whose extension is being requested
   // (see the extension modal), and the reason typed for it.
   const [extendTargetId, setExtendTargetId] = useState<string | null>(null);
   const [extendReasonText, setExtendReasonText] = useState("");
@@ -856,7 +856,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
       setResultModal({
         ok: true,
         title: "Extension Requested",
-        msg: "Your supervisor has been notified and will need to approve your 30-day extension.",
+        msg: "Your supervisor has been notified and will need to approve your extension.",
       });
     } catch (err) {
       setExtendTargetId(null);
@@ -1302,16 +1302,41 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
   // Compact, clickable row for the "My Leave Requests" list — tapping opens
   // the full detail view (renderRequestCard, via focusedRequestId) where the
   // Cancel button actually lives.
+  function renderStatusPill(r: LeaveRequest) {
+    const tone = statusTone(r.status);
+    return (
+      <span style={{
+        display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0,
+        background: tone.bg, color: tone.color,
+        fontWeight: 700, fontSize: 10,
+        borderRadius: 999, padding: "4px 9px",
+        ...STATUS_PILL_SIZE,
+      }}>
+        <span style={{ width: 6, height: 6, borderRadius: "50%", background: tone.color, flexShrink: 0 }} />
+        {statusLabel(r.status, r.lapseReason)}
+      </span>
+    );
+  }
+
+  function openRequest(id: string) {
+    setFocusedRequestId(id);
+    requestsCache.refresh().catch(() => undefined);
+  }
+
+  // The extension that currently stands on a Maternity Leave (pending or
+  // approved) — the one getExtensionEligibility reports as extensionId.
+  function activeExtensionOf(r: LeaveRequest) {
+    return r.extension?.extensionId ? requests.find((other) => other.id === r.extension?.extensionId) : undefined;
+  }
+
   function renderRequestSummary(r: LeaveRequest) {
     const tone = statusTone(r.status);
+    const extension = activeExtensionOf(r);
     return (
       <button
         key={r.id}
         type="button"
-        onClick={() => {
-          setFocusedRequestId(r.id);
-          requestsCache.refresh().catch(() => undefined);
-        }}
+        onClick={() => openRequest(r.id)}
         style={{
           display: "block", width: "100%", textAlign: "left",
           background: "#F8FAFC", border: "1px solid #E2E8F0", borderLeft: `4px solid ${tone.color}`, borderRadius: 14,
@@ -1326,27 +1351,36 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
           <p style={{ fontWeight: 700, margin: 0, flex: 1, minWidth: 0 }}>
             {leaveRequestTitle(r)}
           </p>
-          <span style={{
-            display: "inline-flex", alignItems: "center", gap: 5, flexShrink: 0,
-            background: tone.bg, color: tone.color,
-            fontWeight: 700, fontSize: 10,
-            borderRadius: 999, padding: "4px 9px",
-            ...STATUS_PILL_SIZE,
-          }}>
-            <span style={{ width: 6, height: 6, borderRadius: "50%", background: tone.color, flexShrink: 0 }} />
-            {statusLabel(r.status, r.lapseReason)}
-          </span>
+          {renderStatusPill(r)}
         </div>
         <p style={{ display: "flex", alignItems: "center", gap: 6, color: "#64748B", fontWeight: 600, fontSize: 13, margin: "8px 0 0" }}>
           <Calendar size={13} color="#94A3B8" />
           {new Date(r.startDate).toLocaleDateString()} – {new Date(r.endDate).toLocaleDateString()}
         </p>
+        {extension && (
+          // The extension's own dates, right under the leave's —
+          // its details open from View inside this leave's details.
+          <p style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6, color: "#64748B", fontWeight: 600, fontSize: 13, margin: "6px 0 0" }}>
+            <CalendarClock size={13} color="#94A3B8" />
+            Extension: {new Date(extension.startDate).toLocaleDateString()} – {new Date(extension.endDate).toLocaleDateString()}
+            {extension.status !== "APPROVED" && renderStatusPill(extension)}
+          </p>
+        )}
       </button>
     );
   }
 
+  // A Maternity Leave extension shows inside the leave it extends, not as a
+  // card of its own — unless that leave isn't in this same list (e.g. it's
+  // already under Past while the extension is Active).
+  function renderRequestList(listed: LeaveRequest[]) {
+    const listedIds = new Set(listed.map((r) => r.id));
+    return listed.filter((r) => !(r.extensionOfId && listedIds.has(r.extensionOfId))).map(renderRequestSummary);
+  }
+
   function renderRequestCard(r: LeaveRequest) {
     const needsRevision = r.status === "NEEDS_REVISION";
+    const extensionRequest = activeExtensionOf(r);
     const canShowCancelSection =
       !needsRevision && (r.status === "PENDING" || r.status === "SUPERVISOR_APPROVED" || r.status === "APPROVED");
     // Server-computed (see getCancellationEligibility in leave.service.ts) —
@@ -1405,7 +1439,42 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
           })}
         />
 
-        {r.extension && (
+        {extensionRequest ? (
+          // Already extended (or awaiting review): show the extension itself,
+          // with View opening its details, instead of a disabled Request
+          // button. Mirrors employee-mobile's LeaveScreen.tsx.
+          <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #E2E8F0" }}>
+            <p style={{ fontSize: 11, fontWeight: 700, color: "#64748B", letterSpacing: 0.6, margin: "0 0 8px" }}>{Number(extensionRequest.totalDays)}-DAY EXTENSION</p>
+            <div style={{
+              background: "#FFFFFF", border: "1px solid #E2E8F0", borderLeft: `3px solid ${statusTone(extensionRequest.status).color}`,
+              borderRadius: 10, padding: 10,
+            }}>
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+                <p style={{ fontWeight: 700, fontSize: 14, margin: 0, flex: 1, minWidth: 0, color: "#062B59" }}>
+                  {leaveRequestTitle(extensionRequest)}
+                </p>
+                {renderStatusPill(extensionRequest)}
+              </div>
+              <p style={{ display: "flex", alignItems: "center", gap: 6, color: "#64748B", fontWeight: 600, fontSize: 13, margin: "4px 0 0" }}>
+                <Calendar size={13} color="#94A3B8" />
+                {new Date(extensionRequest.startDate).toLocaleDateString()} – {new Date(extensionRequest.endDate).toLocaleDateString()}
+              </p>
+              <button
+                type="button"
+                onClick={() => openRequest(extensionRequest.id)}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                  width: "100%", marginTop: 10, borderRadius: 10, padding: "8px 12px",
+                  border: "1px solid #BFDBFE", background: "#EFF6FF", color: "#1680D8",
+                  fontWeight: 700, fontSize: 13, cursor: "pointer",
+                }}
+              >
+                <Eye size={15} />
+                View
+              </button>
+            </div>
+          </div>
+        ) : r.extension && (
           <div style={{ marginTop: 12, paddingTop: 12, borderTop: "1px solid #E2E8F0" }}>
             <button
               onClick={() => {
@@ -1423,7 +1492,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
               }}
             >
               <CalendarClock size={15} />
-              Request 30-Day Extension
+              Request {r.extension.days}-Day Extension
             </button>
             {r.extension.allowed ? (
               <p style={{ color: "#64748B", fontSize: 11.5, lineHeight: "16px", margin: "8px 0 0" }}>
@@ -2420,7 +2489,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                       : "No past leave requests."}
                 </p>
               ) : (
-                (requestsListTab === "current" ? currentRequests : pastRequests).map(renderRequestSummary)
+                renderRequestList(requestsListTab === "current" ? currentRequests : pastRequests)
               )}
             </div>
             <button onClick={() => setShowPending(false)} style={{ ...primBtn, marginTop: 10 }}>Close</button>
@@ -2496,7 +2565,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
               </button>
               <h3 style={{ color: "#062B59", fontWeight: 700, marginBottom: 8 }}>Extend your {target.leaveType.name}?</h3>
               <p style={{ color: "#475569", fontSize: 14, lineHeight: "20px", marginBottom: 14 }}>
-                This requests 30 more days without pay, from{" "}
+                This requests {target.extension.days} more days without pay, from{" "}
                 <strong>{new Date(target.extension.startDate).toLocaleDateString()}</strong> to{" "}
                 <strong>{new Date(target.extension.endDate).toLocaleDateString()}</strong>. Your supervisor or HR will need to approve it.
               </p>

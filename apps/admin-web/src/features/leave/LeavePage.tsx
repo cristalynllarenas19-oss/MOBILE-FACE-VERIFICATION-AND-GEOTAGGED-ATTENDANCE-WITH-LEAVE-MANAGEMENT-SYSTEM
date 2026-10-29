@@ -77,7 +77,7 @@ type LeaveRequest = {
   attachmentData?: string | null;
   extensionRequested?: boolean;
   extensionApproved?: boolean | null;
-  // Set on a 30-day Maternity Leave extension — the leave it extends.
+  // Set on a Maternity Leave extension — the leave it extends.
   extensionOfId?: string | null;
   // Only set while status is CANCELLATION_PENDING — the status to revert to
   // if this cancellation request is denied.
@@ -135,11 +135,11 @@ function isOpenLeaveRequest(r: { status: string; extensionRequested?: boolean; e
   return OPEN_LEAVE_STATUSES.has(r.status) || Boolean(r.extensionRequested && r.extensionApproved == null);
 }
 
-// A 30-day Maternity Leave extension is filed under the Maternity Leave type
+// A Maternity Leave extension is filed under the Maternity Leave type
 // itself (see requestExtension in leave.service.ts) and reviewed like any
 // other request — titled so the reviewer knows what they're approving.
 function leaveRequestTitle(r: { extensionOfId?: string | null; leaveType: { name: string } }) {
-  return r.extensionOfId ? `${r.leaveType.name} Extension (30 days, without pay)` : r.leaveType.name;
+  return r.extensionOfId ? `${r.leaveType.name} Extension` : r.leaveType.name;
 }
 
 function openRequestGroup(r: { status: string }): "PENDING" | "CANCELLATION" | "REVISION" {
@@ -1685,8 +1685,11 @@ export function LeavePage({
     reviewUndertime && !(isOwnUndertime && !isAdmin) && reviewUndertime.status === "PENDING",
   );
 
+  // A Maternity Leave extension is its own allowance — it never draws
+  // on the Maternity balance (see updateStatus in leave.service.ts), so that
+  // balance and its "exceeds" warning don't apply to it.
   const matchingBalance =
-    reviewRequest && reviewBalances
+    reviewRequest && reviewBalances && !reviewRequest.extensionOfId
       ? reviewBalances.find((b) => b.leaveTypeId === reviewRequest.leaveType.id)
       : undefined;
 
@@ -2529,6 +2532,13 @@ export function LeavePage({
                 </div>
               )}
 
+              {reviewRequest.extensionOfId && (
+                <div>
+                  <span>Extension Allowance</span>
+                  <strong>{Number(reviewRequest.totalDays)} days, separate from the Maternity Leave balance</strong>
+                </div>
+              )}
+
               {wouldExceedBalance && (
                 <div className="leave-balance-alert">
                   <AlertTriangle size={14} />
@@ -2536,7 +2546,9 @@ export function LeavePage({
                 </div>
               )}
 
-              {selectedLeaveType?.requiresDocument && (
+              {/* A Maternity Leave extension is filed under the Maternity type
+                  but never needs a document of its own. */}
+              {selectedLeaveType?.requiresDocument && !reviewRequest.extensionOfId && (
                 <div>
                   <span>Document Required</span>
                   <strong className="leave-requires-doc">Yes, per policy</strong>

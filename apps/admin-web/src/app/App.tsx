@@ -23,7 +23,7 @@ import { AppLayout, getVisibleNavItems, isNavItemVisible, navItems } from "../co
 import { PermissionCode } from "../types/rbac";
 import { apiRequest, AuthUser, getStoredUser, logout, setOnSessionExpired } from "../lib/api";
 import { CACHE_KEYS, prefetchCached } from "../lib/dataCache";
-import { fetchNotifications, fetchUnreadCount } from "../lib/notifications";
+import { fetchNotifications, fetchUnreadCount, notificationViewFor } from "../lib/notifications";
 import {
   getMyProfile, getTodayAttendance, getAttendanceHistory, getMyWorkLocations, getMyWorkLocation,
   getLeaveTypes, getLeaveBalances, getLeaveRequests, getUndertimeEligibility, getUndertimeFilings,
@@ -184,8 +184,9 @@ export default function App() {
     // Every logged-in user has a notification bell, regardless of role or
     // landing page — prefetch immediately so opening it is never a cold,
     // spinner-first fetch.
-    prefetchCached(CACHE_KEYS.notifications, fetchNotifications);
-    prefetchCached(CACHE_KEYS.notificationsUnreadCount, fetchUnreadCount);
+    const notificationView = notificationViewFor(landingIsEmployeePortal ? "employee" : "admin", roles);
+    prefetchCached(CACHE_KEYS.notifications(notificationView), () => fetchNotifications(notificationView));
+    prefetchCached(CACHE_KEYS.notificationsUnreadCount(notificationView), () => fetchUnreadCount(notificationView));
 
     // Wave 1 — fires immediately, same tick as the landing page's own mount.
     if (landingIsEmployeePortal && employeeId) {
