@@ -33,6 +33,7 @@ import {
 } from "../../types/employment";
 import { useEmployeeTypes } from "../../lib/employeeTypes";
 import { formatDays } from "../../lib/leaveDays";
+import { VlMonetizationTab, type LeaveYearSettings } from "./VlMonetizationTab";
 import "./LeavePage.css";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -511,8 +512,9 @@ function AccrualPeriodAttendance({
           period.attendanceStatus !== "PERFECT" && !rows.some((row) => toDateKey(row.attendanceDate) === endKey)
             ? [...rows, { id: `accrual-absent-${period.id}`, attendanceDate: period.cycleEnd, status: "ABSENT" }]
             : rows;
+        // Latest day first.
         setRecords(
-          [...withAbsence].sort((a, b) => new Date(a.attendanceDate).getTime() - new Date(b.attendanceDate).getTime()),
+          [...withAbsence].sort((a, b) => new Date(b.attendanceDate).getTime() - new Date(a.attendanceDate).getTime()),
         );
       })
       .catch((err) => {
@@ -1304,7 +1306,7 @@ export function LeavePage({
   // also an Admin (or not a Supervisor at all) gets full, unscoped access.
   const isDepartmentLocked = roles.includes("SUPERVISOR") && !isAdmin;
 
-  const [topTab, setTopTab]                     = useState<"requests" | "history" | "balances" | "undertime" | "accrual">("requests");
+  const [topTab, setTopTab]                     = useState<"requests" | "history" | "balances" | "undertime" | "accrual" | "monetization">("requests");
   const [statusFilter, setStatusFilter]         = useState("ALL");
   // Requests tab filters by employee type; History tab still filters by
   // leave type (typeFilter below) — separate state since the two tabs'
@@ -1328,6 +1330,17 @@ export function LeavePage({
   const [undertimeRemarks, setUndertimeRemarks] = useState("");
 
   const [summaryYear, setSummaryYear]   = useState(new Date().getFullYear());
+  // Leave years run from the admin-set reset date (default Dec 26), so the
+  // current one can already be next calendar year — start the year pickers there.
+  const [leaveYearSettings, setLeaveYearSettings] = useState<LeaveYearSettings | null>(null);
+  useEffect(() => {
+    apiRequest<LeaveYearSettings>("/leave-settings")
+      .then((settings) => {
+        setLeaveYearSettings(settings);
+        setSummaryYear(settings.currentLeaveYear);
+      })
+      .catch(() => undefined);
+  }, []);
 
   // Employee Type filter for the Leave Balances tab's employee table. "View"
   // on a row opens EmployeeListViewButton's own modal for that employee's
@@ -1468,9 +1481,9 @@ export function LeavePage({
       setReviewBalances(null);
       return;
     }
-    const year = new Date(reviewRequest.startDate).getFullYear();
+    // The server works out which leave year the start date falls in.
     apiRequest<LeaveBalance[]>(
-      `/leave-balances/${reviewRequest.employee.id}?year=${year}`
+      `/leave-balances/${reviewRequest.employee.id}?date=${encodeURIComponent(reviewRequest.startDate)}`
     )
       .then(setReviewBalances)
       .catch(() => setReviewBalances(null));
@@ -2009,6 +2022,9 @@ export function LeavePage({
         <button className={topTab === "accrual" ? "active" : ""} onClick={() => setTopTab("accrual")}>
           Accrual History
         </button>
+        <button className={topTab === "monetization" ? "active" : ""} onClick={() => setTopTab("monetization")}>
+          VL Monetization
+        </button>
       </div>
 
       {topTab === "requests" && (
@@ -2432,6 +2448,18 @@ export function LeavePage({
           <LeaveTablePagination page={accrualPageSafe} pageCount={accrualPageCount} onChange={setAccrualPage} />
         </section>
         </>
+      )}
+
+      {topTab === "monetization" && (
+        <VlMonetizationTab
+          year={summaryYear}
+          yearPicker={<YearCalendarPicker value={summaryYear} onChange={setSummaryYear} />}
+          settings={leaveYearSettings}
+          departmentOptions={isDepartmentLocked ? null : listDepartmentOptions}
+          pagination={(page, pageCount, onChange) => (
+            <LeaveTablePagination page={page} pageCount={pageCount} onChange={onChange} />
+          )}
+        />
       )}
 
       {viewingAccrual && (

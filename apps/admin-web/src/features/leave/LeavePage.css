@@ -1061,6 +1061,10 @@
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
+  /* DashboardPage.css centers .cal-picker-menu globally; undo it here so the
+     menu stays inside the card instead of spilling off the right edge. */
+  left: auto;
+  transform: none;
   z-index: 30;
   width: 232px;
   background: #ffffff;
@@ -1893,6 +1897,10 @@
 
 .accrual-toolbar .leave-search {
   min-width: 260px;
+}
+
+.vl-monetization-year {
+  margin-left: auto;
 }
 
 .leave-modal--accrual {
@@ -2780,4 +2788,168 @@
 .leave-review-history--tabbed .leave-review-timeline p:first-child,
 .leave-review-history--tabbed .leave-notes-thread-label {
   display: none;
+}
+
+/* ── VL Monetization tab ── */
+.vl-monetization-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.vl-summary-item {
+  display: grid;
+  gap: 4px;
+  padding: 12px 16px;
+  border: 1px solid #e3e9f0;
+  border-radius: 12px;
+  background: #ffffff;
+  min-width: 0;
+}
+
+.vl-summary-item span {
+  color: #6b8299;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.vl-summary-item strong {
+  color: #1a3a5c;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vl-monetization-note {
+  color: #6b8299;
+}
+
+@media (max-width: 900px) {
+  .vl-monetization-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.vl-settings-body {
+  display: grid;
+  gap: 18px;
+  padding: 20px 24px;
+}
+
+.vl-settings-field {
+  display: grid;
+  gap: 6px;
+}
+
+.vl-settings-label {
+  color: #1a3a5c;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.vl-settings-field small {
+  color: #6b8299;
+  font-size: 12px;
+}
+
+.vl-month-day-calendar {
+  border: 1px solid #d5dee8;
+  border-radius: 10px;
+  padding: 10px 12px 12px;
+}
+
+.vl-month-day-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  color: #1a3a5c;
+  font-size: 14px;
+}
+
+.vl-month-day-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: #f1f5f9;
+  color: #1a3a5c;
+  cursor: pointer;
+}
+
+.vl-month-day-nav:hover {
+  background: #e2e8f0;
+}
+
+.vl-month-day-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.vl-month-day-cell {
+  height: 34px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #1e293b;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.vl-month-day-cell:hover {
+  background: #eef4fb;
+}
+
+.vl-month-day-cell:disabled {
+  color: #cbd5e1;
+  cursor: not-allowed;
+  background: transparent;
+}
+
+.vl-month-day-weekday {
+  padding-bottom: 2px;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.vl-month-day-cell.is-selected {
+  background: #1a3a5c;
+  color: #ffffff;
+}
+
+.vl-month-day-selected {
+  margin: 10px 0 0;
+  color: #475569;
+  font-size: 12.5px;
+}
+
+.vl-month-day-selected strong {
+  color: #1a3a5c;
+}
+
+.vl-settings-error {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 13px;
+}
+
+.vl-settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 24px 20px;
+  border-top: 1px solid #eef2f6;
 }

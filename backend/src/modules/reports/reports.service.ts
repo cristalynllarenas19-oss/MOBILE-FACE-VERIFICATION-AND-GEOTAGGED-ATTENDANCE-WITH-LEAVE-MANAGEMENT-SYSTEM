@@ -4,6 +4,7 @@ import { dedupeToLatestVisitPerEmployeeDay } from "../attendance/attendance-dedu
 import { computeAbsenceCutoff, resolveBreakKind } from "../attendance/attendance-shift.util";
 import { getApprovedLeaveByEmployee } from "../../common/utils/on-leave.util";
 import { isDayOff } from "../../common/utils/schedule.util";
+import { getLeaveYearReset, leaveYearOf, leaveYearRange } from "../leave/leave-year.util";
 
 type ReportFilters = {
   from?: string;
@@ -48,9 +49,11 @@ export class ReportsService {
     }
     const departmentWhere = Object.keys(employeeWhere).length ? { employee: employeeWhere } : {};
     // Leave balances/used-dates are a point-in-time snapshot, not bounded by
-    // the from/to range — they're keyed by calendar year, taken from the
-    // "to" filter (defaulting to the current year) same as the Leave page.
-    const balanceYear = endDate.getFullYear();
+    // the from/to range — they're keyed by leave year (see
+    // leave-year.util.ts), taken from the "to" filter (defaulting to today).
+    const leaveYearReset = await getLeaveYearReset(this.prisma);
+    const balanceYear = leaveYearOf(endDate, leaveYearReset);
+    const balanceYearRange = leaveYearRange(balanceYear, leaveYearReset);
 
     // No base64 blobs anywhere in this report (profile photos repeated on
     // every row, leave attachments) — neither Reports screen (admin-web or
@@ -96,7 +99,7 @@ export class ReportsService {
         where: {
           status: "APPROVED",
           extensionOfId: null,
-          startDate: { gte: new Date(balanceYear, 0, 1), lte: new Date(balanceYear, 11, 31, 23, 59, 59, 999) },
+          startDate: { gte: balanceYearRange.start, lte: balanceYearRange.end },
           ...departmentWhere,
         },
         select: { employeeId: true, leaveTypeId: true, startDate: true, endDate: true },
@@ -249,6 +252,23 @@ export class ReportsService {
       orderBy: { filingDate: "desc" },
     });
 
+    // VL paid out for the same leave year as the balances above — a
+    // snapshot like Remaining Leave, not bounded by the from/to range.
+    const vlMonetizations = (
+      await this.prisma.leaveMonetization.findMany({
+        where: { year: balanceYear, ...departmentWhere },
+        select: {
+          id: true,
+          year: true,
+          days: true,
+          monetizedAt: true,
+          leaveType: { select: { name: true } },
+          employee: { select: { firstName: true, lastName: true, sex: true, department: { select: { name: true } } } },
+        },
+        orderBy: { monetizedAt: "desc" },
+      })
+    ).map((row) => ({ ...row, days: Number(row.days) }));
+
     const leaveByStatus = leaves.reduce<Record<string, number>>((totals, request) => {
       totals[request.status] = (totals[request.status] ?? 0) + 1;
       return totals;
@@ -271,6 +291,7 @@ export class ReportsService {
       schedules,
       employees,
       leaveBalances,
+      vlMonetizations,
     };
   }
 }

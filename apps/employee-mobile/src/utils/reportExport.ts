@@ -52,6 +52,16 @@ export async function loadLogoDataUri() {
 function buildReportHtml(report: ReportDocument, logoDataUri: string | null) {
   const sections = report.sections.filter((section) => section.rows.length > 0);
 
+  // "Dates Used" (three ranges per line, ", "-separated) as a three-column
+  // grid, so the ranges line up from row to row.
+  const cellHtml = (heading: string, cell: string | number) =>
+    heading === "Dates Used" && cell !== "—"
+      ? `<div class="dates-grid">${String(cell)
+          .split(/\n|, /)
+          .map((range) => `<span>${escapeHtml(range)}</span>`)
+          .join("")}</div>`
+      : escapeHtml(cell);
+
   const tables = sections
     .map(
       (section) => `
@@ -60,7 +70,7 @@ function buildReportHtml(report: ReportDocument, logoDataUri: string | null) {
         <thead><tr>${section.head.map((cell) => `<th>${escapeHtml(cell)}</th>`).join("")}</tr></thead>
         <tbody>
           ${section.rows
-            .map((row) => `<tr>${row.map((cell) => `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`)
+            .map((row) => `<tr>${row.map((cell, col) => `<td>${cellHtml(section.head[col], cell)}</td>`).join("")}</tr>`)
             .join("")}
         </tbody>
       </table>`,
@@ -87,7 +97,8 @@ function buildReportHtml(report: ReportDocument, logoDataUri: string | null) {
     thead { display: table-header-group; }
     tr { page-break-inside: avoid; }
     th { background: #1A3A5C; color: #FFFFFF; font-size: 8pt; font-weight: 700; text-align: left; padding: 5pt 6pt; }
-    td { font-size: 8pt; padding: 5pt 6pt; vertical-align: top; }
+    td { font-size: 8pt; padding: 5pt 6pt; vertical-align: top; white-space: pre-line; }
+    .dates-grid { display: grid; grid-template-columns: repeat(3, auto); justify-content: start; column-gap: 10pt; white-space: nowrap; }
     tbody tr:nth-child(even) td { background: #F4F7FB; }
     .empty { text-align: center; font-size: 10pt; color: #6B8299; padding: 30pt 0; }
   </style>

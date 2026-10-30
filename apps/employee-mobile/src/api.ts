@@ -859,7 +859,7 @@ export async function getLeaveTypes() {
 }
 
 export async function getLeaveBalances(employeeId: string) {
-  return apiRequest<LeaveBalance[]>(`/leave-balances/${employeeId}?year=${new Date().getFullYear()}`);
+  return apiRequest<LeaveBalance[]>(`/leave-balances/${employeeId}`);
 }
 
 export async function getLeaveRequests(employeeId: string) {

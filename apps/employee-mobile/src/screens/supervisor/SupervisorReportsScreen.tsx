@@ -109,15 +109,25 @@ function formatEmploymentStatus(status?: string | null) {
     .join(" ");
 }
 
+// Each approved filing as "8/26/26-8/28/26" (a one-day leave too:
+// "8/27/26-8/27/26"), oldest first.
+function usedDateRanges(dates: { startDate: string; endDate: string }[]) {
+  const short = (value: string) => {
+    const d = new Date(value);
+    return `${d.getMonth() + 1}/${d.getDate()}/${String(d.getFullYear()).slice(-2)}`;
+  };
+  return [...dates]
+    .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())
+    .map((d) => `${short(d.startDate)}-${short(d.endDate)}`);
+}
+
+// Plain-text form for exports: three ranges per line.
 function formatUsedDates(dates: { startDate: string; endDate: string }[]) {
-  if (dates.length === 0) return "—";
-  return dates
-    .map((d) => {
-      const start = formatDate(d.startDate);
-      const end = formatDate(d.endDate);
-      return start === end ? start : `${start} – ${end}`;
-    })
-    .join(", ");
+  const ranges = usedDateRanges(dates);
+  if (ranges.length === 0) return "—";
+  const lines: string[] = [];
+  for (let i = 0; i < ranges.length; i += 3) lines.push(ranges.slice(i, i + 3).join(", "));
+  return lines.join("\n");
 }
 
 // Every leave status lands in exactly one filter, so the counts always add
@@ -591,7 +601,7 @@ export default function SupervisorReportsScreen({ onClose, departmentName }: Pro
                                     <Text style={styles.fieldLabel} numberOfLines={1}>
                                       {section.head[cellIndex]}
                                     </Text>
-                                    <Text style={styles.fieldValue} numberOfLines={2}>
+                                    <Text style={styles.fieldValue} numberOfLines={4}>
                                       {cell}
                                     </Text>
                                   </View>

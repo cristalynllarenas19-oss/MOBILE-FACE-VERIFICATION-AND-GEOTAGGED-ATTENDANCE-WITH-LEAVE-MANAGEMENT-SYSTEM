@@ -2,6 +2,7 @@ import { Body, Controller, Get, Patch, Req } from "@nestjs/common";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
 import { getAuditContext } from "../../common/utils/audit-context.util";
 import { LeaveLapseService } from "./leave-lapse.service";
+import { leaveYearOf } from "./leave-year.util";
 
 // Same permission split as the undertime settings: anyone who can read
 // leave can see the value; only "leave-types:write" (ADMIN in practice) can
@@ -12,17 +13,33 @@ export class LeaveSettingsController {
 
   @Get()
   @RequirePermissions("leave:read")
-  getSettings() {
-    return this.leaveLapseService.getSettings();
+  async getSettings() {
+    const settings = await this.leaveLapseService.getSettings();
+    return {
+      ...settings,
+      currentLeaveYear: leaveYearOf(new Date(), settings),
+    };
   }
 
   @Patch()
   @RequirePermissions("leave-types:write")
-  updateSettings(@Body() body: { lapseGraceDays?: number; reviewReminderHours?: number }, @Req() request: Request) {
+  updateSettings(
+    @Body()
+    body: {
+      lapseGraceDays?: number;
+      reviewReminderHours?: number;
+      resetMonth?: number;
+      resetDay?: number;
+    },
+    @Req() request: Request,
+  ) {
+    const toNumber = (value: unknown) => (value === undefined ? undefined : Number(value));
     return this.leaveLapseService.updateSettings(
       {
-        lapseGraceDays: body.lapseGraceDays === undefined ? undefined : Number(body.lapseGraceDays),
-        reviewReminderHours: body.reviewReminderHours === undefined ? undefined : Number(body.reviewReminderHours),
+        lapseGraceDays: toNumber(body.lapseGraceDays),
+        reviewReminderHours: toNumber(body.reviewReminderHours),
+        resetMonth: toNumber(body.resetMonth),
+        resetDay: toNumber(body.resetDay),
       },
       getAuditContext(request),
     );

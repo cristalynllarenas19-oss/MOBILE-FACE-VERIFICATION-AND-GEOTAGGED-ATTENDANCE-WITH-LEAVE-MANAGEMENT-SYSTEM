@@ -16,6 +16,7 @@ import { MailNotConfiguredError, MailService } from "../mail/mail.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { PositionsService } from "../positions/positions.service";
 import { CreateEmployeeDto, UpdateEmployeeDto } from "./dto/create-employee.dto";
+import { currentLeaveYear } from "../leave/leave-year.util";
 
 const PROBATION_MILESTONE_NOTIFICATION_TYPE = "PROBATION_REGULARIZATION_DUE";
 // The employee's own copy — sent only once Admin has actually converted them
@@ -363,7 +364,7 @@ export class EmployeesService implements OnApplicationBootstrap {
     toSpouseId: string | null,
   ) {
     if (sex !== "MALE" || fromSpouseId === toSpouseId) return;
-    const year = new Date().getFullYear();
+    const year = await currentLeaveYear(tx);
     const transferredDays = await getTransferredPaternityDays(tx, employeeId, year);
     if (transferredDays === 0) return;
     if (fromSpouseId) await shiftMaternityDaysFromSpouse(tx, fromSpouseId, year, -transferredDays);
@@ -766,7 +767,7 @@ export class EmployeesService implements OnApplicationBootstrap {
     const kind = GENDER_LEAVE_TYPE_KIND[sex];
     const oppositeKinds = Object.values(GENDER_LEAVE_TYPE_KIND).filter((candidate) => candidate !== kind);
     const leaveType = await this.prisma.leaveType.findFirst({ where: { kind, isActive: true } });
-    const year = new Date().getFullYear();
+    const year = await currentLeaveYear(this.prisma);
 
     await this.prisma.leaveBalance.deleteMany({
       where: {
@@ -1038,7 +1039,7 @@ export class EmployeesService implements OnApplicationBootstrap {
     const leaveType = await this.prisma.leaveType.findFirst({ where: { kind, isActive: true } });
     if (!leaveType) return;
 
-    const year = new Date().getFullYear();
+    const year = await currentLeaveYear(this.prisma);
     await this.prisma.leaveBalance.upsert({
       where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId: leaveType.id, year } },
       update: { earnedDays },

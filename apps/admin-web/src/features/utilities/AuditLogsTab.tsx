@@ -62,6 +62,30 @@ function auditMeta(log: AuditLog) {
   });
 }
 
+const PAST_TENSE: Record<string, string> = {
+  CREATE: "Created",
+  UPDATE: "Updated",
+  DELETE: "Deleted",
+  ARCHIVE: "Archived",
+  RESTORE: "Restored",
+};
+
+// For entries logged without a description: "RESTORE_POSITION" on
+// "Supervisor" reads as `Restored position "Supervisor".`
+function fallbackDescription(log: AuditLog) {
+  if (log.action === "RESTORE_BACKUP") {
+    return log.entityId ? `Restored the system from backup "${log.entityId}".` : "Restored the system from a backup.";
+  }
+  if (log.action === "RESTORE_BACKUP_FAILED") {
+    return log.entityId ? `Failed to restore backup "${log.entityId}".` : "Failed to restore a backup.";
+  }
+  const [verb, ...rest] = log.action.split("_");
+  const pastVerb = PAST_TENSE[verb];
+  if (!pastVerb || rest.length === 0) return formatAction(log.action);
+  const subject = rest.join(" ").toLowerCase();
+  return log.entityName ? `${pastVerb} ${subject} "${log.entityName}".` : `${pastVerb} ${/^[aeiou]/.test(subject) ? "an" : "a"} ${subject}.`;
+}
+
 function actorRoleLabel(log: AuditLog) {
   const metaRole = auditMeta(log).actorRole;
   if (metaRole) return formatAction(metaRole);
@@ -235,10 +259,10 @@ export function AuditLogsTab({
                     <td data-label="Role">{actorRoleLabel(log)}</td>
                     <td data-label="Module">{moduleLabel(log.entityType)}</td>
                     {/* What was done, spelled out right in the row — the
-                        recorded description, or the bare action name for an
-                        entry logged without one. */}
+                        recorded description, or one built from the action
+                        and item name for an entry logged without one. */}
                     <td data-label="Description" className="utilities-audit-action">
-                      {auditMeta(log).description ?? formatAction(log.action)}
+                      {auditMeta(log).description ?? fallbackDescription(log)}
                     </td>
                   </tr>
                 ))

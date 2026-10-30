@@ -24,7 +24,6 @@ import {
   formatRowName,
   ImportFileError,
   mergeIssues,
-  MAX_FILE_BYTES,
   parseImportFile,
   validateRowsLocally,
   type ImportReference,
@@ -411,7 +410,7 @@ export function ImportEmployeesModal({
                 <div className="import-upload-step-text">
                   <strong>Upload the filled file</strong>
                   <span>
-                    Excel (.xlsx, .xls) or CSV · up to {MAX_FILE_BYTES / (1024 * 1024)} MB and {limits.maxRows} employees
+                    Excel (.xlsx, .xls) or CSV
                   </span>
                 </div>
               </div>

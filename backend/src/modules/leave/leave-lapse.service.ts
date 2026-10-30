@@ -55,21 +55,42 @@ export class LeaveLapseService {
   }
 
   async updateSettings(
-    input: { lapseGraceDays?: number; reviewReminderHours?: number },
+    input: {
+      lapseGraceDays?: number;
+      reviewReminderHours?: number;
+      resetMonth?: number;
+      resetDay?: number;
+    },
     context: AuditLogContext = {},
   ) {
     const existing = await this.getSettings();
     const lapseGraceDays = input.lapseGraceDays ?? existing.lapseGraceDays;
     const reviewReminderHours = input.reviewReminderHours ?? existing.reviewReminderHours;
+    const resetMonth = input.resetMonth ?? existing.resetMonth;
+    const resetDay = input.resetDay ?? existing.resetDay;
     if (!Number.isInteger(lapseGraceDays) || lapseGraceDays < 0 || lapseGraceDays > 365) {
       throw new BadRequestException("Grace period must be a whole number of days between 0 and 365.");
     }
     if (!Number.isInteger(reviewReminderHours) || reviewReminderHours < 1 || reviewReminderHours > 720) {
       throw new BadRequestException("Reminder time must be a whole number of hours between 1 and 720.");
     }
+    // Checked against a non-leap year, so Feb 29 can't be picked as a reset
+    // day that only exists every fourth year.
+    const resetDate = new Date(2025, resetMonth - 1, resetDay);
+    if (
+      !Number.isInteger(resetMonth) ||
+      !Number.isInteger(resetDay) ||
+      resetMonth < 1 ||
+      resetMonth > 12 ||
+      resetDay < 1 ||
+      resetDate.getMonth() !== resetMonth - 1 ||
+      resetDate.getDate() !== resetDay
+    ) {
+      throw new BadRequestException("Leave reset date must be a valid month and day (Feb 29 is not allowed).");
+    }
     const settings = await this.prisma.leaveSettings.update({
       where: { id: "singleton" },
-      data: { lapseGraceDays, reviewReminderHours, updatedBy: context.actorUserId },
+      data: { lapseGraceDays, reviewReminderHours, resetMonth, resetDay, updatedBy: context.actorUserId },
     });
     await this.auditLogs.record({
       ...context,
@@ -77,9 +98,14 @@ export class LeaveLapseService {
       module: "Leave",
       entityType: "LeaveSettings",
       entityId: settings.id,
-      description: `Updated leave settings: lapse grace period ${lapseGraceDays} day(s), review reminder after ${reviewReminderHours} hour(s).`,
-      oldValues: { lapseGraceDays: existing.lapseGraceDays, reviewReminderHours: existing.reviewReminderHours },
-      newValues: { lapseGraceDays, reviewReminderHours },
+      description: `Updated leave settings: lapse grace period ${lapseGraceDays} day(s), review reminder after ${reviewReminderHours} hour(s), leave reset every ${resetDate.toLocaleDateString("en-US", { month: "long", day: "numeric" })}.`,
+      oldValues: {
+        lapseGraceDays: existing.lapseGraceDays,
+        reviewReminderHours: existing.reviewReminderHours,
+        resetMonth: existing.resetMonth,
+        resetDay: existing.resetDay,
+      },
+      newValues: { lapseGraceDays, reviewReminderHours, resetMonth, resetDay },
     });
     return settings;
   }

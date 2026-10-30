@@ -1,6 +1,7 @@
-import { Injectable, ConflictException } from "@nestjs/common";
+import { BadRequestException, Injectable, ConflictException } from "@nestjs/common";
 import { EmploymentStatus, LeaveTypeKind } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
+import { currentLeaveYear } from "./leave-year.util";
 
 const ACTOR_SELECT = {
   select: {
@@ -8,6 +9,15 @@ const ACTOR_SELECT = {
     employee: { select: { firstName: true, lastName: true } },
   },
 } as const;
+
+// A monetizable type needs its per-employee cap: whole or half days, 0–365.
+function assertMonetizationRule(dto: { isMonetizable?: boolean; maxMonetizableDays?: number }) {
+  if (!dto.isMonetizable) return;
+  const days = dto.maxMonetizableDays;
+  if (days == null || !Number.isFinite(days) || days <= 0 || days > 365 || (days * 2) % 1 !== 0) {
+    throw new BadRequestException("Max days to monetize must be between 0.5 and 365, in whole or half days.");
+  }
+}
 
 @Injectable()
 export class LeaveTypesService {
@@ -46,6 +56,8 @@ export class LeaveTypesService {
       cancellationAllowed?: boolean;
       cancellationCutoffValue?: number;
       cancellationCutoffUnit?: string;
+      isMonetizable?: boolean;
+      maxMonetizableDays?: number;
     },
     actorUserId?: string,
   ) {
@@ -57,6 +69,8 @@ export class LeaveTypesService {
     const applicableStatuses = Array.from(
       new Set<EmploymentStatus>(["REGULAR", ...(dto.applicableStatuses ?? [])]),
     );
+
+    assertMonetizationRule(dto);
 
     // Leave type ids carry a category code taken from the name (LT-VL-001),
     // so the database hands out the next number for that code rather than a
@@ -88,6 +102,8 @@ export class LeaveTypesService {
         cancellationAllowed: dto.cancellationAllowed ?? false,
         cancellationCutoffValue: dto.cancellationAllowed ? dto.cancellationCutoffValue : null,
         cancellationCutoffUnit: dto.cancellationAllowed ? dto.cancellationCutoffUnit : null,
+        isMonetizable: dto.isMonetizable ?? false,
+        maxMonetizableDays: dto.isMonetizable ? dto.maxMonetizableDays : null,
         createdBy: actorUserId,
       },
     });
@@ -120,6 +136,8 @@ export class LeaveTypesService {
           cancellationAllowed: created.cancellationAllowed,
           cancellationCutoffValue: created.cancellationCutoffValue,
           cancellationCutoffUnit: created.cancellationCutoffUnit,
+          isMonetizable: created.isMonetizable,
+          maxMonetizableDays: created.maxMonetizableDays,
         },
       },
     });
@@ -151,6 +169,8 @@ export class LeaveTypesService {
       cancellationAllowed?: boolean;
       cancellationCutoffValue?: number;
       cancellationCutoffUnit?: string;
+      isMonetizable?: boolean;
+      maxMonetizableDays?: number;
     },
     actorUserId?: string,
   ) {
@@ -160,6 +180,8 @@ export class LeaveTypesService {
       const duplicate = await this.prisma.leaveType.findUnique({ where: { name: dto.name } });
       if (duplicate) throw new ConflictException(`Leave type "${dto.name}" already exists.`);
     }
+
+    assertMonetizationRule(dto);
 
     const applicableStatuses = dto.applicableStatuses
       ? Array.from(new Set<EmploymentStatus>(["REGULAR", ...dto.applicableStatuses]))
@@ -195,6 +217,8 @@ export class LeaveTypesService {
           dto.cancellationAllowed === false
             ? null
             : dto.cancellationCutoffUnit,
+        isMonetizable: dto.isMonetizable,
+        maxMonetizableDays: dto.isMonetizable === false ? null : dto.maxMonetizableDays,
         updatedBy: actorUserId,
       },
       include: {
@@ -211,7 +235,7 @@ export class LeaveTypesService {
     const newDefault = updated.isUnlimitedDays ? 0 : Number(updated.defaultDays);
     if (newDefault !== oldDefault && !updated.requiresAdminGrant) {
       await this.prisma.leaveBalance.updateMany({
-        where: { leaveTypeId: id, year: new Date().getFullYear(), earnedDays: oldDefault },
+        where: { leaveTypeId: id, year: await currentLeaveYear(this.prisma), earnedDays: oldDefault },
         data: { earnedDays: newDefault },
       });
     }
@@ -244,6 +268,8 @@ export class LeaveTypesService {
           cancellationAllowed: existing.cancellationAllowed,
           cancellationCutoffValue: existing.cancellationCutoffValue,
           cancellationCutoffUnit: existing.cancellationCutoffUnit,
+          isMonetizable: existing.isMonetizable,
+          maxMonetizableDays: existing.maxMonetizableDays,
         },
         newValues: {
           name: updated.name,
@@ -267,6 +293,8 @@ export class LeaveTypesService {
           cancellationAllowed: updated.cancellationAllowed,
           cancellationCutoffValue: updated.cancellationCutoffValue,
           cancellationCutoffUnit: updated.cancellationCutoffUnit,
+          isMonetizable: updated.isMonetizable,
+          maxMonetizableDays: updated.maxMonetizableDays,
         },
       },
     });

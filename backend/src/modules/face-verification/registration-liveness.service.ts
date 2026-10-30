@@ -1,11 +1,12 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { randomBytes, randomInt } from "crypto";
 import * as faceapi from "face-api.js";
 import { FaceVerificationService } from "./face-verification.service";
 
 // Server-side liveness for Face Registration. The admin screen still runs
 // its guided steps live, but it no longer decides the outcome: this service
-// picks the order of the steps at random per session, receives a key frame
+// sets the steps per session (a fixed order, a random number of blinks),
+// receives a key frame
 // as each step happens, measures every frame itself, and only a session it
 // has verified can be used to save a face profile — once.
 //
@@ -16,8 +17,9 @@ import { FaceVerificationService } from "./face-verification.service";
 //  - A printed or on-screen still photo: can't blink, and tilting a flat
 //    picture doesn't move the nose relative to the eyes the way a real head
 //    turn does (see headYaw), so the turn steps fail.
-//  - A pre-recorded video: the step order and number of blinks are random per
-//    session, so a clip recorded in one order fails the next session.
+//  - A pre-recorded video: the step order is fixed (blink, left, right) but
+//    the number of blinks is random per session, so a clip recorded with
+//    one blink count fails a session asking for the other.
 //  - Frozen/replayed frames, a second face, or a different person partway
 //    through: rejected per frame.
 //  - Not guaranteed: the anti-spoofing model is a statistical classifier,
@@ -32,8 +34,8 @@ const SESSION_TTL_MS = 3 * 60_000;
 // Register Employee Face.
 const VERIFIED_TTL_MS = 10 * 60_000;
 
-// Same person throughout: descriptor distance from the first (straight)
-// frame. face-api.js's usual "same person" bound is 0.6.
+// Same person throughout: descriptor distance from the first frame that
+// has one (the open eyes after a blink). face-api.js's usual "same person" bound is 0.6.
 const SAME_PERSON_MAX_DISTANCE = 0.6;
 // Head turn, in eye-distances (the admin screen asks for 0.2; a little
 // slack for the key frame being taken a moment after the peak).
@@ -84,6 +86,7 @@ type Session = {
 
 @Injectable()
 export class RegistrationLivenessService {
+  private readonly logger = new Logger(RegistrationLivenessService.name);
   private readonly sessions = new Map<string, Session>();
 
   constructor(private readonly faceService: FaceVerificationService) {}
@@ -91,10 +94,9 @@ export class RegistrationLivenessService {
   createSession(employeeId: string, actorUserId?: string) {
     this.sweep();
 
-    // 8 orders: blink before or after the turns, left or right first, and
-    // one or two blinks.
-    const turns: LivenessChallenge[] = randomInt(2) ? ["left", "right"] : ["right", "left"];
-    const challenges: LivenessChallenge[] = randomInt(2) ? ["blink", ...turns] : [...turns, "blink"];
+    // Always the same order: blink, then turn left, then right. The number
+    // of blinks (one or two) is random per session instead.
+    const challenges: LivenessChallenge[] = ["blink", "left", "right"];
     const blinkCount = 1 + randomInt(2);
 
     const expected: LivenessFrameKind[] = ["straight"];
@@ -182,7 +184,15 @@ export class RegistrationLivenessService {
       return this.fail(session, "The camera image stopped updating. Please check the camera and start again.");
     }
     const base64 = image.includes("base64,") ? image.split("base64,")[1] : image;
-    const analysis = await this.faceService.analyzeRegistrationFrame(Buffer.from(base64, "base64"));
+    // No descriptor on the first frame (the admin screen waits on it, so it
+    // has to be quick; the next frames set and check the same-person
+    // reference), on a blink's closed frame (the open frame right after is
+    // checked) or on the final photo (it gets the stored one below), so
+    // those frames skip the slowest model.
+    const analysis = await this.faceService.analyzeRegistrationFrame(
+      Buffer.from(base64, "base64"),
+      kind !== "straight" && kind !== "closed" && kind !== "final",
+    );
 
     if (analysis.faceCount > 1) {
       return this.fail(session, "More than one face was in the camera. Only the employee may be visible.");
@@ -197,13 +207,29 @@ export class RegistrationLivenessService {
     const { face } = analysis;
     // Checked on the very first frame, so a photo or screen never gets past
     // "Face detected" — and again on the photo that will be stored.
+    if (kind === "straight" || kind === "final") {
+      // Logged to keep SPOOF_MIN_REAL_SCORE calibrated on real captures.
+      this.logger.log(`Anti-spoof real score (${kind}): ${face.realScore.toFixed(3)}`);
+    }
     if ((kind === "straight" || kind === "final") && face.realScore < SPOOF_MIN_REAL_SCORE) {
       return this.fail(session, SPOOF_FAILURE);
     }
-    if (!session.reference) {
-      session.reference = face.descriptor;
-    } else if (faceapi.euclideanDistance(session.reference, face.descriptor) > SAME_PERSON_MAX_DISTANCE) {
-      return this.fail(session, "A different face appeared during the liveness check. Please start again.");
+    // The stored descriptor is computed exactly the way attendance matching
+    // computes its own (extractDescriptor), never taken from the browser.
+    let finalDescriptor: Float32Array | null = null;
+    if (kind === "final") {
+      finalDescriptor = await this.faceService.extractDescriptor(Buffer.from(base64, "base64"));
+      if (!finalDescriptor) {
+        return this.fail(session, "The final photo wasn't clear enough. Please start again.");
+      }
+    }
+    const descriptor = finalDescriptor ?? face.descriptor;
+    if (descriptor) {
+      if (!session.reference) {
+        session.reference = descriptor;
+      } else if (faceapi.euclideanDistance(session.reference, descriptor) > SAME_PERSON_MAX_DISTANCE) {
+        return this.fail(session, "A different face appeared during the liveness check. Please start again.");
+      }
     }
 
     const eyes: EyeReading = { ear: face.ear, eyeContrast: face.eyeContrast };
@@ -214,15 +240,8 @@ export class RegistrationLivenessService {
     session.lastThumbnail = analysis.thumbnail;
     session.lastImage = image;
 
-    if (kind === "final") {
-      // The stored descriptor is computed exactly the way attendance
-      // matching computes its own (extractDescriptor), never taken from the
-      // browser.
-      const descriptor = await this.faceService.extractDescriptor(Buffer.from(base64, "base64"));
-      if (!descriptor) {
-        return this.fail(session, "The final photo wasn't clear enough. Please start again.");
-      }
-      session.final = { image, descriptor: Array.from(descriptor) };
+    if (finalDescriptor) {
+      session.final = { image, descriptor: Array.from(finalDescriptor) };
       session.status = "verified";
       session.expiresAt = Date.now() + VERIFIED_TTL_MS;
       return { status: "verified" as const, reason: null };

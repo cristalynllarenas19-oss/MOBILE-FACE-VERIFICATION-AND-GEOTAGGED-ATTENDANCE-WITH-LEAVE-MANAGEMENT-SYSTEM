@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { EmploymentStatus, LeaveTypeKind, Prisma, Sex } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
+import { currentLeaveYear } from "./leave-year.util";
 
 // Maternity/Paternity-kind leave types are sex-restricted even though both
 // are listed as applicable to REGULAR employees on the leave type itself —
@@ -75,7 +76,7 @@ export class LeaveBalancesService {
   // employee's first request against that type is approved. Idempotent —
   // safe to call on every read. When employeeIds is given, already-confirmed
   // employees are skipped without hitting the DB at all (see ensuredCache).
-  private async ensureAutoCreditedBalances(year: number, employeeIds?: string[]) {
+  async ensureAutoCreditedBalances(year: number, employeeIds?: string[]) {
     const now = Date.now();
     if (employeeIds) {
       const pending = employeeIds.filter((id) => {
@@ -212,7 +213,7 @@ export class LeaveBalancesService {
   // Paternity Leave) after they've applied for it outside the system.
   async grant(employeeId: string, dto: { leaveTypeId: string; earnedDays: number; year?: number }, actorUserId?: string) {
     const leaveType = await this.prisma.leaveType.findUniqueOrThrow({ where: { id: dto.leaveTypeId } });
-    const year = dto.year ?? new Date().getFullYear();
+    const year = dto.year ?? (await currentLeaveYear(this.prisma));
 
     // Added Paternity Leave comes out of the linked wife's Maternity Leave.
     const employee = leaveType.isTransferable

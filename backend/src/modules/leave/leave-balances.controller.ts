@@ -4,6 +4,8 @@ import { IsNumber, IsOptional, IsString, Min } from "class-validator";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
 import { getSupervisorDepartmentScope } from "../../common/utils/supervisor-scope.util";
 import { LeaveBalancesService } from "./leave-balances.service";
+import { PrismaService } from "../../prisma/prisma.service";
+import { currentLeaveYear, leaveYearFor } from "./leave-year.util";
 
 export class GrantLeaveBalanceDto {
   @IsString()
@@ -20,25 +22,34 @@ export class GrantLeaveBalanceDto {
 
 @Controller("leave-balances")
 export class LeaveBalancesController {
-  constructor(private readonly leaveBalancesService: LeaveBalancesService) {}
+  constructor(
+    private readonly leaveBalancesService: LeaveBalancesService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   // Per-employee balance rows for the Leave Balances tab's employee table —
   // must come before ":employeeId" below, otherwise Nest will try to match
   // "by-classification" as an employeeId and call findForEmployee instead.
   @Get("by-classification")
-  getByClassification(
+  async getByClassification(
     @Req() request: Request,
     @Query("year") year?: string,
     @Query("employmentStatus") employmentStatus?: EmploymentStatus,
   ) {
-    const resolvedYear = year ? Number(year) : new Date().getFullYear();
+    const resolvedYear = year ? Number(year) : await currentLeaveYear(this.prisma);
     const departmentId = getSupervisorDepartmentScope((request as any).user);
     return this.leaveBalancesService.getByClassification(resolvedYear, employmentStatus, departmentId);
   }
 
   @Get(":employeeId")
-  findForEmployee(@Param("employeeId") employeeId: string, @Query("year") year?: string) {
-    const resolvedYear = year ? Number(year) : new Date().getFullYear();
+  // `date` (an ISO date-time) asks for the leave year that day falls in —
+  // e.g. a request's start date, which may belong to the next leave year.
+  async findForEmployee(@Param("employeeId") employeeId: string, @Query("year") year?: string, @Query("date") date?: string) {
+    const resolvedYear = year
+      ? Number(year)
+      : date
+        ? await leaveYearFor(this.prisma, new Date(date))
+        : await currentLeaveYear(this.prisma);
     return this.leaveBalancesService.findForEmployee(employeeId, resolvedYear);
   }
 

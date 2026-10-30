@@ -96,6 +96,15 @@ export class CreateLeaveTypeDto {
   @IsString()
   @IsIn(CANCELLATION_CUTOFF_UNITS)
   cancellationCutoffUnit?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isMonetizable?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  maxMonetizableDays?: number;
 }
 
 export class UpdateLeaveTypeDto {
@@ -189,6 +198,15 @@ export class UpdateLeaveTypeDto {
   @IsString()
   @IsIn(CANCELLATION_CUTOFF_UNITS)
   cancellationCutoffUnit?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isMonetizable?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  maxMonetizableDays?: number;
 }
 
 export class SetLeaveTypeStatusDto {

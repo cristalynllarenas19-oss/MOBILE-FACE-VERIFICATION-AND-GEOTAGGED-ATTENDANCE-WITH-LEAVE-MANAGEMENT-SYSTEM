@@ -87,9 +87,17 @@ type ReportData = {
     remainingDays: number;
     usedDates: { startDate: string; endDate: string }[];
   }[];
+  vlMonetizations?: {
+    id: string;
+    year: number;
+    days: number;
+    monetizedAt: string;
+    leaveType: { name: string };
+    employee: { firstName: string; lastName: string; sex?: string | null; department: { name: string } };
+  }[];
 };
 
-type ReportTab = "ALL" | "attendance" | "leave" | "undertime" | "schedules" | "employees" | "leaveBalances";
+type ReportTab = "ALL" | "attendance" | "leave" | "undertime" | "schedules" | "employees" | "leaveBalances" | "vlMonetization";
 type SavePicker = (options: {
   suggestedName: string;
   types: { description: string; accept: Record<string, string[]> }[];
@@ -108,7 +116,10 @@ const REPORT_TYPE_LABELS: Record<ReportTab, string> = {
   schedules: "Schedules",
   employees: "List of Employees",
   leaveBalances: "Remaining Leave",
+  vlMonetization: "VL Monetization",
 };
+
+const VL_MONETIZATION_HEAD = ["Name", "Department", "Sex", "Leave Year", "Days Monetized", "Date Monetized"];
 
 // All Reports' first page: the department counts only, under this title;
 // the DTR / Attendance records follow on the next page.
@@ -264,32 +275,57 @@ function downloadBlob(blob: Blob, filename: string) {
   link.href = url;
   link.download = filename;
   link.click();
-  URL.revokeObjectURL(url);
+  // Revoking right away can cancel the download before it starts.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
-async function saveBlob(blob: Blob, filename: string, description: string, mimeType: string, extension: string) {
+// Opens the Save dialog (file explorer) straight away — browsers only allow
+// it right after the click, so it has to come before the (slow) report is
+// built — and returns a save() for the finished file, or null if the user
+// cancelled. Browsers without the dialog, or a dialog that fails, fall back
+// to a plain download.
+async function openSaveTarget(filename: string, description: string, mimeType: string, extension: string) {
   const showSaveFilePicker = (window as unknown as { showSaveFilePicker?: SavePicker }).showSaveFilePicker;
-
-  if (!showSaveFilePicker) {
-    downloadBlob(blob, filename);
-    return true;
+  let handle: Awaited<ReturnType<SavePicker>> | null = null;
+  if (showSaveFilePicker) {
+    try {
+      handle = await showSaveFilePicker({
+        suggestedName: filename,
+        types: [{ description, accept: { [mimeType]: [extension] } }],
+      });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return null;
+    }
   }
-
-  try {
-    const handle = await showSaveFilePicker({
-      suggestedName: filename,
-      types: [{ description, accept: { [mimeType]: [extension] } }],
-    });
-    const writable = await handle.createWritable();
-    await writable.write(blob);
-    await writable.close();
-    return true;
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") return false;
-    downloadBlob(blob, filename);
-    return true;
-  }
+  return {
+    save: async (blob: Blob) => {
+      if (handle) {
+        try {
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          return;
+        } catch (error) {
+          // e.g. the file is open in Excel — download a copy instead.
+          console.warn("[REPORTS] Couldn't write to the chosen file; downloading instead.", error);
+        }
+      }
+      downloadBlob(blob, filename);
+    },
+  };
 }
+
+// xlsx is loaded only when an All Report Types export needs it. Its ESM
+// build has the API on the namespace, the CommonJS build on default.
+// Started when the Reports page opens, so a click on Export has it ready.
+const XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+type SheetJs = typeof import("xlsx");
+let sheetJsPromise: Promise<SheetJs> | null = null;
+function loadSheetJs(): Promise<SheetJs> {
+  sheetJsPromise ??= import("xlsx").then((mod) => (mod.SSF ? mod : (mod as unknown as { default: SheetJs }).default));
+  return sheetJsPromise;
+}
+
 
 function formatSex(sex?: string | null) {
   if (sex === "MALE") return "Male";
@@ -297,15 +333,25 @@ function formatSex(sex?: string | null) {
   return "—";
 }
 
+// Each approved filing as "8/26/26-8/28/26" (a one-day leave too:
+// "8/27/26-8/27/26"), oldest first.
+function usedDateRanges(dates: { startDate: string; endDate: string }[]) {
+  const short = (value: string) => {
+    const d = new Date(value);
+    return `${d.getMonth() + 1}/${d.getDate()}/${String(d.getFullYear()).slice(-2)}`;
+  };
+  return [...dates]
+    .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())
+    .map((d) => `${short(d.startDate)}-${short(d.endDate)}`);
+}
+
+// Plain-text form for exports: three ranges per line.
 function formatUsedDates(dates: { startDate: string; endDate: string }[]) {
-  if (dates.length === 0) return "—";
-  return dates
-    .map((d) => {
-      const start = formatDate(d.startDate);
-      const end = formatDate(d.endDate);
-      return start === end ? start : `${start} – ${end}`;
-    })
-    .join(", ");
+  const ranges = usedDateRanges(dates);
+  if (ranges.length === 0) return "—";
+  const lines: string[] = [];
+  for (let i = 0; i < ranges.length; i += 3) lines.push(ranges.slice(i, i + 3).join(", "));
+  return lines.join("\n");
 }
 
 const LEAVE_STATUS_FILTERS = ["PENDING", "APPROVED", "REJECTED", "CANCELLED", "LAPSED"] as const;
@@ -371,11 +417,13 @@ function PrintFrame({
   title,
   subtitle,
   rangeLabel,
+  signatories,
   children,
 }: {
   title: string;
   subtitle?: string;
   rangeLabel: string;
+  signatories: Signatory[];
   children: React.ReactNode;
 }) {
   return (
@@ -398,25 +446,121 @@ function PrintFrame({
       </thead>
       <tbody>
         <tr>
-          <td>{children}</td>
+          <td>
+            {children}
+            <PrintSignatories signatories={signatories} />
+          </td>
         </tr>
       </tbody>
     </table>
   );
 }
 
+// Signatories at the end of every exported/printed report, "signature over
+// printed name": the label, blank space to sign, a line with the name in
+// capitals under it, then the position. Names and positions are typed on the
+// Reports page and remembered in this browser per account (admin and
+// supervisor each keep their own); Prepared By's name and position start as
+// the logged-in user's and can still be edited.
+const SIGNATORY_LABELS = ["Prepared By :", "Noted By :"];
+const SIGNATORIES_STORAGE_KEY = "reports.signatories";
+type Signatory = { name: string; position: string };
+type SavedSignatories = { preparedName: string; preparedPosition: string; notedName: string; notedPosition: string };
+
+const signatoriesKey = (account: string) => `${SIGNATORIES_STORAGE_KEY}:${account}`;
+
+// What this account has actually saved (fields it never edited are missing).
+function loadSavedSignatoriesRaw(account: string): Partial<SavedSignatories> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(signatoriesKey(account)) ?? "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function loadSavedSignatories(defaultPreparedName: string): SavedSignatories {
+  const blank = { preparedName: defaultPreparedName, preparedPosition: "", notedName: "", notedPosition: "" };
+  try {
+    const parsed = JSON.parse(localStorage.getItem(signatoriesKey(defaultPreparedName)) ?? "{}");
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") return blank;
+    return {
+      preparedName: typeof parsed.preparedName === "string" ? parsed.preparedName : defaultPreparedName,
+      preparedPosition: typeof parsed.preparedPosition === "string" ? parsed.preparedPosition : "",
+      notedName: typeof parsed.notedName === "string" ? parsed.notedName : "",
+      notedPosition: typeof parsed.notedPosition === "string" ? parsed.notedPosition : "",
+    };
+  } catch {
+    return blank;
+  }
+}
+
+// Printed at the end of every part of the report; hidden on screen.
+function PrintSignatories({ signatories }: { signatories: Signatory[] }) {
+  return (
+    <div className="reports-print-signatories">
+      {SIGNATORY_LABELS.map((label, i) => (
+        <div key={label} className="reports-print-signatory">
+          <span>{label}</span>
+          <span className="reports-print-signatory-name">{signatories[i].name.toUpperCase()}</span>
+          <span className="reports-print-signatory-position">{signatories[i].position}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function ReportsPage({
   user,
 }: {
-  user?: { roles?: string[]; departmentId?: string; department?: string };
+  user?: { roles?: string[]; departmentId?: string; department?: string; displayName?: string; employeeId?: string };
 } = {}) {
- 
+
   const roles = user?.roles ?? [];
+  const isSupervisorOnly = roles.includes("SUPERVISOR") && !roles.includes("ADMIN");
+  const [savedSignatories, setSavedSignatories] = useState<SavedSignatories>(() => loadSavedSignatories(user?.displayName ?? ""));
+  const updateSavedSignatory = (field: keyof SavedSignatories, value: string) => {
+    setSavedSignatories((current) => {
+      const next = { ...current, [field]: value };
+      localStorage.setItem(signatoriesKey(user?.displayName ?? ""), JSON.stringify(next));
+      return next;
+    });
+  };
+  // Prepared By's position defaults to "Supervisor" for a supervisor, and to
+  // the logged-in user's own position otherwise, until they type their own
+  // (an account with no employee record has none).
+  useEffect(() => {
+    if (loadSavedSignatoriesRaw(user?.displayName ?? "").preparedPosition !== undefined) return;
+    if (isSupervisorOnly) {
+      setSavedSignatories((current) => (current.preparedPosition ? current : { ...current, preparedPosition: "Supervisor" }));
+      return;
+    }
+    if (!user?.employeeId) return;
+    let cancelled = false;
+    apiRequest<{ position?: { title: string } | null }>("/employees/me")
+      .then((profile) => {
+        const title = profile.position?.title;
+        if (!cancelled && title) {
+          setSavedSignatories((current) => (current.preparedPosition ? current : { ...current, preparedPosition: title }));
+        }
+      })
+      .catch(() => {
+        // Best-effort — the field just stays blank to type in.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.employeeId, user?.displayName, isSupervisorOnly]);
+  const signatories: Signatory[] = [
+    { name: savedSignatories.preparedName, position: savedSignatories.preparedPosition },
+    { name: savedSignatories.notedName, position: savedSignatories.notedPosition },
+  ];
   const isDepartmentLocked = roles.includes("SUPERVISOR") && !roles.includes("ADMIN");
 
   const [data, setData] = useState<ReportData | null>(null);
   // Shown instead of the endless "Loading reports…" when /reports fails.
   const [loadError, setLoadError] = useState("");
+  const [exportError, setExportError] = useState("");
   const [tab, setTab] = useState<ReportTab>("ALL");
   // Both default to today (not month-start) — a same-day From/To range is
   // what lets the backend reconstruct Absent/On-Leave rows (see
@@ -452,6 +596,11 @@ export function ReportsPage({
   };
 
   useEffect(loadReport, [filters.from, filters.to, filters.department]);
+  useEffect(() => {
+    loadSheetJs().catch(() => {
+      sheetJsPromise = null; // retried on Export
+    });
+  }, []);
   // A heavier payload than most pages, so polled less often.
   useLiveRefresh(loadReport, true, 30_000);
 
@@ -532,6 +681,12 @@ export function ReportsPage({
         new Date(request.endDate).getTime() >= parseLocalDateFilter(filters.from);
       return deptMatch && (startInRange || endInRange || spanRange) && matchesEmployeeQuery(request.employee, search);
     });
+    // Latest dates first within each employee (sortByDepartment is stable).
+    rows.sort(
+      (a, b) =>
+        new Date(b.endDate).getTime() - new Date(a.endDate).getTime() ||
+        new Date(b.startDate).getTime() - new Date(a.startDate).getTime(),
+    );
     return sortByDepartment(rows, personOfRow);
   }, [data, filters, search]);
 
@@ -608,6 +763,21 @@ export function ReportsPage({
     return sortByDepartment(rows, personOfRow);
   }, [data, filters.department, search]);
 
+  // Like Remaining Leave: the leave year of the "To" date, department filter only.
+  const filteredVlMonetizations = useMemo(() => {
+    if (!data) return [];
+    const rows = (data.vlMonetizations ?? []).filter(
+      (m) =>
+        (filters.department === "ALL" || m.employee.department.name === filters.department) &&
+        matchesEmployeeQuery(m.employee, search),
+    );
+    return sortByDepartment(rows, personOfRow);
+  }, [data, filters.department, search]);
+  const vlMonetizationCells = (m: NonNullable<ReportData["vlMonetizations"]>[number]): (string | number)[] => [
+    `${m.employee.firstName} ${m.employee.lastName}`, m.employee.department.name, formatSex(m.employee.sex),
+    String(m.year), formatDays(m.days), formatDate(m.monetizedAt),
+  ];
+
   // Filtered totals for stat cards
   const filteredTotals = useMemo(() => ({
     attendanceRecords: filteredAttendance.length,
@@ -633,7 +803,24 @@ export function ReportsPage({
 
   const generatedRangeLabel = `Generated: ${filters.from ? formatDate(filters.from) : "—"} to ${filters.to ? formatDate(filters.to) : "—"}`;
 
+  // Runs an export; only a failure is shown next to the buttons.
+  const runExport = async (exporter: () => Promise<void>) => {
+    setExportError("");
+    try {
+      await exporter();
+      loadReport();
+    } catch (error) {
+      console.error("[REPORTS] Export failed", error);
+      setExportError(`Export failed: ${error instanceof Error && error.message ? error.message : String(error)}`);
+    }
+  };
+
   const exportCsv = async () => {
+    const target =
+      tab === "ALL"
+        ? await openSaveTarget("all-report.xlsx", "Excel workbook", XLSX_TYPE, ".xlsx")
+        : await openSaveTarget(`${tab}-report.csv`, "CSV file", "text/csv", ".csv");
+    if (!target) return;
     const aRows = [
       ["Employee", "Department", "Site", "Date", "Time In", "Time Out", "Lunch / Break", "Status"],
       ...filteredAttendance.map((r) => [
@@ -668,25 +855,69 @@ export function ReportsPage({
         b.leaveTypeName, formatDays(b.remainingDays), formatDays(b.usedDays), formatUsedDates(b.usedDates),
       ]),
     ];
-    const rows =
-      tab === "attendance" ? aRows
-      : tab === "leave" ? lRows
-      : tab === "undertime" ? uRows
-      : tab === "schedules" ? sRows
-      : tab === "employees" ? eRows
-      : tab === "leaveBalances" ? rbRows
-      : [["ATTENDANCE"], ...aRows, [], ["LEAVE"], ...lRows, [], ["UNDERTIME"], ...uRows, [], [REPORT_TYPE_LABELS.schedules.toUpperCase()], ...sRows];
+    // Signatures closing each part: Prepared By in the first column, Noted
+    // By a few columns over, as in the HR's DTR summary.
+    const signRows = [
+      [], [],
+      [SIGNATORY_LABELS[0], "", "", "", SIGNATORY_LABELS[1]],
+      [], [],
+      [signatories[0].name.toUpperCase(), "", "", "", signatories[1].name.toUpperCase()],
+      [signatories[0].position, "", "", "", signatories[1].position],
+    ];
+    const rows: (string | number)[][] =
+      tab === "attendance" ? [...aRows, ...signRows]
+      : tab === "leave" ? [...lRows, ...signRows]
+      : tab === "undertime" ? [...uRows, ...signRows]
+      : tab === "schedules" ? [...sRows, ...signRows]
+      : tab === "employees" ? [...eRows, ...signRows]
+      : tab === "leaveBalances" ? [...rbRows, ...signRows]
+      : tab === "vlMonetization" ? [VL_MONETIZATION_HEAD, ...filteredVlMonetizations.map(vlMonetizationCells), ...signRows]
+      : [];
+    // All Report Types: an Excel workbook with one tab per report, since a
+    // CSV file can only hold a single sheet.
+    if (tab === "ALL") {
+      const summaryRows: (string | number)[][] = [
+        ["Department", "Present", "Late", "Absent", "On Leave", "Total"],
+        ...departmentSummary.rows.map((row) => [row.department, row.present, row.late, row.absent, row.onLeave, row.total]),
+        ["Grand Total", departmentSummary.total.present, departmentSummary.total.late, departmentSummary.total.absent, departmentSummary.total.onLeave, departmentSummary.total.total],
+      ];
+      // Excel sheet names can't contain "/" and max out at 31 characters.
+      const sheets: [string, (string | number)[][]][] = [
+        ["Attendance Summary", summaryRows],
+        ["DTR - Attendance", aRows],
+        ["Leave", lRows],
+        ["Undertime", uRows],
+        ["Schedules", sRows],
+        ["List of Employees", eRows],
+        ["Remaining Leave", rbRows],
+        ["VL Monetization", [VL_MONETIZATION_HEAD, ...filteredVlMonetizations.map(vlMonetizationCells)]],
+      ];
+      const XLSX = await loadSheetJs();
+      const workbook = XLSX.utils.book_new();
+      for (const [name, sheetRows] of sheets) {
+        const sheet = XLSX.utils.aoa_to_sheet([[generatedRangeLabel], [], ...sheetRows, ...signRows]);
+        // Columns wide enough for their longest value, so names aren't cut off.
+        sheet["!cols"] = sheetRows[0].map((_, col) => ({
+          wch: Math.min(45, Math.max(10, ...sheetRows.map((row) => String(row[col] ?? "").length + 2))),
+        }));
+        XLSX.utils.book_append_sheet(workbook, sheet, name);
+      }
+      const data = XLSX.write(workbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
+      await target.save(new Blob([data], { type: XLSX_TYPE }));
+      return;
+    }
     const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\r\n");
     // Leading BOM tells Excel the file is UTF-8 — without it Excel reads it
     // as ANSI and "—" shows up as "â€”".
     const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
-    const saved = await saveBlob(blob, `${tab === "ALL" ? "all" : tab}-report.csv`, "CSV file", "text/csv", ".csv");
-    if (saved) loadReport();
+    await target.save(blob);
   };
 
   const exportPdf = async () => {
+    const target = await openSaveTarget(`${tab === "ALL" ? "all" : tab}-report.pdf`, "PDF file", "application/pdf", ".pdf");
+    if (!target) return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" }) as any;
+    const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" }) as any;
     const pageWidth = doc.internal.pageSize.getWidth();
     const margin = 40;
 
@@ -697,8 +928,8 @@ export function ReportsPage({
     let logoImage: { dataUrl: string; width: number; height: number } | null = null;
     try {
       const { dataUrl, width, height } = await loadImageDataUrl(logo);
-      const maxSize = 140;
-      const scale = Math.min(maxSize / width, maxSize / height);
+      // About the printed logo's share of the page width.
+      const scale = 210 / width;
       logoImage = { dataUrl, width: width * scale, height: height * scale };
     } catch {
       // Logo failed to load — still produce the report without it.
@@ -718,10 +949,12 @@ export function ReportsPage({
         y += logoImage.height + 16;
       }
 
-      doc.setFontSize(16);
+      doc.setFont(undefined, "bold");
+      doc.setFontSize(14);
       doc.setTextColor(26, 58, 92);
       doc.text(header.title, pageWidth / 2, y, { align: "center" });
-      y += 20;
+      doc.setFont(undefined, "normal");
+      y += 18;
 
       if (header.subtitle) {
         doc.setFontSize(8);
@@ -730,9 +963,11 @@ export function ReportsPage({
         y += 14;
       }
 
+      doc.setFont(undefined, "bold");
       doc.setFontSize(9);
       doc.setTextColor(45, 74, 101);
       doc.text(generatedRangeLabel, pageWidth / 2, y, { align: "center" });
+      doc.setFont(undefined, "normal");
       y += 10;
       doc.setDrawColor(215, 226, 236);
       doc.line(margin, y, pageWidth - margin, y);
@@ -744,6 +979,48 @@ export function ReportsPage({
     let headerDrawnOnPage = doc.internal.getNumberOfPages();
     let sectionsDrawn = 0;
 
+    // Signature block right after a part's last table — moved to a fresh
+    // page (under the header) when it doesn't fit below it.
+    const drawSignatories = () => {
+      const pageHeight = doc.internal.pageSize.getHeight();
+      let signY = startY + 10;
+      if (signY + 70 > pageHeight - 30) {
+        doc.addPage();
+        drawHeader();
+        headerDrawnOnPage = doc.internal.getNumberOfPages();
+        signY = headerBottom + 10;
+      }
+      // Prepared By centered in the left half, Noted By in the right half:
+      // label, room to sign, line, name in capitals, position.
+      const lineWidth = 200;
+      const signatoryX = [pageWidth * 0.25 - lineWidth / 2, pageWidth * 0.75 - lineWidth / 2];
+      doc.setTextColor(30, 41, 59);
+      doc.setDrawColor(30, 41, 59);
+      SIGNATORY_LABELS.forEach((label, i) => {
+        const x = signatoryX[i];
+        const center = x + lineWidth / 2;
+        doc.setFont(undefined, "normal");
+        doc.setFontSize(10);
+        doc.text(label, x, signY);
+        doc.line(x, signY + 34, x + lineWidth, signY + 34);
+        doc.setFont(undefined, "bold");
+        doc.text(signatories[i].name.toUpperCase(), center, signY + 47, { align: "center" });
+        doc.setFont(undefined, "normal");
+        doc.setFontSize(9);
+        doc.text(signatories[i].position, center, signY + 59, { align: "center" });
+      });
+    };
+
+    // Width of one "Dates Used" slot: the longest range plus a gap. Sized
+    // from the whole section so every department's columns line up.
+    let sectionDateSlot = 0;
+    const dateSlotWidth = (body: (string | number)[][], col: number) => {
+      doc.setFontSize(8);
+      const ranges = body.flatMap((row) => String(row[col] ?? "").split(/\n|, /));
+      sectionDateSlot = Math.max(0, ...ranges.map((range) => doc.getTextWidth(range))) + 6;
+      return sectionDateSlot;
+    };
+
     const addSection = (
       title: string,
       head: string[],
@@ -754,8 +1031,10 @@ export function ReportsPage({
       options: { boldLastRow?: boolean; partTitle?: string; centerFrom?: number; byDepartment?: boolean } = {},
     ) => {
       if (body.length === 0) return;
-      // A new part of All Reports: its own page, headed with its own title.
+      // A new part of All Reports: the previous part is signed off, then
+      // this one gets its own page, headed with its own title.
       if (options.partTitle && tab === "ALL" && sectionsDrawn > 0) {
+        drawSignatories();
         doc.addPage();
         header = { title: options.partTitle };
         headerBottom = drawHeader();
@@ -763,53 +1042,133 @@ export function ReportsPage({
         headerDrawnOnPage = doc.internal.getNumberOfPages();
       }
       sectionsDrawn += 1;
-      doc.setFontSize(10);
-      doc.setTextColor(26, 58, 92);
-      doc.text(title, 40, startY);
+      // As in print, a section's own label only shows in All Reports.
+      if (tab === "ALL") {
+        doc.setFont(undefined, "bold");
+        doc.setFontSize(10);
+        doc.setTextColor(26, 58, 92);
+        doc.text(title, margin, startY);
+        doc.setFont(undefined, "normal");
+        startY += 8;
+      }
 
       if (!options.byDepartment) {
-        drawTable(head, body, startY + 8, options);
+        drawTable(head, body, startY, options);
         return;
       }
-      startY += 22;
-      const pageHeight = doc.internal.pageSize.getHeight();
+      // One set of column widths for every department's table, sized from
+      // the whole section — otherwise each table fits only its own rows and
+      // the columns shift from one department to the next.
+      doc.setFontSize(8);
+      const textWidth = (value: string | number) =>
+        Math.max(...String(value).split("\n").map((line) => doc.getTextWidth(line))) + 12;
+      // Column headings are drawn bold in capitals at 7.5pt.
+      const headingWidth = (label: string) => {
+        doc.setFont(undefined, "bold");
+        doc.setFontSize(7.5);
+        const width = Math.max(...label.toUpperCase().split(" ").map((word) => doc.getTextWidth(word))) + 12;
+        doc.setFont(undefined, "normal");
+        doc.setFontSize(8);
+        return width;
+      };
+      const natural = head.map((label, col) =>
+        Math.max(textWidth(label), ...body.map((row) => textWidth(row[col] ?? ""))),
+      );
+      // Narrowest a column may get: its longest single word, so text only
+      // wraps between words ("Tobacco / Production"), never inside one.
+      const longestWord = (value: string | number) =>
+        Math.max(0, ...String(value).split(/\s+/).map((word) => doc.getTextWidth(word))) + 12;
+      const minimum = head.map((label, col) =>
+        Math.max(headingWidth(label), ...body.map((row) => longestWord(row[col] ?? ""))),
+      );
+      minimum.forEach((width, col) => (natural[col] = Math.max(natural[col], width)));
+      // Room for three full date slots (see drawTable).
+      const datesCol = head.indexOf("Dates Used");
+      if (datesCol >= 0) natural[datesCol] = Math.max(natural[datesCol], dateSlotWidth(body, datesCol) * 3 + 2);
+      const available = pageWidth - margin * 2;
+      const naturalTotal = natural.reduce((sum, width) => sum + width, 0);
+      // Spare room is shared out evenly. When it's too wide, each column
+      // keeps its minimum and gives up part of the rest (long text then
+      // wraps between words) — except "Dates Used", which keeps its three
+      // slots so they never overlap.
+      const minimumTotal = minimum.reduce((sum, width, col) => sum + (col === datesCol ? natural[col] : width), 0);
+      const flexTotal = natural.reduce((sum, width, col) => sum + (col === datesCol ? 0 : width - minimum[col]), 0);
+      const flexRoom = Math.max(0, available - minimumTotal);
+      const widths =
+        naturalTotal <= available
+          ? natural.map((width) => width + (available - naturalTotal) / natural.length)
+          : natural.map((width, col) =>
+              col === datesCol
+                ? width
+                : minimum[col] + (flexTotal > 0 ? ((width - minimum[col]) / flexTotal) * flexRoom : 0),
+            );
+      const columnStyles = Object.fromEntries(widths.map((cellWidth, col) => [col, { cellWidth }]));
       const groups = groupByDepartment(body, (row) => ({
         firstName: "",
         lastName: "",
         department: { name: String(row[1] ?? "") },
       }));
-      for (const group of groups) {
-        // Heading + column headings + a couple of rows must fit, otherwise
-        // the department starts on the next page instead of being split
-        // from its records.
-        if (startY + 70 > pageHeight - 40) {
-          doc.addPage();
-          drawHeader();
-          headerDrawnOnPage = doc.internal.getNumberOfPages();
-          startY = headerBottom;
-        }
-        doc.setFontSize(9);
-        doc.setTextColor(26, 58, 92);
-        doc.text(`${departmentHeading(group.department)} (${group.rows.length})`, 40, startY);
-        drawTable(head, group.rows, startY + 6, options);
-        startY -= 10;
-      }
+      // Like the print: one table, each department opened by a shaded
+      // full-width heading row.
+      const rows = groups.flatMap((group) => [
+        [{
+          content: `${departmentHeading(group.department)} (${group.rows.length})`,
+          colSpan: head.length,
+          styles: {
+            halign: "left" as const,
+            fontStyle: "bold" as const,
+            fillColor: [238, 243, 249] as [number, number, number],
+            textColor: [26, 58, 92] as [number, number, number],
+            lineColor: [215, 226, 236] as [number, number, number],
+          },
+        }],
+        ...group.rows,
+      ]);
+      drawTable(head, rows, startY, { ...options, columnStyles });
     };
 
     const drawTable = (
       head: string[],
-      body: (string | number)[][],
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      body: any[][],
       tableStartY: number,
-      options: { boldLastRow?: boolean; centerFrom?: number },
+      options: { boldLastRow?: boolean; centerFrom?: number; columnStyles?: Record<number, { cellWidth: number }> },
     ) => {
+      // Remaining Leave's "Dates Used": the text keeps three ranges per line
+      // (so the row gets the right height), but each range is drawn at a
+      // fixed slot so the three columns line up from row to row.
+      const datesCol = head.indexOf("Dates Used");
+      const dateSlot = datesCol < 0 ? 0 : sectionDateSlot || dateSlotWidth(body, datesCol);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const isDatesCell = (cell: any) =>
+        cell.section === "body" && cell.column.index === datesCol && cell.cell.raw !== "—";
       autoTable(doc, {
         startY: tableStartY,
-        head: [head],
+        // Styled like the printed table: light heading row in uppercase,
+        // white rows split by thin lines, everything centered.
+        head: [head.map((label) => label.toUpperCase())],
         body,
-        theme: "striped" as const,
-        headStyles: { fillColor: [26, 58, 92] as [number, number, number], textColor: [255, 255, 255] as [number, number, number], fontSize: 8, fontStyle: "bold" as const },
-        bodyStyles: { fontSize: 8, textColor: [30, 41, 59] as [number, number, number] },
-        alternateRowStyles: { fillColor: [244, 247, 251] as [number, number, number] },
+        theme: "plain" as const,
+        // A row is never split across two pages.
+        rowPageBreak: "avoid" as const,
+        columnStyles: options.columnStyles,
+        headStyles: {
+          fillColor: [244, 248, 252] as [number, number, number],
+          textColor: [74, 102, 128] as [number, number, number],
+          fontSize: 7.5,
+          fontStyle: "bold" as const,
+          halign: "center" as const,
+          lineWidth: { bottom: 1 },
+          lineColor: [227, 234, 242] as [number, number, number],
+        },
+        bodyStyles: {
+          fontSize: 8,
+          textColor: [45, 74, 101] as [number, number, number],
+          halign: "center" as const,
+          valign: "middle" as const,
+          lineWidth: { bottom: 0.5 },
+          lineColor: [232, 238, 244] as [number, number, number],
+        },
         // Pages a table flows onto start below the repeated header; its
         // column headings repeat there too (autoTable's default).
         margin: { left: 40, right: 40, top: headerBottom },
@@ -833,6 +1192,29 @@ export function ReportsPage({
             cell.cell.styles.fontStyle = "bold";
             cell.cell.styles.textColor = [46, 125, 50];
           }
+        },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        willDrawCell: (cell: any) => {
+          if (isDatesCell(cell)) cell.cell.text = [];
+        },
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        didDrawCell: (cell: any) => {
+          if (!isDatesCell(cell)) return;
+          const lineHeight = 8 * doc.getLineHeightFactor();
+          doc.setFontSize(8);
+          doc.setTextColor(45, 74, 101);
+          // The three-slot block is centered in the cell, like the other columns.
+          const blockLeft = cell.cell.x + Math.max(cell.cell.padding("left"), (cell.cell.width - dateSlot * 3) / 2);
+          String(cell.cell.raw).split("\n").forEach((line, lineIndex) => {
+            line.split(", ").forEach((range, slot) => {
+              doc.text(
+                range,
+                blockLeft + slot * dateSlot,
+                cell.cell.y + cell.cell.padding("top") + lineIndex * lineHeight,
+                { baseline: "top" },
+              );
+            });
+          });
         },
       });
       startY = doc.lastAutoTable.finalY + 24;
@@ -886,27 +1268,33 @@ export function ReportsPage({
         { partTitle: partTitle("schedules"), byDepartment: true },
       );
     }
-    if (tab === "employees") {
+    if (tab === "ALL" || tab === "employees") {
       addSection("List of Employees",
         ["Name", "Department", "Sex", "Hired Date"],
         filteredEmployeesList.map((e) => [`${e.firstName} ${e.lastName}`, e.department.name, formatSex(e.sex), formatDate(e.hireDate)]),
-        { byDepartment: true },
+        { partTitle: partTitle("employees"), byDepartment: true },
       );
     }
-    if (tab === "leaveBalances") {
+    if (tab === "ALL" || tab === "leaveBalances") {
       addSection("Remaining Leave",
         ["Name", "Department", "Sex", "Leave Type", "Remaining", "Used", "Dates Used"],
         filteredLeaveBalances.map((b) => [
           `${b.employee.firstName} ${b.employee.lastName}`, b.employee.department.name, formatSex(b.employee.sex),
           b.leaveTypeName, formatDays(b.remainingDays), formatDays(b.usedDays), formatUsedDates(b.usedDates),
         ]),
-        { byDepartment: true },
+        { partTitle: partTitle("leaveBalances"), byDepartment: true },
       );
     }
 
+    if (tab === "ALL" || tab === "vlMonetization") {
+      addSection("VL Monetization", VL_MONETIZATION_HEAD, filteredVlMonetizations.map(vlMonetizationCells), { partTitle: partTitle("vlMonetization"), byDepartment: true });
+    }
+
+    // The last part's signatures (earlier parts get theirs in addSection).
+    if (sectionsDrawn > 0) drawSignatories();
+
     const blob = doc.output("blob") as Blob;
-    const saved = await saveBlob(blob, `${tab === "ALL" ? "all" : tab}-report.pdf`, "PDF file", "application/pdf", ".pdf");
-    if (saved) loadReport();
+    await target.save(blob);
   };
 
   return (
@@ -962,6 +1350,7 @@ export function ReportsPage({
               { value: "schedules", label: "Schedules" },
               { value: "employees", label: "List of Employees" },
               { value: "leaveBalances", label: "Remaining Leave" },
+              { value: "vlMonetization", label: "VL Monetization" },
             ]}
             allLabel="All Report Types"
             menuLabel="Filter by report type"
@@ -1015,11 +1404,11 @@ export function ReportsPage({
         <div className="reports-filter-actions">
           <span className="reports-filter-label">Actions</span>
           <div className="reports-filter-actions-buttons">
-          <button className="report-export-button" onClick={exportCsv}>
+          <button className="report-export-button" onClick={() => runExport(exportCsv)}>
             <Download size={14} />
             <span>Export CSV</span>
           </button>
-          <button className="report-export-button" onClick={exportPdf}>
+          <button className="report-export-button" onClick={() => runExport(exportPdf)}>
             <FileText size={14} />
             <span>Export PDF</span>
           </button>
@@ -1027,6 +1416,49 @@ export function ReportsPage({
             <Printer size={14} />
             <span>Print</span>
           </button>
+          </div>
+          {exportError && (
+            <p className="reports-export-error" role="alert">
+              {exportError}
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* ── Signatories: printed at the end of every report ── */}
+      <div className="reports-signatories-bar">
+        <div className="reports-filter-group">
+          <label className="reports-filter-label">Prepared By</label>
+          <div className="reports-signatory-inputs">
+            <input
+              value={savedSignatories.preparedName}
+              onChange={(e) => updateSavedSignatory("preparedName", e.target.value)}
+              placeholder="Name"
+              aria-label="Prepared by name"
+            />
+            <input
+              value={savedSignatories.preparedPosition}
+              onChange={(e) => updateSavedSignatory("preparedPosition", e.target.value)}
+              placeholder="Position"
+              aria-label="Prepared by position"
+            />
+          </div>
+        </div>
+        <div className="reports-filter-group">
+          <label className="reports-filter-label">Noted By</label>
+          <div className="reports-signatory-inputs">
+            <input
+              value={savedSignatories.notedName}
+              onChange={(e) => updateSavedSignatory("notedName", e.target.value)}
+              placeholder="Name"
+              aria-label="Noted by name"
+            />
+            <input
+              value={savedSignatories.notedPosition}
+              onChange={(e) => updateSavedSignatory("notedPosition", e.target.value)}
+              placeholder="Position"
+              aria-label="Noted by position"
+            />
           </div>
         </div>
       </div>
@@ -1040,7 +1472,7 @@ export function ReportsPage({
         {tab === "ALL" && (
         <PrintFrame
           title={ALL_REPORTS_SUMMARY_TITLE}
-          rangeLabel={generatedRangeLabel}
+          rangeLabel={generatedRangeLabel} signatories={signatories}
         >
         {/* ── Department Attendance Summary (All Reports only) ── */}
         {tab === "ALL" && (
@@ -1091,7 +1523,7 @@ export function ReportsPage({
 
         {/* DTR / Attendance records: page 2 of All Reports. */}
         {(tab === "ALL" || tab === "attendance") && (
-        <PrintFrame title={partTitle("attendance")} rangeLabel={generatedRangeLabel}>
+        <PrintFrame title={partTitle("attendance")} rangeLabel={generatedRangeLabel} signatories={signatories}>
 
         {/* ── Tables ── */}
         {(tab === "ALL" || tab === "attendance") && (
@@ -1127,7 +1559,7 @@ export function ReportsPage({
         )}
 
       {(tab === "ALL" || tab === "leave") && (
-        <PrintFrame title={partTitle("leave")} rangeLabel={generatedRangeLabel}>
+        <PrintFrame title={partTitle("leave")} rangeLabel={generatedRangeLabel} signatories={signatories}>
         <section className="table-card reports-table-card">
           {tab === "ALL" && <div className="reports-table-label">Leave</div>}
           <div className="reports-status-tabs">
@@ -1169,7 +1601,7 @@ export function ReportsPage({
       )}
 
       {(tab === "ALL" || tab === "undertime") && (
-        <PrintFrame title={partTitle("undertime")} rangeLabel={generatedRangeLabel}>
+        <PrintFrame title={partTitle("undertime")} rangeLabel={generatedRangeLabel} signatories={signatories}>
         <section className="table-card reports-table-card">
           {tab === "ALL" && <div className="reports-table-label">Undertime</div>}
           <div className="reports-status-tabs">
@@ -1211,7 +1643,7 @@ export function ReportsPage({
       )}
 
       {(tab === "ALL" || tab === "schedules") && (
-        <PrintFrame title={partTitle("schedules")} rangeLabel={generatedRangeLabel}>
+        <PrintFrame title={partTitle("schedules")} rangeLabel={generatedRangeLabel} signatories={signatories}>
         <section className="table-card reports-table-card">
           {tab === "ALL" && <div className="reports-table-label">Schedules</div>}
           <table>
@@ -1253,9 +1685,10 @@ export function ReportsPage({
         </PrintFrame>
       )}
 
-      {tab === "employees" && (
-        <PrintFrame title={REPORT_TYPE_LABELS[tab]} rangeLabel={generatedRangeLabel}>
+      {(tab === "ALL" || tab === "employees") && (
+        <PrintFrame title={partTitle("employees")} rangeLabel={generatedRangeLabel} signatories={signatories}>
         <section className="table-card reports-table-card">
+          {tab === "ALL" && <div className="reports-table-label">List of Employees</div>}
           <table>
             <thead>
               <tr>
@@ -1279,9 +1712,10 @@ export function ReportsPage({
         </PrintFrame>
       )}
 
-      {tab === "leaveBalances" && (
-        <PrintFrame title={REPORT_TYPE_LABELS[tab]} rangeLabel={generatedRangeLabel}>
+      {(tab === "ALL" || tab === "leaveBalances") && (
+        <PrintFrame title={partTitle("leaveBalances")} rangeLabel={generatedRangeLabel} signatories={signatories}>
         <section className="table-card reports-table-card">
+          {tab === "ALL" && <div className="reports-table-label">Remaining Leave</div>}
           <table>
             <thead>
               <tr>
@@ -1300,7 +1734,37 @@ export function ReportsPage({
                   <td>{b.leaveTypeName}</td>
                   <td>{formatDays(b.remainingDays)}</td>
                   <td>{formatDays(b.usedDays)}</td>
-                  <td>{formatUsedDates(b.usedDates)}</td>
+                  <td className="reports-dates-used">
+                    {b.usedDates.length === 0 ? "—" : (
+                      <span className="reports-dates-grid">
+                        {usedDateRanges(b.usedDates).map((range, index) => <span key={index}>{range}</span>)}
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              )} />}
+            </tbody>
+          </table>
+        </section>
+        </PrintFrame>
+      )}
+
+      {(tab === "ALL" || tab === "vlMonetization") && (
+        <PrintFrame title={partTitle("vlMonetization")} rangeLabel={generatedRangeLabel} signatories={signatories}>
+        <section className="table-card reports-table-card">
+          {tab === "ALL" && <div className="reports-table-label">VL Monetization</div>}
+          <table>
+            <thead>
+              <tr>
+                {VL_MONETIZATION_HEAD.map((heading) => <th key={heading}>{heading}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {filteredVlMonetizations.length === 0 ? (
+                <tr><td colSpan={VL_MONETIZATION_HEAD.length} className="reports-empty">No VL has been monetized for this leave year.</td></tr>
+              ) : <DepartmentGroups rows={filteredVlMonetizations} person={personOfRow} colSpan={VL_MONETIZATION_HEAD.length} renderRow={(m) => (
+                <tr key={m.id}>
+                  {vlMonetizationCells(m).map((cell, index) => <td key={index}>{cell}</td>)}
                 </tr>
               )} />}
             </tbody>

@@ -392,7 +392,7 @@ export function getLeaveTypes() {
 }
 
 export function getLeaveBalances(employeeId: string) {
-  return apiRequest<LeaveBalance[]>(`/leave-balances/${employeeId}?year=${new Date().getFullYear()}`);
+  return apiRequest<LeaveBalance[]>(`/leave-balances/${employeeId}`);
 }
 
 export function getLeaveRequests(employeeId: string) {

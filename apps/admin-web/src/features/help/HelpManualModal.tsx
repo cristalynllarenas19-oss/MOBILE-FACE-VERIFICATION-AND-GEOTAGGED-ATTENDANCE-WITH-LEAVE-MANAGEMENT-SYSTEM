@@ -137,6 +137,17 @@ export default function HelpManualModal({
 
   const sections = useMemo(() => toSections(blocks), [blocks]);
   const visibleSections = query ? sections.filter((section) => section.text.includes(query)) : sections;
+  const visibleBlocks = visibleSections.flatMap((section) => section.blocks);
+  const tocEntries = visibleBlocks.filter(
+    (block): block is Extract<Block, { type: "heading" | "figure" }> =>
+      block.type === "heading" || block.type === "figure",
+  );
+  const headings = visibleBlocks.filter((block): block is Heading => block.type === "heading");
+
+  const jumpTo = (id: string) => {
+    const target = contentRef.current?.querySelector<HTMLElement>(`#${anchorId(id)}`);
+    target?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   // New results start from the top.
   useEffect(() => {
@@ -173,6 +184,34 @@ export default function HelpManualModal({
         </header>
 
         <div className="help-manual-body">
+          <nav className="help-manual-toc" aria-label="Manual contents">
+            <p className="help-manual-toc-caption">Contents</p>
+            {tocEntries.map((entry) => (
+              <button
+                key={entry.id}
+                type="button"
+                className={`help-manual-toc-link ${entry.type === "figure" ? "figure" : `level-${entry.level}`}`}
+                onClick={() => jumpTo(entry.id)}
+              >
+                {entry.type === "figure" ? figureLabel(entry) : headingLabel(entry)}
+              </button>
+            ))}
+          </nav>
+
+          <select
+            className="help-manual-jump"
+            aria-label="Jump to section"
+            value=""
+            onChange={(event) => event.target.value && jumpTo(event.target.value)}
+          >
+            <option value="">Jump to section…</option>
+            {headings.map((heading) => (
+              <option key={heading.id} value={heading.id}>
+                {headingLabel(heading)}
+              </option>
+            ))}
+          </select>
+
           <div className="help-manual-content" ref={contentRef}>
             {query && (
               <p className="help-manual-results" role="status">

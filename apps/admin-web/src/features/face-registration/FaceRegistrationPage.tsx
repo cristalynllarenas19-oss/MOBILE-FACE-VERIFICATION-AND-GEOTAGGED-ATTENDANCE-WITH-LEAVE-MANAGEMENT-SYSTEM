@@ -304,8 +304,8 @@ function detectEyewear(video: HTMLVideoElement, landmarks: faceapi.FaceLandmarks
 // ── Guided movements (active liveness) ───────────────────────────────────
 // Start guided capture walks the employee through these steps, each judged
 // live from the tracker's own landmarks. The ticks on screen only guide the
-// employee — they are NOT the verdict: the backend picks the step order and
-// blink count at random per session, receives a key frame as each step
+// employee — they are NOT the verdict: the backend sets the steps (a fixed
+// order: blink, left, right; one or two blinks at random), receives a key frame as each step
 // happens, and measures those frames itself (see the backend's
 // registration-liveness.service.ts). Only a session the backend verified can
 // be registered. This stops held-up photos and simple video replays; it is
@@ -355,7 +355,7 @@ const LIVENESS_STEP_TEXT: Record<LivenessStepKey, Omit<LivenessStep, "key" | "gr
 };
 
 // The steps in the order the backend chose: face check, the challenges
-// (blink and the two turns, in random order), then the photo. The step bar
+// (blink, then the two turns), then the photo. The step bar
 // keeps its four groups — both turns fall under "Turn head" — with Blink and
 // Turn head swapping places when the turns come first.
 function buildLivenessSteps(challenges: LivenessChallenge[], blinkCount: number): LivenessStep[] {
@@ -387,6 +387,8 @@ type LivenessFrameResult = { status: "pending" | "verified" | "failed"; reason: 
 // attempt counts as failed (the server measures every frame it received).
 const LIVENESS_VERIFY_TIMEOUT_MS = 60_000;
 const LIVE_FACE_CHECK_HINT = "Checking for a live face...";
+// How long "Capturing photo..." shows after the last step, at least.
+const CAPTURING_MIN_MS = 5_000;
 
 // The face oval's outline in an 80x100 box: top → right → bottom → left →
 // top (two clockwise half-arcs), so the progress ring fills from the top.
@@ -589,13 +591,14 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
   // Eyewear verdicts of the most recent polls — see EYEWEAR_WINDOW.
   const eyewearHistoryRef = useRef<boolean[]>([]);
   // Guided movements: the tracker hands each frame to the running step via
-  // livenessListenerRef; livenessAbortRef stops it (Reset, camera stopped).
+  // livenessListenerRef; livenessAbortRef stops it (Reset, camera stopped),
+  // or fails it with the backend's reason when a frame is rejected.
   // Steps already passed this camera session are kept so a failed step can
   // be retried on its own.
   const trackingRateRef = useRef(FACE_TRACKING_MS);
   const trackingInFlightRef = useRef(false);
   const livenessListenerRef = useRef<((face: TrackedFace | null) => void) | null>(null);
-  const livenessAbortRef = useRef<(() => void) | null>(null);
+  const livenessAbortRef = useRef<((error?: Error) => void) | null>(null);
   const fullLandmarksReadyRef = useRef(false);
   // The backend liveness session of the running guided capture. Key frames
   // are uploaded one at a time, in order, through frameChainRef; the first
@@ -610,6 +613,9 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
   const [verifiedSessionId, setVerifiedSessionId] = useState<string | null>(null);
   // Photo taken; waiting for the backend's verdict on the frames.
   const [livenessVerifying, setLivenessVerifying] = useState(false);
+  // Key frames sent but not yet judged by the backend (checked in the
+  // background while the employee moves on to the next step).
+  const [framesChecking, setFramesChecking] = useState(0);
   // The on-screen oval, for checking the face is inside it.
   const faceOvalRef = useRef<HTMLDivElement>(null);
   const [liveness, setLiveness] = useState<{
@@ -974,7 +980,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
         else resolve();
       };
       const timer = window.setTimeout(() => finish(new Error(timeoutMessage)), LIVENESS_STEP_TIMEOUT_MS);
-      livenessAbortRef.current = () => finish(new LivenessCancelled());
+      livenessAbortRef.current = (error) => finish(error ?? new LivenessCancelled());
 
       if (key === "blink") {
         // The head is held still (see restartBlink), so the eye positions
@@ -1132,17 +1138,27 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
   function submitLivenessFrame(kind: "straight" | "closed" | "open" | "left" | "right" | "final", image: string) {
     const session = livenessSessionRef.current;
     if (!session) return;
+    setFramesChecking((count) => count + 1);
     frameChainRef.current = frameChainRef.current.then(async () => {
-      if (session.failure || livenessSessionRef.current !== session) return;
+      if (session.failure || livenessSessionRef.current !== session) {
+        setFramesChecking((count) => Math.max(0, count - 1));
+        return;
+      }
       try {
         const result = await apiRequest<LivenessFrameResult>(`/face-profiles/liveness-sessions/${session.id}/frames`, {
           method: "POST",
           body: JSON.stringify({ kind, image }),
         });
-        if (result.status === "failed") session.failure = result.reason ?? "Liveness verification failed.";
+        if (result.status === "failed") {
+          session.failure = result.reason ?? "Liveness verification failed.";
+          // Stop the step the employee is on now, rather than at its end.
+          if (livenessSessionRef.current === session) livenessAbortRef.current?.(new Error(session.failure));
+        }
         if (result.status === "verified") session.verified = true;
       } catch {
         session.failure = "Couldn't reach the server to verify liveness. Check the connection and try again.";
+      } finally {
+        setFramesChecking((count) => Math.max(0, count - 1));
       }
     });
   }
@@ -1185,7 +1201,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
     setMessage("");
 
     try {
-      // Every attempt is a new backend session with a new random step order
+      // Every attempt is a new backend session (the backend sets the steps)
       // — a failed or cancelled one is never resumed.
       const session = await apiRequest<{ sessionId: string; challenges: LivenessChallenge[]; blinkCount: number }>(
         "/face-profiles/liveness-sessions",
@@ -1202,6 +1218,8 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
 
       for (let index = 0; index < steps.length; index += 1) {
         if (!sequenceRef.current) return;
+        // A frame rejected between steps fails before the next one starts.
+        throwIfLivenessFailed();
         const step = steps[index];
         setLiveness({ step: index, status: "active" });
         setLivenessHint("");
@@ -1220,7 +1238,9 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
           }
           // Step 1 isn't ticked until the backend's anti-spoofing check has
           // judged that frame a live face, so a photo or a phone screen
-          // stops right here.
+          // stops right here. Later steps are judged in the background so
+          // the employee isn't kept waiting; a rejected frame stops the step
+          // in progress.
           if (step.key === "straight") {
             setLivenessHint(LIVE_FACE_CHECK_HINT);
             if (await livenessTimedOut()) throw new Error("Liveness verification timed out. Please try again.");
@@ -1233,9 +1253,11 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
       }
       if (!sequenceRef.current) return;
 
-      // The verdict: wait for the backend to finish measuring every frame.
+      // "Capturing photo..." for a few seconds while the backend finishes the
+      // frames still in line; then the camera stops (the captured photo stays
+      // in its place) and the photo review opens, ready to register.
       setLivenessVerifying(true);
-      const timedOut = await livenessTimedOut();
+      const [timedOut] = await Promise.all([livenessTimedOut(), delay(CAPTURING_MIN_MS)]);
       if (!sequenceRef.current) return;
       setLivenessVerifying(false);
       if (timedOut) throw new Error("Liveness verification timed out. Please try again.");
@@ -1544,7 +1566,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
       livenessSteps.every((step, index) => step.group !== group || index < livenessStepsDone),
     wrongWay: liveness?.status === "active" && livenessWrongWay,
     title: livenessVerifying
-      ? "Verifying liveness..."
+      ? "Capturing photo..."
       : !liveness
       ? currentLivenessStep.instruction
       : liveness.status === "active" && livenessWrongWay
@@ -1555,7 +1577,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
           ? `Liveness verification failed. ${liveness.reason ?? currentLivenessStep.timeout}`
           : currentLivenessStep.instruction,
     sub: livenessVerifying
-      ? "Checking the captured frames. Please wait."
+      ? "Please hold still."
       : !liveness
       ? "Click Start guided capture to begin."
       : liveness.status === "failed"
@@ -1573,14 +1595,20 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
     ? { label: "Liveness verified", tone: "good" }
     : !cameraActive
       ? { label: selectedEmployee ? "Ready for capture" : "Choose an employee first", tone: null }
-      : livenessVerifying || livenessHint === LIVE_FACE_CHECK_HINT
-        ? { label: "Verifying liveness...", tone: "good" }
+      : livenessVerifying
+        ? { label: "Capturing photo...", tone: "good" }
+        : liveness?.status === "active" && livenessHint === LIVE_FACE_CHECK_HINT
+          ? { label: "Verifying liveness...", tone: "good" }
         : liveness?.status === "failed"
           ? { label: "Liveness verification failed", tone: "bad" }
           : eyewearDetected
             ? { label: "Remove eyeglasses", tone: "bad" }
             : liveness?.status === "active" && (livenessWrongWay || livenessHint)
               ? { label: "Action required", tone: "bad" }
+            : liveness && framesChecking > 0
+              ? { label: "Verifying liveness...", tone: "good" }
+            : liveness?.status === "passed"
+              ? { label: "Liveness verified", tone: "good" }
               : liveness
                 ? { label: "Liveness check in progress", tone: "good" }
                 : !faceFrame
@@ -1700,31 +1728,6 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
             {cameraActive && liveness?.status === "passed" && liveness.step === livenessSteps.length - 1 && (
               <div className="capture-flash" aria-hidden="true" />
             )}
-            {cameraActive && (
-              <div className="liveness-stepbar" aria-hidden="true">
-                <span className="liveness-stepbar-label">
-                  Step {livenessView.currentGroup + 1} of {livenessGroups.length}
-                </span>
-                {livenessGroups.map((label, group) => (
-                  <span key={label} className="liveness-stepbar-item">
-                    {group > 0 && (
-                      <span className={`liveness-stepbar-line${livenessView.groupDone(group - 1) ? " is-done" : ""}`} />
-                    )}
-                    <span
-                      className={`liveness-dot${
-                        livenessView.groupDone(group)
-                          ? " is-done"
-                          : group === livenessView.currentGroup
-                            ? ` is-${liveness?.status ?? "active"}`
-                            : ""
-                      }`}
-                    >
-                      {livenessView.groupDone(group) ? <Check size={11} strokeWidth={3} /> : group + 1}
-                    </span>
-                  </span>
-                ))}
-              </div>
-            )}
             {/* Instruction card — the eyewear warning takes this spot until a
                 guided capture starts. */}
             {cameraActive && (liveness || !eyewearDetected) && (
@@ -1778,6 +1781,32 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
             )}
           </div>
 
+          {/* Progress sits under the camera so it never covers the face. */}
+          {cameraActive && (
+            <div className="liveness-stepbar" aria-hidden="true">
+              <span className="liveness-stepbar-label">
+                Step {livenessView.currentGroup + 1} of {livenessGroups.length}
+              </span>
+              {livenessGroups.map((label, group) => (
+                <span key={label} className="liveness-stepbar-item">
+                  {group > 0 && (
+                    <span className={`liveness-stepbar-line${livenessView.groupDone(group - 1) ? " is-done" : ""}`} />
+                  )}
+                  <span
+                    className={`liveness-dot${
+                      livenessView.groupDone(group)
+                        ? " is-done"
+                        : group === livenessView.currentGroup
+                          ? ` is-${liveness?.status ?? "active"}`
+                          : ""
+                    }`}
+                  >
+                    {livenessView.groupDone(group) ? <Check size={11} strokeWidth={3} /> : group + 1}
+                  </span>
+                </span>
+              ))}
+            </div>
+          )}
           {message && <p className="capture-message" role="status">{message}</p>}
           <div className="capture-actions">
             <button
@@ -2173,7 +2202,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
               </button>
               <button
                 className="outline-button"
-                onClick={() => { setShowCapturePreview(false); resetCapture(); startCamera(); }}
+                onClick={() => { setShowCapturePreview(false); stopCamera(); resetCapture(); startCamera(); }}
                 disabled={busy}
               >
                 <RefreshCw size={16} /> Retake

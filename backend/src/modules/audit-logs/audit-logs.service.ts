@@ -215,6 +215,16 @@ export class AuditLogsService {
             for (const row of rows) names.set(row.id, row.name);
             break;
           }
+          case "Position": {
+            const rows = await this.prisma.position.findMany({ where: { id: { in: ids } }, select: { id: true, title: true } });
+            for (const row of rows) names.set(row.id, row.title);
+            break;
+          }
+          case "EmployeeType": {
+            const rows = await this.prisma.employeeType.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
+            for (const row of rows) names.set(row.id, row.name);
+            break;
+          }
           case "WorkLocation": {
             const rows = await this.prisma.workLocation.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } });
             for (const row of rows) names.set(row.id, row.name);

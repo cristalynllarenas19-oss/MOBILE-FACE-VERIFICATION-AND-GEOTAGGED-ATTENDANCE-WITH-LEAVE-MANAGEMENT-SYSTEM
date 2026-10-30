@@ -113,6 +113,7 @@ CREATE SEQUENCE IF NOT EXISTS public.leave_requests_id_seq           START WITH 
 CREATE SEQUENCE IF NOT EXISTS public.leave_request_notes_id_seq      START WITH 1001;
 CREATE SEQUENCE IF NOT EXISTS public.leave_balances_id_seq           START WITH 1001;
 CREATE SEQUENCE IF NOT EXISTS public.leave_accrual_records_id_seq    START WITH 1001;
+CREATE SEQUENCE IF NOT EXISTS public.leave_monetizations_id_seq      START WITH 1001;
 CREATE SEQUENCE IF NOT EXISTS public.undertime_filings_id_seq        START WITH 1001;
 CREATE SEQUENCE IF NOT EXISTS public.shifts_id_seq                   START WITH 1;
 CREATE SEQUENCE IF NOT EXISTS public.employee_schedules_id_seq       START WITH 1001;

@@ -213,7 +213,7 @@
 }
 
 /* Every status pill is the same size regardless of label, like the Leave
-   Management table — sized to fit the longest one, "LAPSED - REPORTED TO
+   Management table â€” sized to fit the longest one, "LAPSED - REPORTED TO
    WORK", so it never spills past its column. */
 .reports-table-card td .badge {
   width: 186px;
@@ -408,19 +408,55 @@
   }
 }
 
-/* ── Print ──
+/* â”€â”€ Print â”€â”€
    Only the active report's table should print, headed by the company logo
    (not the app chrome) with the department + result count as plain text. */
 
+/* Signatory names/positions, printed at the end of every report. */
+.reports-signatories-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  background: #f7fafd;
+  border: 1px solid #e3eaf2;
+  border-radius: 12px;
+}
+
+.reports-signatory-inputs {
+  display: flex;
+  gap: 6px;
+}
+
+.reports-signatory-inputs input {
+  height: 34px;
+  width: 170px;
+  border: 1px solid #d4dfe9;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #2d4a65;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  outline: none;
+}
+
+.reports-signatory-inputs input:focus {
+  border-color: #1a3a5c;
+  box-shadow: 0 0 0 3px rgba(26, 58, 92, 0.08);
+}
+
 .reports-print-header,
-.reports-print-meta {
+.reports-print-meta,
+.reports-print-signatories {
   display: none;
 }
 
 @media print {
   /* Hide everything in the document by default, then explicitly reveal only
      the printable region below. This doesn't depend on naming every sibling
-     element (sidebar, topbar, filter bar, buttons, chips, etc.) — whatever
+     element (sidebar, topbar, filter bar, buttons, chips, etc.) â€” whatever
      else exists in the app shell stays hidden regardless. */
   body * {
     visibility: hidden !important;
@@ -455,7 +491,7 @@
   }
 
   /* The Pending/Approved/Rejected filter chips are interactive controls,
-     not report data — keep them out of the printed output even though
+     not report data â€” keep them out of the printed output even though
      they live inside the printable region. */
   .reports-printable .reports-status-tabs {
     display: none !important;
@@ -479,7 +515,7 @@
     margin-bottom: 10px;
   }
 
-  /* Natural aspect ratio (the logo is ~2:1) — a square box left big empty
+  /* Natural aspect ratio (the logo is ~2:1) â€” a square box left big empty
      bands above and below it. */
   .reports-print-logo {
     width: 290px;
@@ -522,6 +558,38 @@
     box-shadow: none !important;
   }
 
+  /* Prepared By centered in the left half, Noted By in the right half: label,
+     room to sign, then the name in capitals on a line, then the position. */
+  .reports-print-signatories {
+    display: flex;
+    justify-content: space-around;
+    margin-top: 28px;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .reports-print-signatory {
+    display: flex;
+    flex-direction: column;
+    width: 260px;
+    font-size: 12px;
+    color: #1e293b;
+  }
+
+  .reports-print-signatory-name {
+    margin-top: 36px;
+    min-height: 16px;
+    border-top: 1px solid #1e293b;
+    padding-top: 3px;
+    text-align: center;
+    font-weight: 700;
+  }
+
+  .reports-print-signatory-position {
+    text-align: center;
+    font-size: 11px;
+  }
+
   .reports-table-card thead {
     position: static;
   }
@@ -534,7 +602,7 @@
   }
 }
 
-/* ── All Reports: repeating print header + Department Attendance Summary ── */
+/* â”€â”€ All Reports: repeating print header + Department Attendance Summary â”€â”€ */
 
 /* The outer frame table (header in its <thead>, report in its <tbody>) is
    plain blocks on screen, so the page looks exactly as before... */
@@ -647,7 +715,7 @@
 }
 
 /* Schedules: the shift time and effective-date range never wrap, so
-   "10/23/2026 – Present" stays on one line in every row (screen and print). */
+   "10/23/2026 â€“ Present" stays on one line in every row (screen and print). */
 .reports-table-card td.reports-nowrap {
   white-space: nowrap;
 }
@@ -669,4 +737,28 @@
 
 .reports-date-range > span:last-child {
   text-align: left;
+}
+
+/* Shown under the export buttons only when an export fails. */
+.reports-export-error {
+  margin: 6px 0 0;
+  max-width: 320px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #b91c1c;
+}
+
+/* Remaining Leave: "Dates Used" in three fixed-width columns, so every
+   row's dates line up under each other and a long history adds rows. */
+.reports-table-card td.reports-dates-used {
+  white-space: nowrap;
+}
+
+.reports-dates-grid {
+  display: inline-grid;
+  grid-template-columns: repeat(3, 118px);
+  column-gap: 12px;
+  row-gap: 2px;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
 }

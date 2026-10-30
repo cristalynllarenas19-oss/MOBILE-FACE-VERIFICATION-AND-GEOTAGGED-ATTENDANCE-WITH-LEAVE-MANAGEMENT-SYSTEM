@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   Archive,
+  CalendarClock,
   ClipboardList,
   Eye,
   Pencil,
@@ -22,6 +23,7 @@ import {
 } from "../../types/employment";
 import { useEmployeeTypes } from "../../lib/employeeTypes";
 import type { Notification } from "./UtilitiesPage";
+import { LeaveYearSettingsModal, type LeaveYearSettings } from "../leave/VlMonetizationTab";
 import "../employees/EmployeesPage.css";
 
 type LeaveTypeKind = "GENERAL" | "MATERNITY" | "PATERNITY";
@@ -53,6 +55,8 @@ type LeaveType = {
   extensionDays: number;
   cancellationAllowed: boolean;
   kind: LeaveTypeKind;
+  isMonetizable: boolean;
+  maxMonetizableDays: string | null;
   createdAt: string;
   updatedAt: string;
   createdByUser?: ActorRef;
@@ -114,6 +118,8 @@ const emptyForm = {
   cancellationAllowed: false,
   isAutoCredited: false,
   isTransferable: false,
+  isMonetizable: false,
+  maxMonetizableDays: "5",
   kind: "GENERAL" as LeaveTypeKind,
 };
 
@@ -148,6 +154,15 @@ export function LeaveTypesTab({
 
   const [viewLeaveType, setViewLeaveType] = useState<LeaveType | null>(null);
   const [confirmConfig, setConfirmConfig] = useState<ConfirmDialogConfig | null>(null);
+  // The one reset date every leave type's balance follows.
+  const [leaveYearSettings, setLeaveYearSettings] = useState<LeaveYearSettings | null>(null);
+  const [isEditingReset, setIsEditingReset] = useState(false);
+
+  useEffect(() => {
+    apiRequest<LeaveYearSettings>("/leave-settings")
+      .then(setLeaveYearSettings)
+      .catch(() => setLeaveYearSettings(null));
+  }, []);
 
   // Applicable Employee Types picker — options come from Utilities → Employee
   // Types, but a leave type still stores Employment Statuses, so each option
@@ -235,6 +250,8 @@ export function LeaveTypesTab({
       cancellationAllowed: type.cancellationAllowed,
       isAutoCredited: type.isAutoCredited,
       isTransferable: type.isTransferable,
+      isMonetizable: type.isMonetizable,
+      maxMonetizableDays: type.maxMonetizableDays != null ? String(Number(type.maxMonetizableDays)) : "5",
       kind: type.kind,
     });
     setNameError(null);
@@ -250,7 +267,7 @@ export function LeaveTypesTab({
 
   const submitForm = async () => {
     const name = form.name.trim();
-    if (!name || (!form.isUnlimitedDays && !form.defaultDays)) return;
+    if (!name || (!form.isUnlimitedDays && !form.defaultDays) || (form.isMonetizable && !form.maxMonetizableDays)) return;
     const extensionAllowed = form.kind === "MATERNITY" && form.extensionAllowed;
     const extensionDays = Number(form.extensionDays);
     if (extensionAllowed && (!Number.isInteger(extensionDays) || extensionDays < 1 || extensionDays > MAX_EXTENSION_DAYS)) {
@@ -287,6 +304,8 @@ export function LeaveTypesTab({
         cancellationAllowed: form.cancellationAllowed,
         isAutoCredited: form.isAutoCredited,
         isTransferable: form.isTransferable,
+        isMonetizable: form.isMonetizable,
+        maxMonetizableDays: form.isMonetizable ? Number(form.maxMonetizableDays) : undefined,
         kind: form.kind,
       };
 
@@ -426,6 +445,17 @@ export function LeaveTypesTab({
         </div>
 
         <div className="employees-filter-actions">
+          {leaveYearSettings && (
+            <button
+              type="button"
+              className="outline-button"
+              onClick={() => setIsEditingReset(true)}
+              disabled={!canManage}
+              title={canManage ? "Change when all leave balances reset" : undefined}
+            >
+              <CalendarClock size={15} /> Leave Reset
+            </button>
+          )}
           {canManage && (
             <button className="add-employee-button" onClick={openCreateForm}>
               <Plus size={15} /> Add Leave Type
@@ -750,6 +780,31 @@ export function LeaveTypesTab({
                     />
                     <span>Transferable (days can be transferred from another employee's leave, e.g. Added Paternity Leave)</span>
                   </label>
+
+                  <label className="utilities-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={form.isMonetizable}
+                      onChange={(e) => setForm((c) => ({ ...c, isMonetizable: e.target.checked }))}
+                    />
+                    <span>Monetizable (unused days are paid out automatically when leaves reset, e.g. Vacation Leave)</span>
+                  </label>
+
+                  {form.isMonetizable && (
+                    <label className="utilities-field">
+                      <span className="utilities-field-label">Max days to monetize per employee</span>
+                      <input
+                        className="utilities-input"
+                        type="number"
+                        min={0.5}
+                        max={365}
+                        step={0.5}
+                        value={form.maxMonetizableDays}
+                        onChange={(e) => setForm((c) => ({ ...c, maxMonetizableDays: e.target.value }))}
+                        placeholder="e.g. 5"
+                      />
+                    </label>
+                  )}
                 </div>
               </div>
             </div>
@@ -761,7 +816,8 @@ export function LeaveTypesTab({
                 disabled={
                   isSaving ||
                   !form.name.trim() ||
-                  (!form.isUnlimitedDays && !form.defaultDays)
+                  (!form.isUnlimitedDays && !form.defaultDays) ||
+                  (form.isMonetizable && !form.maxMonetizableDays)
                 }
               >
                 {isSaving ? "Saving..." : formMode === "create" ? "Add Leave Type" : "Save Changes"}
@@ -822,6 +878,13 @@ export function LeaveTypesTab({
                     { label: "Auto-Credited", on: viewLeaveType.isAutoCredited, value: viewLeaveType.isAutoCredited ? "Yes" : "No" },
                     { label: "Admin-Grant Only", on: viewLeaveType.requiresAdminGrant, value: viewLeaveType.requiresAdminGrant ? "Yes" : "No" },
                     { label: "Transferable", on: viewLeaveType.isTransferable, value: viewLeaveType.isTransferable ? "Yes" : "No" },
+                    {
+                      label: "Monetizable",
+                      on: viewLeaveType.isMonetizable,
+                      value: viewLeaveType.isMonetizable
+                        ? `Up to ${Number(viewLeaveType.maxMonetizableDays ?? 0)} day(s) at reset`
+                        : "No",
+                    },
                     ...(viewLeaveType.requiresEhsActivation
                       ? [{ label: "EHS Activation", on: viewLeaveType.ehsActivated, value: viewLeaveType.ehsActivated ? "Active" : "Inactive" }]
                       : []),
@@ -915,6 +978,18 @@ export function LeaveTypesTab({
             </div>
           </section>
         </div>
+      )}
+
+      {isEditingReset && leaveYearSettings && (
+        <LeaveYearSettingsModal
+          settings={leaveYearSettings}
+          onClose={() => setIsEditingReset(false)}
+          onSaved={(next) => {
+            setIsEditingReset(false);
+            setLeaveYearSettings(next);
+            notify({ type: "success", title: "Leave Reset Saved", message: "The leave reset date was updated." });
+          }}
+        />
       )}
 
       {confirmConfig && <ConfirmDialog config={confirmConfig} onCancel={() => setConfirmConfig(null)} />}

@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
 import { PrismaService } from "../../prisma/prisma.service";
 import { isDayOff } from "../../common/utils/schedule.util";
+import { currentLeaveYear, getLeaveYearReset, leaveYearOf } from "./leave-year.util";
 
 // The two fixed credits a Permanent Seasonal employee earns per completed
 // perfect-attendance month — see the LeaveType.isSeasonalAccrualEligible
@@ -217,6 +218,7 @@ export class LeaveAccrualService {
     const seasonalTypes = await this.prisma.leaveType.findMany({
       where: { isSeasonalAccrualEligible: true, isActive: true },
     });
+    const reset = await getLeaveYearReset(this.prisma);
 
     let creditedCount = 0;
     for (const record of pending) {
@@ -231,7 +233,7 @@ export class LeaveAccrualService {
         });
         if (created.count === 0 || record.outcome !== "PERFECT") return;
 
-        const year = record.cycleEnd.getFullYear();
+        const year = leaveYearOf(record.cycleEnd, reset);
         for (const type of seasonalTypes) {
           await tx.leaveBalance.upsert({
             where: { employeeId_leaveTypeId_year: { employeeId: record.employeeId, leaveTypeId: type.id, year } },
@@ -259,7 +261,7 @@ export class LeaveAccrualService {
     });
     if (seasonalTypes.length === 0) return;
 
-    const year = new Date().getFullYear();
+    const year = await currentLeaveYear(this.prisma);
     for (const type of seasonalTypes) {
       await this.prisma.leaveBalance.upsert({
         where: { employeeId_leaveTypeId_year: { employeeId, leaveTypeId: type.id, year } },

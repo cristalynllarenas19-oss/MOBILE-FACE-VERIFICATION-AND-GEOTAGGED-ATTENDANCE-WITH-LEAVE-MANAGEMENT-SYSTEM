@@ -42,6 +42,27 @@ export class FaceVerificationService implements OnModuleInit {
 
   async onModuleInit() {
     await this.ensureModelsLoaded();
+    // In the background, so startup isn't delayed.
+    void this.warmUpModels();
+  }
+
+  // The first run of each model is about twice as slow as later ones (and
+  // the anti-spoof models only load on first use), which made the first
+  // guided capture after a restart sit on "Verifying liveness...". One dummy
+  // pass of every model at startup takes that hit instead.
+  private async warmUpModels() {
+    try {
+      const blank = (size: number) => canvasLib.createCanvas(size, size) as unknown as HTMLCanvasElement;
+      await faceapi.detectAllFaces(blank(480), new faceapi.TinyFaceDetectorOptions({ inputSize: 320 }));
+      await faceapi.nets.faceLandmark68Net.detectLandmarks(blank(112));
+      await faceapi.nets.faceRecognitionNet.computeFaceDescriptor(blank(150));
+      const models = await this.ensureAntiSpoofLoaded();
+      for (const { session } of models) {
+        await session.run({ input: new ort.Tensor("float32", new Float32Array(3 * 80 * 80), [1, 3, 80, 80]) });
+      }
+    } catch (error) {
+      this.logger.warn(`Face model warm-up skipped: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   private ensureModelsLoaded() {
@@ -203,22 +224,25 @@ export class FaceVerificationService implements OnModuleInit {
   // barely move on a blink), head yaw, a descriptor for checking it's the
   // same person all session, and a tiny grayscale thumbnail of the whole
   // frame for spotting a frozen/repeated camera image.
-  async analyzeRegistrationFrame(buffer: Buffer) {
+  // withDescriptor: false skips the face descriptor (the slowest model, about
+  // a second per frame on the server's CPU) for frames that don't need one.
+  async analyzeRegistrationFrame(buffer: Buffer, withDescriptor = true) {
     await this.ensureModelsLoaded();
     const image = await canvasLib.loadImage(buffer);
-    const results = await faceapi
-      // 320 rather than 416: about half the time per frame on the server's
-      // CPU, with the same faces found on 480px captures.
+    // 320 rather than 416: about half the time per frame on the server's
+    // CPU, with the same faces found on 480px captures.
+    const withLandmarks = faceapi
       .detectAllFaces(image as any, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.6 }))
-      .withFaceLandmarks()
-      .withFaceDescriptors();
+      .withFaceLandmarks();
+    const results: { landmarks: faceapi.FaceLandmarks68; detection: faceapi.FaceDetection; descriptor?: Float32Array }[] =
+      withDescriptor ? await withLandmarks.withFaceDescriptors() : await withLandmarks;
 
     const thumbnail = this.grayThumbnail(image, 32);
     if (results.length !== 1) {
       return { faceCount: results.length, thumbnail, face: null };
     }
 
-    const { landmarks, descriptor, detection } = results[0];
+    const { landmarks, descriptor = null, detection } = results[0];
     return {
       faceCount: 1,
       thumbnail,

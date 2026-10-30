@@ -11,6 +11,7 @@ import { isEligibleForLeaveType } from "./leave-balances.service";
 import { isNonWorkingDay } from "../../common/utils/schedule.util";
 import { resolveMissedDays } from "../attendance/attendance-missed-days.util";
 import { MATERNITY_EXTENSION_NOTICE_DAYS } from "./parental-return.util";
+import { leaveYearFor } from "./leave-year.util";
 
 const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
 type LeaveRequestStatus =
@@ -534,12 +535,12 @@ export class LeaveService {
     // Paid, capped leave types must not be requestable past what's left in the
     // employee's balance for the year — allowWithoutPay/isUnlimitedDays types
     // (e.g. LWOP) are intentionally exempt, same as in adjustLeaveBalance below.
-    // Each request draws on its own start date's year, so a multi-date filing
-    // that crosses New Year is checked against both years' balances.
+    // Each request draws on its own start date's leave year, so a multi-date
+    // filing that crosses the reset date is checked against both years' balances.
     if (!leaveType.allowWithoutPay && !leaveType.isUnlimitedDays) {
       const requestedByYear = new Map<number, number>();
       for (const day of days) {
-        const year = day.startDate.getFullYear();
+        const year = await leaveYearFor(this.prisma, day.startDate);
         requestedByYear.set(year, (requestedByYear.get(year) ?? 0) + day.totalDays);
       }
 
@@ -1804,13 +1805,13 @@ export class LeaveService {
   }
 
   // Adds (or subtracts, for reversals) `deltaDays` from an employee's used-days balance
-  // for the leave type and calendar year of the request's start date. Creates the
+  // for the leave type and leave year (see leave-year.util.ts) of the request's start date. Creates the
   // balance row on first use, seeded with the leave type's default annual allotment.
   // Never blocks on insufficient balance — usedDays is allowed to exceed earnedDays,
   // which is exactly how a `leaveType.allowWithoutPay` type (e.g. LWOP) stays usable
   // as a fallback once an employee's paid credits are exhausted.
   private async adjustLeaveBalance(employeeId: string, leaveTypeId: string, requestStartDate: Date, deltaDays: number) {
-    const year = requestStartDate.getFullYear();
+    const year = await leaveYearFor(this.prisma, requestStartDate);
 
     const leaveType = await this.prisma.leaveType.findUniqueOrThrow({
       where: { id: leaveTypeId },

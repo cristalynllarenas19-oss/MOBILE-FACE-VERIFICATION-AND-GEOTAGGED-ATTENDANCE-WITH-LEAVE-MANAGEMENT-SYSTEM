@@ -423,17 +423,12 @@
 /* Guided movements — step bar (top-left) and instruction card (bottom) on
    the camera. Every check reflects a real detection. */
 .liveness-stepbar {
-  position: absolute;
-  top: 14px;
-  left: 14px;
-  z-index: 3;
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.72);
-  color: #f8fafc;
+  margin-top: 12px;
+  color: #193d69;
   pointer-events: none;
 }
 
@@ -453,7 +448,7 @@
   width: 18px;
   height: 2px;
   border-radius: 2px;
-  background: rgba(203, 213, 225, 0.4);
+  background: #cbd5e1;
 }
 
 .liveness-stepbar-line.is-done {
@@ -469,8 +464,8 @@
   justify-content: center;
   font-size: 11px;
   font-weight: 700;
-  color: #cbd5e1;
-  background: rgba(255, 255, 255, 0.12);
+  color: #64748b;
+  background: #e2e8f0;
   transition: background 0.15s ease, color 0.15s ease;
 }
 

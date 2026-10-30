@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Modal, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { MonthlyDtr, getMyMonthlyDtr } from "../api";
 import {
@@ -32,6 +33,13 @@ function statusColor(status: string) {
   return "#94A3B8";
 }
 
+// "1 Late · 24 Absent" — only the statuses that actually occur.
+function statusSummary(dtr: MonthlyDtr) {
+  const counts = new Map<string, number>();
+  for (const row of dtr.rows) counts.set(row.status, (counts.get(row.status) ?? 0) + 1);
+  return [...counts].map(([status, count]) => `${count} ${dtrStatusLabel(status)}`).join(" · ");
+}
+
 // Backing out of the print dialog / share sheet rejects too — not a failure.
 function isCancel(error: unknown) {
   return /cancel|did not complete|dismiss/i.test(error instanceof Error ? error.message : "");
@@ -41,6 +49,9 @@ function isCancel(error: unknown) {
 // PDF or print them. Opened from the DTR tab's "Download / Print" button.
 export default function DtrExportModal({ visible, onClose }: Props) {
   const now = new Date();
+  // The app draws edge-to-edge, so this full-screen modal sits under the
+  // status and navigation bars unless padded by their real size.
+  const insets = useSafeAreaInsets();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [dtr, setDtr] = useState<MonthlyDtr | null>(null);
@@ -155,21 +166,22 @@ export default function DtrExportModal({ visible, onClose }: Props) {
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={styles.safeArea}>
+      <View style={[styles.screen, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
         <View style={styles.headerRow}>
           <Pressable onPress={onClose} style={styles.backButton} hitSlop={10}>
-            <Ionicons name="chevron-back" size={24} color="#062B59" />
+            <Ionicons name="chevron-back" size={22} color="#062B59" />
           </Pressable>
           <Text style={styles.headerTitle}>My DTR</Text>
           <View style={styles.headerSpacer} />
         </View>
 
-        <ScrollView contentContainerStyle={styles.content}>
-          <View style={styles.card}>
-            <Text style={styles.sectionLabel}>Select Year</Text>
-            <View style={styles.yearRow}>
+        {/* Picker and actions stay put; only the records below scroll. */}
+        <View style={[styles.card, styles.pickerCard]}>
+          <View style={styles.yearRow}>
+            <Text style={styles.sectionLabel}>Select Month & Year</Text>
+            <View style={styles.yearStepper}>
               <Pressable style={styles.yearButton} onPress={() => changeYear(year - 1)} hitSlop={8}>
-                <Ionicons name="chevron-back" size={18} color="#062B59" />
+                <Ionicons name="chevron-back" size={16} color="#062B59" />
               </Pressable>
               <Text style={styles.yearText}>{year}</Text>
               <Pressable
@@ -178,66 +190,75 @@ export default function DtrExportModal({ visible, onClose }: Props) {
                 onPress={() => changeYear(year + 1)}
                 hitSlop={8}
               >
-                <Ionicons name="chevron-forward" size={18} color="#062B59" />
+                <Ionicons name="chevron-forward" size={16} color="#062B59" />
               </Pressable>
             </View>
+          </View>
 
-            <Text style={styles.sectionLabel}>Select Month</Text>
-            <View style={styles.monthGrid}>
-              {MONTH_NAMES.map((name, index) => {
-                const value = index + 1;
-                const isActive = value === month;
-                const isDisabled = isFutureMonth(year, value);
-                return (
-                  <Pressable
-                    key={name}
-                    style={[styles.monthChip, isActive && styles.monthChipActive, isDisabled && styles.disabled]}
-                    disabled={isDisabled}
-                    onPress={() => setMonth(value)}
+          <View style={styles.monthGrid}>
+            {MONTH_NAMES.map((name, index) => {
+              const value = index + 1;
+              const isActive = value === month;
+              const isDisabled = isFutureMonth(year, value);
+              return (
+                <Pressable
+                  key={name}
+                  style={[styles.monthChip, isActive && styles.monthChipActive, isDisabled && styles.monthChipDisabled]}
+                  disabled={isDisabled}
+                  onPress={() => setMonth(value)}
+                >
+                  <Text
+                    style={[
+                      styles.monthChipText,
+                      isActive && styles.monthChipTextActive,
+                      isDisabled && styles.monthChipTextDisabled,
+                    ]}
                   >
-                    <Text style={[styles.monthChipText, isActive && styles.monthChipTextActive]}>{name.slice(0, 3)}</Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+                    {name.slice(0, 3)}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
 
-            <View style={styles.actionRow}>
-              <Pressable
-                style={[styles.primaryButton, !canExport && styles.disabled]}
-                disabled={!canExport}
-                onPress={handleDownload}
-              >
-                {busy === "download" ? (
-                  <ActivityIndicator color="#FFFFFF" size="small" />
-                ) : (
-                  <Ionicons name="download-outline" size={18} color="#FFFFFF" />
-                )}
-                <Text style={styles.primaryButtonText}>Download PDF</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.secondaryButton, !canExport && styles.disabled]}
-                disabled={!canExport}
-                onPress={handlePrint}
-              >
-                {busy === "print" ? (
-                  <ActivityIndicator color="#062B59" size="small" />
-                ) : (
-                  <Ionicons name="print-outline" size={18} color="#062B59" />
-                )}
-                <Text style={styles.secondaryButtonText}>Print DTR</Text>
-              </Pressable>
-            </View>
+          <View style={styles.actionRow}>
+            <Pressable
+              style={[styles.primaryButton, !canExport && styles.disabled]}
+              disabled={!canExport}
+              onPress={handleDownload}
+            >
+              {busy === "download" ? (
+                <ActivityIndicator color="#FFFFFF" size="small" />
+              ) : (
+                <Ionicons name="download-outline" size={17} color="#FFFFFF" />
+              )}
+              <Text style={styles.primaryButtonText}>Download PDF</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.secondaryButton, !canExport && styles.disabled]}
+              disabled={!canExport}
+              onPress={handlePrint}
+            >
+              {busy === "print" ? (
+                <ActivityIndicator color="#062B59" size="small" />
+              ) : (
+                <Ionicons name="print-outline" size={17} color="#062B59" />
+              )}
+              <Text style={styles.secondaryButtonText}>Print DTR</Text>
+            </Pressable>
+          </View>
 
-            {notice && (
-              <View style={[styles.notice, notice.tone === "error" ? styles.noticeError : styles.noticeSuccess]}>
-                <Ionicons
-                  name={notice.tone === "error" ? "warning" : "checkmark-circle"}
-                  size={18}
-                  color={notice.tone === "error" ? "#DC2626" : "#17A34A"}
-                />
-                <View style={styles.noticeBody}>
-                  <Text style={styles.noticeTitle}>{notice.title}</Text>
-                  <Text style={styles.noticeText}>{notice.message}</Text>
+          {notice && (
+            <View style={[styles.notice, notice.tone === "error" ? styles.noticeError : styles.noticeSuccess]}>
+              <Ionicons
+                name={notice.tone === "error" ? "warning" : "checkmark-circle"}
+                size={18}
+                color={notice.tone === "error" ? "#DC2626" : "#17A34A"}
+              />
+              <View style={styles.noticeBody}>
+                <Text style={styles.noticeTitle}>{notice.title}</Text>
+                <Text style={styles.noticeText}>{notice.message}</Text>
+                <View style={styles.noticeActions}>
                   {notice.tone === "success" && saved && (
                     <Pressable style={styles.noticeAction} onPress={handleShare} disabled={busy !== null}>
                       <Ionicons name="open-outline" size={14} color="#1680D8" />
@@ -252,17 +273,34 @@ export default function DtrExportModal({ visible, onClose }: Props) {
                   )}
                 </View>
               </View>
-            )}
-          </View>
+              <Pressable onPress={() => setNotice(null)} hitSlop={8}>
+                <Ionicons name="close" size={16} color="#94A3B8" />
+              </Pressable>
+            </View>
+          )}
+        </View>
 
-          <View style={styles.card}>
-            <View style={styles.previewHeader}>
+        <View style={[styles.card, styles.listCard]}>
+          <View style={styles.previewHeader}>
+            <View style={styles.previewTitleGroup}>
               <Text style={styles.previewTitle}>
                 {MONTH_NAMES[month - 1]} {year}
               </Text>
-              {dtr && <Text style={styles.previewTotal}>Total: {dtrTotalHoursLabel(dtr)}</Text>}
+              {!!dtr?.rows.length && (
+                <Text style={styles.previewSummary} numberOfLines={1}>
+                  {statusSummary(dtr)}
+                </Text>
+              )}
             </View>
+            {dtr && (
+              <View style={styles.totalBlock}>
+                <Text style={styles.totalLabel}>Total Hours</Text>
+                <Text style={styles.totalValue}>{dtrTotalHoursLabel(dtr)}</Text>
+              </View>
+            )}
+          </View>
 
+          <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
             {isLoading ? (
               <View style={styles.centered}>
                 <ActivityIndicator color="#1680D8" />
@@ -285,34 +323,40 @@ export default function DtrExportModal({ visible, onClose }: Props) {
               dtr?.rows.map((row) => {
                 const date = new Date(row.attendanceDate);
                 const remarks = dtrRemarks(row);
+                // Absent / leave days have no punches — no empty "In — Out —".
+                const hasTimes = Boolean(row.timeInAt || row.timeOutAt);
+                const color = statusColor(row.status);
                 return (
                   <View key={row.id} style={styles.row}>
-                    <View style={styles.rowTop}>
-                      <View style={[styles.dot, { backgroundColor: statusColor(row.status) }]} />
-                      <Text style={styles.rowDate}>
-                        {date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
-                      </Text>
-                      <Text style={[styles.rowStatus, { color: statusColor(row.status) }]}>{dtrStatusLabel(row.status)}</Text>
+                    <View style={styles.dateBlock}>
+                      <Text style={styles.dateDay}>{date.toLocaleDateString("en-US", { weekday: "short" })}</Text>
+                      <Text style={styles.dateNum}>{date.getDate()}</Text>
                     </View>
-                    <View style={styles.rowTimes}>
-                      <Text style={styles.rowTime}>In {formatDtrTime(row.timeInAt)}</Text>
-                      <Text style={styles.rowTime}>Out {formatDtrTime(row.timeOutAt)}</Text>
-                      <Text style={styles.rowHours}>{dtrHoursLabel(row)}</Text>
+                    <View style={styles.rowBody}>
+                      <View style={styles.rowTop}>
+                        <Text style={[styles.rowStatus, { color }]}>{dtrStatusLabel(row.status)}</Text>
+                        {hasTimes && <Text style={styles.rowHours}>{dtrHoursLabel(row)}</Text>}
+                      </View>
+                      {hasTimes && (
+                        <Text style={styles.rowTimes}>
+                          {formatDtrTime(row.timeInAt)}  →  {formatDtrTime(row.timeOutAt)}
+                        </Text>
+                      )}
+                      {!!remarks && <Text style={styles.rowRemarks}>{remarks}</Text>}
                     </View>
-                    {!!remarks && <Text style={styles.rowRemarks}>{remarks}</Text>}
                   </View>
                 );
               })
             )}
-          </View>
-        </ScrollView>
-      </SafeAreaView>
+          </ScrollView>
+        </View>
+      </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: "#F4F7FB" },
+  screen: { flex: 1, backgroundColor: "#F4F7FB" },
   headerRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -322,53 +366,58 @@ const styles = StyleSheet.create({
   },
   backButton: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "#E8EEF5" },
   headerSpacer: { width: 36 },
-  headerTitle: { fontSize: 16, fontWeight: "800", color: "#062B59" },
-  content: { padding: 16, paddingTop: 4, gap: 14 },
+  headerTitle: { fontSize: 17, fontWeight: "800", color: "#062B59" },
   card: {
     backgroundColor: "#fff",
     borderRadius: 18,
     borderWidth: 1,
     borderColor: "#dbe5ef",
-    padding: 16,
+    marginHorizontal: 16,
     shadowColor: "#062B59",
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.12,
     shadowRadius: 16,
     elevation: 6,
   },
-  sectionLabel: { color: "#64748B", fontSize: 12, fontWeight: "700", marginBottom: 8 },
-  yearRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14 },
-  yearButton: { width: 36, height: 36, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: "#F1F5F9" },
-  yearText: { color: "#062B59", fontSize: 16, fontWeight: "800" },
-  monthGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },
+  pickerCard: { padding: 14, marginBottom: 12 },
+  listCard: { flex: 1, marginBottom: 12, overflow: "hidden" },
+  yearRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
+  sectionLabel: { color: "#062B59", fontSize: 14, fontWeight: "800" },
+  yearStepper: { flexDirection: "row", alignItems: "center", gap: 10 },
+  yearButton: { width: 30, height: 30, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: "#F1F5F9" },
+  yearText: { color: "#062B59", fontSize: 15, fontWeight: "800", minWidth: 40, textAlign: "center" },
+  // Six months per row, two rows.
+  monthGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 12 },
   monthChip: {
-    width: "23%",
+    width: "15%",
     flexGrow: 1,
-    paddingVertical: 9,
-    borderRadius: 10,
+    paddingVertical: 8,
+    borderRadius: 9,
     alignItems: "center",
     backgroundColor: "#F1F5F9",
   },
   monthChipActive: { backgroundColor: "#062B59" },
-  monthChipText: { color: "#475569", fontSize: 13, fontWeight: "700" },
+  monthChipDisabled: { backgroundColor: "#F8FAFC" },
+  monthChipText: { color: "#475569", fontSize: 12.5, fontWeight: "700" },
   monthChipTextActive: { color: "#FFFFFF" },
-  disabled: { opacity: 0.4 },
+  monthChipTextDisabled: { color: "#CBD5E1" },
+  disabled: { opacity: 0.45 },
   actionRow: { flexDirection: "row", gap: 10 },
   primaryButton: {
     flex: 1,
-    height: 46,
-    borderRadius: 12,
+    height: 42,
+    borderRadius: 11,
     backgroundColor: "#1680D8",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
   },
-  primaryButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
+  primaryButtonText: { color: "#FFFFFF", fontSize: 13.5, fontWeight: "700" },
   secondaryButton: {
     flex: 1,
-    height: 46,
-    borderRadius: 12,
+    height: 42,
+    borderRadius: 11,
     borderWidth: 1,
     borderColor: "#CBD5E1",
     backgroundColor: "#FFFFFF",
@@ -377,30 +426,54 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 6,
   },
-  secondaryButtonText: { color: "#062B59", fontSize: 14, fontWeight: "700" },
-  notice: { flexDirection: "row", gap: 10, marginTop: 14, padding: 12, borderRadius: 12 },
+  secondaryButtonText: { color: "#062B59", fontSize: 13.5, fontWeight: "700" },
+  notice: { flexDirection: "row", alignItems: "flex-start", gap: 10, marginTop: 12, padding: 12, borderRadius: 12 },
   noticeSuccess: { backgroundColor: "#ECFDF3" },
   noticeError: { backgroundColor: "#FEF2F2" },
   noticeBody: { flex: 1 },
   noticeTitle: { color: "#0F172A", fontSize: 13, fontWeight: "800" },
   noticeText: { color: "#334155", fontSize: 12.5, marginTop: 2, lineHeight: 17 },
+  noticeActions: { flexDirection: "row", gap: 16 },
   noticeAction: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 8 },
   noticeActionText: { color: "#1680D8", fontSize: 12.5, fontWeight: "700" },
-  previewHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
+  previewHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderColor: "#edf3f8",
+  },
+  previewTitleGroup: { flex: 1, minWidth: 0 },
   previewTitle: { color: "#062B59", fontSize: 16, fontWeight: "900" },
-  previewTotal: { color: "#334155", fontSize: 12.5, fontWeight: "700" },
-  centered: { alignItems: "center", gap: 8, paddingVertical: 24 },
+  previewSummary: { color: "#64748B", fontSize: 12, fontWeight: "600", marginTop: 2 },
+  totalBlock: { alignItems: "flex-end" },
+  totalLabel: { color: "#94A3B8", fontSize: 11, fontWeight: "600" },
+  totalValue: { color: "#062B59", fontSize: 15, fontWeight: "800", fontVariant: ["tabular-nums"] },
+  list: { flex: 1 },
+  listContent: { paddingHorizontal: 16, paddingBottom: 8, flexGrow: 1 },
+  centered: { alignItems: "center", gap: 8, paddingVertical: 28 },
   mutedText: { color: "#94A3B8", fontSize: 13, fontWeight: "600", textAlign: "center" },
   errorText: { color: "#DC2626" },
   retryButton: { marginTop: 4, paddingHorizontal: 18, paddingVertical: 9, borderRadius: 10, backgroundColor: "#062B59" },
   retryText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
-  row: { paddingVertical: 10, borderTopWidth: 1, borderColor: "#edf3f8" },
-  rowTop: { flexDirection: "row", alignItems: "center", gap: 8 },
-  dot: { width: 8, height: 8, borderRadius: 4 },
-  rowDate: { flex: 1, color: "#062B59", fontSize: 14, fontWeight: "700" },
-  rowStatus: { fontSize: 12, fontWeight: "800" },
-  rowTimes: { flexDirection: "row", gap: 14, marginTop: 4, marginLeft: 16 },
-  rowTime: { color: "#334155", fontSize: 12.5, fontWeight: "600" },
-  rowHours: { marginLeft: "auto", color: "#334155", fontSize: 12.5, fontWeight: "800" },
-  rowRemarks: { color: "#64748B", fontSize: 12, marginTop: 3, marginLeft: 16 },
+  row: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderColor: "#edf3f8",
+  },
+  dateBlock: { width: 42, alignItems: "center", paddingVertical: 3, borderRadius: 8, backgroundColor: "#F1F5F9" },
+  dateDay: { color: "#64748B", fontSize: 10.5, fontWeight: "700", textTransform: "uppercase" },
+  dateNum: { color: "#062B59", fontSize: 16, fontWeight: "900" },
+  rowBody: { flex: 1, minWidth: 0, justifyContent: "center", minHeight: 40 },
+  rowTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  rowStatus: { fontSize: 13.5, fontWeight: "800" },
+  rowHours: { color: "#062B59", fontSize: 13, fontWeight: "800", fontVariant: ["tabular-nums"] },
+  rowTimes: { color: "#334155", fontSize: 12.5, fontWeight: "600", marginTop: 2 },
+  rowRemarks: { color: "#64748B", fontSize: 12, marginTop: 2 },
 });

@@ -452,6 +452,7 @@ model Employee {
   evaluationsReceived  ProbationaryEvaluation[] @relation("EvaluatedEmployee")
   evaluationsAuthored  ProbationaryEvaluation[] @relation("EvaluatingSupervisor")
   leaveAccrualRecords  LeaveAccrualRecord[]
+  leaveMonetizations   LeaveMonetization[]
   archives             EmployeeArchive[]
 
   @@index([departmentId])
@@ -725,12 +726,18 @@ model LeaveType {
   // employee's balance for these two types starts at 0 and is built up
   // entirely through this flag instead.
   isSeasonalAccrualEligible    Boolean            @default(false) @map("is_seasonal_accrual_eligible")
+  // Unused days of this type are paid out automatically at the leave-year
+  // reset, up to maxMonetizableDays per employee (Vacation Leave) — see
+  // LeaveMonetizationService.
+  isMonetizable                Boolean            @default(false) @map("is_monetizable")
+  maxMonetizableDays           Decimal?           @map("max_monetizable_days")
   createdAt                   DateTime           @default(now()) @map("created_at")
   updatedAt                   DateTime           @updatedAt @map("updated_at")
   createdBy                   String?            @map("created_by")
   updatedBy                   String?            @map("updated_by")
   leaveRequests               LeaveRequest[]
   leaveBalances               LeaveBalance[]
+  leaveMonetizations          LeaveMonetization[]
   createdByUser               User?              @relation("LeaveTypeCreatedBy", fields: [createdBy], references: [id])
   updatedByUser               User?              @relation("LeaveTypeUpdatedBy", fields: [updatedBy], references: [id])
 
@@ -853,6 +860,27 @@ model LeaveAccrualRecord {
   @@map("leave_accrual_records")
 }
 
+// Unused Vacation Leave paid out at the end of a leave year — one row per
+// employee per leave type per leave year, written when HR/Admin clicks
+// "Monetize" (LeaveMonetizationService). The same days are added to that
+// year's LeaveBalance.usedDays, so they come off the remaining balance
+// everywhere the balance is shown; this row is what the report lists.
+model LeaveMonetization {
+  id          String    @id @default(dbgenerated("('LM-'::text || nextval('leave_monetizations_id_seq'::regclass))"))
+  employeeId  String    @map("employee_id")
+  leaveTypeId String    @map("leave_type_id")
+  year        Int
+  days        Decimal
+  monetizedAt DateTime  @default(now()) @map("monetized_at")
+  monetizedBy String?   @map("monetized_by")
+  employee    Employee  @relation(fields: [employeeId], references: [id])
+  leaveType   LeaveType @relation(fields: [leaveTypeId], references: [id])
+
+  @@unique([employeeId, leaveTypeId, year])
+  @@index([year])
+  @@map("leave_monetizations")
+}
+
 // A self-filed notice of intent to render undertime against a specific late
 // AttendanceRecord, requiring approval — a Supervisor approves an employee's
 // filing, while HR/Admin approves a Supervisor's own filing (same self-review
@@ -900,6 +928,11 @@ model LeaveSettings {
   // Hours after a request is filed before its reviewers are reminded it is
   // still undecided — the default for any leave type without its own value.
   reviewReminderHours Int @default(24) @map("review_reminder_hours")
+  // The day every leave balance resets (a new leave year starts) — default
+  // Dec 26, so the leave year runs Dec 26 to Dec 25 and is named after the
+  // calendar year it ends in. See leave-year.util.ts.
+  resetMonth     Int      @default(12) @map("reset_month")
+  resetDay       Int      @default(26) @map("reset_day")
   updatedAt      DateTime @updatedAt @map("updated_at")
   updatedBy      String?  @map("updated_by")
 
