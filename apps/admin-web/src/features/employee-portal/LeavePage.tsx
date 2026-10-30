@@ -1,7 +1,7 @@
 
 
 import { CSSProperties, useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Calendar, CalendarClock, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, Eye, FileText, Lightbulb, Lock as LockIcon, Paperclip, Plane, Search, Stethoscope, Timer, Wallet, X, XCircle } from "lucide-react";
+import { AlertCircle, Calendar, CalendarClock, Check, CheckCircle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Clock, Eye, FileText, Lightbulb, Lock as LockIcon, Minus, Paperclip, Plane, Search, Stethoscope, Timer, Wallet, X, XCircle } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import "./EmployeePortal.css";
 import {
@@ -253,6 +253,32 @@ function leaveDaysOf(r: { startDate: string; endDate: string }) {
     days.push(day);
   }
   return days;
+}
+
+// Keeps a real <input> in the row for keyboard and screen readers while
+// CancelCheckFace draws what's seen.
+const visuallyHidden: CSSProperties = {
+  position: "absolute", width: 1, height: 1, margin: -1, padding: 0,
+  overflow: "hidden", clip: "rect(0 0 0 0)", border: 0,
+};
+
+// Checkbox for the "Days to cancel" list — red, like the cancel action.
+function CancelCheckFace({ state, disabled }: { state: "on" | "off" | "mixed"; disabled?: boolean }) {
+  const filled = state !== "off" && !disabled;
+  return (
+    <span
+      aria-hidden
+      style={{
+        width: 18, height: 18, flexShrink: 0, borderRadius: 5,
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        border: `1.5px solid ${disabled ? "#E2E8F0" : filled ? "#DC2626" : "#CBD5E1"}`,
+        background: disabled ? "#F8FAFC" : filled ? "#DC2626" : "#FFFFFF",
+        transition: "background-color 0.12s ease, border-color 0.12s ease",
+      }}
+    >
+      {filled && (state === "mixed" ? <Minus size={12} color="#FFFFFF" strokeWidth={3} /> : <Check size={12} color="#FFFFFF" strokeWidth={3} />)}
+    </span>
+  );
 }
 
 // The local-midnight times of the days the employee already timed in on.
@@ -2618,43 +2644,86 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
               const days = leaveDaysOf(target);
               if (days.length < 2) return null;
               const worked = workedDayTimes(target);
+              // Days already timed in on can't be cancelled, so "Select all"
+              // means every other day.
+              const selectable = days.map((d) => d.getTime()).filter((t) => !worked.has(t));
+              const selectedCount = selectable.filter((t) => cancelDayTimes.includes(t)).length;
+              const allSelected = selectable.length > 0 && selectedCount === selectable.length;
+              const someSelected = selectedCount > 0 && !allSelected;
               return (
                 <>
-                  <label style={{ ...fldLbl, marginTop: 0, fontSize: 13, textAlign: "left" }}>Days to cancel</label>
-                  <div
-                    className="emp-scroll-thin"
-                    style={{ maxHeight: 180, overflowY: "auto", border: "1px solid #E2E8F0", borderRadius: 10, marginBottom: 12, textAlign: "left" }}
-                  >
-                    {days.map((day) => {
-                      const time = day.getTime();
-                      const timedIn = worked.has(time);
-                      return (
-                        <label
-                          key={time}
-                          style={{
-                            display: "flex", alignItems: "center", gap: 10, padding: "8px 12px",
-                            fontSize: 13, fontWeight: 600, color: timedIn ? "#CBD5E1" : "#334155",
-                            cursor: timedIn ? "not-allowed" : "pointer",
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            disabled={timedIn}
-                            checked={cancelDayTimes.includes(time)}
-                            onChange={() =>
-                              setCancelDayTimes((current) =>
-                                current.includes(time) ? current.filter((t) => t !== time) : [...current, time].sort((a, b) => a - b),
-                              )
-                            }
-                            style={{ accentColor: "#DC2626", width: 16, height: 16 }}
-                          />
-                          <span style={{ flex: 1 }}>
-                            {day.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
-                          </span>
-                          {timedIn && <span style={{ fontSize: 11, color: "#94A3B8" }}>Timed in</span>}
-                        </label>
-                      );
-                    })}
+                  <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
+                    <span style={{ fontWeight: 600, color: "#475569", fontSize: 13 }}>Days to cancel</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: selectedCount ? "#DC2626" : "#94A3B8" }}>
+                      {selectedCount} of {selectable.length} selected
+                    </span>
+                  </div>
+                  <div style={{ border: "1px solid #E2E8F0", borderRadius: 12, overflow: "hidden", marginBottom: 12, textAlign: "left" }}>
+                    {/* Stays above the scrolling list. */}
+                    <button
+                      type="button"
+                      role="checkbox"
+                      aria-checked={allSelected ? true : someSelected ? "mixed" : false}
+                      disabled={selectable.length === 0}
+                      onClick={() => setCancelDayTimes(allSelected ? [] : selectable)}
+                      className="emp-check-row"
+                      style={{
+                        display: "flex", alignItems: "center", gap: 10, width: "100%",
+                        padding: "10px 12px", border: "none", borderBottom: "1px solid #E2E8F0",
+                        background: "#F8FAFC", fontFamily: "inherit", fontSize: 13, fontWeight: 700,
+                        color: "#062B59", cursor: selectable.length ? "pointer" : "not-allowed", textAlign: "left",
+                      }}
+                    >
+                      <CancelCheckFace state={allSelected ? "on" : someSelected ? "mixed" : "off"} disabled={selectable.length === 0} />
+                      <span style={{ flex: 1 }}>Select all</span>
+                      <span style={{ fontSize: 11.5, fontWeight: 600, color: "#94A3B8" }}>
+                        {days.length} days
+                      </span>
+                    </button>
+                    <div className="emp-scroll-thin" style={{ maxHeight: 200, overflowY: "auto" }}>
+                      {days.map((day, index) => {
+                        const time = day.getTime();
+                        const timedIn = worked.has(time);
+                        const checked = cancelDayTimes.includes(time);
+                        return (
+                          <label
+                            key={time}
+                            className="emp-check-row"
+                            style={{
+                              display: "flex", alignItems: "center", gap: 10, padding: "9px 12px",
+                              borderTop: index === 0 ? "none" : "1px solid #F1F5F9",
+                              background: checked ? "#FEF2F2" : "#FFFFFF",
+                              fontSize: 13, cursor: timedIn ? "not-allowed" : "pointer",
+                              transition: "background-color 0.12s ease",
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              disabled={timedIn}
+                              checked={checked}
+                              onChange={() =>
+                                setCancelDayTimes((current) =>
+                                  current.includes(time) ? current.filter((t) => t !== time) : [...current, time].sort((a, b) => a - b),
+                                )
+                              }
+                              style={visuallyHidden}
+                            />
+                            <CancelCheckFace state={checked ? "on" : "off"} disabled={timedIn} />
+                            <span style={{ width: 32, fontSize: 12, fontWeight: 700, color: timedIn ? "#CBD5E1" : "#94A3B8" }}>
+                              {day.toLocaleDateString(undefined, { weekday: "short" })}
+                            </span>
+                            <span style={{ flex: 1, fontWeight: 700, color: timedIn ? "#CBD5E1" : "#334155" }}>
+                              {day.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+                            </span>
+                            {timedIn && (
+                              <span style={{ fontSize: 11, fontWeight: 700, color: "#64748B", background: "#F1F5F9", borderRadius: 999, padding: "2px 8px" }}>
+                                Timed in
+                              </span>
+                            )}
+                          </label>
+                        );
+                      })}
+                    </div>
                   </div>
                 </>
               );

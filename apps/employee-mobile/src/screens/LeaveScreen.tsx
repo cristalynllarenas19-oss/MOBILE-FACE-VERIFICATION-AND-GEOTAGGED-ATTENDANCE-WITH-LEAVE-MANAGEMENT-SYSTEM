@@ -129,6 +129,24 @@ function maternityAlternativeStyle(item: LeaveType) {
 
 // The specific document HR expects for a leave type, shown as a note under
 // the attachment picker. Types not listed here get no note.
+// Checkbox for the "Days to cancel" list — red, like the cancel action.
+function CancelCheckFace({ state, disabled }: { state: "on" | "off" | "mixed"; disabled?: boolean }) {
+  const filled = state !== "off" && !disabled;
+  return (
+    <View
+      style={[
+        styles.cancelCheckFace,
+        {
+          borderColor: disabled ? "#E2E8F0" : filled ? "#DC2626" : "#CBD5E1",
+          backgroundColor: disabled ? "#F8FAFC" : filled ? "#DC2626" : "#FFFFFF",
+        },
+      ]}
+    >
+      {filled && <Ionicons name={state === "mixed" ? "remove" : "checkmark"} size={14} color="#FFFFFF" />}
+    </View>
+  );
+}
+
 // Every calendar day of a leave (local midnights), inclusive.
 function leaveDaysOf(request: { startDate: string; endDate: string }) {
   const start = new Date(request.startDate);
@@ -2831,38 +2849,73 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
                 }),
               );
+              // Days already timed in on can't be cancelled, so "Select all"
+              // means every other day.
+              const selectable = days.map((d) => d.getTime()).filter((t) => !worked.has(t));
+              const selectedCount = selectable.filter((t) => cancelDayTimes.includes(t)).length;
+              const allSelected = selectable.length > 0 && selectedCount === selectable.length;
+              const someSelected = selectedCount > 0 && !allSelected;
               return (
                 <>
-                  <Text style={styles.cancelAttachmentLabel}>Days to cancel</Text>
-                  <AestheticScrollView style={styles.cancelDayList}>
-                    {days.map((day) => {
-                      const time = day.getTime();
-                      const timedIn = worked.has(time);
-                      const checked = cancelDayTimes.includes(time);
-                      return (
-                        <Pressable
-                          key={time}
-                          style={styles.cancelDayRow}
-                          disabled={timedIn}
-                          onPress={() =>
-                            setCancelDayTimes((current) =>
-                              current.includes(time) ? current.filter((t) => t !== time) : [...current, time].sort((a, b) => a - b),
-                            )
-                          }
-                        >
-                          <Ionicons
-                            name={checked ? "checkbox" : "square-outline"}
-                            size={20}
-                            color={timedIn ? "#CBD5E1" : checked ? "#DC2626" : "#94A3B8"}
-                          />
-                          <Text style={[styles.cancelDayText, timedIn && styles.cancelDayTextDisabled]}>
-                            {day.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
-                          </Text>
-                          {timedIn && <Text style={styles.cancelDayNote}>Timed in</Text>}
-                        </Pressable>
-                      );
-                    })}
-                  </AestheticScrollView>
+                  <View style={styles.cancelDayHeader}>
+                    <Text style={styles.cancelDayHeaderLabel}>Days to cancel</Text>
+                    <Text style={[styles.cancelDayCount, selectedCount > 0 && styles.cancelDayCountActive]}>
+                      {selectedCount} of {selectable.length} selected
+                    </Text>
+                  </View>
+                  <View style={styles.cancelDayBox}>
+                    {/* Stays above the scrolling list. */}
+                    <Pressable
+                      style={({ pressed }) => [styles.cancelSelectAllRow, pressed && styles.cancelDayRowPressed]}
+                      disabled={selectable.length === 0}
+                      onPress={() => setCancelDayTimes(allSelected ? [] : selectable)}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: allSelected ? true : someSelected ? "mixed" : false }}
+                    >
+                      <CancelCheckFace state={allSelected ? "on" : someSelected ? "mixed" : "off"} disabled={selectable.length === 0} />
+                      <Text style={styles.cancelSelectAllText}>Select all</Text>
+                      <Text style={styles.cancelSelectAllMeta}>{days.length} days</Text>
+                    </Pressable>
+                    <AestheticScrollView style={styles.cancelDayList}>
+                      {days.map((day, index) => {
+                        const time = day.getTime();
+                        const timedIn = worked.has(time);
+                        const checked = cancelDayTimes.includes(time);
+                        return (
+                          <Pressable
+                            key={time}
+                            style={({ pressed }) => [
+                              styles.cancelDayRow,
+                              index > 0 && styles.cancelDayRowDivider,
+                              checked && styles.cancelDayRowChecked,
+                              pressed && !timedIn && styles.cancelDayRowPressed,
+                            ]}
+                            disabled={timedIn}
+                            onPress={() =>
+                              setCancelDayTimes((current) =>
+                                current.includes(time) ? current.filter((t) => t !== time) : [...current, time].sort((a, b) => a - b),
+                              )
+                            }
+                            accessibilityRole="checkbox"
+                            accessibilityState={{ checked, disabled: timedIn }}
+                          >
+                            <CancelCheckFace state={checked ? "on" : "off"} disabled={timedIn} />
+                            <Text style={[styles.cancelDayWeekday, timedIn && styles.cancelDayTextDisabled]}>
+                              {day.toLocaleDateString(undefined, { weekday: "short" })}
+                            </Text>
+                            <Text style={[styles.cancelDayText, timedIn && styles.cancelDayTextDisabled]}>
+                              {day.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}
+                            </Text>
+                            {timedIn && (
+                              <View style={styles.cancelDayNoteBadge}>
+                                <Text style={styles.cancelDayNote}>Timed in</Text>
+                              </View>
+                            )}
+                          </Pressable>
+                        );
+                      })}
+                    </AestheticScrollView>
+                  </View>
                 </>
               );
             })()}
@@ -3503,22 +3556,62 @@ const styles = StyleSheet.create({
     paddingVertical: 13,
   },
   maternityContinueText: { color: "#334155", fontSize: 14, fontWeight: "700", textAlign: "center" },
-  cancelDayList: {
-    maxHeight: 180,
+  cancelDayHeader: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: 8,
+    marginTop: 4,
+    marginBottom: 6,
+  },
+  cancelDayHeaderLabel: { fontWeight: "600", color: "#475569", fontSize: 13 },
+  cancelDayCount: { fontSize: 12, fontWeight: "700", color: "#94A3B8" },
+  cancelDayCountActive: { color: "#DC2626" },
+  cancelDayBox: {
     borderWidth: 1,
     borderColor: "#E2E8F0",
-    borderRadius: 10,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  cancelSelectAllRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: "#F8FAFC",
+    borderBottomWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  cancelSelectAllText: { flex: 1, fontSize: 13.5, color: "#062B59", fontWeight: "800" },
+  cancelSelectAllMeta: { fontSize: 11.5, color: "#94A3B8", fontWeight: "600" },
+  cancelDayList: {
+    maxHeight: 200,
   },
   cancelDayRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
+    paddingVertical: 9,
+    paddingHorizontal: 12,
+    backgroundColor: "#FFFFFF",
   },
-  cancelDayText: { flex: 1, fontSize: 13.5, color: "#334155", fontWeight: "600" },
+  cancelDayRowDivider: { borderTopWidth: 1, borderColor: "#F1F5F9" },
+  cancelDayRowChecked: { backgroundColor: "#FEF2F2" },
+  cancelDayRowPressed: { opacity: 0.7 },
+  cancelDayWeekday: { width: 34, fontSize: 12, color: "#94A3B8", fontWeight: "700" },
+  cancelDayText: { flex: 1, fontSize: 13.5, color: "#334155", fontWeight: "700" },
   cancelDayTextDisabled: { color: "#CBD5E1" },
-  cancelDayNote: { fontSize: 11, color: "#94A3B8", fontWeight: "600" },
+  cancelDayNoteBadge: { backgroundColor: "#F1F5F9", borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
+  cancelDayNote: { fontSize: 11, color: "#64748B", fontWeight: "700" },
+  cancelCheckFace: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   cancelAttachmentLabel: {
     fontWeight: "600",
     color: "#475569",

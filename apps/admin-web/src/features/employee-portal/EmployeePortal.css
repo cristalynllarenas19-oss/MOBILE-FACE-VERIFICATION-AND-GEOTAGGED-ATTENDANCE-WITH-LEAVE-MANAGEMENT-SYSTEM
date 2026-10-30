@@ -114,3 +114,14 @@
 .maternity-alt:active {
   transform: scale(0.99);
 }
+
+/* Checkbox rows whose real input is visually hidden (LeavePage's
+   "Days to cancel") — show the keyboard focus on the row instead. */
+.emp-check-row:focus-visible,
+.emp-check-row:has(input:focus-visible) {
+  outline: 2px solid #1680d8;
+  outline-offset: -2px;
+}
+.emp-check-row {
+  position: relative;
+}
