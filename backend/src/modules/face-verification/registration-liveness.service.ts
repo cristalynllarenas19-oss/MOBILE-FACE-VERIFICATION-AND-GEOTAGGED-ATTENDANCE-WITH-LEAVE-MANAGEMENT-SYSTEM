@@ -52,6 +52,11 @@ const REOPEN_MIN_RATIO = 0.85;
 // noise alone is well above this.
 const FROZEN_MAX_DIFF = 0.4;
 const MIN_FACE_WIDTH = 100;
+// A step that wasn't done well enough (a weak blink, a small turn, not
+// facing forward) can be redone this many times in one session before the
+// whole capture fails. Photos/screens, other faces and frozen frames still
+// fail the session at once.
+const MAX_STEP_RETRIES = 3;
 // Anti-spoof model (see FaceVerificationService.antiSpoofRealScore): the
 // lowest "real face" probability allowed on the first (Face detected) frame
 // and on the final photo. Calibrated on this system's own data: registrations
@@ -72,6 +77,7 @@ type Session = {
   blinkCount: number;
   expected: LivenessFrameKind[];
   received: number;
+  retries: number;
   expiresAt: number;
   status: "pending" | "verified" | "failed";
   reason?: string;
@@ -117,6 +123,7 @@ export class RegistrationLivenessService {
       blinkCount,
       expected,
       received: 0,
+      retries: 0,
       expiresAt: Date.now() + SESSION_TTL_MS,
       status: "pending",
       busy: false,
@@ -198,7 +205,7 @@ export class RegistrationLivenessService {
       return this.fail(session, "More than one face was in the camera. Only the employee may be visible.");
     }
     if (!analysis.face) {
-      return this.fail(session, "The face left the camera during the liveness check. Please start again.");
+      return this.retryStep(session, kind, "The face left the camera. Keep your face inside the oval.");
     }
     if (session.lastThumbnail && meanAbsDiff(session.lastThumbnail, analysis.thumbnail) < FROZEN_MAX_DIFF) {
       return this.fail(session, "The camera image stopped updating. Please check the camera and start again.");
@@ -220,7 +227,7 @@ export class RegistrationLivenessService {
     if (kind === "final") {
       finalDescriptor = await this.faceService.extractDescriptor(Buffer.from(base64, "base64"));
       if (!finalDescriptor) {
-        return this.fail(session, "The final photo wasn't clear enough. Please start again.");
+        return this.retryStep(session, kind, "The photo wasn't clear enough.");
       }
     }
     const descriptor = finalDescriptor ?? face.descriptor;
@@ -234,7 +241,7 @@ export class RegistrationLivenessService {
 
     const eyes: EyeReading = { ear: face.ear, eyeContrast: face.eyeContrast };
     const failure = this.checkKind(session, kind, face.yaw, eyes, face.faceWidth);
-    if (failure) return this.fail(session, failure);
+    if (failure) return this.retryStep(session, kind, failure);
 
     session.received += 1;
     session.lastThumbnail = analysis.thumbnail;
@@ -259,15 +266,15 @@ export class RegistrationLivenessService {
   ): string | null {
     switch (kind) {
       case "straight":
-        if (Math.abs(yaw) > STRAIGHT_MAX_YAW) return "Face the camera directly and start again.";
+        if (Math.abs(yaw) > STRAIGHT_MAX_YAW) return "Face the camera directly.";
         session.openEyes = eyes;
         return null;
       case "closed": {
-        if (Math.abs(yaw) > STRAIGHT_MAX_YAW) return "Keep facing the camera while blinking. Please start again.";
+        if (Math.abs(yaw) > STRAIGHT_MAX_YAW) return "Keep facing the camera while blinking.";
         const open = session.openEyes;
         const earClosed = ratioBelow(eyes.ear, open?.ear, CLOSED_MAX_EAR_RATIO);
         const contrastClosed = ratioBelow(eyes.eyeContrast, open?.eyeContrast, CLOSED_MAX_CONTRAST_RATIO);
-        if (!earClosed && !contrastClosed) return "The blink couldn't be confirmed. Blink clearly and start again.";
+        if (!earClosed && !contrastClosed) return "The blink couldn't be confirmed. Blink clearly.";
         session.lastClosed = eyes;
         return null;
       }
@@ -276,18 +283,31 @@ export class RegistrationLivenessService {
         const reopened =
           ratioAbove(eyes.ear, closed?.ear, 1 / REOPEN_MIN_RATIO) ||
           ratioAbove(eyes.eyeContrast, closed?.eyeContrast, 1 / REOPEN_MIN_RATIO);
-        if (!reopened) return "The blink couldn't be confirmed. Blink clearly and start again.";
+        if (!reopened) return "The blink couldn't be confirmed. Blink clearly.";
         return null;
       }
       case "left":
-        return yaw >= TURN_MIN_YAW ? null : "The left head turn couldn't be confirmed. Please start again.";
+        return yaw >= TURN_MIN_YAW ? null : "The left head turn couldn't be confirmed.";
       case "right":
-        return yaw <= -TURN_MIN_YAW ? null : "The right head turn couldn't be confirmed. Please start again.";
+        return yaw <= -TURN_MIN_YAW ? null : "The right head turn couldn't be confirmed.";
       case "final":
-        if (Math.abs(yaw) > STRAIGHT_MAX_YAW) return "Face the camera directly for the photo. Please start again.";
+        if (Math.abs(yaw) > STRAIGHT_MAX_YAW) return "Face the camera directly for the photo.";
         if (faceWidth < MIN_FACE_WIDTH) return "Move closer so the face is large and clear.";
         return null;
     }
+  }
+
+  // Rewinds the session to the start of the step this frame belongs to (a
+  // blink starts over from its first closed frame), so the admin screen can
+  // redo just that step; the frames it already queued after this one are
+  // dropped there. Past MAX_STEP_RETRIES the session fails as before.
+  private retryStep(session: Session, kind: LivenessFrameKind, reason: string) {
+    if (session.retries >= MAX_STEP_RETRIES) return this.fail(session, reason);
+    session.retries += 1;
+    const blink = kind === "closed" || kind === "open";
+    session.received = session.expected.indexOf(blink ? "closed" : kind);
+    session.lastClosed = undefined;
+    return { status: "retry" as const, reason, step: blink ? "blink" : kind };
   }
 
   private fail(session: Session, reason: string) {

@@ -381,7 +381,17 @@ function livenessGroupLabels(steps: LivenessStep[]) {
   return ["Face detected", blinkFirst ? "Blink" : "Turn head", blinkFirst ? "Turn head" : "Blink", "Capture"];
 }
 
-type LivenessFrameResult = { status: "pending" | "verified" | "failed"; reason: string | null };
+type LivenessFrameResult = {
+  status: "pending" | "verified" | "failed" | "retry";
+  reason: string | null;
+  // On "retry": the frame kind whose step is redone (closed/open = blink).
+  step?: string;
+};
+
+// A failed step (not done in time, or the backend wanted it done better) is
+// redone on its own, up to this many times per capture, instead of starting
+// over from step 1.
+const LIVENESS_MAX_STEP_RETRIES = 3;
 
 // The longest the final verification may take after the photo before the
 // attempt counts as failed (the server measures every frame it received).
@@ -440,6 +450,14 @@ type TrackedFace = {
 };
 
 class LivenessCancelled extends Error {}
+// Ends the whole capture (a photo/screen, another face, the server).
+class LivenessFailed extends Error {}
+// Redo one step: `step` is where the capture picks up again.
+class LivenessStepRetry extends Error {
+  constructor(readonly step: LivenessStepKey, message: string) {
+    super(message);
+  }
+}
 
 function distance(a: Point, b: Point) {
   return Math.hypot(a.x - b.x, a.y - b.y);
@@ -601,11 +619,18 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
   const livenessAbortRef = useRef<((error?: Error) => void) | null>(null);
   const fullLandmarksReadyRef = useRef(false);
   // The backend liveness session of the running guided capture. Key frames
-  // are uploaded one at a time, in order, through frameChainRef; the first
-  // rejection is kept in `failure` and ends the attempt.
-  const livenessSessionRef = useRef<{ id: string; blinkCount: number; failure: string | null; verified: boolean } | null>(
-    null,
-  );
+  // are uploaded one at a time, in order, through frameChainRef; a rejection
+  // is kept in `failure` and ends the attempt. A step the backend wants
+  // redone is kept in `retry`; `generation` then moves on, so the frames
+  // already queued behind it are dropped.
+  const livenessSessionRef = useRef<{
+    id: string;
+    blinkCount: number;
+    failure: string | null;
+    verified: boolean;
+    retry: { step: LivenessStepKey; reason: string } | null;
+    generation: number;
+  } | null>(null);
   const frameChainRef = useRef<Promise<void>>(Promise.resolve());
   const [livenessSteps, setLivenessSteps] = useState<LivenessStep[]>(DEFAULT_LIVENESS_STEPS);
   // Set only once the backend has verified the capture; Register Employee
@@ -625,6 +650,8 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
     reason?: string;
   } | null>(null);
   const [livenessHint, setLivenessHint] = useState("");
+  // Why the current step is being redone, until it passes.
+  const [livenessRetryNote, setLivenessRetryNote] = useState("");
   // The head turned the opposite way from the current turn step.
   const [livenessWrongWay, setLivenessWrongWay] = useState(false);
   const [modelsReady, setModelsReady] = useState(false);
@@ -761,6 +788,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
     setFaceTrackingRate(FACE_TRACKING_MS);
     setLiveness(null);
     setLivenessHint("");
+    setLivenessRetryNote("");
     setLivenessWrongWay(false);
   }
 
@@ -929,6 +957,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
       // signal's reading is a little older than the frame grabbed for it.
       const blinksNeeded = livenessSessionRef.current?.blinkCount ?? 1;
       let blinksDone = 0;
+      const blinkFrames: string[] = [];
       let closedFrame: { closedness: number; image: string; fromContrast: boolean } | null = null;
       const noteClosed = (video: HTMLVideoElement, closedness: number, fromContrast: boolean) => {
         const better =
@@ -956,10 +985,15 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
           restartBlink();
           return;
         }
-        submitLivenessFrame("closed", closedFrame.image);
-        submitLivenessFrame("open", imageFromVideo(video));
+        // Sent only once every blink is done, so a step that times out
+        // halfway has sent nothing and can simply be redone.
+        blinkFrames.push(closedFrame.image, imageFromVideo(video));
         blinksDone += 1;
         if (blinksDone >= blinksNeeded) {
+          for (let i = 0; i < blinkFrames.length; i += 2) {
+            submitLivenessFrame("closed", blinkFrames[i]);
+            submitLivenessFrame("open", blinkFrames[i + 1]);
+          }
           finish();
           return;
         }
@@ -1137,10 +1171,12 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
   // (or can't be reached) the rest are skipped and the attempt fails.
   function submitLivenessFrame(kind: "straight" | "closed" | "open" | "left" | "right" | "final", image: string) {
     const session = livenessSessionRef.current;
-    if (!session) return;
+    // While a step is waiting to be redone, nothing else is sent.
+    if (!session || session.retry) return;
+    const generation = session.generation;
     setFramesChecking((count) => count + 1);
     frameChainRef.current = frameChainRef.current.then(async () => {
-      if (session.failure || livenessSessionRef.current !== session) {
+      if (session.failure || livenessSessionRef.current !== session || session.generation !== generation) {
         setFramesChecking((count) => Math.max(0, count - 1));
         return;
       }
@@ -1152,7 +1188,21 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
         if (result.status === "failed") {
           session.failure = result.reason ?? "Liveness verification failed.";
           // Stop the step the employee is on now, rather than at its end.
-          if (livenessSessionRef.current === session) livenessAbortRef.current?.(new Error(session.failure));
+          if (livenessSessionRef.current === session) livenessAbortRef.current?.(new LivenessFailed(session.failure));
+        }
+        if (result.status === "retry") {
+          // Back to that step; the frames queued after this one are dropped.
+          session.generation += 1;
+          const step: LivenessStepKey =
+            result.step === "closed" || result.step === "open" || result.step === "blink"
+              ? "blink"
+              : result.step === "final"
+                ? "center"
+                : ((result.step as LivenessStepKey | undefined) ?? "straight");
+          session.retry = { step, reason: result.reason ?? "That step couldn't be confirmed." };
+          if (livenessSessionRef.current === session) {
+            livenessAbortRef.current?.(new LivenessStepRetry(step, session.retry.reason));
+          }
         }
         if (result.status === "verified") session.verified = true;
       } catch {
@@ -1178,8 +1228,9 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
   }
 
   function throwIfLivenessFailed() {
-    const failure = livenessSessionRef.current?.failure;
-    if (failure) throw new Error(failure);
+    const session = livenessSessionRef.current;
+    if (session?.failure) throw new LivenessFailed(session.failure);
+    if (session?.retry) throw new LivenessStepRetry(session.retry.step, session.retry.reason);
   }
 
   async function startGuidedCapture() {
@@ -1211,58 +1262,94 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
       });
       if (!sequenceRef.current) return;
       const steps = buildLivenessSteps(session.challenges, session.blinkCount);
-      livenessSessionRef.current = { id: session.sessionId, blinkCount: session.blinkCount, failure: null, verified: false };
+      livenessSessionRef.current = {
+        id: session.sessionId,
+        blinkCount: session.blinkCount,
+        failure: null,
+        verified: false,
+        retry: null,
+        generation: 0,
+      };
       frameChainRef.current = Promise.resolve();
       setLivenessSteps(steps);
       setFaceTrackingRate(LIVENESS_TRACKING_MS);
 
-      for (let index = 0; index < steps.length; index += 1) {
-        if (!sequenceRef.current) return;
-        // A frame rejected between steps fails before the next one starts.
-        throwIfLivenessFailed();
-        const step = steps[index];
-        setLiveness({ step: index, status: "active" });
-        setLivenessHint("");
-        setLivenessWrongWay(false);
-        // The last step ends with the existing capture, right after the face
-        // is confirmed straight and centered; that photo is also the final
-        // frame the backend verifies (and later stores).
-        if (index === steps.length - 1) {
-          submitLivenessFrame("final", await captureWhenStraight(step.key, step.timeout));
-        } else {
-          await waitForStep(step.key, step.timeout);
-          // Straight and turns: the frame right as the step is detected.
-          // (Blinks send their own frames — see waitForStep.)
-          if (step.key !== "blink" && videoRef.current) {
-            submitLivenessFrame(step.key as "straight" | "left" | "right", imageFromVideo(videoRef.current));
-          }
-          // Step 1 isn't ticked until the backend's anti-spoofing check has
-          // judged that frame a live face, so a photo or a phone screen
-          // stops right here. Later steps are judged in the background so
-          // the employee isn't kept waiting; a rejected frame stops the step
-          // in progress.
-          if (step.key === "straight") {
-            setLivenessHint(LIVE_FACE_CHECK_HINT);
-            if (await livenessTimedOut()) throw new Error("Liveness verification timed out. Please try again.");
+      let index = 0;
+      let retriesLeft = LIVENESS_MAX_STEP_RETRIES;
+      for (;;) {
+        try {
+          for (; index < steps.length; index += 1) {
             if (!sequenceRef.current) return;
+            // A frame rejected between steps fails before the next one starts.
+            throwIfLivenessFailed();
+            const step = steps[index];
+            setLiveness({ step: index, status: "active" });
+            setLivenessHint("");
+            setLivenessWrongWay(false);
+            // The last step ends with the existing capture, right after the face
+            // is confirmed straight and centered; that photo is also the final
+            // frame the backend verifies (and later stores).
+            // Not done in time (or the photo check missed): redo this step.
+            const asRetry = (error: unknown): never => {
+              if (error instanceof LivenessCancelled || error instanceof LivenessFailed || error instanceof LivenessStepRetry) {
+                throw error;
+              }
+              throw new LivenessStepRetry(step.key, error instanceof Error ? error.message : step.timeout);
+            };
+            if (index === steps.length - 1) {
+              submitLivenessFrame("final", await captureWhenStraight(step.key, step.timeout).catch(asRetry));
+            } else {
+              await waitForStep(step.key, step.timeout).catch(asRetry);
+              // Straight and turns: the frame right as the step is detected.
+              // (Blinks send their own frames — see waitForStep.)
+              if (step.key !== "blink" && videoRef.current) {
+                submitLivenessFrame(step.key as "straight" | "left" | "right", imageFromVideo(videoRef.current));
+              }
+              // Step 1 isn't ticked until the backend's anti-spoofing check has
+              // judged that frame a live face, so a photo or a phone screen
+              // stops right here. Later steps are judged in the background so
+              // the employee isn't kept waiting; a rejected frame stops the step
+              // in progress.
+              if (step.key === "straight") {
+                setLivenessHint(LIVE_FACE_CHECK_HINT);
+                if (await livenessTimedOut()) throw new LivenessFailed("Liveness verification timed out. Please try again.");
+                if (!sequenceRef.current) return;
+              }
+            }
+            throwIfLivenessFailed();
+            setLivenessRetryNote("");
+            setLiveness({ step: index, status: "passed" });
+            await delay(index === steps.length - 1 ? LIVENESS_CAPTURED_PAUSE_MS : LIVENESS_PASS_PAUSE_MS);
           }
-        }
-        throwIfLivenessFailed();
-        setLiveness({ step: index, status: "passed" });
-        await delay(index === steps.length - 1 ? LIVENESS_CAPTURED_PAUSE_MS : LIVENESS_PASS_PAUSE_MS);
-      }
-      if (!sequenceRef.current) return;
+          if (!sequenceRef.current) return;
 
-      // "Capturing photo..." for a few seconds while the backend finishes the
-      // frames still in line; then the camera stops (the captured photo stays
-      // in its place) and the photo review opens, ready to register.
-      setLivenessVerifying(true);
-      const [timedOut] = await Promise.all([livenessTimedOut(), delay(CAPTURING_MIN_MS)]);
-      if (!sequenceRef.current) return;
-      setLivenessVerifying(false);
-      if (timedOut) throw new Error("Liveness verification timed out. Please try again.");
-      throwIfLivenessFailed();
-      if (!livenessSessionRef.current?.verified) throw new Error("Liveness verification failed. Please try again.");
+          // "Capturing photo..." for a few seconds while the backend finishes the
+          // frames still in line; then the camera stops (the captured photo stays
+          // in its place) and the photo review opens, ready to register.
+          setLivenessVerifying(true);
+          const [timedOut] = await Promise.all([livenessTimedOut(), delay(CAPTURING_MIN_MS)]);
+          if (!sequenceRef.current) return;
+          setLivenessVerifying(false);
+          if (timedOut) throw new LivenessFailed("Liveness verification timed out. Please try again.");
+          throwIfLivenessFailed();
+          if (!livenessSessionRef.current?.verified) throw new LivenessFailed("Liveness verification failed. Please try again.");
+          break;
+        } catch (error) {
+          if (!sequenceRef.current) return;
+          if (!(error instanceof LivenessStepRetry)) throw error;
+          if (retriesLeft === 0) throw new LivenessFailed(error.message);
+          retriesLeft -= 1;
+          // Pick up again at that step (it may be an earlier one, when the
+          // backend judged its frame late), with the reason shown.
+          const current = livenessSessionRef.current;
+          if (current) current.retry = null;
+          index = Math.max(0, steps.findIndex((step) => step.key === error.step));
+          setLivenessVerifying(false);
+          setLivenessRetryNote(`${error.message} Please try again.`);
+          // The photo step pauses tracking; the redone step needs it.
+          if (streamRef.current && !faceTrackingTimerRef.current) startFaceTracking(true);
+        }
+      }
 
       setVerifiedSessionId(session.sessionId);
       sequenceRef.current = false;
@@ -1586,7 +1673,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
           ? ""
           : livenessWrongWay
             ? currentLivenessStep.instruction
-            : livenessHint || currentLivenessStep.sub,
+            : livenessHint || livenessRetryNote || currentLivenessStep.sub,
   };
 
   // Status tile: where the capture stands, from waiting for a face through
