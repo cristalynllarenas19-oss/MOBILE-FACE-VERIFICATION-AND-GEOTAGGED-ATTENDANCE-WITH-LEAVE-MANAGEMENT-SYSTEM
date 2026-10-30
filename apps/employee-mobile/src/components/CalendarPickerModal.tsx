@@ -20,6 +20,8 @@ type Props = {
   visible: boolean;
   title: string;
   selectedDate?: Date;
+  // Month to open on when nothing is selected yet (default: this month).
+  initialMonth?: Date;
   minimumDate?: Date;
   maximumDate?: Date;
   // Returns a short reason if the date should render disabled (grey, not
@@ -44,6 +46,7 @@ export default function CalendarPickerModal({
   visible,
   title,
   selectedDate,
+  initialMonth,
   minimumDate,
   maximumDate,
   isDateDisabled,
@@ -53,12 +56,12 @@ export default function CalendarPickerModal({
   onSelect,
   onClose,
 }: Props) {
-  const [viewMonth, setViewMonth] = useState(() => toDateOnly(selectedDate ?? new Date()));
+  const [viewMonth, setViewMonth] = useState(() => toDateOnly(selectedDate ?? initialMonth ?? new Date()));
 
   // Re-anchor to the selected/current month each time the modal opens, so it
   // doesn't reopen wherever the user last scrolled to.
   React.useEffect(() => {
-    if (visible) setViewMonth(toDateOnly(selectedDate ?? new Date()));
+    if (visible) setViewMonth(toDateOnly(selectedDate ?? initialMonth ?? new Date()));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 

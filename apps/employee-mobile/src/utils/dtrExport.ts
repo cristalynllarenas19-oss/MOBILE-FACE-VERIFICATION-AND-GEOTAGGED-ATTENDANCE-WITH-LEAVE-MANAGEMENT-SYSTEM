@@ -104,13 +104,27 @@ export function dtrRemarks(row: MonthlyDtrRow) {
   return parts.join("; ");
 }
 
-export function dtrFileName(dtr: MonthlyDtr) {
-  const name = `${dtr.employee.firstName}${dtr.employee.lastName}`.replace(/[^A-Za-z0-9]/g, "") || "Employee";
-  return `DTR_${name}_${MONTH_NAMES[dtr.month - 1]}_${dtr.year}.pdf`;
+// A month's DTR, optionally narrowed to a day range inside that month
+// (e.g. the 1st–15th for a semi-monthly cutoff). When days is set, rows
+// already hold only those days.
+export type DtrDocument = MonthlyDtr & { days?: { from: number; to: number } };
+
+// "October 2026", "October 1–15, 2026" or "October 5, 2026".
+export function dtrPeriodLabel(dtr: DtrDocument) {
+  const month = MONTH_NAMES[dtr.month - 1];
+  if (!dtr.days) return `${month} ${dtr.year}`;
+  const { from, to } = dtr.days;
+  return from === to ? `${month} ${from}, ${dtr.year}` : `${month} ${from}–${to}, ${dtr.year}`;
 }
 
-function buildDtrHtml(dtr: MonthlyDtr, logoDataUri: string | null) {
-  const period = `${MONTH_NAMES[dtr.month - 1]} ${dtr.year}`;
+export function dtrFileName(dtr: DtrDocument) {
+  const name = `${dtr.employee.firstName}${dtr.employee.lastName}`.replace(/[^A-Za-z0-9]/g, "") || "Employee";
+  const days = dtr.days ? `_${dtr.days.from === dtr.days.to ? dtr.days.from : `${dtr.days.from}-${dtr.days.to}`}` : "";
+  return `DTR_${name}_${MONTH_NAMES[dtr.month - 1]}${days}_${dtr.year}.pdf`;
+}
+
+function buildDtrHtml(dtr: DtrDocument, logoDataUri: string | null) {
+  const period = dtrPeriodLabel(dtr);
   const prepared = new Date(dtr.generatedAt).toLocaleDateString("en-US", {
     month: "long",
     day: "numeric",
@@ -225,7 +239,7 @@ function buildDtrHtml(dtr: MonthlyDtr, logoDataUri: string | null) {
 // is iOS-only and would stack on top of it there).
 const PRINT_OPTIONS = { width: A4.width, height: A4.height };
 
-async function renderPdf(dtr: MonthlyDtr) {
+async function renderPdf(dtr: DtrDocument) {
   const { uri } = await Print.printToFileAsync({ html: buildDtrHtml(dtr, await loadLogoDataUri()), ...PRINT_OPTIONS });
   // printToFileAsync names the file with a random id; give it the readable
   // DTR_Name_Month_Year.pdf name so a shared copy keeps it too.
@@ -241,7 +255,7 @@ async function renderPdf(dtr: MonthlyDtr) {
 
 // Opens the system print dialog, where the employee picks a printer or
 // "Save as PDF".
-export async function printDtr(dtr: MonthlyDtr) {
+export async function printDtr(dtr: DtrDocument) {
   await Print.printAsync({ html: buildDtrHtml(dtr, await loadLogoDataUri()), ...PRINT_OPTIONS });
 }
 
@@ -278,7 +292,7 @@ function folderLabel(directoryUri: string) {
 // employee picks once (e.g. Download) — needs no storage permission in the
 // manifest and works on every Android version the app supports. The
 // folder grant is remembered; if it's later revoked, it asks again.
-export async function downloadDtrPdf(dtr: MonthlyDtr): Promise<SavedDtr> {
+export async function downloadDtrPdf(dtr: DtrDocument): Promise<SavedDtr> {
   const fileName = dtrFileName(dtr);
   const cacheUri = await renderPdf(dtr);
 

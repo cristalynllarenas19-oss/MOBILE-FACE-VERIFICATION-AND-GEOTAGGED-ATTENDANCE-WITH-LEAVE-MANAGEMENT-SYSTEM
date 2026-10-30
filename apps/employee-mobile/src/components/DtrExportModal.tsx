@@ -3,12 +3,15 @@ import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { MonthlyDtr, getMyMonthlyDtr } from "../api";
+import CalendarPickerModal from "./CalendarPickerModal";
 import {
+  DtrDocument,
   MONTH_NAMES,
   SavedDtr,
   downloadDtrPdf,
   dtrFileName,
   dtrHoursLabel,
+  dtrPeriodLabel,
   dtrRemarks,
   dtrStatusLabel,
   dtrTotalHoursLabel,
@@ -41,7 +44,7 @@ const TILE_STATUSES = ["PRESENT", "LATE", "ON_LEAVE", "ABSENT"];
 // Tiles for the four main statuses, plus any other status that occurs this
 // month (Leave Pending, Pending Review) as extras. Statuses that print under
 // the same label (FLAGGED / PENDING_REVIEW) are counted together.
-function statusCounts(dtr: MonthlyDtr) {
+function statusCounts(dtr: DtrDocument) {
   const byLabel = new Map<string, { status: string; count: number }>();
   for (const row of dtr.rows) {
     const label = dtrStatusLabel(row.status);
@@ -58,6 +61,11 @@ function statusCounts(dtr: MonthlyDtr) {
     .filter(([label]) => !tileLabels.has(label))
     .map(([label, entry]) => ({ label, ...entry }));
   return { tiles, extras };
+}
+
+// The year is already in the period above, so the From/To boxes skip it.
+function formatShortDate(value: Date) {
+  return value.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 // Backing out of the print dialog / share sheet rejects too — not a failure.
@@ -82,6 +90,10 @@ export default function DtrExportModal({ visible, onClose }: Props) {
   const [busy, setBusy] = useState<"download" | "print" | "share" | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [saved, setSaved] = useState<SavedDtr | null>(null);
+  // Optional days inside the selected month; blank means the whole month.
+  const [fromDate, setFromDate] = useState<Date | null>(null);
+  const [toDate, setToDate] = useState<Date | null>(null);
+  const [rangePicker, setRangePicker] = useState<"from" | "to" | null>(null);
   // Ignores a slow response for a month the employee has already moved off.
   const requestId = useRef(0);
 
@@ -113,9 +125,44 @@ export default function DtrExportModal({ visible, onClose }: Props) {
     if (!visible) setIsPickerOpen(false);
   }, [visible]);
 
+  // A range belongs to one month — moving to another month (or closing)
+  // starts it over.
+  useEffect(() => {
+    setFromDate(null);
+    setToDate(null);
+  }, [year, month, visible]);
+
+  // A saved file or error is for the old range, not the new one.
+  useEffect(() => {
+    setNotice(null);
+    setSaved(null);
+  }, [fromDate, toDate]);
+
   const isFutureMonth = (y: number, m: number) =>
     y > now.getFullYear() || (y === now.getFullYear() && m > now.getMonth() + 1);
   const isCurrentMonth = year === now.getFullYear() && month === now.getMonth() + 1;
+  const monthStart = new Date(year, month - 1, 1);
+  const lastDay = new Date(year, month, 0).getDate();
+  // No attendance exists past today, so the current month's range stops there.
+  const latestDate = isCurrentMonth ? now : new Date(year, month - 1, lastDay);
+  const hasRange = Boolean(fromDate || toDate);
+
+  // What's previewed and exported: the month, or just the picked days of it.
+  const doc: DtrDocument | null =
+    dtr && hasRange
+      ? (() => {
+          const from = fromDate?.getDate() ?? 1;
+          const to = toDate?.getDate() ?? lastDay;
+          return {
+            ...dtr,
+            days: { from, to },
+            rows: dtr.rows.filter((row) => {
+              const day = new Date(row.attendanceDate).getDate();
+              return day >= from && day <= to;
+            }),
+          };
+        })()
+      : dtr;
 
   function changeYear(next: number) {
     setYear(next);
@@ -130,11 +177,11 @@ export default function DtrExportModal({ visible, onClose }: Props) {
   }
 
   async function handleDownload() {
-    if (!dtr) return;
+    if (!doc) return;
     setBusy("download");
     setNotice(null);
     try {
-      const result = await downloadDtrPdf(dtr);
+      const result = await downloadDtrPdf(doc);
       setSaved(result);
       setNotice({
         tone: "success",
@@ -156,11 +203,11 @@ export default function DtrExportModal({ visible, onClose }: Props) {
   }
 
   async function handlePrint() {
-    if (!dtr) return;
+    if (!doc) return;
     setBusy("print");
     setNotice(null);
     try {
-      await printDtr(dtr);
+      await printDtr(doc);
     } catch (error) {
       if (!isCancel(error)) {
         setNotice({
@@ -194,18 +241,21 @@ export default function DtrExportModal({ visible, onClose }: Props) {
     }
   }
 
-  const hasRows = Boolean(dtr?.rows.length);
-  // An empty month would only print a blank sheet.
+  const hasRows = Boolean(doc?.rows.length);
+  // An empty period would only print a blank sheet.
   const canExport = hasRows && !isLoading && busy === null;
-  const summary = dtr ? statusCounts(dtr) : { tiles: [], extras: [] };
-  const employeeMeta = dtr
-    ? [dtr.employee.employeeNo, dtr.employee.department, dtr.employee.position].filter(Boolean).join(" · ")
+  const summary = doc ? statusCounts(doc) : { tiles: [], extras: [] };
+  const periodLabel = doc ? dtrPeriodLabel(doc) : "";
+  const employeeMeta = doc
+    ? [doc.employee.employeeNo, doc.employee.department, doc.employee.position].filter(Boolean).join(" · ")
     : "";
-  const footerHint = isLoading || loadError || !dtr
+  const footerHint = isLoading || loadError || !doc
     ? null
     : hasRows
-      ? `Saves as ${dtrFileName(dtr)}`
-      : "Nothing to export for this month.";
+      ? `Saves as ${dtrFileName(doc)}`
+      : hasRange
+        ? "Nothing to export for these dates."
+        : "Nothing to export for this month.";
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
@@ -306,10 +356,48 @@ export default function DtrExportModal({ visible, onClose }: Props) {
               </View>
             </View>
           )}
+
+          {/* Optional days within the month (e.g. a 1–15 cutoff) — same
+              From/To boxes as the DTR tab. Blank exports the whole month. */}
+          <View style={styles.rangeRow}>
+            <Pressable
+              style={({ pressed }) => [styles.dateBox, fromDate && styles.dateBoxFilled, pressed && styles.pressed]}
+              onPress={() => setRangePicker("from")}
+              accessibilityLabel="From date"
+            >
+              <Text style={[styles.dateBoxText, fromDate && styles.dateBoxTextFilled]} numberOfLines={1}>
+                {fromDate ? formatShortDate(fromDate) : "From"}
+              </Text>
+              <Ionicons name="calendar-outline" size={16} color={fromDate ? "#1680D8" : "#64748B"} />
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.dateBox, toDate && styles.dateBoxFilled, pressed && styles.pressed]}
+              onPress={() => setRangePicker("to")}
+              accessibilityLabel="To date"
+            >
+              <Text style={[styles.dateBoxText, toDate && styles.dateBoxTextFilled]} numberOfLines={1}>
+                {toDate ? formatShortDate(toDate) : "To"}
+              </Text>
+              <Ionicons name="calendar-outline" size={16} color={toDate ? "#1680D8" : "#64748B"} />
+            </Pressable>
+            {hasRange && (
+              <Pressable
+                style={styles.dateClear}
+                onPress={() => {
+                  setFromDate(null);
+                  setToDate(null);
+                }}
+                hitSlop={6}
+                accessibilityLabel="Clear dates"
+              >
+                <Ionicons name="close" size={16} color="#94A3B8" />
+              </Pressable>
+            )}
+          </View>
         </View>
 
         {/* Preview — laid out like the document itself: who it's for, the
-            month's totals, then each day. Remounted per month so it opens
+            period's totals, then each day. Remounted per month so it opens
             scrolled to the top. */}
         <View style={[styles.card, styles.docCard]}>
           <ScrollView key={`${year}-${month}`} contentContainerStyle={styles.docContent}>
@@ -326,7 +414,7 @@ export default function DtrExportModal({ visible, onClose }: Props) {
                   <Text style={styles.retryText}>Try Again</Text>
                 </Pressable>
               </View>
-            ) : dtr ? (
+            ) : doc ? (
               <>
                 <View style={styles.docHead}>
                   <View style={styles.docTitleRow}>
@@ -337,13 +425,17 @@ export default function DtrExportModal({ visible, onClose }: Props) {
                     </View>
                   </View>
                   <Text style={styles.empName} numberOfLines={1}>
-                    {dtr.employee.name}
+                    {doc.employee.name}
                   </Text>
                   {!!employeeMeta && (
                     <Text style={styles.empMeta} numberOfLines={2}>
                       {employeeMeta}
                     </Text>
                   )}
+                  <View style={styles.periodLine}>
+                    <Ionicons name="calendar-outline" size={12} color="#1680D8" />
+                    <Text style={styles.periodLineText}>{periodLabel}</Text>
+                  </View>
                 </View>
 
                 {hasRows ? (
@@ -354,7 +446,7 @@ export default function DtrExportModal({ visible, onClose }: Props) {
                           <Ionicons name="time-outline" size={16} color="#FFFFFF" />
                         </View>
                         <Text style={styles.totalBarLabel}>Total Hours Worked</Text>
-                        <Text style={styles.totalBarValue}>{dtrTotalHoursLabel(dtr)}</Text>
+                        <Text style={styles.totalBarValue}>{dtrTotalHoursLabel(doc)}</Text>
                       </View>
                       <View style={styles.tileRow}>
                         {summary.tiles.map(({ status, label, count }) => {
@@ -388,9 +480,9 @@ export default function DtrExportModal({ visible, onClose }: Props) {
                     </View>
 
                     <Text style={styles.sectionLabel}>
-                      Records · {dtr.rows.length}
+                      Records · {doc.rows.length}
                     </Text>
-                    {dtr.rows.map((row) => {
+                    {doc.rows.map((row) => {
                       const date = new Date(row.attendanceDate);
                       const remarks = dtrRemarks(row);
                       // Absent / leave days have no punches — no empty "In — Out —".
@@ -426,7 +518,7 @@ export default function DtrExportModal({ visible, onClose }: Props) {
                   <View style={styles.centered}>
                     <Ionicons name="document-text-outline" size={32} color="#CBD5E1" />
                     <Text style={styles.mutedText}>
-                      No attendance records for {MONTH_NAMES[month - 1]} {year}.
+                      No attendance records for {periodLabel}.
                     </Text>
                   </View>
                 )}
@@ -512,6 +604,34 @@ export default function DtrExportModal({ visible, onClose }: Props) {
           )}
         </View>
       </View>
+
+      {/* Both calendars stay inside the selected month and stop at today. */}
+      <CalendarPickerModal
+        visible={rangePicker === "from"}
+        title="Select From Date"
+        selectedDate={fromDate ?? undefined}
+        initialMonth={monthStart}
+        minimumDate={monthStart}
+        maximumDate={toDate ?? latestDate}
+        onSelect={(value) => {
+          setFromDate(value);
+          setRangePicker(null);
+        }}
+        onClose={() => setRangePicker(null)}
+      />
+      <CalendarPickerModal
+        visible={rangePicker === "to"}
+        title="Select To Date"
+        selectedDate={toDate ?? undefined}
+        initialMonth={monthStart}
+        minimumDate={fromDate ?? monthStart}
+        maximumDate={latestDate}
+        onSelect={(value) => {
+          setToDate(value);
+          setRangePicker(null);
+        }}
+        onClose={() => setRangePicker(null)}
+      />
     </Modal>
   );
 }
@@ -571,6 +691,25 @@ const styles = StyleSheet.create({
   monthChipText: { color: "#475569", fontSize: 13, fontWeight: "700" },
   monthChipTextActive: { color: "#FFFFFF" },
   monthChipTextDisabled: { color: "#CBD5E1" },
+  // Same outlined boxes as the DTR tab's From/To filter.
+  rangeRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10 },
+  dateBox: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    height: 48,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    backgroundColor: "#FFFFFF",
+  },
+  dateBoxFilled: { borderColor: "#B9D7F3", backgroundColor: "#F5FAFF" },
+  dateBoxText: { flexShrink: 1, color: "#94A3B8", fontSize: 14, fontWeight: "600" },
+  dateBoxTextFilled: { color: "#0F172A" },
+  dateClear: { width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: "#F1F5F9" },
 
   docCard: { flex: 1, marginBottom: 12, overflow: "hidden" },
   docContent: { paddingHorizontal: 16, paddingBottom: 12, flexGrow: 1 },
@@ -589,6 +728,8 @@ const styles = StyleSheet.create({
   previewBadgeText: { color: "#1680D8", fontSize: 10.5, fontWeight: "800" },
   empName: { color: "#062B59", fontSize: 17, fontWeight: "900" },
   empMeta: { color: "#64748B", fontSize: 12, fontWeight: "600", marginTop: 2 },
+  periodLine: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 6 },
+  periodLineText: { color: "#1680D8", fontSize: 12, fontWeight: "800" },
 
   stats: { gap: 8, paddingVertical: 12 },
   totalBar: {
