@@ -7,6 +7,7 @@ import {
   MONTH_NAMES,
   SavedDtr,
   downloadDtrPdf,
+  dtrFileName,
   dtrHoursLabel,
   dtrRemarks,
   dtrStatusLabel,
@@ -23,21 +24,40 @@ type Props = {
 
 type Notice = { tone: "success" | "error"; title: string; message: string; retry?: () => void };
 
-// Same tones DTRScreen's statusTone() uses for its row dots.
-function statusColor(status: string) {
-  if (status === "PRESENT") return "#17A34A";
-  if (status === "LATE") return "#CA8A04";
-  if (status === "ON_LEAVE") return "#1680D8";
-  if (status === "ABSENT") return "#DC2626";
-  if (status === "LEAVE_PENDING") return "#B45309";
-  return "#94A3B8";
+// Same tones DTRScreen's statusTone() uses for its rows.
+function statusTone(status: string) {
+  if (status === "PRESENT") return { color: "#17A34A", bg: "#ECFDF3" };
+  if (status === "LATE") return { color: "#CA8A04", bg: "#FEFCE8" };
+  if (status === "ON_LEAVE") return { color: "#1680D8", bg: "#EFF6FF" };
+  if (status === "ABSENT") return { color: "#DC2626", bg: "#FEF2F2" };
+  if (status === "LEAVE_PENDING") return { color: "#B45309", bg: "#FEF3C7" };
+  return { color: "#64748B", bg: "#F1F5F9" };
 }
 
-// "1 Late · 24 Absent" — only the statuses that actually occur.
-function statusSummary(dtr: MonthlyDtr) {
-  const counts = new Map<string, number>();
-  for (const row of dtr.rows) counts.set(row.status, (counts.get(row.status) ?? 0) + 1);
-  return [...counts].map(([status, count]) => `${count} ${dtrStatusLabel(status)}`).join(" · ");
+// Always shown, in this order, even at zero — so the summary keeps the same
+// shape from month to month.
+const TILE_STATUSES = ["PRESENT", "LATE", "ON_LEAVE", "ABSENT"];
+
+// Tiles for the four main statuses, plus any other status that occurs this
+// month (Leave Pending, Pending Review) as extras. Statuses that print under
+// the same label (FLAGGED / PENDING_REVIEW) are counted together.
+function statusCounts(dtr: MonthlyDtr) {
+  const byLabel = new Map<string, { status: string; count: number }>();
+  for (const row of dtr.rows) {
+    const label = dtrStatusLabel(row.status);
+    const entry = byLabel.get(label) ?? { status: row.status, count: 0 };
+    entry.count += 1;
+    byLabel.set(label, entry);
+  }
+  const tiles = TILE_STATUSES.map((status) => {
+    const label = dtrStatusLabel(status);
+    return { status, label, count: byLabel.get(label)?.count ?? 0 };
+  });
+  const tileLabels = new Set(tiles.map((tile) => tile.label));
+  const extras = [...byLabel]
+    .filter(([label]) => !tileLabels.has(label))
+    .map(([label, entry]) => ({ label, ...entry }));
+  return { tiles, extras };
 }
 
 // Backing out of the print dialog / share sheet rejects too — not a failure.
@@ -45,8 +65,9 @@ function isCancel(error: unknown) {
   return /cancel|did not complete|dismiss/i.test(error instanceof Error ? error.message : "");
 }
 
-// My DTR — pick a month and year, check the records, then save them as a
-// PDF or print them. Opened from the DTR tab's "Download / Print" button.
+// My DTR — pick a month, check the records as they'll appear on the
+// document, then save them as a PDF or print them. Opened from the DTR
+// tab's "Download / Print" button.
 export default function DtrExportModal({ visible, onClose }: Props) {
   const now = new Date();
   // The app draws edge-to-edge, so this full-screen modal sits under the
@@ -54,6 +75,7 @@ export default function DtrExportModal({ visible, onClose }: Props) {
   const insets = useSafeAreaInsets();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
+  const [isPickerOpen, setIsPickerOpen] = useState(false);
   const [dtr, setDtr] = useState<MonthlyDtr | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -87,12 +109,24 @@ export default function DtrExportModal({ visible, onClose }: Props) {
     load();
   }, [visible, load]);
 
+  useEffect(() => {
+    if (!visible) setIsPickerOpen(false);
+  }, [visible]);
+
   const isFutureMonth = (y: number, m: number) =>
     y > now.getFullYear() || (y === now.getFullYear() && m > now.getMonth() + 1);
+  const isCurrentMonth = year === now.getFullYear() && month === now.getMonth() + 1;
 
   function changeYear(next: number) {
     setYear(next);
     if (isFutureMonth(next, month)) setMonth(now.getMonth() + 1);
+  }
+
+  function stepMonth(delta: number) {
+    const target = new Date(year, month - 1 + delta, 1);
+    if (isFutureMonth(target.getFullYear(), target.getMonth() + 1)) return;
+    setYear(target.getFullYear());
+    setMonth(target.getMonth() + 1);
   }
 
   async function handleDownload() {
@@ -104,10 +138,8 @@ export default function DtrExportModal({ visible, onClose }: Props) {
       setSaved(result);
       setNotice({
         tone: "success",
-        title: "DTR Downloaded",
-        message: result.savedTo
-          ? `Saved to ${result.savedTo} as ${result.fileName}.`
-          : `${result.fileName} is ready.`,
+        title: result.savedTo ? `Saved to ${result.savedTo}` : "PDF Ready",
+        message: result.fileName,
       });
     } catch (error) {
       if (!isCancel(error)) {
@@ -162,145 +194,125 @@ export default function DtrExportModal({ visible, onClose }: Props) {
     }
   }
 
-  const canExport = Boolean(dtr) && !isLoading && busy === null;
+  const hasRows = Boolean(dtr?.rows.length);
+  // An empty month would only print a blank sheet.
+  const canExport = hasRows && !isLoading && busy === null;
+  const summary = dtr ? statusCounts(dtr) : { tiles: [], extras: [] };
+  const employeeMeta = dtr
+    ? [dtr.employee.employeeNo, dtr.employee.department, dtr.employee.position].filter(Boolean).join(" · ")
+    : "";
+  const footerHint = isLoading || loadError || !dtr
+    ? null
+    : hasRows
+      ? `Saves as ${dtrFileName(dtr)}`
+      : "Nothing to export for this month.";
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={[styles.screen, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
+      <View style={[styles.screen, { paddingTop: insets.top }]}>
         <View style={styles.headerRow}>
-          <Pressable onPress={onClose} style={styles.backButton} hitSlop={10}>
+          <Pressable onPress={onClose} style={styles.backButton} hitSlop={10} accessibilityLabel="Back">
             <Ionicons name="chevron-back" size={22} color="#062B59" />
           </Pressable>
-          <Text style={styles.headerTitle}>My DTR</Text>
+          <View style={styles.headerText}>
+            <Text style={styles.headerTitle}>My DTR</Text>
+            <Text style={styles.headerSubtitle}>Download or print your monthly record</Text>
+          </View>
           <View style={styles.headerSpacer} />
         </View>
 
-        {/* Picker and actions stay put; only the records below scroll. */}
-        <View style={[styles.card, styles.pickerCard]}>
-          <View style={styles.yearRow}>
-            <Text style={styles.sectionLabel}>Select Month & Year</Text>
-            <View style={styles.yearStepper}>
-              <Pressable style={styles.yearButton} onPress={() => changeYear(year - 1)} hitSlop={8}>
-                <Ionicons name="chevron-back" size={16} color="#062B59" />
-              </Pressable>
-              <Text style={styles.yearText}>{year}</Text>
-              <Pressable
-                style={[styles.yearButton, year >= now.getFullYear() && styles.disabled]}
-                disabled={year >= now.getFullYear()}
-                onPress={() => changeYear(year + 1)}
-                hitSlop={8}
-              >
-                <Ionicons name="chevron-forward" size={16} color="#062B59" />
-              </Pressable>
-            </View>
-          </View>
-
-          <View style={styles.monthGrid}>
-            {MONTH_NAMES.map((name, index) => {
-              const value = index + 1;
-              const isActive = value === month;
-              const isDisabled = isFutureMonth(year, value);
-              return (
-                <Pressable
-                  key={name}
-                  style={[styles.monthChip, isActive && styles.monthChipActive, isDisabled && styles.monthChipDisabled]}
-                  disabled={isDisabled}
-                  onPress={() => setMonth(value)}
-                >
-                  <Text
-                    style={[
-                      styles.monthChipText,
-                      isActive && styles.monthChipTextActive,
-                      isDisabled && styles.monthChipTextDisabled,
-                    ]}
-                  >
-                    {name.slice(0, 3)}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
-          <View style={styles.actionRow}>
+        {/* Period — steps a month at a time; tapping the label opens the
+            full month/year grid for jumping further back. */}
+        <View style={[styles.card, styles.periodCard]}>
+          <View style={styles.periodRow}>
             <Pressable
-              style={[styles.primaryButton, !canExport && styles.disabled]}
-              disabled={!canExport}
-              onPress={handleDownload}
+              style={({ pressed }) => [styles.stepButton, pressed && styles.pressed]}
+              onPress={() => stepMonth(-1)}
+              hitSlop={6}
+              accessibilityLabel="Previous month"
             >
-              {busy === "download" ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
-              ) : (
-                <Ionicons name="download-outline" size={17} color="#FFFFFF" />
-              )}
-              <Text style={styles.primaryButtonText}>Download PDF</Text>
+              <Ionicons name="chevron-back" size={18} color="#062B59" />
             </Pressable>
             <Pressable
-              style={[styles.secondaryButton, !canExport && styles.disabled]}
-              disabled={!canExport}
-              onPress={handlePrint}
+              style={({ pressed }) => [styles.periodLabel, pressed && styles.pressed]}
+              onPress={() => setIsPickerOpen((open) => !open)}
+              accessibilityRole="button"
+              accessibilityLabel="Choose month and year"
             >
-              {busy === "print" ? (
-                <ActivityIndicator color="#062B59" size="small" />
-              ) : (
-                <Ionicons name="print-outline" size={17} color="#062B59" />
-              )}
-              <Text style={styles.secondaryButtonText}>Print DTR</Text>
-            </Pressable>
-          </View>
-
-          {notice && (
-            <View style={[styles.notice, notice.tone === "error" ? styles.noticeError : styles.noticeSuccess]}>
-              <Ionicons
-                name={notice.tone === "error" ? "warning" : "checkmark-circle"}
-                size={18}
-                color={notice.tone === "error" ? "#DC2626" : "#17A34A"}
-              />
-              <View style={styles.noticeBody}>
-                <Text style={styles.noticeTitle}>{notice.title}</Text>
-                <Text style={styles.noticeText}>{notice.message}</Text>
-                <View style={styles.noticeActions}>
-                  {notice.tone === "success" && saved && (
-                    <Pressable style={styles.noticeAction} onPress={handleShare} disabled={busy !== null}>
-                      <Ionicons name="open-outline" size={14} color="#1680D8" />
-                      <Text style={styles.noticeActionText}>Open / Share PDF</Text>
-                    </Pressable>
-                  )}
-                  {notice.retry && (
-                    <Pressable style={styles.noticeAction} onPress={notice.retry} disabled={busy !== null}>
-                      <Ionicons name="refresh" size={14} color="#1680D8" />
-                      <Text style={styles.noticeActionText}>Try Again</Text>
-                    </Pressable>
-                  )}
-                </View>
+              <Text style={styles.periodCaption}>Period</Text>
+              <View style={styles.periodValueRow}>
+                <Text style={styles.periodValue}>
+                  {MONTH_NAMES[month - 1]} {year}
+                </Text>
+                <Ionicons name={isPickerOpen ? "chevron-up" : "chevron-down"} size={16} color="#1680D8" />
               </View>
-              <Pressable onPress={() => setNotice(null)} hitSlop={8}>
-                <Ionicons name="close" size={16} color="#94A3B8" />
-              </Pressable>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.stepButton, isCurrentMonth && styles.disabled, pressed && styles.pressed]}
+              disabled={isCurrentMonth}
+              onPress={() => stepMonth(1)}
+              hitSlop={6}
+              accessibilityLabel="Next month"
+            >
+              <Ionicons name="chevron-forward" size={18} color="#062B59" />
+            </Pressable>
+          </View>
+
+          {isPickerOpen && (
+            <View style={styles.pickerPanel}>
+              <View style={styles.yearRow}>
+                <Pressable style={styles.yearButton} onPress={() => changeYear(year - 1)} hitSlop={8} accessibilityLabel="Previous year">
+                  <Ionicons name="chevron-back" size={16} color="#062B59" />
+                </Pressable>
+                <Text style={styles.yearText}>{year}</Text>
+                <Pressable
+                  style={[styles.yearButton, year >= now.getFullYear() && styles.disabled]}
+                  disabled={year >= now.getFullYear()}
+                  onPress={() => changeYear(year + 1)}
+                  hitSlop={8}
+                  accessibilityLabel="Next year"
+                >
+                  <Ionicons name="chevron-forward" size={16} color="#062B59" />
+                </Pressable>
+              </View>
+
+              <View style={styles.monthGrid}>
+                {MONTH_NAMES.map((name, index) => {
+                  const value = index + 1;
+                  const isActive = value === month;
+                  const isDisabled = isFutureMonth(year, value);
+                  return (
+                    <Pressable
+                      key={name}
+                      style={[styles.monthChip, isActive && styles.monthChipActive, isDisabled && styles.monthChipDisabled]}
+                      disabled={isDisabled}
+                      onPress={() => {
+                        setMonth(value);
+                        setIsPickerOpen(false);
+                      }}
+                    >
+                      <Text
+                        style={[
+                          styles.monthChipText,
+                          isActive && styles.monthChipTextActive,
+                          isDisabled && styles.monthChipTextDisabled,
+                        ]}
+                      >
+                        {name.slice(0, 3)}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
             </View>
           )}
         </View>
 
-        <View style={[styles.card, styles.listCard]}>
-          <View style={styles.previewHeader}>
-            <View style={styles.previewTitleGroup}>
-              <Text style={styles.previewTitle}>
-                {MONTH_NAMES[month - 1]} {year}
-              </Text>
-              {!!dtr?.rows.length && (
-                <Text style={styles.previewSummary} numberOfLines={1}>
-                  {statusSummary(dtr)}
-                </Text>
-              )}
-            </View>
-            {dtr && (
-              <View style={styles.totalBlock}>
-                <Text style={styles.totalLabel}>Total Hours</Text>
-                <Text style={styles.totalValue}>{dtrTotalHoursLabel(dtr)}</Text>
-              </View>
-            )}
-          </View>
-
-          <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
+        {/* Preview — laid out like the document itself: who it's for, the
+            month's totals, then each day. Remounted per month so it opens
+            scrolled to the top. */}
+        <View style={[styles.card, styles.docCard]}>
+          <ScrollView key={`${year}-${month}`} contentContainerStyle={styles.docContent}>
             {isLoading ? (
               <View style={styles.centered}>
                 <ActivityIndicator color="#1680D8" />
@@ -314,41 +326,190 @@ export default function DtrExportModal({ visible, onClose }: Props) {
                   <Text style={styles.retryText}>Try Again</Text>
                 </Pressable>
               </View>
-            ) : dtr && dtr.rows.length === 0 ? (
-              <View style={styles.centered}>
-                <Ionicons name="document-text-outline" size={32} color="#CBD5E1" />
-                <Text style={styles.mutedText}>No attendance records for this month.</Text>
-              </View>
-            ) : (
-              dtr?.rows.map((row) => {
-                const date = new Date(row.attendanceDate);
-                const remarks = dtrRemarks(row);
-                // Absent / leave days have no punches — no empty "In — Out —".
-                const hasTimes = Boolean(row.timeInAt || row.timeOutAt);
-                const color = statusColor(row.status);
-                return (
-                  <View key={row.id} style={styles.row}>
-                    <View style={styles.dateBlock}>
-                      <Text style={styles.dateDay}>{date.toLocaleDateString("en-US", { weekday: "short" })}</Text>
-                      <Text style={styles.dateNum}>{date.getDate()}</Text>
-                    </View>
-                    <View style={styles.rowBody}>
-                      <View style={styles.rowTop}>
-                        <Text style={[styles.rowStatus, { color }]}>{dtrStatusLabel(row.status)}</Text>
-                        {hasTimes && <Text style={styles.rowHours}>{dtrHoursLabel(row)}</Text>}
-                      </View>
-                      {hasTimes && (
-                        <Text style={styles.rowTimes}>
-                          {formatDtrTime(row.timeInAt)}  →  {formatDtrTime(row.timeOutAt)}
-                        </Text>
-                      )}
-                      {!!remarks && <Text style={styles.rowRemarks}>{remarks}</Text>}
+            ) : dtr ? (
+              <>
+                <View style={styles.docHead}>
+                  <View style={styles.docTitleRow}>
+                    <Text style={styles.docTitle}>DAILY TIME RECORD</Text>
+                    <View style={styles.previewBadge}>
+                      <Ionicons name="eye-outline" size={11} color="#1680D8" />
+                      <Text style={styles.previewBadgeText}>Preview</Text>
                     </View>
                   </View>
-                );
-              })
-            )}
+                  <Text style={styles.empName} numberOfLines={1}>
+                    {dtr.employee.name}
+                  </Text>
+                  {!!employeeMeta && (
+                    <Text style={styles.empMeta} numberOfLines={2}>
+                      {employeeMeta}
+                    </Text>
+                  )}
+                </View>
+
+                {hasRows ? (
+                  <>
+                    <View style={styles.stats}>
+                      <View style={styles.totalBar}>
+                        <View style={styles.totalBarIcon}>
+                          <Ionicons name="time-outline" size={16} color="#FFFFFF" />
+                        </View>
+                        <Text style={styles.totalBarLabel}>Total Hours Worked</Text>
+                        <Text style={styles.totalBarValue}>{dtrTotalHoursLabel(dtr)}</Text>
+                      </View>
+                      <View style={styles.tileRow}>
+                        {summary.tiles.map(({ status, label, count }) => {
+                          const tone = statusTone(status);
+                          const isZero = count === 0;
+                          return (
+                            <View key={status} style={[styles.statTile, { backgroundColor: isZero ? "#F8FAFC" : tone.bg }]}>
+                              <Text style={[styles.statTileCount, { color: isZero ? "#CBD5E1" : tone.color }]}>{count}</Text>
+                              <Text style={[styles.statTileLabel, isZero && styles.statTileLabelZero]} numberOfLines={1}>
+                                {label}
+                              </Text>
+                            </View>
+                          );
+                        })}
+                      </View>
+                      {summary.extras.length > 0 && (
+                        <View style={styles.extraRow}>
+                          {summary.extras.map(({ status, label, count }) => {
+                            const tone = statusTone(status);
+                            return (
+                              <View key={label} style={styles.extraItem}>
+                                <View style={[styles.statDot, { backgroundColor: tone.color }]} />
+                                <Text style={styles.extraText}>
+                                  <Text style={[styles.extraCount, { color: tone.color }]}>{count}</Text> {label}
+                                </Text>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      )}
+                    </View>
+
+                    <Text style={styles.sectionLabel}>
+                      Records · {dtr.rows.length}
+                    </Text>
+                    {dtr.rows.map((row) => {
+                      const date = new Date(row.attendanceDate);
+                      const remarks = dtrRemarks(row);
+                      // Absent / leave days have no punches — no empty "In — Out —".
+                      const hasTimes = Boolean(row.timeInAt || row.timeOutAt);
+                      const tone = statusTone(row.status);
+                      return (
+                        <View key={row.id} style={styles.row}>
+                          <View style={styles.dateBlock}>
+                            <Text style={styles.dateDay}>{date.toLocaleDateString("en-US", { weekday: "short" })}</Text>
+                            <Text style={styles.dateNum}>{date.getDate()}</Text>
+                          </View>
+                          <View style={styles.rowBody}>
+                            <View style={styles.rowTop}>
+                              <View style={[styles.statusPill, { backgroundColor: tone.bg }]}>
+                                <Text style={[styles.statusPillText, { color: tone.color }]}>{dtrStatusLabel(row.status)}</Text>
+                              </View>
+                              {hasTimes && <Text style={styles.rowHours}>{dtrHoursLabel(row)}</Text>}
+                            </View>
+                            {hasTimes && (
+                              <View style={styles.rowTimes}>
+                                <Text style={styles.rowTimeText}>{formatDtrTime(row.timeInAt)}</Text>
+                                <Ionicons name="arrow-forward" size={11} color="#94A3B8" />
+                                <Text style={styles.rowTimeText}>{formatDtrTime(row.timeOutAt)}</Text>
+                              </View>
+                            )}
+                            {!!remarks && <Text style={styles.rowRemarks}>{remarks}</Text>}
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </>
+                ) : (
+                  <View style={styles.centered}>
+                    <Ionicons name="document-text-outline" size={32} color="#CBD5E1" />
+                    <Text style={styles.mutedText}>
+                      No attendance records for {MONTH_NAMES[month - 1]} {year}.
+                    </Text>
+                  </View>
+                )}
+              </>
+            ) : null}
           </ScrollView>
+        </View>
+
+        {/* Actions sit under the preview, in thumb reach, with the result of
+            the last one right above them. */}
+        <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+          {notice && (
+            <View style={[styles.notice, notice.tone === "error" ? styles.noticeError : styles.noticeSuccess]}>
+              <Ionicons
+                name={notice.tone === "error" ? "warning" : "checkmark-circle"}
+                size={18}
+                color={notice.tone === "error" ? "#DC2626" : "#17A34A"}
+              />
+              <View style={styles.noticeBody}>
+                <Text style={styles.noticeTitle}>{notice.title}</Text>
+                <Text style={styles.noticeText} numberOfLines={3}>
+                  {notice.message}
+                </Text>
+                <View style={styles.noticeActions}>
+                  {notice.tone === "success" && saved && (
+                    <Pressable style={styles.noticeAction} onPress={handleShare} disabled={busy !== null}>
+                      {busy === "share" ? (
+                        <ActivityIndicator color="#1680D8" size="small" />
+                      ) : (
+                        <Ionicons name="open-outline" size={14} color="#1680D8" />
+                      )}
+                      <Text style={styles.noticeActionText}>Open / Share PDF</Text>
+                    </Pressable>
+                  )}
+                  {notice.retry && (
+                    <Pressable style={styles.noticeAction} onPress={notice.retry} disabled={busy !== null}>
+                      <Ionicons name="refresh" size={14} color="#1680D8" />
+                      <Text style={styles.noticeActionText}>Try Again</Text>
+                    </Pressable>
+                  )}
+                </View>
+              </View>
+              <Pressable onPress={() => setNotice(null)} hitSlop={8} accessibilityLabel="Dismiss">
+                <Ionicons name="close" size={16} color="#94A3B8" />
+              </Pressable>
+            </View>
+          )}
+
+          <View style={styles.actionRow}>
+            <Pressable
+              style={({ pressed }) => [styles.secondaryButton, !canExport && styles.disabled, pressed && styles.pressed]}
+              disabled={!canExport}
+              onPress={handlePrint}
+            >
+              {busy === "print" ? (
+                <ActivityIndicator color="#062B59" size="small" />
+              ) : (
+                <Ionicons name="print-outline" size={18} color="#062B59" />
+              )}
+              <Text style={styles.secondaryButtonText}>{busy === "print" ? "Opening..." : "Print"}</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.primaryButton, !canExport && styles.disabled, pressed && styles.pressed]}
+              disabled={!canExport}
+              onPress={handleDownload}
+            >
+              {busy === "download" ? (
+                <ActivityIndicator color="#FFFFFF" size="small" />
+              ) : (
+                <Ionicons name="download-outline" size={18} color="#FFFFFF" />
+              )}
+              <Text style={styles.primaryButtonText}>{busy === "download" ? "Saving PDF..." : "Download PDF"}</Text>
+            </Pressable>
+          </View>
+
+          {!!footerHint && (
+            <View style={styles.footerHintRow}>
+              <Ionicons name={hasRows ? "document-outline" : "information-circle-outline"} size={12} color="#94A3B8" />
+              <Text style={styles.footerHint} numberOfLines={1}>
+                {footerHint}
+              </Text>
+            </View>
+          )}
         </View>
       </View>
     </Modal>
@@ -366,7 +527,9 @@ const styles = StyleSheet.create({
   },
   backButton: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center", backgroundColor: "#E8EEF5" },
   headerSpacer: { width: 36 },
+  headerText: { flex: 1, alignItems: "center" },
   headerTitle: { fontSize: 17, fontWeight: "800", color: "#062B59" },
+  headerSubtitle: { fontSize: 11.5, fontWeight: "600", color: "#64748B", marginTop: 1 },
   card: {
     backgroundColor: "#fff",
     borderRadius: 18,
@@ -379,82 +542,87 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 6,
   },
-  pickerCard: { padding: 14, marginBottom: 12 },
-  listCard: { flex: 1, marginBottom: 12, overflow: "hidden" },
-  yearRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
-  sectionLabel: { color: "#062B59", fontSize: 14, fontWeight: "800" },
-  yearStepper: { flexDirection: "row", alignItems: "center", gap: 10 },
+  pressed: { opacity: 0.75 },
+  disabled: { opacity: 0.45 },
+
+  periodCard: { padding: 10, marginBottom: 12 },
+  periodRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  stepButton: { width: 38, height: 38, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: "#F1F5F9" },
+  periodLabel: { flex: 1, alignItems: "center", paddingVertical: 2, borderRadius: 10 },
+  periodCaption: { color: "#94A3B8", fontSize: 10.5, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.6 },
+  periodValueRow: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 1 },
+  periodValue: { color: "#062B59", fontSize: 16, fontWeight: "900" },
+  pickerPanel: { marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderColor: "#edf3f8" },
+  yearRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 10 },
   yearButton: { width: 30, height: 30, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: "#F1F5F9" },
-  yearText: { color: "#062B59", fontSize: 15, fontWeight: "800", minWidth: 40, textAlign: "center" },
-  // Six months per row, two rows.
-  monthGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 12 },
+  yearText: { color: "#062B59", fontSize: 15, fontWeight: "800", minWidth: 44, textAlign: "center" },
+  // Four months per row, three rows.
+  monthGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   monthChip: {
-    width: "15%",
+    width: "22%",
     flexGrow: 1,
-    paddingVertical: 8,
+    paddingVertical: 9,
     borderRadius: 9,
     alignItems: "center",
     backgroundColor: "#F1F5F9",
   },
   monthChipActive: { backgroundColor: "#062B59" },
   monthChipDisabled: { backgroundColor: "#F8FAFC" },
-  monthChipText: { color: "#475569", fontSize: 12.5, fontWeight: "700" },
+  monthChipText: { color: "#475569", fontSize: 13, fontWeight: "700" },
   monthChipTextActive: { color: "#FFFFFF" },
   monthChipTextDisabled: { color: "#CBD5E1" },
-  disabled: { opacity: 0.45 },
-  actionRow: { flexDirection: "row", gap: 10 },
-  primaryButton: {
-    flex: 1,
-    height: 42,
-    borderRadius: 11,
-    backgroundColor: "#1680D8",
+
+  docCard: { flex: 1, marginBottom: 12, overflow: "hidden" },
+  docContent: { paddingHorizontal: 16, paddingBottom: 12, flexGrow: 1 },
+  docHead: { paddingTop: 14, paddingBottom: 12, borderBottomWidth: 1, borderColor: "#edf3f8" },
+  docTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 6 },
+  docTitle: { color: "#1A3A5C", fontSize: 11, fontWeight: "800", letterSpacing: 1.2 },
+  previewBadge: {
     flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999,
+    backgroundColor: "#E8F2FC",
+  },
+  previewBadgeText: { color: "#1680D8", fontSize: 10.5, fontWeight: "800" },
+  empName: { color: "#062B59", fontSize: 17, fontWeight: "900" },
+  empMeta: { color: "#64748B", fontSize: 12, fontWeight: "600", marginTop: 2 },
+
+  stats: { gap: 8, paddingVertical: 12 },
+  totalBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: "#062B59",
+  },
+  totalBarIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
+    backgroundColor: "rgba(255,255,255,0.14)",
   },
-  primaryButtonText: { color: "#FFFFFF", fontSize: 13.5, fontWeight: "700" },
-  secondaryButton: {
-    flex: 1,
-    height: 42,
-    borderRadius: 11,
-    borderWidth: 1,
-    borderColor: "#CBD5E1",
-    backgroundColor: "#FFFFFF",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-  },
-  secondaryButtonText: { color: "#062B59", fontSize: 13.5, fontWeight: "700" },
-  notice: { flexDirection: "row", alignItems: "flex-start", gap: 10, marginTop: 12, padding: 12, borderRadius: 12 },
-  noticeSuccess: { backgroundColor: "#ECFDF3" },
-  noticeError: { backgroundColor: "#FEF2F2" },
-  noticeBody: { flex: 1 },
-  noticeTitle: { color: "#0F172A", fontSize: 13, fontWeight: "800" },
-  noticeText: { color: "#334155", fontSize: 12.5, marginTop: 2, lineHeight: 17 },
-  noticeActions: { flexDirection: "row", gap: 16 },
-  noticeAction: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 8 },
-  noticeActionText: { color: "#1680D8", fontSize: 12.5, fontWeight: "700" },
-  previewHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderColor: "#edf3f8",
-  },
-  previewTitleGroup: { flex: 1, minWidth: 0 },
-  previewTitle: { color: "#062B59", fontSize: 16, fontWeight: "900" },
-  previewSummary: { color: "#64748B", fontSize: 12, fontWeight: "600", marginTop: 2 },
-  totalBlock: { alignItems: "flex-end" },
-  totalLabel: { color: "#94A3B8", fontSize: 11, fontWeight: "600" },
-  totalValue: { color: "#062B59", fontSize: 15, fontWeight: "800", fontVariant: ["tabular-nums"] },
-  list: { flex: 1 },
-  listContent: { paddingHorizontal: 16, paddingBottom: 8, flexGrow: 1 },
-  centered: { alignItems: "center", gap: 8, paddingVertical: 28 },
+  totalBarLabel: { flex: 1, color: "#BFD3EA", fontSize: 12.5, fontWeight: "700" },
+  totalBarValue: { color: "#FFFFFF", fontSize: 18, fontWeight: "900", fontVariant: ["tabular-nums"] },
+  tileRow: { flexDirection: "row", gap: 6 },
+  statTile: { flex: 1, alignItems: "center", paddingVertical: 9, paddingHorizontal: 2, borderRadius: 11 },
+  statTileCount: { fontSize: 18, fontWeight: "900", fontVariant: ["tabular-nums"] },
+  statTileLabel: { color: "#475569", fontSize: 11, fontWeight: "700", marginTop: 1 },
+  statTileLabelZero: { color: "#CBD5E1" },
+  extraRow: { flexDirection: "row", flexWrap: "wrap", gap: 12, paddingHorizontal: 2 },
+  extraItem: { flexDirection: "row", alignItems: "center", gap: 5 },
+  statDot: { width: 6, height: 6, borderRadius: 3 },
+  extraText: { color: "#475569", fontSize: 12, fontWeight: "600" },
+  extraCount: { fontWeight: "900" },
+
+  sectionLabel: { color: "#94A3B8", fontSize: 10.5, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 2 },
+  centered: { flex: 1, alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 28 },
   mutedText: { color: "#94A3B8", fontSize: 13, fontWeight: "600", textAlign: "center" },
   errorText: { color: "#DC2626" },
   retryButton: { marginTop: 4, paddingHorizontal: 18, paddingVertical: 9, borderRadius: 10, backgroundColor: "#062B59" },
@@ -472,8 +640,54 @@ const styles = StyleSheet.create({
   dateNum: { color: "#062B59", fontSize: 16, fontWeight: "900" },
   rowBody: { flex: 1, minWidth: 0, justifyContent: "center", minHeight: 40 },
   rowTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  rowStatus: { fontSize: 13.5, fontWeight: "800" },
+  statusPill: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
+  statusPillText: { fontSize: 12, fontWeight: "800" },
   rowHours: { color: "#062B59", fontSize: 13, fontWeight: "800", fontVariant: ["tabular-nums"] },
-  rowTimes: { color: "#334155", fontSize: 12.5, fontWeight: "600", marginTop: 2 },
-  rowRemarks: { color: "#64748B", fontSize: 12, marginTop: 2 },
+  rowTimes: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
+  rowTimeText: { color: "#334155", fontSize: 12.5, fontWeight: "600", fontVariant: ["tabular-nums"] },
+  rowRemarks: { color: "#64748B", fontSize: 12, marginTop: 3 },
+
+  footer: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    backgroundColor: "#FFFFFF",
+    borderTopWidth: 1,
+    borderColor: "#dbe5ef",
+  },
+  notice: { flexDirection: "row", alignItems: "flex-start", gap: 10, marginBottom: 10, padding: 12, borderRadius: 12 },
+  noticeSuccess: { backgroundColor: "#ECFDF3" },
+  noticeError: { backgroundColor: "#FEF2F2" },
+  noticeBody: { flex: 1 },
+  noticeTitle: { color: "#0F172A", fontSize: 13, fontWeight: "800" },
+  noticeText: { color: "#334155", fontSize: 12.5, marginTop: 2, lineHeight: 17 },
+  noticeActions: { flexDirection: "row", gap: 16 },
+  noticeAction: { flexDirection: "row", alignItems: "center", gap: 5, marginTop: 8 },
+  noticeActionText: { color: "#1680D8", fontSize: 12.5, fontWeight: "700" },
+  actionRow: { flexDirection: "row", gap: 10 },
+  primaryButton: {
+    flex: 1.6,
+    height: 48,
+    borderRadius: 13,
+    backgroundColor: "#1680D8",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+  primaryButtonText: { color: "#FFFFFF", fontSize: 14.5, fontWeight: "800" },
+  secondaryButton: {
+    flex: 1,
+    height: 48,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: "#CBD5E1",
+    backgroundColor: "#FFFFFF",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+  secondaryButtonText: { color: "#062B59", fontSize: 14.5, fontWeight: "800" },
+  footerHintRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, marginTop: 8 },
+  footerHint: { flexShrink: 1, color: "#94A3B8", fontSize: 11.5, fontWeight: "600" },
 });
