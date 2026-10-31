@@ -6,9 +6,11 @@ import {
   Briefcase,
   CalendarDays,
   ChevronsUpDown,
+  Download,
   Eye,
   FileUp,
   Info,
+  Loader2,
   Pencil,
   Plus,
   RotateCcw,
@@ -24,7 +26,7 @@ import { ConfirmDialog } from "../../components/ui/ConfirmDialog";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { FormSelectDropdown } from "../../components/ui/FormSelectDropdown";
 import { NotificationModal, type NotificationConfig } from "../../components/ui/NotificationModal";
-import { apiRequest } from "../../lib/api";
+import { apiRequest, SessionExpiredError } from "../../lib/api";
 import { CACHE_KEYS, cacheGet, revalidateCached, useCachedData } from "../../lib/dataCache";
 import { useActiveDepartments } from "../../lib/departments";
 import {
@@ -36,6 +38,7 @@ import { PermissionCode, permissions } from "../../types/rbac";
 import { useEmployeeTypes } from "../../lib/employeeTypes";
 import { useAvailablePositions, usePositions } from "../../lib/positions";
 import type { EmploymentStatus } from "../../types/employment";
+import { downloadImportTemplate, type ImportReference } from "./employeeImport";
 import { ImportEmployeesModal } from "./ImportEmployeesModal";
 import "./EmployeesPage.css";
 
@@ -869,6 +872,7 @@ function AddEmployeeModal({
   const roleUsersCache = useRoleUsers(canAssignRoles);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
+  const [isDownloadingTemplate, setIsDownloadingTemplate] = useState(false);
   // Set when the employee was created but a leave grant failed — shown before
   // moving on so it can't be missed. (The login email is sent in the
   // background; a final failure arrives as a bell notification instead.)
@@ -995,6 +999,21 @@ function AddEmployeeModal({
       canGrantLeaveType(type, selectedEmploymentStatus) &&
       !(type.isTransferable && (form.civilStatus !== "MARRIED" || form.spouseEmployment !== "ULPI")),
   );
+
+  // Fetched on click so the template's reference sheets (departments,
+  // positions, supervisors) are current, not from when the modal opened.
+  const handleDownloadTemplate = async () => {
+    setError("");
+    setIsDownloadingTemplate(true);
+    try {
+      await downloadImportTemplate(await apiRequest<ImportReference>("/employees/import/reference"));
+    } catch (err) {
+      if (err instanceof SessionExpiredError) return;
+      setError("The template could not be downloaded. Please try again.");
+    } finally {
+      setIsDownloadingTemplate(false);
+    }
+  };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -1305,6 +1324,15 @@ function AddEmployeeModal({
             <div className="employee-import-group">
               <button type="button" className="employee-import-button" onClick={onImport} disabled={isSaving}>
                 <FileUp size={16} /> Import Employees
+              </button>
+              <button
+                type="button"
+                className="employee-import-button"
+                onClick={handleDownloadTemplate}
+                disabled={isSaving || isDownloadingTemplate}
+              >
+                {isDownloadingTemplate ? <Loader2 size={16} className="import-spin" /> : <Download size={16} />}
+                Download Template
               </button>
             </div>
           )}

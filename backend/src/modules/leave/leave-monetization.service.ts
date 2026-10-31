@@ -95,6 +95,27 @@ export class LeaveMonetizationService {
     return { ...base, rows: await this.buildRows(type, resolvedYear, range, departmentId) };
   }
 
+  // Reports → VL Monetization: the same rows as the VL Monetization tab, for
+  // every monetizable type. A type no longer monetizable only keeps the
+  // employees it actually paid, so past payouts stay on the report.
+  async listForReport(year: number, departmentId?: string) {
+    const range = leaveYearRange(year, await getLeaveYearReset(this.prisma));
+    const types = await this.prisma.leaveType.findMany({
+      where: { OR: [{ isActive: true, isMonetizable: true }, { leaveMonetizations: { some: { year } } }] },
+      orderBy: { name: "asc" },
+    });
+
+    const rows = [];
+    for (const type of types) {
+      const paidOnly = !type.isActive || !type.isMonetizable;
+      for (const row of await this.buildRows(type, year, range, departmentId)) {
+        if (paidOnly && row.monetizedDays === null) continue;
+        rows.push({ ...row, year, leaveTypeId: type.id, leaveTypeName: type.name });
+      }
+    }
+    return rows;
+  }
+
   private async buildRows(type: LeaveType, year: number, range: { start: Date; end: Date }, departmentId?: string) {
     const maxDays = Number(type.maxMonetizableDays ?? 0);
     await this.leaveBalancesService.ensureAutoCreditedBalances(year);
@@ -117,6 +138,7 @@ export class LeaveMonetizationService {
           firstName: true,
           middleName: true,
           lastName: true,
+          sex: true,
           employmentStatus: true,
           department: { select: { name: true } },
         },
@@ -153,6 +175,9 @@ export class LeaveMonetizationService {
         employeeId: employee.id,
         employeeNo: employee.employeeNo,
         name: `${employee.firstName} ${employee.lastName}`,
+        firstName: employee.firstName,
+        lastName: employee.lastName,
+        sex: employee.sex,
         department: employee.department?.name ?? null,
         employmentStatus: employee.employmentStatus,
         remainingDays,

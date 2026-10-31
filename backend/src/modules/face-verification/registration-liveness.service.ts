@@ -12,8 +12,8 @@ import { FaceVerificationService } from "./face-verification.service";
 //
 // What this does and doesn't stop:
 //  - A photo or a face on a phone/monitor screen, from the very first step:
-//    a trained anti-spoofing model checks the first frame and the final
-//    photo (see SPOOF_MIN_REAL_SCORE).
+//    a trained anti-spoofing model checks the first frame, the blink frames
+//    and the final photo (see SPOOF_MIN_REAL_SCORE).
 //  - A printed or on-screen still photo: can't blink, and tilting a flat
 //    picture doesn't move the nose relative to the eyes the way a real head
 //    turn does (see headYaw), so the turn steps fail.
@@ -34,8 +34,8 @@ const SESSION_TTL_MS = 3 * 60_000;
 // Register Employee Face.
 const VERIFIED_TTL_MS = 10 * 60_000;
 
-// Same person throughout: descriptor distance from the first frame that
-// has one (the open eyes after a blink). face-api.js's usual "same person" bound is 0.6.
+// Same person from the last head turn to the final photo: descriptor distance
+// between the two. face-api.js's usual "same person" bound is 0.6.
 const SAME_PERSON_MAX_DISTANCE = 0.6;
 // Head turn, in eye-distances (the admin screen asks for 0.2; a little
 // slack for the key frame being taken a moment after the peak).
@@ -191,15 +191,16 @@ export class RegistrationLivenessService {
       return this.fail(session, "The camera image stopped updating. Please check the camera and start again.");
     }
     const base64 = image.includes("base64,") ? image.split("base64,")[1] : image;
-    // No descriptor on the first frame (the admin screen waits on it, so it
-    // has to be quick; the next frames set and check the same-person
-    // reference), on a blink's closed frame (the open frame right after is
-    // checked) or on the final photo (it gets the stored one below), so
-    // those frames skip the slowest model.
-    const analysis = await this.faceService.analyzeRegistrationFrame(
-      Buffer.from(base64, "base64"),
-      kind !== "straight" && kind !== "closed" && kind !== "final",
-    );
+    const buffer = Buffer.from(base64, "base64");
+    // Only the last head turn gets a descriptor in the middle of the session
+    // (the slowest model): it's the same-person reference the final photo is
+    // checked against. The first frame keeps the fuller face search the
+    // anti-spoof model was calibrated on; the final photo has its own pass,
+    // which also computes the descriptor to store.
+    const analysis =
+      kind === "final"
+        ? await this.faceService.analyzeFinalRegistrationFrame(buffer)
+        : await this.faceService.analyzeRegistrationFrame(buffer, kind === "right", kind !== "straight");
 
     if (analysis.faceCount > 1) {
       return this.fail(session, "More than one face was in the camera. Only the employee may be visible.");
@@ -221,16 +222,18 @@ export class RegistrationLivenessService {
     if ((kind === "straight" || kind === "final") && face.realScore < SPOOF_MIN_REAL_SCORE) {
       return this.fail(session, SPOOF_FAILURE);
     }
-    // The stored descriptor is computed exactly the way attendance matching
-    // computes its own (extractDescriptor), never taken from the browser.
-    let finalDescriptor: Float32Array | null = null;
-    if (kind === "final") {
-      finalDescriptor = await this.faceService.extractDescriptor(Buffer.from(base64, "base64"));
-      if (!finalDescriptor) {
-        return this.retryStep(session, kind, "The photo wasn't clear enough.");
-      }
+    // Blink frames too, so a phone playing a blinking video can't be held up
+    // after a real face passed the first frame. A redo rather than an instant
+    // fail, as closed eyes haven't been calibrated like the frames above; a
+    // video keeps failing here until the retries run out.
+    if (kind === "closed" || kind === "open") {
+      this.logger.log(`Anti-spoof real score (${kind}): ${face.realScore.toFixed(3)}`);
+      if (face.realScore < SPOOF_MIN_REAL_SCORE) return this.retryStep(session, kind, SPOOF_FAILURE);
     }
-    const descriptor = finalDescriptor ?? face.descriptor;
+    // The stored descriptor is computed the way attendance matching computes
+    // its own (see analyzeFinalRegistrationFrame), never taken from the browser.
+    const finalDescriptor = kind === "final" ? face.descriptor : null;
+    const descriptor = face.descriptor;
     if (descriptor) {
       if (!session.reference) {
         session.reference = descriptor;

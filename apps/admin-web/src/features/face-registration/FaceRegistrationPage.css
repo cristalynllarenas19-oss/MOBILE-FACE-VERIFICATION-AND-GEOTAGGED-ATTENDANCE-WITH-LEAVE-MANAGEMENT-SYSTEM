@@ -253,19 +253,6 @@
   100% { transform: translate(-50%, -50%) scale(1); opacity: 0; }
 }
 
-/* The final "Photo captured" check stays visible instead of fading. */
-.face-oval-check.is-final {
-  width: 68px;
-  height: 68px;
-  animation: face-oval-check-stay 0.5s ease forwards;
-}
-
-@keyframes face-oval-check-stay {
-  0% { transform: translate(-50%, -50%) scale(0.4); opacity: 0; }
-  60% { transform: translate(-50%, -50%) scale(1.12); opacity: 1; }
-  100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
-}
-
 .capture-flash {
   position: absolute;
   inset: 0;

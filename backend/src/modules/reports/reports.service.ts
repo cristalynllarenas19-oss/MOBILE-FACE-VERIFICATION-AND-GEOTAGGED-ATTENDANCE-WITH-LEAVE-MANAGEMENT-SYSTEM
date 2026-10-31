@@ -4,6 +4,7 @@ import { dedupeToLatestVisitPerEmployeeDay } from "../attendance/attendance-dedu
 import { computeAbsenceCutoff, resolveBreakKind } from "../attendance/attendance-shift.util";
 import { getApprovedLeaveByEmployee } from "../../common/utils/on-leave.util";
 import { isDayOff } from "../../common/utils/schedule.util";
+import { LeaveMonetizationService } from "../leave/leave-monetization.service";
 import { getLeaveYearReset, leaveYearOf, leaveYearRange } from "../leave/leave-year.util";
 
 type ReportFilters = {
@@ -32,7 +33,10 @@ function parseLocalDate(value: string, endOfDay = false): Date {
 
 @Injectable()
 export class ReportsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly leaveMonetizationService: LeaveMonetizationService,
+  ) {}
 
   async summary(filters: ReportFilters = {}) {
     const today = new Date();
@@ -40,6 +44,7 @@ export class ReportsService {
     const endDate = filters.to
       ? parseLocalDate(filters.to, true)
       : new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
+    const isSingleDayReport = monthStart.toDateString() === endDate.toDateString();
     const employeeWhere: { departmentId?: string; department?: { name: string } } = {};
     if (filters.departmentId) {
       employeeWhere.departmentId = filters.departmentId;
@@ -71,7 +76,13 @@ export class ReportsService {
         orderBy: { attendanceDate: "desc" },
       }),
       this.prisma.leaveRequest.findMany({
-        where: { startDate: { gte: monthStart, lte: endDate }, ...departmentWhere },
+        // Any leave overlapping the range, including one that began before it.
+        // A single-day report also carries the leave history up to that day.
+        where: {
+          startDate: { lte: endDate },
+          ...(isSingleDayReport ? {} : { endDate: { gte: monthStart } }),
+          ...departmentWhere,
+        },
         omit: { attachmentData: true },
         include: { employee: { ...employeeWithoutPhoto, include: { department: true } }, leaveType: true },
         orderBy: { startDate: "desc" },
@@ -252,22 +263,77 @@ export class ReportsService {
       orderBy: { filingDate: "desc" },
     });
 
-    // VL paid out for the same leave year as the balances above — a
-    // snapshot like Remaining Leave, not bounded by the from/to range.
-    const vlMonetizations = (
-      await this.prisma.leaveMonetization.findMany({
-        where: { year: balanceYear, ...departmentWhere },
-        select: {
-          id: true,
-          year: true,
-          days: true,
-          monetizedAt: true,
-          leaveType: { select: { name: true } },
-          employee: { select: { firstName: true, lastName: true, sex: true, department: { select: { name: true } } } },
+    // Same rows as Leave → VL Monetization (paid and still due), for the same
+    // leave year as the balances above — a snapshot like Remaining Leave, not
+    // bounded by the from/to range.
+    const vlMonetizations = (await this.leaveMonetizationService.listForReport(balanceYear, filters.departmentId))
+      .filter((row) => !filters.department || filters.department === "ALL" || row.department === filters.department)
+      .map((row) => ({
+        id: `${row.employeeId}:${row.leaveTypeId}`,
+        year: row.year,
+        remainingDays: row.remainingDays,
+        pendingDays: row.pendingDays,
+        toMonetizeDays: row.toMonetizeDays,
+        monetizedDays: row.monetizedDays,
+        monetizedAt: row.monetizedAt,
+        leaveType: { name: row.leaveTypeName },
+        employee: {
+          firstName: row.firstName,
+          lastName: row.lastName,
+          sex: row.sex,
+          department: row.department ? { name: row.department } : null,
         },
-        orderBy: { monetizedAt: "desc" },
-      })
-    ).map((row) => ({ ...row, days: Number(row.days) }));
+      }));
+
+    // Permanent Seasonal accrual, one summary row per employee like Leave →
+    // Accrual History. Follows the same dates as the Leave report: a single-day
+    // report carries the history up to that day, a range the periods touching it.
+    const accrualRecords = await this.prisma.leaveAccrualRecord.findMany({
+      where: {
+        employee: { ...employeeWhere, employmentStatus: "PERMANENT_SEASONAL" },
+        cycleStart: { lte: endDate },
+        ...(isSingleDayReport ? {} : { cycleEnd: { gte: monthStart } }),
+      },
+      select: {
+        employeeId: true,
+        cycleStart: true,
+        cycleEnd: true,
+        outcome: true,
+        sickLeaveEarned: true,
+        vacationLeaveEarned: true,
+        employee: { select: { firstName: true, lastName: true, sex: true, department: { select: { name: true } } } },
+      },
+    });
+    const accrualByEmployee = new Map<
+      string,
+      {
+        employeeId: string;
+        employee: (typeof accrualRecords)[number]["employee"];
+        periodStart: Date;
+        periodEnd: Date;
+        absences: number;
+        sickLeaveEarned: number;
+        vacationLeaveEarned: number;
+      }
+    >();
+    for (const record of accrualRecords) {
+      const summary = accrualByEmployee.get(record.employeeId) ?? {
+        employeeId: record.employeeId,
+        employee: record.employee,
+        periodStart: record.cycleStart,
+        periodEnd: record.cycleEnd,
+        absences: 0,
+        sickLeaveEarned: 0,
+        vacationLeaveEarned: 0,
+      };
+      if (record.cycleStart < summary.periodStart) summary.periodStart = record.cycleStart;
+      if (record.cycleEnd > summary.periodEnd) summary.periodEnd = record.cycleEnd;
+      if (record.outcome === "VIOLATED") summary.absences += 1;
+      summary.sickLeaveEarned += Number(record.sickLeaveEarned);
+      summary.vacationLeaveEarned += Number(record.vacationLeaveEarned);
+      accrualByEmployee.set(record.employeeId, summary);
+    }
+    const leaveAccruals = Array.from(accrualByEmployee.values());
 
     const leaveByStatus = leaves.reduce<Record<string, number>>((totals, request) => {
       totals[request.status] = (totals[request.status] ?? 0) + 1;
@@ -292,6 +358,7 @@ export class ReportsService {
       employees,
       leaveBalances,
       vlMonetizations,
+      leaveAccruals,
     };
   }
 }

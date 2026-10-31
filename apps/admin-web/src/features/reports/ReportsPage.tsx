@@ -7,6 +7,7 @@ import { Badge } from "../../components/ui/Badge";
 import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { EmployeeSearchSelect, matchesEmployeeQuery } from "../../components/ui/EmployeeSearchSelect";
 import { apiRequest } from "../../lib/api";
+import { CACHE_KEYS, useCachedData } from "../../lib/dataCache";
 import { useLiveRefresh } from "../../lib/liveRefresh";
 import { useActiveDepartments } from "../../lib/departments";
 import { formatEmploymentStatus } from "../../types/employment";
@@ -90,14 +91,26 @@ type ReportData = {
   vlMonetizations?: {
     id: string;
     year: number;
-    days: number;
-    monetizedAt: string;
+    remainingDays: number;
+    pendingDays: number;
+    toMonetizeDays: number;
+    monetizedDays: number | null;
+    monetizedAt: string | null;
     leaveType: { name: string };
+    employee: { firstName: string; lastName: string; sex?: string | null; department: { name: string } | null };
+  }[];
+  leaveAccruals?: {
+    employeeId: string;
+    periodStart: string;
+    periodEnd: string;
+    absences: number;
+    sickLeaveEarned: number;
+    vacationLeaveEarned: number;
     employee: { firstName: string; lastName: string; sex?: string | null; department: { name: string } };
   }[];
 };
 
-type ReportTab = "ALL" | "attendance" | "leave" | "undertime" | "schedules" | "employees" | "leaveBalances" | "vlMonetization";
+type ReportTab = "ALL" | "attendance" | "leave" | "undertime" | "schedules" | "employees" | "leaveBalances" | "vlMonetization" | "leaveAccrual";
 type SavePicker = (options: {
   suggestedName: string;
   types: { description: string; accept: Record<string, string[]> }[];
@@ -117,9 +130,11 @@ const REPORT_TYPE_LABELS: Record<ReportTab, string> = {
   employees: "List of Employees",
   leaveBalances: "Remaining Leave",
   vlMonetization: "VL Monetization",
+  leaveAccrual: "Permanent Seasonal Accrual",
 };
 
-const VL_MONETIZATION_HEAD = ["Name", "Department", "Sex", "Leave Year", "Days Monetized", "Date Monetized"];
+const VL_MONETIZATION_HEAD = ["Name", "Department", "Sex", "Leave Year", "Remaining", "Monetized", "Status"];
+const LEAVE_ACCRUAL_HEAD = ["Name", "Department", "Sex", "Qualifying Period", "Attendance Status", "Sick Leave Earned", "Vacation Leave Earned"];
 
 // All Reports' first page: the department counts only, under this title;
 // the DTR / Attendance records follow on the next page.
@@ -180,7 +195,9 @@ function compareText(a: string, b: string) {
 }
 
 // Stable, so one employee's own rows keep their original (date) order.
-function sortByDepartment<T>(rows: T[], person: (row: T) => ReportPerson): T[] {
+// keepRowOrder: skips the A–Z, so rows stay in that order across the whole
+// department (Leave: latest first).
+function sortByDepartment<T>(rows: T[], person: (row: T) => ReportPerson, keepRowOrder = false): T[] {
   return [...rows].sort((rowA, rowB) => {
     const a = person(rowA);
     const b = person(rowB);
@@ -191,6 +208,7 @@ function sortByDepartment<T>(rows: T[], person: (row: T) => ReportPerson): T[] {
       if (deptB === UNASSIGNED_DEPARTMENT) return -1;
       return compareText(deptA, deptB);
     }
+    if (keepRowOrder) return 0;
     return compareText(`${a.firstName} ${a.lastName}`, `${b.firstName} ${b.lastName}`);
   });
 }
@@ -341,7 +359,7 @@ function usedDateRanges(dates: { startDate: string; endDate: string }[]) {
     return `${d.getMonth() + 1}/${d.getDate()}/${String(d.getFullYear()).slice(-2)}`;
   };
   return [...dates]
-    .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())
+    .sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime())
     .map((d) => `${short(d.startDate)}-${short(d.endDate)}`);
 }
 
@@ -579,6 +597,12 @@ export function ReportsPage({
   const [attendanceStatusFilter, setAttendanceStatusFilter] = useState("ALL");
   const [leaveStatusFilter, setLeaveStatusFilter] = useState<"ALL" | LeaveStatusBucket>("ALL");
   const [undertimeStatusFilter, setUndertimeStatusFilter] = useState<"ALL" | UndertimeStatus>("ALL");
+  // Narrows the Leave, Remaining Leave and VL Monetization tables (and their
+  // exports) to one leave type. Inactive types stay listed for older records.
+  const [leaveTypeFilter, setLeaveTypeFilter] = useState("ALL");
+  const leaveTypesCache = useCachedData<{ id: string; name: string }[]>(CACHE_KEYS.leaveTypes, () =>
+    apiRequest<{ id: string; name: string }[]>("/leave-types"),
+  );
 
   const loadReport = () => {
     const params = new URLSearchParams();
@@ -668,27 +692,35 @@ export function ReportsPage({
   // tab's own name otherwise.
   const partTitle = (part: ReportTab) => (tab === "ALL" ? `${REPORT_TYPE_LABELS[part]} Report` : REPORT_TYPE_LABELS[tab]);
   const departmentSummaryTitle = `Department Attendance Summary${filters.from !== filters.to ? " (employee-days)" : ""}`;
+  // On paper the header replaces that title, so it carries the unit instead.
+  const departmentSummaryNote = filters.from !== filters.to ? "Counts are in employee-days" : undefined;
+  // Set on a single-day report, where the Leave part shows its full history.
+  const leaveHistoryNote = filters.from && filters.from === filters.to ? `Leave history up to ${formatDate(filters.to)}` : undefined;
+  const accrualHistoryNote = filters.from && filters.from === filters.to ? `Accrual history up to ${formatDate(filters.to)}` : undefined;
 
   const leavesInRange = useMemo(() => {
     if (!data) return [];
     const rows = data.leaves.filter((request) => {
       const deptMatch = filters.department === "ALL" || request.employee.department.name === filters.department;
-      // Show leave if it overlaps the date range at all
+      const typeMatch = leaveTypeFilter === "ALL" || request.leaveType.name === leaveTypeFilter;
+      // Show leave if it overlaps the date range at all. A single-day report
+      // (the default) shows the whole history up to that day instead, so the
+      // table isn't empty just because nobody is on leave that day.
       const startInRange = isInDateRange(request.startDate, filters.from, filters.to);
       const endInRange = isInDateRange(request.endDate, filters.from, filters.to);
-      const spanRange =
-        new Date(request.startDate).getTime() <= parseLocalDateFilter(filters.to, true) &&
-        new Date(request.endDate).getTime() >= parseLocalDateFilter(filters.from);
-      return deptMatch && (startInRange || endInRange || spanRange) && matchesEmployeeQuery(request.employee, search);
+      const startedByTo = new Date(request.startDate).getTime() <= parseLocalDateFilter(filters.to, true);
+      const spanRange = startedByTo && new Date(request.endDate).getTime() >= parseLocalDateFilter(filters.from);
+      const inRange = leaveHistoryNote ? startedByTo : startInRange || endInRange || spanRange;
+      return deptMatch && typeMatch && inRange && matchesEmployeeQuery(request.employee, search);
     });
-    // Latest dates first within each employee (sortByDepartment is stable).
+    // Latest dates first within each department, whoever filed them.
     rows.sort(
       (a, b) =>
         new Date(b.endDate).getTime() - new Date(a.endDate).getTime() ||
         new Date(b.startDate).getTime() - new Date(a.startDate).getTime(),
     );
-    return sortByDepartment(rows, personOfRow);
-  }, [data, filters, search]);
+    return sortByDepartment(rows, personOfRow, true);
+  }, [data, filters, search, leaveTypeFilter, leaveHistoryNote]);
 
   const leaveStatusCounts = useMemo(() => {
     const counts: Record<LeaveStatusBucket, number> = { PENDING: 0, APPROVED: 0, REJECTED: 0, CANCELLED: 0, LAPSED: 0 };
@@ -758,24 +790,46 @@ export function ReportsPage({
     const rows = data.leaveBalances.filter(
       (b) =>
         (filters.department === "ALL" || b.employee.department.name === filters.department) &&
+        (leaveTypeFilter === "ALL" || b.leaveTypeName === leaveTypeFilter) &&
         matchesEmployeeQuery(b.employee, search),
     );
     return sortByDepartment(rows, personOfRow);
-  }, [data, filters.department, search]);
+  }, [data, filters.department, search, leaveTypeFilter]);
 
-  // Like Remaining Leave: the leave year of the "To" date, department filter only.
+  // Like Remaining Leave: the leave year of the "To" date, department filter
+  // only. Same rows and wording as Leave → VL Monetization.
   const filteredVlMonetizations = useMemo(() => {
     if (!data) return [];
     const rows = (data.vlMonetizations ?? []).filter(
       (m) =>
-        (filters.department === "ALL" || m.employee.department.name === filters.department) &&
+        (filters.department === "ALL" || m.employee.department?.name === filters.department) &&
+        (leaveTypeFilter === "ALL" || m.leaveType.name === leaveTypeFilter) &&
         matchesEmployeeQuery(m.employee, search),
     );
     return sortByDepartment(rows, personOfRow);
-  }, [data, filters.department, search]);
+  }, [data, filters.department, search, leaveTypeFilter]);
   const vlMonetizationCells = (m: NonNullable<ReportData["vlMonetizations"]>[number]): (string | number)[] => [
-    `${m.employee.firstName} ${m.employee.lastName}`, m.employee.department.name, formatSex(m.employee.sex),
-    String(m.year), formatDays(m.days), formatDate(m.monetizedAt),
+    `${m.employee.firstName} ${m.employee.lastName}`, m.employee.department?.name ?? "—", formatSex(m.employee.sex),
+    String(m.year),
+    m.pendingDays > 0 ? `${formatDays(m.remainingDays)} (${formatDays(m.pendingDays)} pending)` : formatDays(m.remainingDays),
+    m.monetizedDays !== null ? formatDays(m.monetizedDays) : m.toMonetizeDays > 0 ? `${formatDays(m.toMonetizeDays)} (due)` : "—",
+    m.monetizedAt ? `Monetized ${formatDate(m.monetizedAt)}` : m.toMonetizeDays > 0 ? "Subject for monetization" : "No VL left",
+  ];
+
+  const filteredLeaveAccruals = useMemo(() => {
+    if (!data) return [];
+    const rows = (data.leaveAccruals ?? []).filter(
+      (a) =>
+        (filters.department === "ALL" || a.employee.department.name === filters.department) &&
+        matchesEmployeeQuery(a.employee, search),
+    );
+    return sortByDepartment(rows, personOfRow);
+  }, [data, filters.department, search]);
+  const leaveAccrualCells = (a: NonNullable<ReportData["leaveAccruals"]>[number]): (string | number)[] => [
+    `${a.employee.firstName} ${a.employee.lastName}`, a.employee.department.name, formatSex(a.employee.sex),
+    `${formatDate(a.periodStart)} - ${formatDate(a.periodEnd)}`,
+    a.absences === 0 ? "Perfect" : `${a.absences} absence${a.absences === 1 ? "" : "s"}`,
+    a.sickLeaveEarned.toFixed(2), a.vacationLeaveEarned.toFixed(2),
   ];
 
   // Filtered totals for stat cards
@@ -872,6 +926,7 @@ export function ReportsPage({
       : tab === "employees" ? [...eRows, ...signRows]
       : tab === "leaveBalances" ? [...rbRows, ...signRows]
       : tab === "vlMonetization" ? [VL_MONETIZATION_HEAD, ...filteredVlMonetizations.map(vlMonetizationCells), ...signRows]
+      : tab === "leaveAccrual" ? [LEAVE_ACCRUAL_HEAD, ...filteredLeaveAccruals.map(leaveAccrualCells), ...signRows]
       : [];
     // All Report Types: an Excel workbook with one tab per report, since a
     // CSV file can only hold a single sheet.
@@ -891,6 +946,7 @@ export function ReportsPage({
         ["List of Employees", eRows],
         ["Remaining Leave", rbRows],
         ["VL Monetization", [VL_MONETIZATION_HEAD, ...filteredVlMonetizations.map(vlMonetizationCells)]],
+        ["Permanent Seasonal Accrual", [LEAVE_ACCRUAL_HEAD, ...filteredLeaveAccruals.map(leaveAccrualCells)]],
       ];
       const XLSX = await loadSheetJs();
       const workbook = XLSX.utils.book_new();
@@ -921,15 +977,15 @@ export function ReportsPage({
     const pageWidth = doc.internal.pageSize.getWidth();
     const margin = 40;
 
-    // Header matches the on-screen print header: centered logo, the report
-    // type as a title below it, then the generated date range as plain text.
+    // Header matches the print header and the employee's DTR: centered logo,
+    // the report type as a capitalized title, then the date range.
     // Drawn on every page (tables call it from didDrawPage), and every table
     // starts below it, so it never covers data.
     let logoImage: { dataUrl: string; width: number; height: number } | null = null;
     try {
       const { dataUrl, width, height } = await loadImageDataUrl(logo);
       // About the printed logo's share of the page width.
-      const scale = 210 / width;
+      const scale = 140 / width;
       logoImage = { dataUrl, width: width * scale, height: height * scale };
     } catch {
       // Logo failed to load — still produce the report without it.
@@ -939,6 +995,11 @@ export function ReportsPage({
     // each later part (Leave, Undertime, Schedules) switches it to its own.
     let header: { title: string; subtitle?: string } = {
       title: tab === "ALL" ? ALL_REPORTS_SUMMARY_TITLE : REPORT_TYPE_LABELS[tab],
+      subtitle:
+        tab === "ALL" ? departmentSummaryNote
+        : tab === "leave" ? leaveHistoryNote
+        : tab === "leaveAccrual" ? accrualHistoryNote
+        : undefined,
     };
 
     // Draws the header on the current page and returns the y just below it.
@@ -952,7 +1013,7 @@ export function ReportsPage({
       doc.setFont(undefined, "bold");
       doc.setFontSize(14);
       doc.setTextColor(26, 58, 92);
-      doc.text(header.title, pageWidth / 2, y, { align: "center" });
+      doc.text(header.title.toUpperCase(), pageWidth / 2, y, { align: "center" });
       doc.setFont(undefined, "normal");
       y += 18;
 
@@ -963,19 +1024,19 @@ export function ReportsPage({
         y += 14;
       }
 
-      doc.setFont(undefined, "bold");
       doc.setFontSize(9);
       doc.setTextColor(45, 74, 101);
       doc.text(generatedRangeLabel, pageWidth / 2, y, { align: "center" });
-      doc.setFont(undefined, "normal");
       y += 10;
       doc.setDrawColor(215, 226, 236);
       doc.line(margin, y, pageWidth - margin, y);
       return y + 18;
     };
 
-    let headerBottom = drawHeader();
-    let startY = headerBottom;
+    // Page 1's header waits for the first section that has rows, so it always
+    // names what's actually on the page.
+    let headerBottom = 0;
+    let startY = 0;
     let headerDrawnOnPage = doc.internal.getNumberOfPages();
     let sectionsDrawn = 0;
 
@@ -1022,35 +1083,28 @@ export function ReportsPage({
     };
 
     const addSection = (
-      title: string,
       head: string[],
       body: (string | number)[][],
       // centerFrom: columns from this index on (counts) are centered.
       // byDepartment: body is sorted by department (column 1) — each
       // department is drawn as its own titled block.
-      options: { boldLastRow?: boolean; partTitle?: string; centerFrom?: number; byDepartment?: boolean } = {},
+      options: { boldLastRow?: boolean; partTitle?: string; partSubtitle?: string; centerFrom?: number; byDepartment?: boolean } = {},
     ) => {
       if (body.length === 0) return;
       // A new part of All Reports: the previous part is signed off, then
       // this one gets its own page, headed with its own title.
-      if (options.partTitle && tab === "ALL" && sectionsDrawn > 0) {
+      const isNewPart = Boolean(options.partTitle && tab === "ALL");
+      if (isNewPart && sectionsDrawn > 0) {
         drawSignatories();
         doc.addPage();
-        header = { title: options.partTitle };
+      }
+      if (isNewPart) header = { title: options.partTitle as string, subtitle: options.partSubtitle };
+      if (isNewPart || sectionsDrawn === 0) {
         headerBottom = drawHeader();
         startY = headerBottom;
         headerDrawnOnPage = doc.internal.getNumberOfPages();
       }
       sectionsDrawn += 1;
-      // As in print, a section's own label only shows in All Reports.
-      if (tab === "ALL") {
-        doc.setFont(undefined, "bold");
-        doc.setFontSize(10);
-        doc.setTextColor(26, 58, 92);
-        doc.text(title, margin, startY);
-        doc.setFont(undefined, "normal");
-        startY += 8;
-      }
 
       if (!options.byDepartment) {
         drawTable(head, body, startY, options);
@@ -1062,13 +1116,11 @@ export function ReportsPage({
       doc.setFontSize(8);
       const textWidth = (value: string | number) =>
         Math.max(...String(value).split("\n").map((line) => doc.getTextWidth(line))) + 12;
-      // Column headings are drawn bold in capitals at 7.5pt.
+      // Column headings are drawn bold at the same 8pt as the rows.
       const headingWidth = (label: string) => {
         doc.setFont(undefined, "bold");
-        doc.setFontSize(7.5);
-        const width = Math.max(...label.toUpperCase().split(" ").map((word) => doc.getTextWidth(word))) + 12;
+        const width = Math.max(...label.split(" ").map((word) => doc.getTextWidth(word))) + 12;
         doc.setFont(undefined, "normal");
-        doc.setFontSize(8);
         return width;
       };
       const natural = head.map((label, col) =>
@@ -1117,9 +1169,7 @@ export function ReportsPage({
           styles: {
             halign: "left" as const,
             fontStyle: "bold" as const,
-            fillColor: [238, 243, 249] as [number, number, number],
-            textColor: [26, 58, 92] as [number, number, number],
-            lineColor: [215, 226, 236] as [number, number, number],
+            fillColor: [242, 242, 242] as [number, number, number],
           },
         }],
         ...group.rows,
@@ -1144,30 +1194,31 @@ export function ReportsPage({
         cell.section === "body" && cell.column.index === datesCol && cell.cell.raw !== "—";
       autoTable(doc, {
         startY: tableStartY,
-        // Styled like the printed table: light heading row in uppercase,
-        // white rows split by thin lines, everything centered.
-        head: [head.map((label) => label.toUpperCase())],
+        // Styled like the employee's DTR and the printed table: a black grid
+        // with a grey heading row, everything centered.
+        head: [head],
         body,
         theme: "plain" as const,
         // A row is never split across two pages.
         rowPageBreak: "avoid" as const,
         columnStyles: options.columnStyles,
         headStyles: {
-          fillColor: [244, 248, 252] as [number, number, number],
-          textColor: [74, 102, 128] as [number, number, number],
-          fontSize: 7.5,
+          fillColor: [229, 229, 229] as [number, number, number],
+          textColor: [0, 0, 0] as [number, number, number],
+          fontSize: 8,
           fontStyle: "bold" as const,
           halign: "center" as const,
-          lineWidth: { bottom: 1 },
-          lineColor: [227, 234, 242] as [number, number, number],
+          valign: "middle" as const,
+          lineWidth: 0.75,
+          lineColor: [0, 0, 0] as [number, number, number],
         },
         bodyStyles: {
           fontSize: 8,
-          textColor: [45, 74, 101] as [number, number, number],
+          textColor: [0, 0, 0] as [number, number, number],
           halign: "center" as const,
           valign: "middle" as const,
-          lineWidth: { bottom: 0.5 },
-          lineColor: [232, 238, 244] as [number, number, number],
+          lineWidth: 0.75,
+          lineColor: [0, 0, 0] as [number, number, number],
         },
         // Pages a table flows onto start below the repeated header; its
         // column headings repeat there too (autoTable's default).
@@ -1187,10 +1238,10 @@ export function ReportsPage({
           if (options.boldLastRow && cell.section === "body" && cell.row.index === body.length - 1) {
             cell.cell.styles.fontStyle = "bold";
           }
-          // An open-ended schedule's "Present", green bold as on screen.
+          // An open-ended schedule's "Present", dark blue bold as on screen.
           if (cell.section === "body" && cell.cell.raw === "Present" && head[cell.column.index] === "Until") {
             cell.cell.styles.fontStyle = "bold";
-            cell.cell.styles.textColor = [46, 125, 50];
+            cell.cell.styles.textColor = [26, 58, 92];
           }
         },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1202,7 +1253,7 @@ export function ReportsPage({
           if (!isDatesCell(cell)) return;
           const lineHeight = 8 * doc.getLineHeightFactor();
           doc.setFontSize(8);
-          doc.setTextColor(45, 74, 101);
+          doc.setTextColor(0, 0, 0);
           // The three-slot block is centered in the cell, like the other columns.
           const blockLeft = cell.cell.x + Math.max(cell.cell.padding("left"), (cell.cell.width - dateSlot * 3) / 2);
           String(cell.cell.raw).split("\n").forEach((line, lineIndex) => {
@@ -1222,7 +1273,6 @@ export function ReportsPage({
 
     if (tab === "ALL") {
       addSection(
-        departmentSummaryTitle,
         ["Department", "Present", "Late", "Absent", "On Leave", "Total"],
         departmentSummary.rows.length === 0
           ? []
@@ -1234,7 +1284,7 @@ export function ReportsPage({
       );
     }
     if (tab === "ALL" || tab === "attendance") {
-      addSection("DTR / Attendance",
+      addSection(
         ["Employee", "Department", "Site", "Date", "Time In", "Time Out", "Lunch / Break", "Status"],
         filteredAttendance.map((r) => [
           employeeName(r), r.employee.department.name, r.workLocation?.name ?? "—", formatDate(r.attendanceDate),
@@ -1245,20 +1295,20 @@ export function ReportsPage({
       );
     }
     if (tab === "ALL" || tab === "leave") {
-      addSection("Leave",
+      addSection(
         ["Employee", "Department", "Classification", "Leave Type", "Start Date", "End Date", "Days", "Status"],
         filteredLeaves.map((r) => [
           employeeName(r), r.employee.department.name, formatEmploymentStatus(r.employee.employmentStatus), r.leaveType.name,
           formatDate(r.startDate), formatDate(r.endDate), r.totalDays, leaveStatusText(r),
         ]),
-        { partTitle: partTitle("leave"), byDepartment: true },
+        { partTitle: partTitle("leave"), partSubtitle: leaveHistoryNote, byDepartment: true },
       );
     }
     if (tab === "ALL" || tab === "undertime") {
-      addSection("Undertime", UNDERTIME_HEAD, filteredUndertime.map(undertimeCells), { partTitle: partTitle("undertime"), byDepartment: true });
+      addSection(UNDERTIME_HEAD, filteredUndertime.map(undertimeCells), { partTitle: partTitle("undertime"), byDepartment: true });
     }
     if (tab === "ALL" || tab === "schedules") {
-      addSection("Schedules",
+      addSection(
         // Start and end in their own columns so each lines up in the PDF.
         ["Employee", "Department", "Position", "Shift", "Time", "Effective From", "Until"],
         filteredSchedules.map((s) => [
@@ -1269,14 +1319,14 @@ export function ReportsPage({
       );
     }
     if (tab === "ALL" || tab === "employees") {
-      addSection("List of Employees",
+      addSection(
         ["Name", "Department", "Sex", "Hired Date"],
         filteredEmployeesList.map((e) => [`${e.firstName} ${e.lastName}`, e.department.name, formatSex(e.sex), formatDate(e.hireDate)]),
         { partTitle: partTitle("employees"), byDepartment: true },
       );
     }
     if (tab === "ALL" || tab === "leaveBalances") {
-      addSection("Remaining Leave",
+      addSection(
         ["Name", "Department", "Sex", "Leave Type", "Remaining", "Used", "Dates Used"],
         filteredLeaveBalances.map((b) => [
           `${b.employee.firstName} ${b.employee.lastName}`, b.employee.department.name, formatSex(b.employee.sex),
@@ -1287,11 +1337,16 @@ export function ReportsPage({
     }
 
     if (tab === "ALL" || tab === "vlMonetization") {
-      addSection("VL Monetization", VL_MONETIZATION_HEAD, filteredVlMonetizations.map(vlMonetizationCells), { partTitle: partTitle("vlMonetization"), byDepartment: true });
+      addSection(VL_MONETIZATION_HEAD, filteredVlMonetizations.map(vlMonetizationCells), { partTitle: partTitle("vlMonetization"), byDepartment: true });
+    }
+
+    if (tab === "ALL" || tab === "leaveAccrual") {
+      addSection(LEAVE_ACCRUAL_HEAD, filteredLeaveAccruals.map(leaveAccrualCells), { partTitle: partTitle("leaveAccrual"), partSubtitle: accrualHistoryNote, byDepartment: true });
     }
 
     // The last part's signatures (earlier parts get theirs in addSection).
     if (sectionsDrawn > 0) drawSignatories();
+    else drawHeader();
 
     const blob = doc.output("blob") as Blob;
     await target.save(blob);
@@ -1308,8 +1363,7 @@ export function ReportsPage({
         </div>
       </div>
 
-      {/* ── Filter Bar + export actions: two cards side by side on one row ── */}
-      <div className="reports-filter-row">
+      {/* ── Filter Bar: its own full-width row ── */}
       <div className="reports-filter-bar">
         <div className="reports-filter-group employee-search-group">
           <label className="reports-filter-label">Search</label>
@@ -1351,6 +1405,7 @@ export function ReportsPage({
               { value: "employees", label: "List of Employees" },
               { value: "leaveBalances", label: "Remaining Leave" },
               { value: "vlMonetization", label: "VL Monetization" },
+              { value: "leaveAccrual", label: "Permanent Seasonal Accrual" },
             ]}
             allLabel="All Report Types"
             menuLabel="Filter by report type"
@@ -1362,7 +1417,7 @@ export function ReportsPage({
             hidden on report types it can't affect. */}
         {(tab === "ALL" || tab === "attendance") && (
           <div className="reports-filter-group">
-            <label className="reports-filter-label">Status</label>
+            <label className="reports-filter-label">Attendance Status</label>
             <DropdownFilter
               className="reports-select"
               value={attendanceStatusFilter}
@@ -1376,6 +1431,21 @@ export function ReportsPage({
               allLabel="All Status"
               menuLabel="Filter by attendance status"
               ariaLabel="Attendance status"
+            />
+          </div>
+        )}
+
+        {(tab === "ALL" || tab === "leave" || tab === "leaveBalances" || tab === "vlMonetization") && (
+          <div className="reports-filter-group">
+            <label className="reports-filter-label">Leave Type</label>
+            <DropdownFilter
+              className="reports-select"
+              value={leaveTypeFilter}
+              onChange={setLeaveTypeFilter}
+              options={(leaveTypesCache.data ?? []).map((type) => ({ value: type.name, label: type.name }))}
+              allLabel="All Leave Types"
+              menuLabel="Filter by leave type"
+              ariaLabel="Leave type"
             />
           </div>
         )}
@@ -1401,31 +1471,9 @@ export function ReportsPage({
         </div>
       </div>
 
-        <div className="reports-filter-actions">
-          <span className="reports-filter-label">Actions</span>
-          <div className="reports-filter-actions-buttons">
-          <button className="report-export-button" onClick={() => runExport(exportCsv)}>
-            <Download size={14} />
-            <span>Export CSV</span>
-          </button>
-          <button className="report-export-button" onClick={() => runExport(exportPdf)}>
-            <FileText size={14} />
-            <span>Export PDF</span>
-          </button>
-          <button className="report-export-button" onClick={() => { window.print(); loadReport(); }}>
-            <Printer size={14} />
-            <span>Print</span>
-          </button>
-          </div>
-          {exportError && (
-            <p className="reports-export-error" role="alert">
-              {exportError}
-            </p>
-          )}
-        </div>
-      </div>
-
-      {/* ── Signatories: printed at the end of every report ── */}
+      {/* ── Signatories (printed at the end of every report) + export actions:
+          two cards side by side on one row ── */}
+      <div className="reports-filter-row">
       <div className="reports-signatories-bar">
         <div className="reports-filter-group">
           <label className="reports-filter-label">Prepared By</label>
@@ -1463,6 +1511,30 @@ export function ReportsPage({
         </div>
       </div>
 
+        <div className="reports-filter-actions">
+          <span className="reports-filter-label">Actions</span>
+          <div className="reports-filter-actions-buttons">
+          <button className="report-export-button" onClick={() => runExport(exportCsv)}>
+            <Download size={14} />
+            <span>Export CSV</span>
+          </button>
+          <button className="report-export-button" onClick={() => runExport(exportPdf)}>
+            <FileText size={14} />
+            <span>Export PDF</span>
+          </button>
+          <button className="report-export-button" onClick={() => { window.print(); loadReport(); }}>
+            <Printer size={14} />
+            <span>Print</span>
+          </button>
+          </div>
+          {exportError && (
+            <p className="reports-export-error" role="alert">
+              {exportError}
+            </p>
+          )}
+        </div>
+      </div>
+
       {/* ── Printable region: print header + department/results text + the
           active table(s) — everything else is hidden via visibility:hidden
           on the rest of the document in @media print, so this doesn't rely
@@ -1472,6 +1544,7 @@ export function ReportsPage({
         {tab === "ALL" && (
         <PrintFrame
           title={ALL_REPORTS_SUMMARY_TITLE}
+          subtitle={departmentSummaryNote}
           rangeLabel={generatedRangeLabel} signatories={signatories}
         >
         {/* ── Department Attendance Summary (All Reports only) ── */}
@@ -1559,7 +1632,7 @@ export function ReportsPage({
         )}
 
       {(tab === "ALL" || tab === "leave") && (
-        <PrintFrame title={partTitle("leave")} rangeLabel={generatedRangeLabel} signatories={signatories}>
+        <PrintFrame title={partTitle("leave")} subtitle={leaveHistoryNote} rangeLabel={generatedRangeLabel} signatories={signatories}>
         <section className="table-card reports-table-card">
           {tab === "ALL" && <div className="reports-table-label">Leave</div>}
           <div className="reports-status-tabs">
@@ -1761,10 +1834,34 @@ export function ReportsPage({
             </thead>
             <tbody>
               {filteredVlMonetizations.length === 0 ? (
-                <tr><td colSpan={VL_MONETIZATION_HEAD.length} className="reports-empty">No VL has been monetized for this leave year.</td></tr>
+                <tr><td colSpan={VL_MONETIZATION_HEAD.length} className="reports-empty">No employees to show for this leave year.</td></tr>
               ) : <DepartmentGroups rows={filteredVlMonetizations} person={personOfRow} colSpan={VL_MONETIZATION_HEAD.length} renderRow={(m) => (
                 <tr key={m.id}>
                   {vlMonetizationCells(m).map((cell, index) => <td key={index}>{cell}</td>)}
+                </tr>
+              )} />}
+            </tbody>
+          </table>
+        </section>
+        </PrintFrame>
+      )}
+
+      {(tab === "ALL" || tab === "leaveAccrual") && (
+        <PrintFrame title={partTitle("leaveAccrual")} subtitle={accrualHistoryNote} rangeLabel={generatedRangeLabel} signatories={signatories}>
+        <section className="table-card reports-table-card">
+          {tab === "ALL" && <div className="reports-table-label">Permanent Seasonal Accrual</div>}
+          <table>
+            <thead>
+              <tr>
+                {LEAVE_ACCRUAL_HEAD.map((heading) => <th key={heading}>{heading}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {filteredLeaveAccruals.length === 0 ? (
+                <tr><td colSpan={LEAVE_ACCRUAL_HEAD.length} className="reports-empty">No accrual records for Permanent Seasonal employees in this period.</td></tr>
+              ) : <DepartmentGroups rows={filteredLeaveAccruals} person={personOfRow} colSpan={LEAVE_ACCRUAL_HEAD.length} renderRow={(a) => (
+                <tr key={a.employeeId}>
+                  {leaveAccrualCells(a).map((cell, index) => <td key={index}>{cell}</td>)}
                 </tr>
               )} />}
             </tbody>

@@ -7,5 +7,6 @@ import { LeaveMonetizationService } from "./leave-monetization.service";
 @Module({
   controllers: [LeaveBalancesController, LeaveMonetizationController],
   providers: [LeaveBalancesService, LeaveMonetizationService],
+  exports: [LeaveMonetizationService],
 })
 export class LeaveBalancesModule {}

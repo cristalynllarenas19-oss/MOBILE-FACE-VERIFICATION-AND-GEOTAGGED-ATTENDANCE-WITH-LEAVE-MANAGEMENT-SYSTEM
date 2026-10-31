@@ -226,16 +226,25 @@ export class FaceVerificationService implements OnModuleInit {
   // frame for spotting a frozen/repeated camera image.
   // withDescriptor: false skips the face descriptor (the slowest model, about
   // a second per frame on the server's CPU) for frames that don't need one.
-  async analyzeRegistrationFrame(buffer: Buffer, withDescriptor = true) {
+  // quick: a 224 detector input (about half the time again), for the frames
+  // between the first and the final one. The face fills those frames; if it
+  // isn't found at 224, the frame is looked at again at 320 before counting
+  // as no face.
+  async analyzeRegistrationFrame(buffer: Buffer, withDescriptor = true, quick = false) {
     await this.ensureModelsLoaded();
     const image = await canvasLib.loadImage(buffer);
     // 320 rather than 416: about half the time per frame on the server's
     // CPU, with the same faces found on 480px captures.
-    const withLandmarks = faceapi
-      .detectAllFaces(image as any, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.6 }))
-      .withFaceLandmarks();
-    const results: { landmarks: faceapi.FaceLandmarks68; detection: faceapi.FaceDetection; descriptor?: Float32Array }[] =
-      withDescriptor ? await withLandmarks.withFaceDescriptors() : await withLandmarks;
+    const detect = async (inputSize: number) => {
+      const withLandmarks = faceapi
+        .detectAllFaces(image as any, new faceapi.TinyFaceDetectorOptions({ inputSize, scoreThreshold: 0.6 }))
+        .withFaceLandmarks();
+      const found: { landmarks: faceapi.FaceLandmarks68; detection: faceapi.FaceDetection; descriptor?: Float32Array }[] =
+        withDescriptor ? await withLandmarks.withFaceDescriptors() : await withLandmarks;
+      return found;
+    };
+    let results = await detect(quick ? 224 : 320);
+    if (quick && results.length === 0) results = await detect(320);
 
     const thumbnail = this.grayThumbnail(image, 32);
     if (results.length !== 1) {
@@ -253,6 +262,38 @@ export class FaceVerificationService implements OnModuleInit {
         yaw: this.headYaw(landmarks),
         faceWidth: detection.box.width,
         descriptor,
+      },
+    };
+  }
+
+  // The final registration photo, in one pass instead of a frame check plus
+  // extractDescriptor: same detector settings and tiny landmarks as
+  // extractDescriptor, with its best-scoring face giving the same descriptor
+  // that attendance matching computes. Only confident faces count as a second
+  // person, as extractDescriptor's low threshold also finds non-faces.
+  async analyzeFinalRegistrationFrame(buffer: Buffer) {
+    await this.ensureModelsLoaded();
+    const image = await canvasLib.loadImage(buffer);
+    const results = await faceapi
+      .detectAllFaces(image as any, new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.2 }))
+      .withFaceLandmarks(true)
+      .withFaceDescriptors();
+
+    const thumbnail = this.grayThumbnail(image, 32);
+    if (results.length === 0) {
+      return { faceCount: 0, thumbnail, face: null };
+    }
+    const best = results.reduce((top, result) => (result.detection.score > top.detection.score ? result : top));
+    return {
+      faceCount: Math.max(1, results.filter((result) => result.detection.score >= 0.6).length),
+      thumbnail,
+      face: {
+        realScore: await this.antiSpoofRealScore(image, best.detection.box),
+        ear: this.computeEyeAspectRatio(best.landmarks),
+        eyeContrast: this.eyeContrast(image, best.landmarks),
+        yaw: this.headYaw(best.landmarks),
+        faceWidth: best.detection.box.width,
+        descriptor: best.descriptor,
       },
     };
   }

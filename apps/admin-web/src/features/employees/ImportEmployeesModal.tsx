@@ -19,7 +19,6 @@ import {
   ACCEPTED_EXTENSIONS,
   checkImportFile,
   downloadErrorReport,
-  downloadImportTemplate,
   formatFileSize,
   formatRowName,
   ImportFileError,
@@ -126,7 +125,6 @@ export function ImportEmployeesModal({
   const [fileError, setFileError] = useState("");
   const [isDragging, setIsDragging] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
-  const [isDownloadingTemplate, setIsDownloadingTemplate] = useState(false);
   const [checkedRows, setCheckedRows] = useState<CheckedRow[]>([]);
   const [ignoredColumns, setIgnoredColumns] = useState<string[]>([]);
   const [previewFilter, setPreviewFilter] = useState<PreviewFilter>("ALL");
@@ -204,18 +202,6 @@ export function ImportEmployeesModal({
     setIgnoredColumns([]);
     setPreviewFilter("ALL");
     if (inputRef.current) inputRef.current.value = "";
-  }
-
-  async function handleDownloadTemplate() {
-    if (!reference) return;
-    setIsDownloadingTemplate(true);
-    try {
-      await downloadImportTemplate(reference);
-    } catch {
-      setFileError("The template could not be generated. Please try again.");
-    } finally {
-      setIsDownloadingTemplate(false);
-    }
   }
 
   async function handleCheckFile() {
@@ -380,29 +366,10 @@ export function ImportEmployeesModal({
         <div className="import-body">
           {step === "upload" && (
             <>
-              {/* Get the template. Icons, not numbers, so these don't clash
-                  with the numbered step bar above. */}
-              <div className="import-upload-step">
-                <span className="import-upload-step-icon">
-                  <FileSpreadsheet size={15} />
-                </span>
-                <div className="import-upload-step-text">
-                  <strong>Download the template</strong>
-                  <span>Fill in one employee per row on the "Employees" sheet.</span>
-                </div>
-                <button
-                  type="button"
-                  className="outline-button import-template-button"
-                  onClick={handleDownloadTemplate}
-                  disabled={!reference || isDownloadingTemplate}
-                >
-                  {isDownloadingTemplate ? <Loader2 size={14} className="import-spin" /> : <Download size={14} />}
-                  Download Template
-                </button>
-              </div>
-              {referenceError && <p className="employee-form-error">Could not load the template data: {referenceError}</p>}
+              {referenceError && <p className="employee-form-error">Could not load the import settings: {referenceError}</p>}
 
-              {/* Upload the filled file. */}
+              {/* Upload the filled file. The template is downloaded from the
+                  Add Employee footer, beside Import Employees. */}
               <div className="import-upload-step">
                 <span className="import-upload-step-icon">
                   <Upload size={15} />

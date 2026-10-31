@@ -47,8 +47,8 @@ export async function loadLogoDataUri() {
 }
 
 // Same layout as admin-web's printed report and exported PDF: centered
-// logo, the report type as the title, the generated range, then one striped
-// navy-headed table per section on landscape A4.
+// logo, the report type as the title, the generated range, then one table per
+// section on landscape A4 — a black grid with a grey heading row, like the DTR.
 function buildReportHtml(report: ReportDocument, logoDataUri: string | null) {
   const sections = report.sections.filter((section) => section.rows.length > 0);
 
@@ -65,7 +65,7 @@ function buildReportHtml(report: ReportDocument, logoDataUri: string | null) {
   const tables = sections
     .map(
       (section) => `
-      <h2>${escapeHtml(section.title)} <span class="count">${section.rows.length}</span></h2>
+      ${sections.length > 1 ? `<h2>${escapeHtml(section.title)} <span class="count">${section.rows.length}</span></h2>` : ""}
       <table>
         <thead><tr>${section.head.map((cell) => `<th>${escapeHtml(cell)}</th>`).join("")}</tr></thead>
         <tbody>
@@ -85,10 +85,10 @@ function buildReportHtml(report: ReportDocument, logoDataUri: string | null) {
   <style>
     @page { size: A4 landscape; margin: 28pt; }
     * { box-sizing: border-box; }
-    body { font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif; color: #1E293B; margin: 0; }
+    body { font-family: Arial, Helvetica, sans-serif; color: #000; margin: 0; }
     .header { text-align: center; padding-bottom: 12pt; border-bottom: 1pt solid #D7E2EC; margin-bottom: 14pt; }
     .logo { max-width: 140pt; max-height: 70pt; margin-bottom: 8pt; }
-    h1 { font-size: 16pt; color: #1A3A5C; margin: 0 0 4pt; }
+    h1 { font-size: 16pt; color: #1A3A5C; margin: 0 0 4pt; text-transform: uppercase; }
     .subtitle { font-size: 8pt; color: #6B8299; margin: 0 0 4pt; }
     .meta { font-size: 9pt; color: #2D4A65; margin: 0; }
     h2 { font-size: 10pt; color: #1A3A5C; margin: 14pt 0 6pt; }
@@ -96,10 +96,9 @@ function buildReportHtml(report: ReportDocument, logoDataUri: string | null) {
     table { width: 100%; border-collapse: collapse; }
     thead { display: table-header-group; }
     tr { page-break-inside: avoid; }
-    th { background: #1A3A5C; color: #FFFFFF; font-size: 8pt; font-weight: 700; text-align: left; padding: 5pt 6pt; }
-    td { font-size: 8pt; padding: 5pt 6pt; vertical-align: top; white-space: pre-line; }
-    .dates-grid { display: grid; grid-template-columns: repeat(3, auto); justify-content: start; column-gap: 10pt; white-space: nowrap; }
-    tbody tr:nth-child(even) td { background: #F4F7FB; }
+    th { background: #E5E5E5; color: #000; border: 0.75pt solid #000; font-size: 8pt; font-weight: 700; text-align: center; vertical-align: middle; padding: 4pt; }
+    td { border: 0.75pt solid #000; font-size: 8pt; padding: 4pt; text-align: center; vertical-align: middle; white-space: pre-line; }
+    .dates-grid { display: grid; grid-template-columns: repeat(3, auto); justify-content: center; column-gap: 10pt; white-space: nowrap; }
     .empty { text-align: center; font-size: 10pt; color: #6B8299; padding: 30pt 0; }
   </style>
 </head>

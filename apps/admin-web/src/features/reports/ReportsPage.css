@@ -22,7 +22,7 @@
   margin: 0;
 }
 
-/* Holds the filter card and the export-actions card side by side. */
+/* Holds the signatories card and the export-actions card side by side. */
 .reports-filter-row {
   display: flex;
   align-items: stretch;
@@ -31,13 +31,12 @@
 }
 
 .reports-filter-bar {
-  flex: 1 1 auto;
-  min-width: 0;
   display: flex;
   align-items: flex-end;
   flex-wrap: wrap;
   gap: 8px;
   padding: 10px 14px;
+  margin-bottom: 8px;
   background: #f7fafd;
   border: 1px solid #e3eaf2;
   border-radius: 12px;
@@ -47,6 +46,16 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
+}
+
+/* Filters share the row's width evenly, so it stays tidy whichever of them
+   the chosen report type shows. */
+.reports-filter-bar .reports-filter-group {
+  flex: 1 1 130px;
+}
+
+.reports-filter-bar .employee-search-group {
+  flex: 1 1 180px;
 }
 
 .reports-filter-label {
@@ -316,8 +325,8 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  background: #eaf3ea;
-  color: #2e7d32;
+  background: #eef3f9;
+  color: #1a3a5c;
   font-size: 11px;
   font-weight: 700;
   border-radius: 999px;
@@ -371,6 +380,11 @@
     width: 100%;
   }
 
+  .reports-filter-bar .reports-filter-group,
+  .reports-filter-bar .employee-search-group {
+    flex: none;
+  }
+
   .reports-filter-bar input,
   .reports-select {
     width: 100%;
@@ -414,14 +428,20 @@
 
 /* Signatory names/positions, printed at the end of every report. */
 .reports-signatories-bar {
+  flex: 1 1 auto;
+  min-width: 0;
   display: flex;
   flex-wrap: wrap;
+  align-items: flex-end;
   gap: 8px 24px;
   padding: 10px 14px;
-  margin-bottom: 12px;
   background: #f7fafd;
   border: 1px solid #e3eaf2;
   border-radius: 12px;
+}
+
+.reports-signatories-bar .reports-filter-group {
+  flex: 1 1 280px;
 }
 
 .reports-signatory-inputs {
@@ -431,7 +451,8 @@
 
 .reports-signatory-inputs input {
   height: 34px;
-  width: 170px;
+  flex: 1 1 0;
+  min-width: 0;
   border: 1px solid #d4dfe9;
   border-radius: 8px;
   background: #ffffff;
@@ -698,6 +719,94 @@
   .reports-table-card tr.reports-department-row td {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
+  }
+
+  /* Same paper look as the employee's DTR: logo and capitalized title, then
+     a black grid with a grey heading row and plain text. */
+  .reports-print-logo {
+    width: 187px;
+  }
+
+  .reports-print-title {
+    text-transform: uppercase;
+  }
+
+  .reports-print-meta {
+    font-weight: 400;
+  }
+
+  .reports-table-card thead {
+    background: transparent;
+  }
+
+  .reports-table-card th,
+  .reports-table-card td,
+  .reports-table-card tbody tr:last-child td,
+  .reports-table-card tr.reports-department-row td,
+  .reports-summary-card .reports-summary-total td {
+    border: 0.75pt solid #000;
+    color: #000;
+  }
+
+  .reports-table-card th {
+    padding: 5px 6px;
+    background: #e5e5e5;
+    font-size: 11px;
+    letter-spacing: 0;
+    text-transform: none;
+    white-space: normal;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .reports-table-card td {
+    padding: 5px 6px;
+    font-size: 11px;
+    font-weight: 400;
+  }
+
+  .reports-table-card tr.reports-department-row td {
+    background: #f2f2f2;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0;
+  }
+
+  .reports-table-card tr.reports-department-row td span {
+    color: #000;
+    font-weight: 400;
+  }
+
+  .reports-table-card tbody tr:hover td {
+    background: transparent;
+  }
+
+  .reports-table-card tbody tr.reports-department-row:hover td {
+    background: #f2f2f2;
+  }
+
+  .reports-summary-card .reports-summary-total td {
+    background: transparent;
+    font-weight: 700;
+  }
+
+  /* Status pills print as plain words. */
+  .reports-table-card td .badge {
+    width: auto;
+    padding: 0;
+    border: 0;
+    background: transparent !important;
+    box-shadow: none;
+    color: #000 !important;
+    font-size: 11px;
+    font-weight: 400;
+    letter-spacing: 0;
+    text-transform: none;
+  }
+
+  /* Each part's page header already names it. */
+  .reports-table-label {
+    display: none;
   }
 
   /* The summary stays together, and DTR / Attendance follows it on the

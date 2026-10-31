@@ -170,7 +170,6 @@
   font-size: 12px;
 }
 
-.import-template-button,
 .import-left-action {
   display: inline-flex;
   align-items: center;
@@ -591,10 +590,6 @@
 
   .import-upload-step {
     flex-wrap: wrap;
-  }
-
-  .import-upload-step .import-template-button {
-    margin-left: 42px;
   }
 
   .import-summary,

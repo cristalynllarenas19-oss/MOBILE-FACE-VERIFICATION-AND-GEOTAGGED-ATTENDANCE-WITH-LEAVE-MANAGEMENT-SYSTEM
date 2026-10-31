@@ -117,7 +117,7 @@ function usedDateRanges(dates: { startDate: string; endDate: string }[]) {
     return `${d.getMonth() + 1}/${d.getDate()}/${String(d.getFullYear()).slice(-2)}`;
   };
   return [...dates]
-    .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime())
+    .sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime())
     .map((d) => `${short(d.startDate)}-${short(d.endDate)}`);
 }
 
@@ -203,13 +203,15 @@ export default function SupervisorReportsScreen({ onClose, departmentName }: Pro
     [data, dateFrom, dateTo, search],
   );
 
-  // A leave counts if it overlaps the range at all.
+  // A leave counts if it overlaps the range at all. A single-day report (the
+  // default) shows the whole history up to that day instead, so the list isn't
+  // empty just because nobody is on leave that day.
   const leavesInRange = useMemo(
     () =>
       (data?.leaves ?? []).filter(
         (request) =>
           new Date(request.startDate).getTime() <= endOfDay(dateTo) &&
-          new Date(request.endDate).getTime() >= startOfDay(dateFrom) &&
+          ((dateFrom && dateFrom === dateTo) || new Date(request.endDate).getTime() >= startOfDay(dateFrom)) &&
           matchesEmployeeSearch(request.employee, search),
       ),
     [data, dateFrom, dateTo, search],
@@ -378,7 +380,12 @@ export default function SupervisorReportsScreen({ onClose, departmentName }: Pro
 
   const reportDocument: ReportDocument = {
     title: REPORT_TITLES[tab],
-    subtitle: tab === "ALL" ? `Includes: ${ALL_REPORTS_INCLUDES}` : undefined,
+    subtitle:
+      tab === "ALL"
+        ? `Includes: ${ALL_REPORTS_INCLUDES}`
+        : tab === "leave" && dateFrom && dateFrom === dateTo
+          ? `Leave history up to ${formatDate(dateTo)}`
+          : undefined,
     rangeLabel,
     departmentLabel: departmentName ? `Department: ${departmentName}` : undefined,
     sections,
