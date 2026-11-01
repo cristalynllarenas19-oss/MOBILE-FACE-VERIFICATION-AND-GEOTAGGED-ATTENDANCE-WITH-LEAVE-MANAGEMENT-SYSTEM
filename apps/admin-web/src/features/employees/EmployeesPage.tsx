@@ -1006,7 +1006,7 @@ function AddEmployeeModal({
     setError("");
     setIsDownloadingTemplate(true);
     try {
-      await downloadImportTemplate(await apiRequest<ImportReference>("/employees/import/reference"));
+      await downloadImportTemplate(() => apiRequest<ImportReference>("/employees/import/reference"));
     } catch (err) {
       if (err instanceof SessionExpiredError) return;
       setError("The template could not be downloaded. Please try again.");

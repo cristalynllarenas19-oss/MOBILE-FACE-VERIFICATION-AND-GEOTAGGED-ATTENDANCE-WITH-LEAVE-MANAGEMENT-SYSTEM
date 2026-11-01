@@ -4,7 +4,7 @@ import { getAuditContext } from "../../common/utils/audit-context.util";
 import { FaceProfilesService } from "./face-profiles.service";
 import { UpsertFaceProfileDto } from "./dto/upsert-face-profile.dto";
 import { ArchiveFaceProfileDto } from "./dto/archive-face-profile.dto";
-import { CreateLivenessSessionDto, SubmitLivenessFrameDto } from "./dto/liveness-session.dto";
+import { CreateLivenessSessionDto, LiveCheckDto, SubmitLivenessFrameDto } from "./dto/liveness-session.dto";
 import { RegistrationLivenessService } from "../face-verification/registration-liveness.service";
 
 @Controller("face-profiles")
@@ -38,6 +38,12 @@ export class FaceProfilesController {
   @RequirePermissions("users:write")
   submitLivenessFrame(@Param("id") id: string, @Body() dto: SubmitLivenessFrameDto, @Req() request: Request) {
     return this.liveness.submitFrame(id, dto.kind, dto.image, getAuditContext(request).actorUserId);
+  }
+
+  @Post("liveness-sessions/:id/live-check")
+  @RequirePermissions("users:write")
+  liveCheck(@Param("id") id: string, @Body() dto: LiveCheckDto, @Req() request: Request) {
+    return this.liveness.liveCheck(id, dto.image, dto.box, getAuditContext(request).actorUserId);
   }
 
   @Patch(":id/archive")

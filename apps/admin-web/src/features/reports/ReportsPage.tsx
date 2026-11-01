@@ -101,12 +101,11 @@ type ReportData = {
   }[];
   leaveAccruals?: {
     employeeId: string;
-    periodStart: string;
-    periodEnd: string;
+    periods: { startDate: string; endDate: string }[];
     absences: number;
     sickLeaveEarned: number;
     vacationLeaveEarned: number;
-    employee: { firstName: string; lastName: string; sex?: string | null; department: { name: string } };
+    employee: { firstName: string; lastName: string; employmentStatus?: string | null; department: { name: string } };
   }[];
 };
 
@@ -134,7 +133,7 @@ const REPORT_TYPE_LABELS: Record<ReportTab, string> = {
 };
 
 const VL_MONETIZATION_HEAD = ["Name", "Department", "Sex", "Leave Year", "Remaining", "Monetized", "Status"];
-const LEAVE_ACCRUAL_HEAD = ["Name", "Department", "Sex", "Qualifying Period", "Attendance Status", "Sick Leave Earned", "Vacation Leave Earned"];
+const LEAVE_ACCRUAL_HEAD = ["Name", "Department", "Employee Type", "Qualifying Periods", "Attendance Status", "Sick Leave Earned", "Vacation Leave Earned"];
 
 // All Reports' first page: the department counts only, under this title;
 // the DTR / Attendance records follow on the next page.
@@ -826,8 +825,8 @@ export function ReportsPage({
     return sortByDepartment(rows, personOfRow);
   }, [data, filters.department, search]);
   const leaveAccrualCells = (a: NonNullable<ReportData["leaveAccruals"]>[number]): (string | number)[] => [
-    `${a.employee.firstName} ${a.employee.lastName}`, a.employee.department.name, formatSex(a.employee.sex),
-    `${formatDate(a.periodStart)} - ${formatDate(a.periodEnd)}`,
+    `${a.employee.firstName} ${a.employee.lastName}`, a.employee.department.name, formatEmploymentStatus(a.employee.employmentStatus),
+    formatUsedDates(a.periods),
     a.absences === 0 ? "Perfect" : `${a.absences} absence${a.absences === 1 ? "" : "s"}`,
     a.sickLeaveEarned.toFixed(2), a.vacationLeaveEarned.toFixed(2),
   ];
@@ -1072,6 +1071,9 @@ export function ReportsPage({
       });
     };
 
+    // The columns listing date ranges in three slots.
+    const dateListColumn = (head: string[]) => Math.max(head.indexOf("Dates Used"), head.indexOf("Qualifying Periods"));
+
     // Width of one "Dates Used" slot: the longest range plus a gap. Sized
     // from the whole section so every department's columns line up.
     let sectionDateSlot = 0;
@@ -1135,7 +1137,7 @@ export function ReportsPage({
       );
       minimum.forEach((width, col) => (natural[col] = Math.max(natural[col], width)));
       // Room for three full date slots (see drawTable).
-      const datesCol = head.indexOf("Dates Used");
+      const datesCol = dateListColumn(head);
       if (datesCol >= 0) natural[datesCol] = Math.max(natural[datesCol], dateSlotWidth(body, datesCol) * 3 + 2);
       const available = pageWidth - margin * 2;
       const naturalTotal = natural.reduce((sum, width) => sum + width, 0);
@@ -1184,10 +1186,11 @@ export function ReportsPage({
       tableStartY: number,
       options: { boldLastRow?: boolean; centerFrom?: number; columnStyles?: Record<number, { cellWidth: number }> },
     ) => {
-      // Remaining Leave's "Dates Used": the text keeps three ranges per line
+      // Remaining Leave's "Dates Used" and the accrual report's "Qualifying
+      // Periods": the text keeps three ranges per line
       // (so the row gets the right height), but each range is drawn at a
       // fixed slot so the three columns line up from row to row.
-      const datesCol = head.indexOf("Dates Used");
+      const datesCol = dateListColumn(head);
       const dateSlot = datesCol < 0 ? 0 : sectionDateSlot || dateSlotWidth(body, datesCol);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const isDatesCell = (cell: any) =>
@@ -1861,7 +1864,13 @@ export function ReportsPage({
                 <tr><td colSpan={LEAVE_ACCRUAL_HEAD.length} className="reports-empty">No accrual records for Permanent Seasonal employees in this period.</td></tr>
               ) : <DepartmentGroups rows={filteredLeaveAccruals} person={personOfRow} colSpan={LEAVE_ACCRUAL_HEAD.length} renderRow={(a) => (
                 <tr key={a.employeeId}>
-                  {leaveAccrualCells(a).map((cell, index) => <td key={index}>{cell}</td>)}
+                  {leaveAccrualCells(a).map((cell, index) => LEAVE_ACCRUAL_HEAD[index] === "Qualifying Periods" ? (
+                    <td key={index} className="reports-dates-used">
+                      <span className="reports-dates-grid">
+                        {usedDateRanges(a.periods).map((range, rangeIndex) => <span key={rangeIndex}>{range}</span>)}
+                      </span>
+                    </td>
+                  ) : <td key={index}>{cell}</td>)}
                 </tr>
               )} />}
             </tbody>

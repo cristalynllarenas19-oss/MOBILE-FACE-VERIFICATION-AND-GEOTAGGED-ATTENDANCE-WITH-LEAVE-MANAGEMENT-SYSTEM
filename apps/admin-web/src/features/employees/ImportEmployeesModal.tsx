@@ -70,6 +70,9 @@ const DEFAULT_LIMITS = { maxRows: 500, maxRowsPerRequest: 25 };
 // 3 of 10" counter and progress bar move after every employee (with a batch,
 // they sat at 0 until the whole batch was done).
 const IMPORT_CHUNK_SIZE = 1;
+// Requests running at once. Each waits on its employee's login email, and the
+// server sends two emails at a time, so more than this adds little.
+const IMPORT_PARALLEL_REQUESTS = 3;
 
 type PreviewFilter = "ALL" | RowStatus;
 
@@ -266,34 +269,44 @@ export function ImportEmployeesModal({
     const collected: ImportResult[] = [];
     const chunkSize = Math.min(IMPORT_CHUNK_SIZE, limits.maxRowsPerRequest);
 
-    for (let start = 0; start < validRows.length; start += chunkSize) {
-      const chunk = validRows.slice(start, start + chunkSize);
-      // Name the employee being added right now.
-      setProgress((current) => ({ ...current, current: formatRowName(chunk[0]) }));
-      try {
-        const response = await apiRequest<{ results: ImportResult[] }>("/employees/import", {
-          method: "POST",
-          body: JSON.stringify({ rows: chunk }),
-        });
-        collected.push(...response.results);
-      } catch (error) {
-        if (error instanceof SessionExpiredError) return;
-        const reason = error instanceof Error ? error.message : "unknown error";
-        collected.push(
-          ...chunk.map((row) => ({
-            rowNumber: row.rowNumber,
-            outcome: "FAILED" as const,
-            errors: [
-              {
-                field: "Row",
-                message: `The server could not be reached (${reason}). This employee may or may not have been created — check Employee Management. Importing the same file again is safe: existing emails are skipped.`,
-              },
-            ],
-          })),
-        );
+    let nextStart = 0;
+    let sessionExpired = false;
+    const runRequests = async () => {
+      while (!sessionExpired && nextStart < validRows.length) {
+        const chunk = validRows.slice(nextStart, nextStart + chunkSize);
+        nextStart += chunkSize;
+        // Name the employee being added right now.
+        setProgress((current) => ({ ...current, current: formatRowName(chunk[0]) }));
+        try {
+          const response = await apiRequest<{ results: ImportResult[] }>("/employees/import", {
+            method: "POST",
+            body: JSON.stringify({ rows: chunk }),
+          });
+          collected.push(...response.results);
+        } catch (error) {
+          if (error instanceof SessionExpiredError) {
+            sessionExpired = true;
+            return;
+          }
+          const reason = error instanceof Error ? error.message : "unknown error";
+          collected.push(
+            ...chunk.map((row) => ({
+              rowNumber: row.rowNumber,
+              outcome: "FAILED" as const,
+              errors: [
+                {
+                  field: "Row",
+                  message: `The server could not be reached (${reason}). This employee may or may not have been created — check Employee Management. Importing the same file again is safe: existing emails are skipped.`,
+                },
+              ],
+            })),
+          );
+        }
+        setProgress((current) => ({ ...current, done: current.done + chunk.length }));
       }
-      setProgress((current) => ({ ...current, done: Math.min(start + chunk.length, validRows.length) }));
-    }
+    };
+    await Promise.all(Array.from({ length: IMPORT_PARALLEL_REQUESTS }, runRequests));
+    if (sessionExpired) return;
 
     const all = [...collected, ...skippedUpfront].sort((a, b) => a.rowNumber - b.rowNumber);
     setResults(all);

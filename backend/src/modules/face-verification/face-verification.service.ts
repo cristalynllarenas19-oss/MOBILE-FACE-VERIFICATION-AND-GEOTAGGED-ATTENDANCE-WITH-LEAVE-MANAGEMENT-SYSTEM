@@ -53,7 +53,10 @@ export class FaceVerificationService implements OnModuleInit {
   private async warmUpModels() {
     try {
       const blank = (size: number) => canvasLib.createCanvas(size, size) as unknown as HTMLCanvasElement;
-      await faceapi.detectAllFaces(blank(480), new faceapi.TinyFaceDetectorOptions({ inputSize: 320 }));
+      // Each detector input size has its own slow first run.
+      for (const inputSize of [160, 416]) {
+        await faceapi.detectAllFaces(blank(480), new faceapi.TinyFaceDetectorOptions({ inputSize }));
+      }
       await faceapi.nets.faceLandmark68Net.detectLandmarks(blank(112));
       await faceapi.nets.faceRecognitionNet.computeFaceDescriptor(blank(150));
       const models = await this.ensureAntiSpoofLoaded();
@@ -221,30 +224,30 @@ export class FaceVerificationService implements OnModuleInit {
   // the frame (registration needs exactly one) and, for the single face,
   // returns: eye openness two ways (landmark EAR, and the eye-opening
   // contrast the admin screen also uses because landmark eyelids often
-  // barely move on a blink), head yaw, a descriptor for checking it's the
-  // same person all session, and a tiny grayscale thumbnail of the whole
-  // frame for spotting a frozen/repeated camera image.
-  // withDescriptor: false skips the face descriptor (the slowest model, about
-  // a second per frame on the server's CPU) for frames that don't need one.
-  // quick: a 224 detector input (about half the time again), for the frames
-  // between the first and the final one. The face fills those frames; if it
-  // isn't found at 224, the frame is looked at again at 320 before counting
-  // as no face.
-  async analyzeRegistrationFrame(buffer: Buffer, withDescriptor = true, quick = false) {
+  // barely move on a blink), head yaw, a descriptor if asked for, and a tiny
+  // grayscale thumbnail of the whole frame for spotting a frozen/repeated
+  // camera image.
+  // withDescriptor: the slowest model, about a second per frame on the server's
+  // CPU. tinyLandmarks: half the time of the full model, for frames that don't
+  // need its eyelids.
+  async analyzeRegistrationFrame(buffer: Buffer, withDescriptor = true, tinyLandmarks = false) {
     await this.ensureModelsLoaded();
     const image = await canvasLib.loadImage(buffer);
-    // 320 rather than 416: about half the time per frame on the server's
-    // CPU, with the same faces found on 480px captures.
+    // The detector is the slow part: about 0.7s at a 160 input against 2s at
+    // 320 on the server's CPU. The face fills these frames, so 160 finds it;
+    // only a frame where it doesn't is looked at again at larger sizes before
+    // counting as no face.
     const detect = async (inputSize: number) => {
       const withLandmarks = faceapi
         .detectAllFaces(image as any, new faceapi.TinyFaceDetectorOptions({ inputSize, scoreThreshold: 0.6 }))
-        .withFaceLandmarks();
+        .withFaceLandmarks(tinyLandmarks);
       const found: { landmarks: faceapi.FaceLandmarks68; detection: faceapi.FaceDetection; descriptor?: Float32Array }[] =
         withDescriptor ? await withLandmarks.withFaceDescriptors() : await withLandmarks;
       return found;
     };
-    let results = await detect(quick ? 224 : 320);
-    if (quick && results.length === 0) results = await detect(320);
+    let results = await detect(160);
+    if (results.length === 0) results = await detect(224);
+    if (results.length === 0) results = await detect(320);
 
     const thumbnail = this.grayThumbnail(image, 32);
     if (results.length !== 1) {
@@ -296,6 +299,12 @@ export class FaceVerificationService implements OnModuleInit {
         descriptor: best.descriptor,
       },
     };
+  }
+
+  // The anti-spoof score alone, on a face box already known: about 50ms, as
+  // the slow face search is skipped.
+  async antiSpoofFrameScore(buffer: Buffer, box: { x: number; y: number; width: number; height: number }) {
+    return this.antiSpoofRealScore(await canvasLib.loadImage(buffer), box);
   }
 
   // Passive anti-spoofing (presentation-attack detection) on a single frame:

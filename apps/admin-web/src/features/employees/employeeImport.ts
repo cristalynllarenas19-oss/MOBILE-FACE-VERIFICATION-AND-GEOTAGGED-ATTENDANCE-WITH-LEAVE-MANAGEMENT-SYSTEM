@@ -71,6 +71,7 @@ export const MAX_FILE_BYTES = 5 * 1024 * 1024;
 // (which hold the example rows) are never imported.
 const EMPLOYEES_SHEET = "Employees";
 const TEMPLATE_FILE_NAME = "e-TALA Employee Import Template.xlsx";
+const XLSX_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 // "Middle Name (Optional)" / "middle_name" / "MIDDLE NAME *" → "middlename".
 function normalizeHeader(value: string) {
@@ -263,8 +264,63 @@ export function mergeIssues(...lists: (ImportRowIssue[] | undefined)[]) {
 
 // ── Template ────────────────────────────────────────────────────────────────
 
-export async function downloadImportTemplate(reference: ImportReference) {
-  const XLSX = await loadSheetJs();
+type SaveFileHandle = {
+  createWritable: () => Promise<{
+    write: (data: Blob) => Promise<void>;
+    close: () => Promise<void>;
+  }>;
+  remove?: () => Promise<void>;
+};
+type SavePicker = (options: {
+  suggestedName: string;
+  types: { description: string; accept: Record<string, string[]> }[];
+}) => Promise<SaveFileHandle>;
+
+// The Save dialog (file explorer) has to open first, straight off the click —
+// browsers refuse to show it once the reference request has used up the user
+// gesture. Browsers without the dialog fall back to a plain download.
+export async function downloadImportTemplate(fetchReference: () => Promise<ImportReference>) {
+  const showSaveFilePicker = (window as unknown as { showSaveFilePicker?: SavePicker }).showSaveFilePicker;
+  let handle: SaveFileHandle | null = null;
+  if (showSaveFilePicker) {
+    try {
+      handle = await showSaveFilePicker({
+        suggestedName: TEMPLATE_FILE_NAME,
+        types: [{ description: "Excel workbook", accept: { [XLSX_TYPE]: [".xlsx"] } }],
+      });
+    } catch (error) {
+      // Cancelled the dialog — nothing is downloaded.
+      if (error instanceof DOMException && error.name === "AbortError") return;
+    }
+  }
+
+  let workbook: import("xlsx").WorkBook;
+  let XLSX: SheetJs;
+  try {
+    XLSX = await loadSheetJs();
+    workbook = buildImportTemplate(XLSX, await fetchReference());
+  } catch (error) {
+    // The dialog already created an empty file at the chosen location.
+    await handle?.remove?.().catch(() => undefined);
+    throw error;
+  }
+
+  if (handle) {
+    try {
+      const data = XLSX.write(workbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
+      const writable = await handle.createWritable();
+      await writable.write(new Blob([data], { type: XLSX_TYPE }));
+      await writable.close();
+      return;
+    } catch (error) {
+      // e.g. the file is open in Excel — download a copy instead.
+      console.warn("[EMPLOYEE IMPORT] Couldn't write to the chosen file; downloading instead.", error);
+    }
+  }
+  XLSX.writeFile(workbook, TEMPLATE_FILE_NAME);
+}
+
+function buildImportTemplate(XLSX: SheetJs, reference: ImportReference) {
   const workbook = XLSX.utils.book_new();
 
   // 1. Employees — the only sheet that's imported: header row, no data.
@@ -349,7 +405,7 @@ export async function downloadImportTemplate(reference: ImportReference) {
   listsSheet["!cols"] = columnWidths;
   XLSX.utils.book_append_sheet(workbook, listsSheet, "Lists");
 
-  XLSX.writeFile(workbook, TEMPLATE_FILE_NAME);
+  return workbook;
 }
 
 // ── Error report ────────────────────────────────────────────────────────────

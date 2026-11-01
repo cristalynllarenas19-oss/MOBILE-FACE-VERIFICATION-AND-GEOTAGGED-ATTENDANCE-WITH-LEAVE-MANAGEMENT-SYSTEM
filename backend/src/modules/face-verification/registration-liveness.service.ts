@@ -1,56 +1,56 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
-import { randomBytes, randomInt } from "crypto";
-import * as faceapi from "face-api.js";
+import { randomBytes } from "crypto";
+import * as fs from "fs"; // TEMP DEBUG
 import { FaceVerificationService } from "./face-verification.service";
 
 // Server-side liveness for Face Registration. The admin screen still runs
 // its guided steps live, but it no longer decides the outcome: this service
-// sets the steps per session (a fixed order, a random number of blinks),
-// receives a key frame
+// sets the steps per session (a fixed order, one blink), receives a key frame
 // as each step happens, measures every frame itself, and only a session it
 // has verified can be used to save a face profile — once.
 //
 // What this does and doesn't stop:
 //  - A photo or a face on a phone/monitor screen, from the very first step:
-//    a trained anti-spoofing model checks the first frame, the blink frames
-//    and the final photo (see SPOOF_MIN_REAL_SCORE).
+//    a trained anti-spoofing model looks throughout the steps (see liveCheck)
+//    and judges the blink frames and the final photo (see SPOOF_MIN_REAL_SCORE).
 //  - A printed or on-screen still photo: can't blink, and tilting a flat
 //    picture doesn't move the nose relative to the eyes the way a real head
-//    turn does (see headYaw), so the turn steps fail.
-//  - A pre-recorded video: the step order is fixed (blink, left, right) but
-//    the number of blinks is random per session, so a clip recorded with
-//    one blink count fails a session asking for the other.
-//  - Frozen/replayed frames, a second face, or a different person partway
-//    through: rejected per frame.
+//    turn does (see headYaw), so the right turn fails. The left turn is only
+//    judged on the admin screen, to keep the wait down: one is enough here.
+//  - A video on a phone/monitor: the anti-spoofing model above, on the same
+//    frames. A clip fed straight into the browser instead of shown to the
+//    camera isn't stopped by the step order, which is fixed (blink, left, right).
+//  - Frozen/replayed frames or a second face: rejected per frame.
+//  - Not checked: that the person in the final photo is the one who did the
+//    steps. The face model that would tell is the slowest, the admin reviews
+//    the photo, and someone else could as easily do the whole capture.
 //  - Not guaranteed: the anti-spoofing model is a statistical classifier,
 //    so a very sharp, glare-free screen or a 3D mask can still fool it, and
 //    an unusual real scene (strong backlight) can occasionally score low.
 
 export type LivenessChallenge = "blink" | "left" | "right";
-export type LivenessFrameKind = "straight" | "closed" | "open" | "left" | "right" | "final";
+export type LivenessFrameKind = "closed" | "open" | "right" | "final";
 
 const SESSION_TTL_MS = 3 * 60_000;
 // Time the admin gets, after a verified capture, to review it and press
 // Register Employee Face.
 const VERIFIED_TTL_MS = 10 * 60_000;
 
-// Same person from the last head turn to the final photo: descriptor distance
-// between the two. face-api.js's usual "same person" bound is 0.6.
-const SAME_PERSON_MAX_DISTANCE = 0.6;
 // Head turn, in eye-distances (the admin screen asks for 0.2; a little
 // slack for the key frame being taken a moment after the peak).
 const TURN_MIN_YAW = 0.12;
 const STRAIGHT_MAX_YAW = 0.15;
-// A blink's closed frame must be this much less open than the open eyes,
-// on either signal (landmark EAR or eye-opening contrast).
+// A blink's closed frame must be this much less open than the open frame right
+// after it, on either signal (landmark EAR or eye-opening contrast). Compared
+// with that frame rather than the first one, whose eye readings vary too much
+// between frames: real blinks kept being rejected against it.
 const CLOSED_MAX_EAR_RATIO = 0.85;
 const CLOSED_MAX_CONTRAST_RATIO = 0.78;
-// ...and the following open frame must recover to at least this share.
-const REOPEN_MIN_RATIO = 0.85;
 // Mean absolute difference (0-255) of a 32x32 grayscale thumbnail below
-// which two consecutive frames count as the same, frozen image. Real camera
-// noise alone is well above this.
-const FROZEN_MAX_DIFF = 0.4;
+// which two consecutive frames count as the same, frozen image. A still person
+// blinking in a dim room measured down to 0.37 between frames, as a webcam
+// smooths its noise away in low light, so this is well under that.
+const FROZEN_MAX_DIFF = 0.1;
 const MIN_FACE_WIDTH = 100;
 // A step that wasn't done well enough (a weak blink, a small turn, not
 // facing forward) can be redone this many times in one session before the
@@ -58,12 +58,12 @@ const MIN_FACE_WIDTH = 100;
 // fail the session at once.
 const MAX_STEP_RETRIES = 3;
 // Anti-spoof model (see FaceVerificationService.antiSpoofRealScore): the
-// lowest "real face" probability allowed on the first (Face detected) frame
-// and on the final photo. Calibrated on this system's own data: registrations
-// from the admin webcam scored 0.996-1.0 (the lowest, 0.475, had a bright
-// window and frame edges behind the face), and a face shown on a phone held
-// up to the webcam scored 0.03.
-const SPOOF_MIN_REAL_SCORE = 0.3;
+// lowest "real face" probability allowed on the blink frames, the final photo
+// and each look during the steps. Calibrated on this system's own data:
+// registrations from the admin webcam scored 0.98-1.0, closed eyes included
+// (the lowest, 0.475, had a bright window and frame edges behind the face), and
+// a face on a phone held up to the webcam scored 0.00-0.03, video included.
+const SPOOF_MIN_REAL_SCORE = 0.5;
 const SPOOF_FAILURE =
   "This looks like a photo or a phone/computer screen, not a live face. The employee must be in front of the camera in person.";
 
@@ -82,8 +82,6 @@ type Session = {
   status: "pending" | "verified" | "failed";
   reason?: string;
   busy: boolean;
-  reference?: Float32Array;
-  openEyes?: EyeReading;
   lastClosed?: EyeReading;
   lastThumbnail?: Float32Array;
   lastImage?: string;
@@ -100,16 +98,15 @@ export class RegistrationLivenessService {
   createSession(employeeId: string, actorUserId?: string) {
     this.sweep();
 
-    // Always the same order: blink, then turn left, then right. The number
-    // of blinks (one or two) is random per session instead.
+    // Always the same order: blink, then turn left, then right.
     const challenges: LivenessChallenge[] = ["blink", "left", "right"];
-    const blinkCount = 1 + randomInt(2);
+    const blinkCount = 1;
 
-    const expected: LivenessFrameKind[] = ["straight"];
+    const expected: LivenessFrameKind[] = [];
     for (const challenge of challenges) {
       if (challenge === "blink") {
         for (let i = 0; i < blinkCount; i += 1) expected.push("closed", "open");
-      } else {
+      } else if (challenge === "right") {
         expected.push(challenge);
       }
     }
@@ -155,12 +152,35 @@ export class RegistrationLivenessService {
 
     session.busy = true;
     try {
-      return await this.checkFrame(session, kind as LivenessFrameKind, image);
+      const result = await this.checkFrame(session, kind as LivenessFrameKind, image);
+      debugLog(`  -> ${JSON.stringify(result)}`); // TEMP DEBUG
+      return result;
     } catch {
       return this.fail(session, "A camera frame couldn't be read. Please start again.");
     } finally {
       session.busy = false;
     }
+  }
+
+  // A quick look during the blink step, so a phone is stopped while it's being
+  // held up instead of after its blink: the anti-spoof score alone, on the face
+  // box the admin screen's tracker found. That box is the browser's word, so
+  // this only decides how soon a screen is caught; a live-looking answer here
+  // proves nothing, and the frames in submitFrame are still judged in full.
+  async liveCheck(
+    sessionId: string,
+    image: string,
+    box: { x: number; y: number; width: number; height: number },
+    actorUserId?: string,
+  ) {
+    const session = this.sessions.get(sessionId);
+    if (!session || (session.actorUserId && session.actorUserId !== actorUserId)) {
+      throw new NotFoundException("Liveness session not found. Start the guided capture again.");
+    }
+    const base64 = image.includes("base64,") ? image.split("base64,")[1] : image;
+    const realScore = await this.faceService.antiSpoofFrameScore(Buffer.from(base64, "base64"), box);
+    debugLog(`live-check ${session.id.slice(0, 6)} real=${realScore.toFixed(3)} width=${box.width.toFixed(0)}`); // TEMP DEBUG
+    return realScore < SPOOF_MIN_REAL_SCORE ? { live: false, reason: SPOOF_FAILURE } : { live: true, reason: null };
   }
 
   // The verified capture for this employee, without using it up — so a
@@ -192,15 +212,20 @@ export class RegistrationLivenessService {
     }
     const base64 = image.includes("base64,") ? image.split("base64,")[1] : image;
     const buffer = Buffer.from(base64, "base64");
-    // Only the last head turn gets a descriptor in the middle of the session
-    // (the slowest model): it's the same-person reference the final photo is
-    // checked against. The first frame keeps the fuller face search the
-    // anti-spoof model was calibrated on; the final photo has its own pass,
-    // which also computes the descriptor to store.
-    const analysis =
-      kind === "final"
-        ? await this.faceService.analyzeFinalRegistrationFrame(buffer)
-        : await this.faceService.analyzeRegistrationFrame(buffer, kind === "right", kind !== "straight");
+    const debugStart = Date.now(); // TEMP DEBUG
+    // Only the blink needs the full model's eyelids, and only the final photo a
+    // descriptor (the slowest model), which is what saving it needs.
+    const blink = kind === "closed" || kind === "open";
+    const analysis = await this.faceService.analyzeRegistrationFrame(buffer, kind === "final", !blink);
+
+    // TEMP DEBUG
+    debugLog(`analysis took ${Date.now() - debugStart}ms`);
+    const debugName =`${session.id.slice(0, 6)}-${String(session.received).padStart(2, "0")}-${Date.now()}-${kind}`;
+    fs.mkdirSync(DEBUG_DIR, { recursive: true });
+    fs.writeFileSync(`${DEBUG_DIR}/${debugName}.jpg`, buffer);
+    debugLog(
+      `${debugName} faces=${analysis.faceCount} real=${analysis.face?.realScore?.toFixed(3)} ear=${analysis.face?.ear?.toFixed(3)} contrast=${analysis.face?.eyeContrast?.toFixed(1)} yaw=${analysis.face?.yaw?.toFixed(3)} width=${analysis.face?.faceWidth?.toFixed(0)}`,
+    );
 
     if (analysis.faceCount > 1) {
       return this.fail(session, "More than one face was in the camera. Only the employee may be visible.");
@@ -213,35 +238,13 @@ export class RegistrationLivenessService {
     }
 
     const { face } = analysis;
-    // Checked on the very first frame, so a photo or screen never gets past
-    // "Face detected" — and again on the photo that will be stored.
-    if (kind === "straight" || kind === "final") {
+    // On the blink frames, so a phone playing a blinking video is stopped there
+    // too, and on the photo that will be stored.
+    if (kind === "closed" || kind === "open" || kind === "final") {
       // Logged to keep SPOOF_MIN_REAL_SCORE calibrated on real captures.
       this.logger.log(`Anti-spoof real score (${kind}): ${face.realScore.toFixed(3)}`);
+      if (face.realScore < SPOOF_MIN_REAL_SCORE) return this.fail(session, SPOOF_FAILURE);
     }
-    if ((kind === "straight" || kind === "final") && face.realScore < SPOOF_MIN_REAL_SCORE) {
-      return this.fail(session, SPOOF_FAILURE);
-    }
-    // Blink frames too, so a phone playing a blinking video can't be held up
-    // after a real face passed the first frame. A redo rather than an instant
-    // fail, as closed eyes haven't been calibrated like the frames above; a
-    // video keeps failing here until the retries run out.
-    if (kind === "closed" || kind === "open") {
-      this.logger.log(`Anti-spoof real score (${kind}): ${face.realScore.toFixed(3)}`);
-      if (face.realScore < SPOOF_MIN_REAL_SCORE) return this.retryStep(session, kind, SPOOF_FAILURE);
-    }
-    // The stored descriptor is computed the way attendance matching computes
-    // its own (see analyzeFinalRegistrationFrame), never taken from the browser.
-    const finalDescriptor = kind === "final" ? face.descriptor : null;
-    const descriptor = face.descriptor;
-    if (descriptor) {
-      if (!session.reference) {
-        session.reference = descriptor;
-      } else if (faceapi.euclideanDistance(session.reference, descriptor) > SAME_PERSON_MAX_DISTANCE) {
-        return this.fail(session, "A different face appeared during the liveness check. Please start again.");
-      }
-    }
-
     const eyes: EyeReading = { ear: face.ear, eyeContrast: face.eyeContrast };
     const failure = this.checkKind(session, kind, face.yaw, eyes, face.faceWidth);
     if (failure) return this.retryStep(session, kind, failure);
@@ -250,13 +253,28 @@ export class RegistrationLivenessService {
     session.lastThumbnail = analysis.thumbnail;
     session.lastImage = image;
 
-    if (finalDescriptor) {
-      session.final = { image, descriptor: Array.from(finalDescriptor) };
+    if (kind === "final" && face.descriptor) {
+      session.final = { image, descriptor: Array.from(face.descriptor) };
       session.status = "verified";
       session.expiresAt = Date.now() + VERIFIED_TTL_MS;
       return { status: "verified" as const, reason: null };
     }
     return { status: "pending" as const, reason: null };
+  }
+
+  // The descriptor to keep, computed the way attendance matching computes its
+  // own (see analyzeFinalRegistrationFrame), never taken from the browser. That
+  // pass is the slowest, so nobody waits for it: FaceProfilesService runs it
+  // once the profile is saved, and it replaces the saved descriptor when done.
+  // Null if it can't be computed; the capture's own descriptor then stays.
+  async storedDescriptor(image: string) {
+    try {
+      const base64 = image.includes("base64,") ? image.split("base64,")[1] : image;
+      const { face } = await this.faceService.analyzeFinalRegistrationFrame(Buffer.from(base64, "base64"));
+      return face?.descriptor ? Array.from(face.descriptor) : null;
+    } catch {
+      return null;
+    }
   }
 
   // Returns why this frame doesn't show what its step asked for, or null.
@@ -268,29 +286,17 @@ export class RegistrationLivenessService {
     faceWidth: number,
   ): string | null {
     switch (kind) {
-      case "straight":
-        if (Math.abs(yaw) > STRAIGHT_MAX_YAW) return "Face the camera directly.";
-        session.openEyes = eyes;
-        return null;
-      case "closed": {
+      case "closed":
         if (Math.abs(yaw) > STRAIGHT_MAX_YAW) return "Keep facing the camera while blinking.";
-        const open = session.openEyes;
-        const earClosed = ratioBelow(eyes.ear, open?.ear, CLOSED_MAX_EAR_RATIO);
-        const contrastClosed = ratioBelow(eyes.eyeContrast, open?.eyeContrast, CLOSED_MAX_CONTRAST_RATIO);
-        if (!earClosed && !contrastClosed) return "The blink couldn't be confirmed. Blink clearly.";
         session.lastClosed = eyes;
         return null;
-      }
       case "open": {
         const closed = session.lastClosed;
-        const reopened =
-          ratioAbove(eyes.ear, closed?.ear, 1 / REOPEN_MIN_RATIO) ||
-          ratioAbove(eyes.eyeContrast, closed?.eyeContrast, 1 / REOPEN_MIN_RATIO);
-        if (!reopened) return "The blink couldn't be confirmed. Blink clearly.";
-        return null;
+        const blinked =
+          ratioBelow(closed?.ear ?? null, eyes.ear, CLOSED_MAX_EAR_RATIO) ||
+          ratioBelow(closed?.eyeContrast ?? null, eyes.eyeContrast, CLOSED_MAX_CONTRAST_RATIO);
+        return blinked ? null : "The blink couldn't be confirmed. Blink clearly.";
       }
-      case "left":
-        return yaw >= TURN_MIN_YAW ? null : "The left head turn couldn't be confirmed.";
       case "right":
         return yaw <= -TURN_MIN_YAW ? null : "The right head turn couldn't be confirmed.";
       case "final":
@@ -327,6 +333,14 @@ export class RegistrationLivenessService {
   }
 }
 
+// TEMP DEBUG
+const DEBUG_DIR =
+  "C:/Users/CRISTA~1/AppData/Local/Temp/claude/c--Projects-MOBILE-FACE-VERIFICATION-AND-GEOTAGGED-ATTENDANCE-WITH-LEAVE-MANAGEMENT-SYSTEM/5a6c9cf9-acb7-4523-ac37-dc0d10a0919f/scratchpad/liveness-debug";
+function debugLog(line: string) {
+  fs.mkdirSync(DEBUG_DIR, { recursive: true });
+  fs.appendFileSync(`${DEBUG_DIR}/scores.log`, `${line}\n`);
+}
+
 function meanAbsDiff(a: Float32Array, b: Float32Array) {
   let sum = 0;
   for (let i = 0; i < a.length; i += 1) sum += Math.abs(a[i] - b[i]);
@@ -334,11 +348,6 @@ function meanAbsDiff(a: Float32Array, b: Float32Array) {
 }
 
 // value <= reference * ratio, when both were measured.
-function ratioBelow(value: number | null, reference: number | null | undefined, ratio: number) {
-  return value !== null && reference != null && reference > 0 && value <= reference * ratio;
-}
-
-// value >= reference * ratio, when both were measured.
-function ratioAbove(value: number | null, reference: number | null | undefined, ratio: number) {
-  return value !== null && reference != null && reference > 0 && value >= reference * ratio;
+function ratioBelow(value: number | null, reference: number | null, ratio: number) {
+  return value !== null && reference !== null && reference > 0 && value <= reference * ratio;
 }

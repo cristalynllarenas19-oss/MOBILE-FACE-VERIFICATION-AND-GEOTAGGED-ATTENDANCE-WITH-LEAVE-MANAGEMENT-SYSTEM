@@ -1,4 +1,5 @@
-import { IsIn, IsString } from "class-validator";
+import { Type } from "class-transformer";
+import { IsIn, IsNumber, IsPositive, IsString, ValidateNested } from "class-validator";
 
 export class CreateLivenessSessionDto {
   @IsString()
@@ -6,9 +7,32 @@ export class CreateLivenessSessionDto {
 }
 
 export class SubmitLivenessFrameDto {
-  @IsIn(["straight", "closed", "open", "left", "right", "final"])
+  @IsIn(["closed", "open", "right", "final"])
   kind!: string;
 
   @IsString()
   image!: string;
+}
+
+class FaceBoxDto {
+  @IsNumber()
+  x!: number;
+
+  @IsNumber()
+  y!: number;
+
+  @IsPositive()
+  width!: number;
+
+  @IsPositive()
+  height!: number;
+}
+
+export class LiveCheckDto {
+  @IsString()
+  image!: string;
+
+  @ValidateNested()
+  @Type(() => FaceBoxDto)
+  box!: FaceBoxDto;
 }

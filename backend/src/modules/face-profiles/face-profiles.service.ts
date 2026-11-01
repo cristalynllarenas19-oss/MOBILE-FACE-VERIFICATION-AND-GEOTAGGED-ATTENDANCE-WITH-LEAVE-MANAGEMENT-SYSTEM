@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.service";
 import { AuditLogContext, AuditLogsService } from "../audit-logs/audit-logs.service";
 import { UpsertFaceProfileDto } from "./dto/upsert-face-profile.dto";
@@ -7,6 +7,8 @@ import { RegistrationLivenessService } from "../face-verification/registration-l
 
 @Injectable()
 export class FaceProfilesService {
+  private readonly logger = new Logger(FaceProfilesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLogs: AuditLogsService,
@@ -105,6 +107,7 @@ export class FaceProfilesService {
       });
 
       this.liveness.consume(dto.livenessSessionId);
+      this.keepStoredDescriptor(updated, verified.image);
       return updated;
     }
 
@@ -134,7 +137,29 @@ export class FaceProfilesService {
     });
 
     this.liveness.consume(dto.livenessSessionId);
+    this.keepStoredDescriptor(created, verified.image);
     return created;
+  }
+
+  // Swaps in the attendance-style descriptor after the save, so registering
+  // doesn't wait for it; it starts a moment later as it holds up the server
+  // while it runs, and the save's response has to get out first. Matched on
+  // enrolledAt too: if the face was re-registered in the meantime, this older
+  // capture leaves the newer one alone.
+  private keepStoredDescriptor(profile: { id: string; enrolledAt: Date | null }, image: string) {
+    setTimeout(() => {
+      void this.liveness
+        .storedDescriptor(image)
+        .then((descriptor) =>
+          descriptor
+            ? this.prisma.faceProfile.updateMany({
+                where: { id: profile.id, enrolledAt: profile.enrolledAt },
+                data: { descriptors: [descriptor] as any },
+              })
+            : undefined,
+        )
+        .catch((error) => this.logger.warn(`Stored descriptor not updated: ${error instanceof Error ? error.message : String(error)}`));
+    }, 1000);
   }
 
   async createLivenessSession(employeeId: string, actorUserId?: string) {

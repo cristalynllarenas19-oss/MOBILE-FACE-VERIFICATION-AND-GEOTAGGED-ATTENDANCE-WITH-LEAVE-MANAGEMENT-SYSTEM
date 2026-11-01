@@ -501,16 +501,13 @@ export class EmployeesService implements OnApplicationBootstrap {
   private async generateEmployeeNo(hireDate: Date): Promise<string> {
     const year = hireDate.getFullYear();
 
-    const [{ last_number }] = await this.prisma.$transaction(async (tx) => {
-      await tx.id_sequences.upsert({
-        where: { year },
-        update: {},
-        create: { year, last_number: 0 },
-      });
-      return tx.$queryRaw<{ last_number: number }[]>`
-        UPDATE id_sequences SET last_number = last_number + 1 WHERE year = ${year} RETURNING last_number
-      `;
-    });
+    // One statement, so Batch Import's simultaneous rows can't collide on a
+    // hire year that has no counter yet.
+    const [{ last_number }] = await this.prisma.$queryRaw<{ last_number: number }[]>`
+      INSERT INTO id_sequences (year, last_number) VALUES (${year}, 1)
+      ON CONFLICT (year) DO UPDATE SET last_number = id_sequences.last_number + 1
+      RETURNING last_number
+    `;
 
     return `ULPI-${String(year).slice(-2)}${String(last_number).padStart(3, "0")}`;
   }

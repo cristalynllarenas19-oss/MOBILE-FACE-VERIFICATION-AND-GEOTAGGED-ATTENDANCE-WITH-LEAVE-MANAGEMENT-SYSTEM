@@ -395,7 +395,6 @@ const LIVENESS_MAX_STEP_RETRIES = 3;
 // The longest the final verification may take after the photo before the
 // attempt counts as failed (the server measures every frame it received).
 const LIVENESS_VERIFY_TIMEOUT_MS = 60_000;
-const LIVE_FACE_CHECK_HINT = "Checking for a live face...";
 
 // The face oval's outline in an 80x100 box: top → right → bottom → left →
 // top (two clockwise half-arcs), so the progress ring fills from the top.
@@ -443,6 +442,10 @@ const BLINK_REFERENCE_DRIFT = 0.03;
 const YAW_BLINK_MAX = 0.14;
 const BLINK_MAX_HEAD_SHIFT = 0.12;
 const BLINK_EYES_MAX_AGE_MS = 600;
+// During the steps the backend looks for a phone/photo this often, and this
+// many readings in a row stop the attempt (one blurred frame shouldn't).
+const LIVE_CHECK_MS = 800;
+const LIVE_CHECK_FAILS = 2;
 // How far the face centre may sit from the oval's centre, as a share of the
 // oval's half-size, and still count as inside it.
 const FACE_IN_OVAL_MAX = 0.42;
@@ -619,7 +622,13 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
   const trackingInFlightRef = useRef(false);
   const livenessListenerRef = useRef<((face: TrackedFace | null) => void) | null>(null);
   const livenessAbortRef = useRef<((error?: Error) => void) | null>(null);
+  // The backend's latest looks for a phone/photo (see checkLive). Kept across
+  // steps so a new step doesn't have to wait for its first answer.
+  const liveWatchRef = useRef({ confirmed: false, fails: 0, busy: false, at: 0 });
   const fullLandmarksReadyRef = useRef(false);
+  // Only the blink needs the full model's eyelids; the tiny one reads head turns
+  // just as well, and leaves more of the machine to the backend.
+  const blinkStepRef = useRef(false);
   // The backend liveness session of the running guided capture. Key frames
   // are uploaded one at a time, in order, through frameChainRef; a rejection
   // is kept in `failure` and ends the attempt. A step the backend wants
@@ -816,8 +825,8 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
       trackingInFlightRef.current = true;
 
       try {
-        // Tiny landmarks normally; the accurate ones while a guided step runs.
-        const useTinyLandmarks = !(livenessListenerRef.current && fullLandmarksReadyRef.current);
+        // Tiny landmarks normally; the accurate ones during the blink step.
+        const useTinyLandmarks = !(blinkStepRef.current && fullLandmarksReadyRef.current);
         const result = await faceapi
           .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 }))
           .withFaceLandmarks(useTinyLandmarks);
@@ -958,8 +967,53 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
         closedFrame = null;
         latestEyes = null;
       };
+      // A phone is stopped while it's held up, not after it has done the step:
+      // no step passes until the backend's latest look says this is a live
+      // face. If that look can't be had, the attempt stops too.
+      let finished = false;
+      const checkLive = (video: HTMLVideoElement, box: faceapi.Box) => {
+        const session = livenessSessionRef.current;
+        const now = performance.now();
+        const watch = liveWatchRef.current;
+        if (!session || watch.busy || now - watch.at < LIVE_CHECK_MS) return;
+        watch.busy = true;
+        watch.at = now;
+        // From video pixels to the 480px square imageFromVideo makes.
+        const size = Math.min(video.videoWidth, video.videoHeight);
+        const scale = 480 / size;
+        apiRequest<{ live: boolean; reason: string | null }>(`/face-profiles/liveness-sessions/${session.id}/live-check`, {
+          method: "POST",
+          body: JSON.stringify({
+            image: imageFromVideo(video),
+            box: {
+              x: (box.x - (video.videoWidth - size) / 2) * scale,
+              y: (box.y - (video.videoHeight - size) / 2) * scale,
+              width: box.width * scale,
+              height: box.height * scale,
+            },
+          }),
+        })
+          .then((result) => {
+            watch.confirmed = result.live;
+            watch.fails = result.live ? 0 : watch.fails + 1;
+            if (!finished && watch.fails >= LIVE_CHECK_FAILS) {
+              finish(new LivenessFailed(result.reason ?? "This looks like a photo or a phone/computer screen."));
+            }
+          })
+          .catch((error) => {
+            watch.confirmed = false;
+            watch.fails += 1;
+            if (!finished && watch.fails >= LIVE_CHECK_FAILS) {
+              const detail = error instanceof Error ? ` ${error.message}` : "";
+              finish(new LivenessFailed(`Couldn't check for a live face.${detail}`));
+            }
+          })
+          .finally(() => {
+            watch.busy = false;
+          });
+      };
       const blinkSeen = (video: HTMLVideoElement) => {
-        if (!closedFrame) {
+        if (!closedFrame || !liveWatchRef.current.confirmed) {
           restartBlink();
           return;
         }
@@ -984,6 +1038,8 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
       let eyeSampler: number | null = null;
 
       const finish = (error?: Error) => {
+        finished = true;
+        blinkStepRef.current = false;
         window.clearTimeout(timer);
         if (eyeSampler !== null) window.clearInterval(eyeSampler);
         livenessListenerRef.current = null;
@@ -995,6 +1051,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
       livenessAbortRef.current = (error) => finish(error ?? new LivenessCancelled());
 
       if (key === "blink") {
+        blinkStepRef.current = true;
         // The head is held still (see restartBlink), so the eye positions
         // from the last detection are good enough to sample in between — as
         // long as they're fresh.
@@ -1016,6 +1073,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
           setLivenessHint(positionHint);
           return;
         }
+        checkLive(face.video, face.box);
         const yaw = headYaw(face.landmarks);
 
         if (key === "straight" || key === "center") {
@@ -1028,6 +1086,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
           }
           heldSince ??= performance.now();
           if (performance.now() - heldSince < (key === "center" ? LIVENESS_CAPTURE_HOLD_MS : LIVENESS_HOLD_MS)) return;
+          if (!liveWatchRef.current.confirmed) return;
           finish();
           return;
         }
@@ -1080,7 +1139,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
             ? positionHint
             : "",
         );
-        if (wanted) {
+        if (wanted && liveWatchRef.current.confirmed) {
           setLivenessWrongWay(false);
           finish();
         }
@@ -1133,7 +1192,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
   // Queues one key frame for the backend. Frames go strictly one after
   // another, in the order the steps happened; once the backend rejects one
   // (or can't be reached) the rest are skipped and the attempt fails.
-  function submitLivenessFrame(kind: "straight" | "closed" | "open" | "left" | "right" | "final", image: string) {
+  function submitLivenessFrame(kind: "closed" | "open" | "right" | "final", image: string) {
     const session = livenessSessionRef.current;
     // While a step is waiting to be redone, nothing else is sent.
     if (!session || session.retry) return;
@@ -1234,6 +1293,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
         generation: 0,
       };
       frameChainRef.current = Promise.resolve();
+      liveWatchRef.current = { confirmed: false, fails: 0, busy: false, at: 0 };
       setLivenessSteps(steps);
       setFaceTrackingRate(LIVENESS_TRACKING_MS);
 
@@ -1261,33 +1321,20 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
               throw new LivenessStepRetry(step.key, error instanceof Error ? error.message : step.timeout);
             };
             if (index === steps.length - 1) {
-              // "Capturing photo..." on the live video while the backend works
-              // through the earlier frames (tracking off, so it has the machine
-              // to itself). The photo is only taken once they've passed, and
-              // that's when the picture holds still.
-              stopFaceTracking();
-              if (await livenessTimedOut()) throw new LivenessFailed("Liveness verification timed out. Please try again.");
-              if (!sequenceRef.current) return;
-              throwIfLivenessFailed();
-              startFaceTracking(true);
+              // Taken straight away; the backend catches up on the earlier
+              // frames while the photo review is open.
               submitLivenessFrame("final", await captureWhenStraight(step.key, step.timeout).catch(asRetry));
             } else {
               await waitForStep(step.key, step.timeout).catch(asRetry);
-              // Straight and turns: the frame right as the step is detected.
-              // (Blinks send their own frames — see waitForStep.)
-              if (step.key !== "blink" && videoRef.current) {
-                submitLivenessFrame(step.key as "straight" | "left" | "right", imageFromVideo(videoRef.current));
+              // The right turn: the frame right as the step is detected. (Blinks
+              // send their own frames, see waitForStep; step 1 and the left turn
+              // only need checkLive.)
+              if (step.key === "right" && videoRef.current) {
+                submitLivenessFrame(step.key, imageFromVideo(videoRef.current));
               }
-              // Step 1 isn't ticked until the backend's anti-spoofing check has
-              // judged that frame a live face, so a photo or a phone screen
-              // stops right here. Later steps are judged in the background so
-              // the employee isn't kept waiting; a rejected frame stops the step
-              // in progress.
-              if (step.key === "straight") {
-                setLivenessHint(LIVE_FACE_CHECK_HINT);
-                if (await livenessTimedOut()) throw new LivenessFailed("Liveness verification timed out. Please try again.");
-                if (!sequenceRef.current) return;
-              }
+              // Judged in the background so the employee isn't kept waiting
+              // (a phone was already stopped during the step, see checkLive);
+              // a rejected frame stops the step in progress.
             }
             throwIfLivenessFailed();
             setLivenessRetryNote("");
@@ -1296,10 +1343,11 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
           }
           if (!sequenceRef.current) return;
 
-          // "Photo captured" while the backend judges the photo, the video held
-          // on the captured frame; then the camera stops (the captured photo
-          // stays in its place) and the photo review opens, ready to register.
+          // The photo review opens while the backend finishes judging, its
+          // Confirm button held until then; the camera then stops. A frame it
+          // rejects closes the review and goes back to that step.
           setLivenessVerifying(true);
+          setShowCapturePreview(true);
           const timedOut = await livenessTimedOut();
           if (!sequenceRef.current) return;
           setLivenessVerifying(false);
@@ -1318,6 +1366,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
           if (current) current.retry = null;
           index = Math.max(0, steps.findIndex((step) => step.key === error.step));
           setLivenessVerifying(false);
+          setShowCapturePreview(false);
           resumeVideo();
           setLivenessRetryNote(`${error.message} Please try again.`);
           // The photo step pauses tracking; the redone step needs it.
@@ -1329,7 +1378,6 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
       sequenceRef.current = false;
       stopCamera();
       setMessage("");
-      setShowCapturePreview(true);
     } catch (error) {
       sequenceRef.current = false;
       if (error instanceof LivenessCancelled) return;
@@ -1337,6 +1385,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
       // Never leave an unverified capture behind to be registered.
       livenessSessionRef.current = null;
       setLivenessVerifying(false);
+      setShowCapturePreview(false);
       resumeVideo();
       setPreview("");
       setLiveness((current) => ({ step: current?.step ?? 0, status: "failed", reason }));
@@ -1352,9 +1401,11 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
     }
   }
 
+  // Closed during the check, the check carries on behind it (the camera card
+  // shows where it stands) and the register button opens up when it passes.
   function closeCapturePreview() {
     setShowCapturePreview(false);
-    setMessage("Guided face capture complete. Review the details and register the employee.");
+    if (!livenessVerifying) setMessage("Guided face capture complete. Review the details and register the employee.");
   }
 
   function resetCapture() {
@@ -1659,8 +1710,6 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
         ? { label: "Photo captured", tone: "good" }
         : liveness?.status === "active" && currentLivenessStep.key === "center" && !livenessHint
           ? { label: "Capturing photo...", tone: "good" }
-        : liveness?.status === "active" && livenessHint === LIVE_FACE_CHECK_HINT
-          ? { label: "Verifying liveness...", tone: "good" }
         : liveness?.status === "failed"
           ? { label: "Liveness verification failed", tone: "bad" }
           : eyewearDetected
@@ -1668,7 +1717,7 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
             : liveness?.status === "active" && (livenessWrongWay || livenessHint)
               ? { label: "Action required", tone: "bad" }
             : liveness && framesChecking > 0
-              ? { label: "Verifying liveness...", tone: "good" }
+              ? { label: "Liveness check in progress", tone: "good" }
             : liveness?.status === "passed"
               ? { label: "Liveness verified", tone: "good" }
               : liveness
@@ -2258,12 +2307,12 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
                 onClick={saveEnrollment}
                 disabled={busy || !verifiedSessionId}
               >
-                <Check size={16} /> {busy ? "Registering..." : "Confirm & Register"}
+                <Check size={16} /> {livenessVerifying ? "Checking photo..." : busy ? "Registering..." : "Confirm & Register"}
               </button>
               <button
                 className="outline-button"
                 onClick={() => { setShowCapturePreview(false); stopCamera(); resetCapture(); startCamera(); }}
-                disabled={busy}
+                disabled={busy && !livenessVerifying}
               >
                 <RefreshCw size={16} /> Retake
               </button>

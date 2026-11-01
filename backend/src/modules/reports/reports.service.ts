@@ -285,9 +285,10 @@ export class ReportsService {
         },
       }));
 
-    // Permanent Seasonal accrual, one summary row per employee like Leave →
-    // Accrual History. Follows the same dates as the Leave report: a single-day
-    // report carries the history up to that day, a range the periods touching it.
+    // Permanent Seasonal accrual, one row per employee: every qualifying period
+    // listed (like Remaining Leave's used dates) with totals across them. Follows
+    // the same dates as the Leave report: a single-day report carries the history
+    // up to that day, a range the periods touching it.
     const accrualRecords = await this.prisma.leaveAccrualRecord.findMany({
       where: {
         employee: { ...employeeWhere, employmentStatus: "PERMANENT_SEASONAL" },
@@ -301,7 +302,7 @@ export class ReportsService {
         outcome: true,
         sickLeaveEarned: true,
         vacationLeaveEarned: true,
-        employee: { select: { firstName: true, lastName: true, sex: true, department: { select: { name: true } } } },
+        employee: { select: { firstName: true, lastName: true, employmentStatus: true, department: { select: { name: true } } } },
       },
     });
     const accrualByEmployee = new Map<
@@ -309,8 +310,7 @@ export class ReportsService {
       {
         employeeId: string;
         employee: (typeof accrualRecords)[number]["employee"];
-        periodStart: Date;
-        periodEnd: Date;
+        periods: { startDate: Date; endDate: Date }[];
         absences: number;
         sickLeaveEarned: number;
         vacationLeaveEarned: number;
@@ -320,14 +320,12 @@ export class ReportsService {
       const summary = accrualByEmployee.get(record.employeeId) ?? {
         employeeId: record.employeeId,
         employee: record.employee,
-        periodStart: record.cycleStart,
-        periodEnd: record.cycleEnd,
+        periods: [],
         absences: 0,
         sickLeaveEarned: 0,
         vacationLeaveEarned: 0,
       };
-      if (record.cycleStart < summary.periodStart) summary.periodStart = record.cycleStart;
-      if (record.cycleEnd > summary.periodEnd) summary.periodEnd = record.cycleEnd;
+      summary.periods.push({ startDate: record.cycleStart, endDate: record.cycleEnd });
       if (record.outcome === "VIOLATED") summary.absences += 1;
       summary.sickLeaveEarned += Number(record.sickLeaveEarned);
       summary.vacationLeaveEarned += Number(record.vacationLeaveEarned);
