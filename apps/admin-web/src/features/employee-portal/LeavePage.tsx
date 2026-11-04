@@ -1355,6 +1355,12 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
     return r.extension?.extensionId ? requests.find((other) => other.id === r.extension?.extensionId) : undefined;
   }
 
+  // An extended leave can only have some of its days cancelled — every day
+  // needs the extension cancelled first (see cancel() in leave.service.ts).
+  const cancelTarget = confirmCancelId ? requests.find((r) => r.id === confirmCancelId) : undefined;
+  const cancelAllWithExtension =
+    !!cancelTarget && !!activeExtensionOf(cancelTarget) && cancelDayTimes.length >= leaveDaysOf(cancelTarget).length;
+
   function renderRequestSummary(r: LeaveRequest) {
     const tone = statusTone(r.status);
     const extension = activeExtensionOf(r);
@@ -1546,7 +1552,9 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                 setCancelReasonText("");
                 setCancelFile(null);
                 setCancelFileErr(null);
-                setCancelDayTimes(leaveDaysOf(r).map((d) => d.getTime()).filter((t) => !worked.has(t)));
+                // An extended leave can't be cancelled whole — only some days —
+                // so nothing starts ticked.
+                setCancelDayTimes(extensionRequest ? [] : leaveDaysOf(r).map((d) => d.getTime()).filter((t) => !worked.has(t)));
               }}
               disabled={!cancellation.allowed}
               style={{
@@ -2725,6 +2733,13 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                       })}
                     </div>
                   </div>
+                  {activeExtensionOf(target) && (
+                    <p style={{ color: cancelAllWithExtension ? "#DC2626" : "#64748B", fontSize: 12, fontWeight: 600, lineHeight: "17px", margin: "-4px 0 12px", textAlign: "left" }}>
+                      {cancelAllWithExtension
+                        ? "This leave has an extension. To cancel every day, cancel the extension first."
+                        : "Your extension stays as it is — only the days you pick are cancelled."}
+                    </p>
+                  )}
                 </>
               );
             })()}
@@ -2789,11 +2804,11 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                   setCancelFile(null);
                   setConfirmCancelId(null);
                 }}
-                disabled={!cancelReasonText.trim() || cancelDayTimes.length === 0}
+                disabled={!cancelReasonText.trim() || cancelDayTimes.length === 0 || cancelAllWithExtension}
                 style={{
                   ...primBtn, flex: 1,
-                  background: cancelReasonText.trim() && cancelDayTimes.length > 0 ? "#DC2626" : "#FCA5A5",
-                  cursor: cancelReasonText.trim() && cancelDayTimes.length > 0 ? "pointer" : "not-allowed",
+                  background: cancelReasonText.trim() && cancelDayTimes.length > 0 && !cancelAllWithExtension ? "#DC2626" : "#FCA5A5",
+                  cursor: cancelReasonText.trim() && cancelDayTimes.length > 0 && !cancelAllWithExtension ? "pointer" : "not-allowed",
                 }}
               >
                 Yes, Cancel

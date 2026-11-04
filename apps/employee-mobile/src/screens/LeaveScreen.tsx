@@ -858,6 +858,17 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
   // where they were and sees the request's own status flip to "Pending
   // Cancellation"/"Cancelled" in place, instead of being bounced back out to
   // the list.
+  // The extension that currently stands on a Maternity Leave (pending or
+  // approved). An extended leave can only have some of its days cancelled —
+  // every day needs the extension cancelled first (see cancel() in
+  // leave.service.ts).
+  function hasStandingExtension(r: LeaveRequest) {
+    return !!r.extension?.extensionId && requests.some((other) => other.id === r.extension?.extensionId);
+  }
+  const cancelTarget = confirmCancelId ? requests.find((r) => r.id === confirmCancelId) : undefined;
+  const cancelAllWithExtension =
+    !!cancelTarget && hasStandingExtension(cancelTarget) && cancelDayTimes.length >= leaveDaysOf(cancelTarget).length;
+
   function handleCancel(requestId: string, note: string, attachment: PickedAttachment | null, dayTimes: number[]) {
     const target = requests.find((r) => r.id === requestId);
     if (!target) return;
@@ -2301,7 +2312,11 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                                 setCancelReasonText("");
                                 setCancelAttachment(null);
                                 setCancelAttachmentError(null);
-                                setCancelDayTimes(leaveDaysOf(request).map((d) => d.getTime()).filter((t) => !worked.has(t)));
+                                // An extended leave can't be cancelled whole —
+                                // only some days — so nothing starts ticked.
+                                setCancelDayTimes(
+                                  hasStandingExtension(request) ? [] : leaveDaysOf(request).map((d) => d.getTime()).filter((t) => !worked.has(t)),
+                                );
                               }}
                               disabled={!cancellation.allowed}
                             >
@@ -2916,6 +2931,13 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                       })}
                     </AestheticScrollView>
                   </View>
+                  {hasStandingExtension(target) && (
+                    <Text style={{ color: cancelAllWithExtension ? "#DC2626" : "#64748B", fontSize: 12, fontWeight: "600", lineHeight: 17, marginBottom: 10 }}>
+                      {cancelAllWithExtension
+                        ? "This leave has an extension. To cancel every day, cancel the extension first."
+                        : "Your extension stays as it is — only the days you pick are cancelled."}
+                    </Text>
+                  )}
                 </>
               );
             })()}
@@ -2962,9 +2984,9 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
               <Pressable
                 style={[
                   styles.confirmCancelButton,
-                  (!cancelReasonText.trim() || cancelDayTimes.length === 0) && styles.confirmCancelButtonDisabled,
+                  (!cancelReasonText.trim() || cancelDayTimes.length === 0 || cancelAllWithExtension) && styles.confirmCancelButtonDisabled,
                 ]}
-                disabled={!cancelReasonText.trim() || cancelDayTimes.length === 0}
+                disabled={!cancelReasonText.trim() || cancelDayTimes.length === 0 || cancelAllWithExtension}
                 onPress={() => {
                   if (confirmCancelId) handleCancel(confirmCancelId, cancelReasonText.trim(), cancelAttachment, cancelDayTimes);
                   setCancelAttachment(null);

@@ -395,14 +395,41 @@ export class LeaveService {
       status: string;
       endDate: Date;
       extensionOfId: string | null;
+      splitFromId: string | null;
       leaveType: { kind: string; name: string; extensionDays: number };
     },
     // Any requests that may include this one's extension — only the ones
-    // pointing back to it count.
-    others: Array<{ id: string; status: string; extensionOfId: string | null }>,
+    // pointing back to it (or to another piece of the same split leave) count.
+    others: Array<{ id: string; status: string; extensionOfId: string | null; splitFromId: string | null }>,
   ): { allowed: boolean; reason?: string; days: number; deadline: string; startDate: string; endDate: string; extensionId?: string } | null {
     const days = request.leaveType.extensionDays;
     if (request.leaveType.kind !== "MATERNITY" || days <= 0 || request.extensionOfId || request.status !== "APPROVED") {
+      return null;
+    }
+    // Some days of an already-extended leave were cancelled (see
+    // splitForCancellation): the extension stays on one piece, the other
+    // pieces of that same leave can't be extended again.
+    const family = new Set([request.id]);
+    for (let grew = true; grew; ) {
+      grew = false;
+      for (const other of [request, ...others]) {
+        const linked = family.has(other.id) || (other.splitFromId !== null && family.has(other.splitFromId));
+        for (const id of linked ? [other.id, other.splitFromId] : []) {
+          if (id && !family.has(id)) {
+            family.add(id);
+            grew = true;
+          }
+        }
+      }
+    }
+    const extendedSibling = others.some(
+      (other) =>
+        other.extensionOfId !== null &&
+        other.extensionOfId !== request.id &&
+        family.has(other.extensionOfId) &&
+        ACTIVE_EXTENSION_STATUSES.includes(other.status as LeaveRequestStatus),
+    );
+    if (extendedSibling) {
       return null;
     }
     const deadline = addDays(toDateOnly(request.endDate), -EXTENSION_NOTICE_DAYS);
@@ -1163,16 +1190,13 @@ export class LeaveService {
     }
 
     // A Maternity Leave extension runs from the day after the leave ends, so
-    // the leave itself can't change while an extension of it still stands.
+    // the leave as a whole can't be cancelled while an extension of it still
+    // stands — but some of its days can (checked below, once the picked days
+    // are known). The extension itself is left untouched either way.
     const standingExtension = await this.prisma.leaveRequest.findFirst({
       where: { extensionOfId: existing.id, status: { in: ACTIVE_EXTENSION_STATUSES } },
       select: { id: true },
     });
-    if (standingExtension) {
-      throw new BadRequestException(
-        `This ${existing.leaveType.name} has an extension filed against it. Cancel the extension first.`,
-      );
-    }
 
     // Which days are being cancelled — every day of the leave unless the
     // employee picked specific ones.
@@ -1189,6 +1213,11 @@ export class LeaveService {
         picked.set(day.getTime(), day);
       }
       cancelDays = Array.from(picked.values()).sort((a, b) => a.getTime() - b.getTime());
+    }
+    if (standingExtension && cancelDays.length >= leaveDays.length) {
+      throw new BadRequestException(
+        `This ${existing.leaveType.name} has an extension filed against it. Pick only the days you want to cancel, or cancel the extension first.`,
+      );
     }
 
     // Approved leave self-cancellation is open for any day the employee
@@ -1234,7 +1263,7 @@ export class LeaveService {
     const awaitDecision = existing.status === "APPROVED" && !!requestingEmployeeId;
     const targets =
       cancelDays.length < leaveDays.length
-        ? await this.splitForCancellation(existing, cancelDays)
+        ? await this.splitForCancellation(existing, cancelDays, !!standingExtension)
         : [{ id: existing.id, startDate: existing.startDate }];
 
     let result: unknown;
@@ -1325,6 +1354,9 @@ export class LeaveService {
   // inherits its history up to splitAt (see historyLineage). Every piece
   // keeps the original's status for now — cancelOne() then cancels the
   // cancelled pieces exactly like a whole request. Returns those pieces.
+  // keepOriginalOnStay: a Maternity Leave extension points at the original
+  // (extensionOfId), so the original becomes the last piece that stays
+  // instead — the extension keeps pointing at days that still stand.
   private async splitForCancellation(
     existing: {
       id: string;
@@ -1348,6 +1380,7 @@ export class LeaveService {
       extensionOfId: string | null;
     },
     cancelDays: Date[],
+    keepOriginalOnStay = false,
   ) {
     const cancelKeys = new Set(cancelDays.map((day) => day.getTime()));
     const days = calendarDays(existing.startDate, existing.endDate);
@@ -1372,12 +1405,14 @@ export class LeaveService {
     const pieceTotal = (piece: { dayCount: number }) => Math.round(piece.dayCount * daysPerCalendarDay * 2) / 2;
 
     const splitAt = new Date();
-    const [first, ...rest] = pieces;
+    const keepIndex = keepOriginalOnStay ? pieces.map((piece) => piece.cancel).lastIndexOf(false) : 0;
+    const kept = pieces[keepIndex];
+    const rest = pieces.filter((_, index) => index !== keepIndex);
     const status = existing.status as LeaveRequestStatus;
-    const results = await this.prisma.$transaction([
+    const [keptResult, ...restResults] = await this.prisma.$transaction([
       this.prisma.leaveRequest.update({
         where: { id: existing.id },
-        data: { startDate: first.start, endDate: first.end, totalDays: pieceTotal(first) },
+        data: { startDate: kept.start, endDate: kept.end, totalDays: pieceTotal(kept) },
         select: { id: true, startDate: true },
       }),
       ...rest.map((piece) =>
@@ -1409,7 +1444,7 @@ export class LeaveService {
       ),
     ]);
 
-    return results.filter((_, index) => pieces[index].cancel);
+    return [...(kept.cancel ? [keptResult] : []), ...restResults.filter((_, index) => rest[index].cancel)];
   }
 
   // Approves an employee's pending request to cancel an already-APPROVED
@@ -1698,9 +1733,11 @@ export class LeaveService {
       throw new ForbiddenException("You can only extend your own leave.");
     }
 
+    // This employee's other requests of the same type — its extension, and
+    // any other piece of it split off by a partial cancellation.
     const extensions = await this.prisma.leaveRequest.findMany({
-      where: { extensionOfId: id },
-      select: { id: true, status: true, extensionOfId: true },
+      where: { employeeId: existing.employeeId, leaveTypeId: existing.leaveTypeId, id: { not: id } },
+      select: { id: true, status: true, extensionOfId: true, splitFromId: true },
     });
     const eligibility = this.getExtensionEligibility(existing, extensions);
     if (!eligibility) {
