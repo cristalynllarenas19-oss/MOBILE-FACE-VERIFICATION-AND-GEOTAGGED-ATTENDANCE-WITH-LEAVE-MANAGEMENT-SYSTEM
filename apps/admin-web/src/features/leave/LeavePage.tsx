@@ -2425,7 +2425,7 @@ export function LeavePage({
                     <td data-label="Employee">{row.employeeName}</td>
                     <td data-label="Employee Type">{formatEmploymentStatus(row.employeeType)}</td>
                     <td data-label="Department">{row.department}</td>
-                    <td data-label="Qualifying Period">{formatAccrualPeriod(spanStart, spanEnd)}</td>
+                    <td data-label="Qualifying Period" style={{ whiteSpace: "nowrap" }}>{formatAccrualPeriod(spanStart, spanEnd)}</td>
                     <td data-label="Attendance Status">
                       {/* Whole-history summary: every absence-ended period counts once. */}
                       <Badge tone={absences === 0 ? "success" : "danger"}>

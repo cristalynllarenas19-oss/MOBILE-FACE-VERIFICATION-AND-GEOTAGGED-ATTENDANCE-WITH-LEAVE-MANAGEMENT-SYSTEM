@@ -2485,6 +2485,16 @@
   margin: 4px 0;
 }
 
+/* The row-label rule above stops spans from shrinking; the warning text has
+   to wrap inside the column instead of running into the timeline. */
+.leave-modal--review .leave-detail-grid .leave-balance-alert span,
+.leave-modal--undertime .leave-detail-grid .leave-balance-alert span {
+  flex-shrink: 1;
+  min-width: 0;
+  color: inherit;
+  font-weight: 600;
+}
+
 /* LeaveTimeline is shared (and inline-styled) — only its outer spacing is
    reset here so it lines up with the column. */
 .leave-review-timeline > div {

@@ -455,6 +455,33 @@ function validateSpouse(form: EmployeeForm) {
   return "";
 }
 
+type FieldErrors = Partial<Record<keyof EmployeeForm, string>>;
+
+// Add Employee's checks, one message per field so each can sit under its
+// own field. Same rules as validateForm, just not stopping at the first.
+function getAddEmployeeFieldErrors(form: EmployeeForm): FieldErrors {
+  const errors: FieldErrors = {};
+  if (!form.firstName.trim()) errors.firstName = "First Name is required.";
+  if (!form.lastName.trim()) errors.lastName = "Last Name is required.";
+  if (!form.email.trim()) errors.email = "Email is required.";
+  else if (!/^\S+@\S+\.\S+$/.test(form.email.trim())) errors.email = "Enter a valid email address.";
+  if (!form.department.trim()) errors.department = "Department is required.";
+  if (!form.positionId) errors.positionId = "Position is required.";
+  if (!form.employeeTypeId) errors.employeeTypeId = "Employee Type is required.";
+  if (!form.hireDate) errors.hireDate = "Hire Date is required.";
+  if (!form.sex) errors.sex = "Sex/Gender is required.";
+  if (!form.civilStatus) errors.civilStatus = "Civil Status is required.";
+  const spouseError = validateSpouse(form);
+  if (spouseError) {
+    errors[form.spouseEmployment === "ULPI" ? "spouseEmployeeId" : "spouseEmployerName"] = spouseError;
+  }
+  return errors;
+}
+
+function FieldError({ message }: { message?: string }) {
+  return message ? <span className="employee-field-error">{message}</span> : null;
+}
+
 // Keeps the spouse details and admin leave grants consistent while the form
 // changes, for both Add and Edit Employee:
 // - Civil Status → Single revokes any grant that presumes a spouse (not just
@@ -647,6 +674,7 @@ function SpouseFields({
   employeeSex,
   currentSpouse,
   disabled,
+  errors = {},
 }: {
   form: EmployeeForm;
   setForm: React.Dispatch<React.SetStateAction<EmployeeForm>>;
@@ -655,6 +683,8 @@ function SpouseFields({
   // Edit Employee's saved spouse — kept selectable even if since archived.
   currentSpouse?: SpouseEmployeeRef | null;
   disabled?: boolean;
+  // Add Employee's inline messages; Edit Employee passes none.
+  errors?: FieldErrors;
 }) {
   const isUlpi = form.spouseEmployment === "ULPI";
   const candidateSex = employeeSex === "MALE" ? "FEMALE" : "MALE";
@@ -700,7 +730,7 @@ function SpouseFields({
         />
         {disabled && <span className="employee-form-hint">Available when Civil Status is Married.</span>}
       </label>
-      <label>
+      <label className={errors.spouseEmployerName ? "employee-field--error" : undefined}>
         <span>
           Spouse's Company {isOtherCompany && !disabled && <RequiredMark />}
         </span>
@@ -711,8 +741,9 @@ function SpouseFields({
           placeholder="e.g. ABC Company"
           disabled={disabled || !isOtherCompany}
         />
+        <FieldError message={errors.spouseEmployerName} />
       </label>
-      <label>
+      <label className={errors.spouseEmployeeId ? "employee-field--error" : undefined}>
         <span>
           Spouse (ULPI Employee) {isUlpi && !disabled && <RequiredMark />}
         </span>
@@ -731,6 +762,7 @@ function SpouseFields({
             No active {candidateSex === "FEMALE" ? "female" : "male"} employees found.
           </span>
         )}
+        <FieldError message={errors.spouseEmployeeId} />
       </label>
     </div>
   );
@@ -977,6 +1009,12 @@ function AddEmployeeModal({
       setForm((current) => ({ ...current, [field]: event.target.value }));
     };
 
+  // Shown only after a submit attempt, then kept live so each message
+  // clears as its field is fixed.
+  const [showFieldErrors, setShowFieldErrors] = useState(false);
+  const fieldErrors: FieldErrors = showFieldErrors ? getAddEmployeeFieldErrors(form) : {};
+  const errorClass = (field: keyof EmployeeForm) => (fieldErrors[field] ? "employee-field--error" : undefined);
+
   const validateForm = () => {
     if (!form.firstName.trim() || !form.lastName.trim()) return "Employee name is required.";
     if (!form.email.trim()) return "Email is required.";
@@ -1020,7 +1058,9 @@ function AddEmployeeModal({
     const validationError = validateForm();
 
     if (validationError) {
-      setError(validationError);
+      // Messages show under their own fields, not at the bottom.
+      setShowFieldErrors(true);
+      setError("");
       return;
     }
 
@@ -1134,16 +1174,17 @@ function AddEmployeeModal({
       onClose={onClose}
       split
     >
-      <form className="employee-form" onSubmit={handleSubmit}>
+      <form className="employee-form" onSubmit={handleSubmit} noValidate>
         {/* Three side-by-side columns, one per section, fields stacked. */}
         <div className="employee-form-sections">
           {/* First column: Personal Information, then Assign a Role. */}
           <div className="employee-form-stack">
             <FormSection icon={UserRound} title="Personal Information">
               <div className="employee-form-stack">
-                <label>
+                <label className={errorClass("firstName")}>
                   <span>First Name <RequiredMark /></span>
                   <input type="text" value={form.firstName} onChange={updateField("firstName")} placeholder="e.g. Juan" required />
+                  <FieldError message={fieldErrors.firstName} />
                 </label>
                 <label>
                   <span>
@@ -1151,15 +1192,17 @@ function AddEmployeeModal({
                   </span>
                   <input type="text" value={form.middleName} onChange={updateField("middleName")} placeholder="e.g. Santos" />
                 </label>
-                <label>
+                <label className={errorClass("lastName")}>
                   <span>Last Name <RequiredMark /></span>
                   <input type="text" value={form.lastName} onChange={updateField("lastName")} placeholder="e.g. Dela Cruz" required />
+                  <FieldError message={fieldErrors.lastName} />
                 </label>
-                <label>
+                <label className={errorClass("email")}>
                   <span>Email <RequiredMark /></span>
                   <input type="email" value={form.email} onChange={updateField("email")} placeholder="e.g. employee@example.com" required />
+                  <FieldError message={fieldErrors.email} />
                 </label>
-                <label>
+                <label className={errorClass("sex")}>
                   <span>Sex/Gender <RequiredMark /></span>
                   <FormSelectDropdown
                     value={form.sex}
@@ -1171,8 +1214,9 @@ function AddEmployeeModal({
                     placeholder="Select sex/gender"
                     ariaLabel="Sex/Gender"
                   />
+                  <FieldError message={fieldErrors.sex} />
                 </label>
-                <label>
+                <label className={errorClass("civilStatus")}>
                   <span>Civil Status <RequiredMark /></span>
                   <FormSelectDropdown
                     value={form.civilStatus}
@@ -1181,6 +1225,7 @@ function AddEmployeeModal({
                     placeholder="Select civil status"
                     ariaLabel="Civil Status"
                   />
+                  <FieldError message={fieldErrors.civilStatus} />
                 </label>
               </div>
             </FormSection>
@@ -1196,7 +1241,7 @@ function AddEmployeeModal({
 
           <FormSection icon={Briefcase} title="Employment Details">
             <div className="employee-form-stack">
-              <label>
+              <label className={errorClass("department")}>
                 <span>Department <RequiredMark /></span>
                 {lockedDepartmentName ? (
                   <input type="text" value={lockedDepartmentName} disabled readOnly />
@@ -1209,8 +1254,9 @@ function AddEmployeeModal({
                     ariaLabel="Department"
                   />
                 )}
+                <FieldError message={fieldErrors.department} />
               </label>
-              <label>
+              <label className={errorClass("positionId")}>
                 <span>Position <RequiredMark /></span>
                 <FormSelectDropdown
                   value={form.positionId}
@@ -1220,11 +1266,12 @@ function AddEmployeeModal({
                   ariaLabel="Position"
                   disabled={!selectedDepartmentId || availablePositions.length === 0}
                 />
+                <FieldError message={fieldErrors.positionId} />
                 {selectedDepartmentId && !arePositionsLoading && availablePositions.length === 0 && (
                   <span className="employee-form-hint">No positions are available for this department yet (Utilities → Positions).</span>
                 )}
               </label>
-              <label>
+              <label className={errorClass("employeeTypeId")}>
                 <span>Employee Type <RequiredMark /></span>
                 <FormSelectDropdown
                   value={form.employeeTypeId}
@@ -1234,10 +1281,12 @@ function AddEmployeeModal({
                   ariaLabel="Employee Type"
                   disabled={employeeTypeOptions.length === 0}
                 />
+                <FieldError message={fieldErrors.employeeTypeId} />
               </label>
-              <label>
+              <label className={errorClass("hireDate")}>
                 <span>Hire Date <RequiredMark /></span>
                 <input type="date" value={form.hireDate} onChange={updateField("hireDate")} required />
+                <FieldError message={fieldErrors.hireDate} />
               </label>
               <label>
                 Attendance Mode
@@ -1301,6 +1350,7 @@ function AddEmployeeModal({
                 setForm={setForm}
                 employeeSex={form.sex}
                 disabled={form.civilStatus !== "MARRIED" || !form.sex}
+                errors={fieldErrors}
               />
             </FormSection>
             <FormSection icon={CalendarDays} title="Leave Entitlements">
