@@ -172,7 +172,9 @@ type LeaveAccrualHistoryRow = {
   department: string;
   cycleStart: string;
   cycleEnd: string;
-  attendanceStatus: "PERFECT" | "VIOLATED";
+  // IN_PROGRESS is never sent by the backend: it's the still-running period
+  // the Accrual Details modal builds after the latest saved one.
+  attendanceStatus: "PERFECT" | "VIOLATED" | "IN_PROGRESS";
   sickLeaveEarned: number;
   vacationLeaveEarned: number;
   creditedAt: string;
@@ -422,13 +424,40 @@ function formatAccrualPeriod(start: string, end: string) {
   return from === to ? from : `${from} – ${to}`;
 }
 
-// When a qualifying period was due to end: one month after it started (the
-// same rule as the backend's addOneMonth). A PERFECT period's cycleEnd is
-// already this date; an absence cuts the period short, so its cycleEnd is
-// the absence day instead.
-function formatPlannedAccrualEnd(start: string) {
-  const from = new Date(start);
-  return formatDate(new Date(from.getFullYear(), from.getMonth() + 1, from.getDate()).toISOString());
+function shiftDays(value: string, days: number) {
+  const date = new Date(value);
+  date.setDate(date.getDate() + days);
+  return date.toISOString();
+}
+
+// The last day a period covers. A PERFECT period's cycleEnd is the next
+// period's first day (backend addOneMonth), so it shows as ending the day
+// before — 9/1 – 9/30, not 9/1 – 10/1 with 10/1 listed twice. A VIOLATED
+// period's cycleEnd is the absence day itself; an IN_PROGRESS one already
+// holds its planned last day.
+function accrualPeriodEnd(entry: LeaveAccrualHistoryRow) {
+  return entry.attendanceStatus === "PERFECT" ? shiftDays(entry.cycleEnd, -1) : entry.cycleEnd;
+}
+
+// The period running now: it starts where the latest saved one stopped (the
+// day after an absence, or the day a full month ended) and is planned to last
+// one month. Nothing is saved for it until it ends (LeaveAccrualService).
+function buildCurrentAccrualPeriod(latest: LeaveAccrualHistoryRow | undefined): LeaveAccrualHistoryRow | null {
+  if (!latest || latest.employeeType !== "PERMANENT_SEASONAL") return null;
+  const start = latest.attendanceStatus === "PERFECT" ? latest.cycleEnd : shiftDays(latest.cycleEnd, 1);
+  const startDate = new Date(start);
+  if (startDate > new Date()) return null;
+  const plannedLastDay = new Date(startDate.getFullYear(), startDate.getMonth() + 1, startDate.getDate() - 1);
+  return {
+    ...latest,
+    id: `current-${latest.employeeId}`,
+    cycleStart: start,
+    cycleEnd: plannedLastDay.toISOString(),
+    attendanceStatus: "IN_PROGRESS",
+    sickLeaveEarned: 0,
+    vacationLeaveEarned: 0,
+    creditedAt: "",
+  };
 }
 
 // Leave days one period earned: "+1.25", or "0" when it earned nothing.
@@ -438,7 +467,8 @@ function formatCredit(days: number) {
 
 function AccrualStatusBadge({ status }: { status: LeaveAccrualHistoryRow["attendanceStatus"] }) {
   // No Absence = a full month, credits earned; Has Absence = an unexcused
-  // absence cut it short, no credits.
+  // absence cut it short, no credits; In Progress = still running.
+  if (status === "IN_PROGRESS") return <Badge tone="warning">In Progress</Badge>;
   return <Badge tone={status === "PERFECT" ? "success" : "danger"}>{status === "PERFECT" ? "No Absence" : "Has Absence"}</Badge>;
 }
 
@@ -499,7 +529,12 @@ function AccrualPeriodAttendance({
     const params = new URLSearchParams({
       employeeId: period.employeeId,
       from: toDateKey(period.cycleStart),
-      to: toDateKey(period.cycleEnd),
+      // A running period only has attendance up to today.
+      to: toDateKey(
+        period.attendanceStatus === "IN_PROGRESS" && new Date(period.cycleEnd) > new Date()
+          ? new Date().toISOString()
+          : accrualPeriodEnd(period),
+      ),
     });
     apiRequest<PeriodAttendanceRecord[]>(`/attendance?${params.toString()}`)
       .then((rows) => {
@@ -509,7 +544,7 @@ function AccrualPeriodAttendance({
         // was active, so if it has nothing on that day, show it from here.
         const endKey = toDateKey(period.cycleEnd);
         const withAbsence =
-          period.attendanceStatus !== "PERFECT" && !rows.some((row) => toDateKey(row.attendanceDate) === endKey)
+          period.attendanceStatus === "VIOLATED" && !rows.some((row) => toDateKey(row.attendanceDate) === endKey)
             ? [...rows, { id: `accrual-absent-${period.id}`, attendanceDate: period.cycleEnd, status: "ABSENT" }]
             : rows;
         // Latest day first.
@@ -543,7 +578,7 @@ function AccrualPeriodAttendance({
         </button>
         <div className="accrual-period-title">
           <CalendarIcon size={16} />
-          <strong>{formatAccrualPeriod(period.cycleStart, period.cycleEnd)}</strong>
+          <strong>{formatAccrualPeriod(period.cycleStart, accrualPeriodEnd(period))}</strong>
           <AccrualStatusBadge status={period.attendanceStatus} />
         </div>
       </div>
@@ -623,9 +658,14 @@ function AccrualDetailsModal({
   const totalVacation = history.reduce((sum, entry) => sum + entry.vacationLeaveEarned, 0);
   const perfectPeriods = history.filter((entry) => entry.attendanceStatus === "PERFECT").length;
 
-  // The period shown in "Selected Period" — the one View was clicked on,
-  // until another row in the history list is picked.
-  const [selected, setSelected] = useState(row);
+  // The running period goes on top of the saved ones (history is newest first).
+  const currentPeriod = useMemo(() => buildCurrentAccrualPeriod(history[0]), [history]);
+  const periods = currentPeriod ? [currentPeriod, ...history] : history;
+
+  // The period shown in "Selected Period" — the running one when there is
+  // one (so it lines up with Attendance Status Today), else the one View was
+  // clicked on; until another row in the history list is picked.
+  const [selected, setSelected] = useState(currentPeriod ?? row);
   // A history row's arrow opens that period's attendance in place of the
   // summary; Back returns to it.
   const [attendancePeriod, setAttendancePeriod] = useState<LeaveAccrualHistoryRow | null>(null);
@@ -708,7 +748,7 @@ function AccrualDetailsModal({
             </div>
             <div>
               <span>End Date</span>
-              <strong>{formatPlannedAccrualEnd(selected.cycleStart)}</strong>
+              <strong>{formatDate(accrualPeriodEnd(selected))}</strong>
             </div>
             <div>
               <span>Period Status</span>
@@ -736,10 +776,16 @@ function AccrualDetailsModal({
             </div>
           </div>
 
-          {selected.attendanceStatus !== "PERFECT" && (
+          {selected.attendanceStatus === "VIOLATED" && (
             <p className="accrual-note accrual-note--ended">
               <Info size={14} />
               Ended early: absent on {formatDate(selected.cycleEnd)}. A new qualifying period started the next day.
+            </p>
+          )}
+          {selected.attendanceStatus === "IN_PROGRESS" && (
+            <p className="accrual-note">
+              <Info size={14} />
+              Still running: earns 1.25 SL and 1.25 VL if there is no absence until {formatDate(selected.cycleEnd)}.
             </p>
           )}
 
@@ -774,8 +820,9 @@ function AccrualDetailsModal({
               <span aria-hidden="true" />
             </div>
             <div className="accrual-history-scroll">
-              {history.map((entry) => {
-                const absent = entry.attendanceStatus !== "PERFECT";
+              {periods.map((entry) => {
+                const absent = entry.attendanceStatus === "VIOLATED";
+                const running = entry.attendanceStatus === "IN_PROGRESS";
                 return (
                   <button
                     type="button"
@@ -785,13 +832,14 @@ function AccrualDetailsModal({
                       setSelected(entry);
                       setAttendancePeriod(entry);
                     }}
-                    aria-label={`View attendance for ${formatAccrualPeriod(entry.cycleStart, entry.cycleEnd)}`}
+                    aria-label={`View attendance for ${formatAccrualPeriod(entry.cycleStart, accrualPeriodEnd(entry))}`}
                   >
                     <span className="accrual-history-period">
                       <CalendarIcon size={16} />
                       <span>
-                        <strong>{formatAccrualPeriod(entry.cycleStart, entry.cycleEnd)}</strong>
+                        <strong>{formatAccrualPeriod(entry.cycleStart, accrualPeriodEnd(entry))}</strong>
                         {absent && <small>Absent on {formatDate(entry.cycleEnd)}</small>}
+                        {running && <small>Current period</small>}
                       </span>
                     </span>
                     <span
@@ -799,7 +847,9 @@ function AccrualDetailsModal({
                         entry.sickLeaveEarned + entry.vacationLeaveEarned > 0 ? " earned" : ""
                       }`}
                     >
-                      {formatCredit(entry.sickLeaveEarned)} SL, {formatCredit(entry.vacationLeaveEarned)} VL
+                      {running
+                        ? "Not yet credited"
+                        : `${formatCredit(entry.sickLeaveEarned)} SL, ${formatCredit(entry.vacationLeaveEarned)} VL`}
                     </span>
                     <span className="accrual-history-status">
                       <AccrualStatusBadge status={entry.attendanceStatus} />
@@ -1602,7 +1652,7 @@ export function LeavePage({
         summaries.set(row.employeeId, {
           latest: row,
           spanStart: row.cycleStart,
-          spanEnd: row.cycleEnd,
+          spanEnd: accrualPeriodEnd(row),
           totalSick: row.sickLeaveEarned,
           totalVacation: row.vacationLeaveEarned,
           absences: row.attendanceStatus === "VIOLATED" ? 1 : 0,
@@ -1611,7 +1661,7 @@ export function LeavePage({
       }
       if (row.attendanceStatus === "VIOLATED") summary.absences += 1;
       if (new Date(row.cycleStart) < new Date(summary.spanStart)) summary.spanStart = row.cycleStart;
-      if (new Date(row.cycleEnd) > new Date(summary.spanEnd)) summary.spanEnd = row.cycleEnd;
+      if (new Date(accrualPeriodEnd(row)) > new Date(summary.spanEnd)) summary.spanEnd = accrualPeriodEnd(row);
       summary.totalSick += row.sickLeaveEarned;
       summary.totalVacation += row.vacationLeaveEarned;
     }

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Injectable, Logger, OnApplicationBootstrap } from "@nestjs/common";
 import { Cron, CronExpression } from "@nestjs/schedule";
 import { PrismaService } from "../../prisma/prisma.service";
 import { isDayOff } from "../../common/utils/schedule.util";
@@ -28,10 +28,17 @@ function dateKey(date: Date): string {
 }
 
 @Injectable()
-export class LeaveAccrualService {
+export class LeaveAccrualService implements OnApplicationBootstrap {
   private readonly logger = new Logger(LeaveAccrualService.name);
 
   constructor(private readonly prisma: PrismaService) {}
+
+  // Catch-up on start: if the server was off at 1 AM (e.g. a laptop
+  // backend), the missed run happens now instead of waiting a whole day.
+  // Safe to repeat — each period is saved at most once (see below).
+  onApplicationBootstrap() {
+    void this.runDailyAccrual();
+  }
 
   // Runs once a day — each qualifying period is anchored to the individual
   // employee's own permanentSeasonalSince date, not a shared calendar
@@ -93,14 +100,13 @@ export class LeaveAccrualService {
         where: { employeeId: { in: employeeIds }, attendanceDate: { gte: earliestCursor, lt: today } },
         select: { employeeId: true, attendanceDate: true },
       }),
+      // Every schedule, not just today's — each past day is checked against
+      // the schedule that applied ON that day (e.g. Mon-Fri until a switch
+      // to Mon-Sat), the same way the Attendance page rebuilds past days.
       this.prisma.employeeSchedule.findMany({
-        where: {
-          employeeId: { in: employeeIds },
-          startsOn: { lte: today },
-          OR: [{ endsOn: null }, { endsOn: { gte: today } }],
-        },
+        where: { employeeId: { in: employeeIds } },
         orderBy: { startsOn: "desc" },
-        select: { employeeId: true, workingDays: true },
+        select: { employeeId: true, startsOn: true, endsOn: true, workingDays: true },
       }),
       this.prisma.leaveRequest.findMany({
         where: {
@@ -115,15 +121,27 @@ export class LeaveAccrualService {
 
     const hasAttendanceRecord = new Set(attendanceRows.map((r) => `${r.employeeId}::${dateKey(r.attendanceDate)}`));
 
-    // First (most recent, per the orderBy above) schedule row wins, same
-    // "current schedule applied uniformly to past dates too" simplification
-    // DashboardService already uses for its own historical no-show checks.
-    const workingDaysByEmployee = new Map<string, number[] | null>();
+    // Newest startsOn first (per the orderBy above).
+    const schedulesByEmployee = new Map<string, typeof activeSchedules>();
     for (const schedule of activeSchedules) {
-      if (!workingDaysByEmployee.has(schedule.employeeId)) {
-        workingDaysByEmployee.set(schedule.employeeId, schedule.workingDays);
-      }
+      const list = schedulesByEmployee.get(schedule.employeeId) ?? [];
+      list.push(schedule);
+      schedulesByEmployee.set(schedule.employeeId, list);
     }
+
+    // The working days that applied on `date`: the schedule covering that
+    // day; a day between or after schedules uses the latest one that had
+    // started; a day before the first schedule uses the earliest one.
+    const workingDaysOn = (employeeId: string, date: Date): number[] | null => {
+      const schedules = schedulesByEmployee.get(employeeId);
+      if (!schedules || schedules.length === 0) return null;
+      const t = date.getTime();
+      const covering = schedules.find(
+        (s) => toLocalMidnight(s.startsOn).getTime() <= t && (!s.endsOn || toLocalMidnight(s.endsOn).getTime() >= t),
+      );
+      const fallback = schedules.find((s) => toLocalMidnight(s.startsOn).getTime() <= t) ?? schedules[schedules.length - 1];
+      return (covering ?? fallback).workingDays;
+    };
 
     const leavesByEmployee = new Map<string, { startDate: Date; endDate: Date }[]>();
     for (const leave of leaveRows) {
@@ -151,7 +169,7 @@ export class LeaveAccrualService {
     const isAbsentOnDate = (employeeId: string, hireDate: Date, date: Date): boolean => {
       if (date < toLocalMidnight(hireDate)) return false;
       if (isDayOff(date)) return false;
-      const workingDays = workingDaysByEmployee.get(employeeId);
+      const workingDays = workingDaysOn(employeeId, date);
       if (workingDays && workingDays.length > 0 && !workingDays.includes(date.getDay())) return false;
       if (hasAttendanceRecord.has(`${employeeId}::${dateKey(date)}`)) return false;
       if (isOnApprovedLeave(employeeId, date)) return false;

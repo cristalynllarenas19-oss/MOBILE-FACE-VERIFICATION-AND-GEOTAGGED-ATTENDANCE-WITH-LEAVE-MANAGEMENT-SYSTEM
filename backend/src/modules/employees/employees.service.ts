@@ -755,6 +755,8 @@ export class EmployeesService implements OnApplicationBootstrap {
         employeeId,
         shiftId: standardShift.id,
         startsOn: today,
+        // Use the shift's own days (e.g. Mon-Sat), not the column's Mon-Fri default.
+        workingDays: standardShift.workingDays,
       },
     });
   }

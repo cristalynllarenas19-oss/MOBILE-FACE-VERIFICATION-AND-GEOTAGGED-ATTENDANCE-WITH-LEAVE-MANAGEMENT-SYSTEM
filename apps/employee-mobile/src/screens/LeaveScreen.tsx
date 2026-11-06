@@ -2493,11 +2493,11 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                             requestsCache.refresh().catch(() => undefined);
                           }}
                         >
-                          <View style={[styles.summaryTopRow, styles.summaryTopRowWrap]}>
-                            <Text style={[styles.requestTitle, styles.summaryTitleWrap]}>
+                          <View style={styles.summaryTopRow}>
+                            <Text style={[styles.requestTitle, styles.requestListTitle]}>
                               {leaveRequestTitle(request)}
                             </Text>
-                            <View style={[styles.statusPill, { backgroundColor: tone.bg }]}>
+                            <View style={[styles.statusPill, styles.statusPillFixed, { backgroundColor: tone.bg }]}>
                               <View style={[styles.statusDot, { backgroundColor: tone.color }]} />
                               <Text style={[styles.statusPillText, { color: tone.color }]} numberOfLines={1}>
                                 {statusLabel(request.status, request.lapseReason)}
@@ -3474,6 +3474,11 @@ const styles = StyleSheet.create({
   // line instead.
   summaryTopRowWrap: { flexWrap: "wrap", rowGap: 4 },
   summaryTitleWrap: { maxWidth: "100%", marginBottom: 2 },
+  // "My Leave Requests" list: a smaller title so the status pill stays on
+  // the right for every card; a very long title wraps onto a second line
+  // instead of pushing the pill down.
+  requestListTitle: { flex: 1, fontSize: 15, marginBottom: 2 },
+  statusPillFixed: { flexShrink: 0 },
   // Undertime filing history only — the badge sits in its own row paired
   // with the reason, instead of sharing a row with the title (which is now
   // two separate lines: date, then minutes).

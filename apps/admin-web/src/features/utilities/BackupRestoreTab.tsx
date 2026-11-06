@@ -770,7 +770,7 @@ export function BackupRestoreTab({ notify }: { notify: (notification: Notificati
                   {(
                     [
                       ["uploading", "Uploading backup file"],
-                      ["restoring", "Validating and restoring database"],
+                      ["restoring", "Restoring database"],
                     ] as const
                   ).map(([stage, label]) => {
                     const done = stage === "uploading" && restoreModal.stage === "restoring";
