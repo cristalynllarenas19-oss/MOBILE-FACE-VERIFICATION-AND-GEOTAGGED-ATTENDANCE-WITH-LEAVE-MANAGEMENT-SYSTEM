@@ -379,6 +379,18 @@ export class LeaveService {
         reason: `You already timed in on every day of this ${request.leaveType.name}, so it can no longer be cancelled. Please contact HR/Admin.`,
       };
     }
+    // Days already gone by can't be cancelled either.
+    const today = toDateOnly(new Date()).getTime();
+    const workedSet = new Set(workedOnLeave);
+    const openDays = calendarDays(request.startDate, request.endDate).filter(
+      (day) => day.getTime() >= today && !workedSet.has(day.getTime()),
+    );
+    if (openDays.length === 0) {
+      return {
+        allowed: false,
+        reason: `Every day of this ${request.leaveType.name} has already passed, so it can no longer be cancelled. Please contact HR/Admin.`,
+      };
+    }
     return { allowed: true, workedDates: workedOnLeave.map((day) => new Date(day).toISOString()) };
   }
 
@@ -1251,6 +1263,10 @@ export class LeaveService {
         throw new BadRequestException(
           `You already timed in on ${workedCancelDays.join(", ")}, so ${workedCancelDays.length === 1 ? "that day" : "those days"} can't be cancelled.`,
         );
+      }
+      const today = toDateOnly(new Date()).getTime();
+      if (cancelDays.some((day) => day.getTime() < today)) {
+        throw new BadRequestException("Days that have already passed can't be cancelled — pick only today or later.");
       }
     }
 

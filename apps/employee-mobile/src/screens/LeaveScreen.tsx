@@ -162,6 +162,15 @@ function leaveDaysOf(request: { startDate: string; endDate: string }) {
   return days;
 }
 
+// Days of an approved leave that have already gone by — they can't be
+// cancelled any more (the backend refuses them too).
+function pastDayTimes(request: { status: string; startDate: string; endDate: string }) {
+  if (request.status !== "APPROVED") return new Set<number>();
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  return new Set(leaveDaysOf(request).map((d) => d.getTime()).filter((t) => t < today));
+}
+
 // A Maternity Leave extension is filed under the Maternity Leave type
 // itself (see requestExtension in leave.service.ts) — titled as such.
 function leaveRequestTitle(request: { extensionOfId?: string | null; leaveType: { name: string } }) {
@@ -2308,6 +2317,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                                     return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
                                   }),
                                 );
+                                pastDayTimes(request).forEach((t) => worked.add(t));
                                 setConfirmCancelId(request.id);
                                 setCancelReasonText("");
                                 setCancelAttachment(null);
@@ -2856,8 +2866,10 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
             {(() => {
               const target = requests.find((r) => r.id === confirmCancelId);
               if (!target) return null;
-              const days = leaveDaysOf(target);
-              if (days.length < 2) return null;
+              if (leaveDaysOf(target).length < 2) return null;
+              // Days already gone by can't be cancelled, so they're left off.
+              const past = pastDayTimes(target);
+              const days = leaveDaysOf(target).filter((d) => !past.has(d.getTime()));
               const worked = new Set(
                 (target.cancellation?.workedDates ?? []).map((iso) => {
                   const d = new Date(iso);
@@ -2889,7 +2901,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                     >
                       <CancelCheckFace state={allSelected ? "on" : someSelected ? "mixed" : "off"} disabled={selectable.length === 0} />
                       <Text style={styles.cancelSelectAllText}>Select all</Text>
-                      <Text style={styles.cancelSelectAllMeta}>{days.length} days</Text>
+                      <Text style={styles.cancelSelectAllMeta}>{days.length} {days.length === 1 ? "day" : "days"} remaining</Text>
                     </Pressable>
                     <AestheticScrollView style={styles.cancelDayList}>
                       {days.map((day, index) => {

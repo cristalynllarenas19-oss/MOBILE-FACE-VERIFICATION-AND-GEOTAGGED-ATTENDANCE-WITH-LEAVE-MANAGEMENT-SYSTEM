@@ -291,6 +291,15 @@ function workedDayTimes(r: LeaveRequest) {
   );
 }
 
+// Days of an approved leave that have already gone by — they can't be
+// cancelled any more (the backend refuses them too).
+function pastDayTimes(r: LeaveRequest) {
+  if (r.status !== "APPROVED") return new Set<number>();
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  return new Set(leaveDaysOf(r).map((d) => d.getTime()).filter((t) => t < today));
+}
+
 function getRequestDocuments(r: LeaveRequest): LeaveDocument[] {
   return [...getSubmissionDocuments(r), ...getCancellationDocuments(r)];
 }
@@ -1548,6 +1557,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
             <button
               onClick={() => {
                 const worked = workedDayTimes(r);
+                pastDayTimes(r).forEach((t) => worked.add(t));
                 setConfirmCancelId(r.id);
                 setCancelReasonText("");
                 setCancelFile(null);
@@ -2649,8 +2659,10 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
             {(() => {
               const target = requests.find((r) => r.id === confirmCancelId);
               if (!target) return null;
-              const days = leaveDaysOf(target);
-              if (days.length < 2) return null;
+              if (leaveDaysOf(target).length < 2) return null;
+              // Days already gone by can't be cancelled, so they're left off.
+              const past = pastDayTimes(target);
+              const days = leaveDaysOf(target).filter((d) => !past.has(d.getTime()));
               const worked = workedDayTimes(target);
               // Days already timed in on can't be cancelled, so "Select all"
               // means every other day.
@@ -2685,7 +2697,7 @@ export function LeavePage({ user, initialFocusRequestId, onFocusRequestHandled }
                       <CancelCheckFace state={allSelected ? "on" : someSelected ? "mixed" : "off"} disabled={selectable.length === 0} />
                       <span style={{ flex: 1 }}>Select all</span>
                       <span style={{ fontSize: 11.5, fontWeight: 600, color: "#94A3B8" }}>
-                        {days.length} days
+                        {days.length} {days.length === 1 ? "day" : "days"} remaining
                       </span>
                     </button>
                     <div className="emp-scroll-thin" style={{ maxHeight: 200, overflowY: "auto" }}>
