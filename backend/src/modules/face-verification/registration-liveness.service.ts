@@ -1,6 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { randomBytes } from "crypto";
-import * as fs from "fs"; // TEMP DEBUG
 import { FaceVerificationService } from "./face-verification.service";
 
 // Server-side liveness for Face Registration. The admin screen still runs
@@ -43,9 +42,12 @@ const STRAIGHT_MAX_YAW = 0.15;
 // A blink's closed frame must be this much less open than the open frame right
 // after it, on either signal (landmark EAR or eye-opening contrast). Compared
 // with that frame rather than the first one, whose eye readings vary too much
-// between frames: real blinks kept being rejected against it.
-const CLOSED_MAX_EAR_RATIO = 0.85;
-const CLOSED_MAX_CONTRAST_RATIO = 0.78;
+// between frames: real blinks kept being rejected against it. Matches the
+// admin screen's own blink thresholds: a blink in dim light (a slower camera
+// blurring it) only dips this little, and anything the screen accepts as a
+// blink must pass here too.
+const CLOSED_MAX_EAR_RATIO = 0.92;
+const CLOSED_MAX_CONTRAST_RATIO = 0.88;
 // Mean absolute difference (0-255) of a 32x32 grayscale thumbnail below
 // which two consecutive frames count as the same, frozen image. A still person
 // blinking in a dim room measured down to 0.37 between frames, as a webcam
@@ -152,9 +154,7 @@ export class RegistrationLivenessService {
 
     session.busy = true;
     try {
-      const result = await this.checkFrame(session, kind as LivenessFrameKind, image);
-      debugLog(`  -> ${JSON.stringify(result)}`); // TEMP DEBUG
-      return result;
+      return await this.checkFrame(session, kind as LivenessFrameKind, image);
     } catch {
       return this.fail(session, "A camera frame couldn't be read. Please start again.");
     } finally {
@@ -179,7 +179,6 @@ export class RegistrationLivenessService {
     }
     const base64 = image.includes("base64,") ? image.split("base64,")[1] : image;
     const realScore = await this.faceService.antiSpoofFrameScore(Buffer.from(base64, "base64"), box);
-    debugLog(`live-check ${session.id.slice(0, 6)} real=${realScore.toFixed(3)} width=${box.width.toFixed(0)}`); // TEMP DEBUG
     return realScore < SPOOF_MIN_REAL_SCORE ? { live: false, reason: SPOOF_FAILURE } : { live: true, reason: null };
   }
 
@@ -212,20 +211,10 @@ export class RegistrationLivenessService {
     }
     const base64 = image.includes("base64,") ? image.split("base64,")[1] : image;
     const buffer = Buffer.from(base64, "base64");
-    const debugStart = Date.now(); // TEMP DEBUG
     // Only the blink needs the full model's eyelids, and only the final photo a
     // descriptor (the slowest model), which is what saving it needs.
     const blink = kind === "closed" || kind === "open";
     const analysis = await this.faceService.analyzeRegistrationFrame(buffer, kind === "final", !blink);
-
-    // TEMP DEBUG
-    debugLog(`analysis took ${Date.now() - debugStart}ms`);
-    const debugName =`${session.id.slice(0, 6)}-${String(session.received).padStart(2, "0")}-${Date.now()}-${kind}`;
-    fs.mkdirSync(DEBUG_DIR, { recursive: true });
-    fs.writeFileSync(`${DEBUG_DIR}/${debugName}.jpg`, buffer);
-    debugLog(
-      `${debugName} faces=${analysis.faceCount} real=${analysis.face?.realScore?.toFixed(3)} ear=${analysis.face?.ear?.toFixed(3)} contrast=${analysis.face?.eyeContrast?.toFixed(1)} yaw=${analysis.face?.yaw?.toFixed(3)} width=${analysis.face?.faceWidth?.toFixed(0)}`,
-    );
 
     if (analysis.faceCount > 1) {
       return this.fail(session, "More than one face was in the camera. Only the employee may be visible.");
@@ -331,14 +320,6 @@ export class RegistrationLivenessService {
       if (now > session.expiresAt) this.sessions.delete(id);
     }
   }
-}
-
-// TEMP DEBUG
-const DEBUG_DIR =
-  "C:/Users/CRISTA~1/AppData/Local/Temp/claude/c--Projects-MOBILE-FACE-VERIFICATION-AND-GEOTAGGED-ATTENDANCE-WITH-LEAVE-MANAGEMENT-SYSTEM/5a6c9cf9-acb7-4523-ac37-dc0d10a0919f/scratchpad/liveness-debug";
-function debugLog(line: string) {
-  fs.mkdirSync(DEBUG_DIR, { recursive: true });
-  fs.appendFileSync(`${DEBUG_DIR}/scores.log`, `${line}\n`);
 }
 
 function meanAbsDiff(a: Float32Array, b: Float32Array) {

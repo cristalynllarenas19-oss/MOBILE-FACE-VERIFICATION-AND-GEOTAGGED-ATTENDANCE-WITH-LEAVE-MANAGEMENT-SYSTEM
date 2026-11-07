@@ -47,7 +47,7 @@ export async function shiftMaternityDaysFromSpouse(
 // wife's Maternity balance is short by (see shiftMaternityDaysFromSpouse).
 export async function getTransferredPaternityDays(prisma: Prisma.TransactionClient, employeeId: string, year: number) {
   const balances = await prisma.leaveBalance.findMany({
-    where: { employeeId, year, leaveType: { isTransferable: true } },
+    where: { employeeId, year, leaveType: { isTransferable: true, kind: "GENERAL" } },
     select: { earnedDays: true },
   });
   return balances.reduce((sum, balance) => sum + Number(balance.earnedDays), 0);
@@ -216,7 +216,7 @@ export class LeaveBalancesService {
     const year = dto.year ?? (await currentLeaveYear(this.prisma));
 
     // Added Paternity Leave comes out of the linked wife's Maternity Leave.
-    const employee = leaveType.isTransferable
+    const employee = leaveType.isTransferable && leaveType.kind === "GENERAL"
       ? await this.prisma.employee.findUniqueOrThrow({ where: { id: employeeId }, select: { sex: true, spouseEmployeeId: true } })
       : null;
     const spouseEmployeeId = employee?.sex === "MALE" ? employee.spouseEmployeeId : null;

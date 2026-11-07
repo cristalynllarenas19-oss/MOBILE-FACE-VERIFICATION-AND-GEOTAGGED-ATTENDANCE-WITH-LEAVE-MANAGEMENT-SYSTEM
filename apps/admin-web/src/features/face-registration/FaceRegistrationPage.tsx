@@ -94,7 +94,11 @@ function employeeLabel(employee: Employee) {
 //     the sides of the nose are vertical, so neither qualifies.
 //  2. Dark, flat lenses (sunglasses): both eye openings much darker than the
 //     cheek below them AND without the bright-white/dark-iris contrast a
-//     visible eye always has.
+//     visible eye always has AND the skin just under each eye dark too. That
+//     last part is what tells a lens from a bare eye: narrow or deep-set eyes
+//     under a ceiling light pass the first two (shadowed lids, little white
+//     showing), but the shadow ends at the lower lid, while a lens carries on
+//     well below it.
 // Regions are placed relative to the two eye centres and sampled with the eye
 // line rotated level, so face size, distance and head tilt don't matter.
 // The verdict is a majority over the last EYEWEAR_WINDOW polls (~2s), never a
@@ -120,6 +124,11 @@ const BRIDGE_MAX_BAR_HEIGHT = 0.35;
 // less than this much brightness spread (std dev, 0-255) inside it.
 const SUNGLASSES_MAX_BRIGHTNESS_RATIO = 0.55;
 const SUNGLASSES_MAX_EYE_SPREAD = 22;
+// ...and the band just under the eye (0.23-0.31 eye-distances below its
+// centre, still inside even a small lens) at most this share of the cheek's
+// brightness. A bare eye measured 0.92-1.0 there, with the opening itself at
+// 0.45 under a ceiling light.
+const SUNGLASSES_MAX_UNDER_EYE_RATIO = 0.6;
 const ENROLLMENTS_PAGE_SIZE = 5;
 
 type Point = { x: number; y: number };
@@ -283,13 +292,16 @@ function meanAndSpread(gray: Float32Array) {
 function hasDarkLenses(video: HTMLVideoElement, axes: FaceAxes) {
   return [axes.left, axes.right].every((eye) => {
     const opening = sampleRegion(video, axes, eye, 0, 0, 0.2, 0.08, 24);
+    const underEye = sampleRegion(video, axes, eye, 0, 0.27, 0.15, 0.04, 16);
     const cheek = sampleRegion(video, axes, eye, 0, 0.62, 0.15, 0.08, 16);
-    if (!opening || !cheek) return false;
+    if (!opening || !underEye || !cheek) return false;
     const eyeStats = meanAndSpread(opening.gray);
+    const underEyeStats = meanAndSpread(underEye.gray);
     const cheekStats = meanAndSpread(cheek.gray);
     return (
       eyeStats.mean < cheekStats.mean * SUNGLASSES_MAX_BRIGHTNESS_RATIO &&
-      eyeStats.spread < SUNGLASSES_MAX_EYE_SPREAD
+      eyeStats.spread < SUNGLASSES_MAX_EYE_SPREAD &&
+      underEyeStats.mean < cheekStats.mean * SUNGLASSES_MAX_UNDER_EYE_RATIO
     );
   });
 }
@@ -422,13 +434,15 @@ const LIVENESS_CAPTURED_PAUSE_MS = 500;
 const YAW_STRAIGHT = 0.1;
 const YAW_TURN = 0.2;
 // Blink: eye openness relative to this employee's own open eyes (tracked
-// during the blink step), so eye shape doesn't matter. A dim camera blurs a
-// blink, so its dip is shallow; the backend still judges the closed frame.
-const BLINK_CLOSED_RATIO = 0.82;
-const BLINK_OPEN_RATIO = 0.9;
+// during the blink step), so eye shape doesn't matter. The landmark eyelids
+// only close ~5-8% on a real blink, and a dim camera (slower, longer frames)
+// blurs a blink further, so both dips asked for are shallow; the backend
+// still judges the closed frame, with the same allowance.
+const BLINK_CLOSED_RATIO = 0.9;
+const BLINK_OPEN_RATIO = 0.95;
 // Same, for the eye-contrast signal (see eyeContrast), sampled this often.
-const BLINK_CONTRAST_CLOSED_RATIO = 0.78;
-const BLINK_CONTRAST_OPEN_RATIO = 0.88;
+const BLINK_CONTRAST_CLOSED_RATIO = 0.86;
+const BLINK_CONTRAST_OPEN_RATIO = 0.92;
 const BLINK_SAMPLE_MS = 33;
 // Longest the eyes can read as closed and still count as a blink, and how
 // fast the open-eye level follows an in-between reading.
@@ -622,8 +636,10 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
   const trackingInFlightRef = useRef(false);
   const livenessListenerRef = useRef<((face: TrackedFace | null) => void) | null>(null);
   const livenessAbortRef = useRef<((error?: Error) => void) | null>(null);
-  // The backend's latest looks for a phone/photo (see checkLive). Kept across
-  // steps so a new step doesn't have to wait for its first answer.
+  // The backend's looks for a phone/photo (see checkLive). Kept across steps
+  // so a new step doesn't have to wait for its first answer. `confirmed` is
+  // whether one has come back live; a reading that doesn't only counts toward
+  // `fails`, which ends the attempt at LIVE_CHECK_FAILS in a row.
   const liveWatchRef = useRef({ confirmed: false, fails: 0, busy: false, at: 0 });
   const fullLandmarksReadyRef = useRef(false);
   // Only the blink needs the full model's eyelids; the tiny one reads head turns
@@ -968,8 +984,11 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
         latestEyes = null;
       };
       // A phone is stopped while it's held up, not after it has done the step:
-      // no step passes until the backend's latest look says this is a live
-      // face. If that look can't be had, the attempt stops too.
+      // no step passes until a backend look has said this is a live face, and
+      // LIVE_CHECK_FAILS looks in a row that don't (or can't be had) stop the
+      // attempt. A single low reading — dim light, or a look that caught the
+      // eyes closed — doesn't undo the confirmation, or it would throw away a
+      // blink finishing right then.
       let finished = false;
       const checkLive = (video: HTMLVideoElement, box: faceapi.Box) => {
         const session = livenessSessionRef.current;
@@ -994,14 +1013,13 @@ export function FaceRegistrationPage({ initialEmployee }: { initialEmployee?: Fa
           }),
         })
           .then((result) => {
-            watch.confirmed = result.live;
+            if (result.live) watch.confirmed = true;
             watch.fails = result.live ? 0 : watch.fails + 1;
             if (!finished && watch.fails >= LIVE_CHECK_FAILS) {
               finish(new LivenessFailed(result.reason ?? "This looks like a photo or a phone/computer screen."));
             }
           })
           .catch((error) => {
-            watch.confirmed = false;
             watch.fails += 1;
             if (!finished && watch.fails >= LIVE_CHECK_FAILS) {
               const detail = error instanceof Error ? ` ${error.message}` : "";

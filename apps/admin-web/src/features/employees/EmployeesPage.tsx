@@ -381,15 +381,20 @@ function getGenderLeaveLabel(sex: Employee["sex"]) {
   return null;
 }
 
-// isTransferable identifies "Added Paternity Leave" (days transferred from
-// the spouse's unused maternity leave, RA 11210), so it's men-only. Maternity
+// "Added Paternity Leave" (days transferred from the spouse's unused
+// maternity leave, RA 11210) is the General type flagged isTransferable.
+// Checked by kind too: a Maternity type wrongly flagged Transferable was
+// otherwise treated as Added Paternity Leave and hidden from women.
+const isAddedPaternityLeave = (type: LeaveTypeRow) => type.isTransferable && type.kind === "GENERAL";
+
+// Added Paternity Leave (see above) is men-only. Maternity
 // and Paternity Leave join this checklist once set to "Admin-grant only" in
 // Utilities > Leave Types: offered for the matching sex, never pre-ticked.
 function getAdminGrantTypes(leaveTypes: LeaveTypeRow[] | null | undefined, sex: Employee["sex"]) {
   if (!leaveTypes) return [];
   return leaveTypes.filter((t) => {
     if (!t.requiresAdminGrant || !t.isActive) return false;
-    if (t.isTransferable && sex !== "MALE") return false;
+    if (isAddedPaternityLeave(t) && sex !== "MALE") return false;
     if (t.kind === "MATERNITY" && sex !== "FEMALE") return false;
     if (t.kind === "PATERNITY" && sex !== "MALE") return false;
     return true;
@@ -415,14 +420,14 @@ const ADDED_PATERNITY_LEAVE_DAYS = 7;
 // Days a grant from the "Additional Leave Types" checklist gives (and shows).
 function getGrantDays(type: LeaveTypeRow) {
   const days = Number(type.defaultDays);
-  return type.isTransferable && days === 0 ? ADDED_PATERNITY_LEAVE_DAYS : days;
+  return isAddedPaternityLeave(type) && days === 0 ? ADDED_PATERNITY_LEAVE_DAYS : days;
 }
 
 const isSoloParentLeaveType = (type: LeaveTypeRow) => type.name === "Solo Parent Leave";
 
 // Solo Parent Leave and Added Paternity Leave both presume a spouse exists,
 // so neither makes sense while Civil Status is Single.
-const requiresSpouse = (type: LeaveTypeRow) => isSoloParentLeaveType(type) || type.isTransferable;
+const requiresSpouse = (type: LeaveTypeRow) => isSoloParentLeaveType(type) || isAddedPaternityLeave(type);
 
 function getInitialSpouseEmployment(employee: Employee): SpouseEmployment {
   if (employee.spouseEmployeeId) return "ULPI";
@@ -530,7 +535,7 @@ function useSpouseDependentResets({
     const wasUlpi = previousSpouseEmployment.current === "ULPI";
     previousSpouseEmployment.current = spouseEmployment;
     if (!wasUlpi || spouseEmployment === "ULPI") return;
-    const transferableIds = adminGrantTypes.filter((t) => t.isTransferable).map((t) => t.id);
+    const transferableIds = adminGrantTypes.filter(isAddedPaternityLeave).map((t) => t.id);
     setGrantedTypeIds((current) =>
       transferableIds.some((id) => current.has(id))
         ? new Set([...current].filter((id) => !transferableIds.includes(id)))
@@ -837,7 +842,7 @@ function AdditionalLeaveGrants({
         // Added Paternity Leave is transferred from a spouse who also works at
         // ULPI. An older grant already on file stays uncheckable (revocable)
         // even without one recorded — it just can't be newly granted.
-        const needsUlpiSpouse = type.isTransferable && form.spouseEmployment !== "ULPI";
+        const needsUlpiSpouse = isAddedPaternityLeave(type) && form.spouseEmployment !== "ULPI";
         const isGranted = grantedTypeIds.has(type.id);
         const isLocked =
           !canGrantLeaveType(type, employmentStatus) || isLoading || isIneligible || (needsUlpiSpouse && !isGranted);
@@ -863,7 +868,7 @@ function AdditionalLeaveGrants({
               />
               <span>
                 {type.name} <span className="grant-days">({getGrantDays(type)} day{getGrantDays(type) === 1 ? "" : "s"})</span>
-                {type.isTransferable && (
+                {isAddedPaternityLeave(type) && (
                   <span className="grant-days"> — spouse must work at ULPI; deducted from her Maternity Leave</span>
                 )}
               </span>
@@ -1035,7 +1040,7 @@ function AddEmployeeModal({
     (type) =>
       grantedTypeIds.has(type.id) &&
       canGrantLeaveType(type, selectedEmploymentStatus) &&
-      !(type.isTransferable && (form.civilStatus !== "MARRIED" || form.spouseEmployment !== "ULPI")),
+      !(isAddedPaternityLeave(type) && (form.civilStatus !== "MARRIED" || form.spouseEmployment !== "ULPI")),
   );
 
   // Fetched on click so the template's reference sheets (departments,

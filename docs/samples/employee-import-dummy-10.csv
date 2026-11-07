@@ -1,0 +1,11 @@
+﻿First Name,Middle Name (Optional),Last Name,Email,Sex,Department,Position,Employee Type,"Hire Date (Optional, YYYY-MM-DD)",Supervisor Employee No (Optional),Civil Status (Optional),Spouse Employment (Optional),Spouse Company (Optional),Spouse Employee No (Optional)
+Kristine,Pascual,Manalo,kristine.manalo@example.org,Female,Production,Manager I,Regular Employee,2025-07-14,,Married,Other Company,Sunrise Packaging Corp.,
+Leonardo,,Gutierrez,leonardo.gutierrez@example.org,Male,Production,Manager II,Probationary Employee,2026-04-06,,Single,,,
+Marites,Valdez,Soriano,marites.soriano@example.org,Female,Production,Senior Manager,Regular Employee,2024-10-21,,Married,Unemployed,,
+Nathaniel,Rivera,Bernardo,nathaniel.bernardo@example.org,Male,Production,Manager I,Permanent Seasonal Employee,2025-12-01,,Single,,,
+Olivia,,Mercado,olivia.mercado@example.org,Female,Quality Control,Manager I,Probationary Seasonal Employee,2026-08-03,,,,,
+Paolo,Domingo,Estrada,paolo.estrada@example.org,Male,Quality Control,Manager II,Regular Employee,2025-05-19,,Married,Not provided,,
+Rowena,Tan,Agustin,rowena.agustin@example.org,Female,Quality Control,Senior Manager,Regular Employee,2024-06-10,,Widowed,,,
+Samuel,,Padilla,samuel.padilla@example.org,Male,Human Resources,HR Manager I,Regular Employee,2025-09-15,,Single,,,
+Theresa,Lopez,Cabrera,theresa.cabrera@example.org,Female,Human Resources,Manager Trainee,Probationary Employee,2026-10-05,,Annulled,,,
+Vicente,Morales,Ignacio,vicente.ignacio@example.org,Male,Human Resources,HR Manager II,Regular Employee,,,Married,Other Company,Pacific Rim Logistics,

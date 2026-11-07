@@ -16,6 +16,7 @@ import { DropdownFilter } from "../../components/ui/DropdownFilter";
 import { ConfirmDialog, type ConfirmDialogConfig } from "../../components/ui/ConfirmDialog";
 import { MultiSelectDropdown } from "../../components/ui/MultiSelectDropdown";
 import { apiRequest } from "../../lib/api";
+import { CACHE_KEYS, cacheSet } from "../../lib/dataCache";
 import { useLiveRefresh } from "../../lib/liveRefresh";
 import {
   type EmploymentStatus,
@@ -189,8 +190,16 @@ export function LeaveTypesTab({
     });
   };
 
+  // Also refreshes the shared leave-types cache, so Add/Edit Employee and the
+  // leave pages pick up a change (e.g. "Admin-grant only") without first
+  // rendering the copy cached before it.
   const loadLeaveTypes = () => {
-    apiRequest<LeaveType[]>("/leave-types").then(setLeaveTypes).catch(() => undefined);
+    apiRequest<LeaveType[]>("/leave-types")
+      .then((types) => {
+        setLeaveTypes(types);
+        cacheSet(CACHE_KEYS.leaveTypes, types);
+      })
+      .catch(() => undefined);
   };
 
   useEffect(loadLeaveTypes, []);
@@ -303,7 +312,7 @@ export function LeaveTypesTab({
         extensionDays: extensionAllowed ? extensionDays : 0,
         cancellationAllowed: form.cancellationAllowed,
         isAutoCredited: form.isAutoCredited,
-        isTransferable: form.isTransferable,
+        isTransferable: form.kind === "GENERAL" && form.isTransferable,
         isMonetizable: form.isMonetizable,
         maxMonetizableDays: form.isMonetizable ? Number(form.maxMonetizableDays) : undefined,
         kind: form.kind,
@@ -772,14 +781,19 @@ export function LeaveTypesTab({
                     <span>Auto-credited (every eligible regular employee gets this balance automatically each year)</span>
                   </label>
 
-                  <label className="utilities-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={form.isTransferable}
-                      onChange={(e) => setForm((c) => ({ ...c, isTransferable: e.target.checked }))}
-                    />
-                    <span>Transferable (days can be transferred from another employee's leave, e.g. Added Paternity Leave)</span>
-                  </label>
+                  {/* Transferable marks the type that receives days (Added
+                      Paternity Leave, a General type). Maternity gives them,
+                      and flagging it hid it from women on Add Employee. */}
+                  {form.kind === "GENERAL" && (
+                    <label className="utilities-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={form.isTransferable}
+                        onChange={(e) => setForm((c) => ({ ...c, isTransferable: e.target.checked }))}
+                      />
+                      <span>Transferable (days can be transferred from another employee's leave, e.g. Added Paternity Leave)</span>
+                    </label>
+                  )}
 
                   <label className="utilities-checkbox">
                     <input
