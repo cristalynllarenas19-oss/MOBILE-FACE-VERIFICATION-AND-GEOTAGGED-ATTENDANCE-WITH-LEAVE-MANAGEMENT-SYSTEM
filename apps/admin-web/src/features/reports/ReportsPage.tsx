@@ -296,8 +296,9 @@ function formatDate(value: string) {
 
 function formatTime(value?: string | null, status?: string) {
   if (value) return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  // An absent day will never get a punch, so "Pending" would be misleading.
-  return status === "ABSENT" ? "—" : "Pending";
+  // An absent or on-leave day will never get a punch, so "Pending" would be
+  // misleading.
+  return status === "ABSENT" || status === "ON_LEAVE" ? "—" : "Pending";
 }
 
 // jsPDF's addImage needs pixel data (base64/canvas), not a bundler asset URL —
@@ -490,7 +491,10 @@ function leaveDayLabel(
   const countFrom = request.extensionOf ? Math.min(start, dayNumber(request.extensionOf.startDate)) : start;
   if (today < start) return "Not started";
   if (today > end) return "Completed";
-  return `Day ${today - countFrom + 1} of ${end - countFrom + 1}`;
+  // The calendar date that day number is, on its own line.
+  const todayDate = new Date(today * 86_400_000);
+  const dateLabel = new Date(todayDate.getUTCFullYear(), todayDate.getUTCMonth(), todayDate.getUTCDate()).toLocaleDateString();
+  return `Day ${today - countFrom + 1} of ${end - countFrom + 1}\n(${dateLabel})`;
 }
 
 function isInDateRange(dateStr: string, from: string, to: string) {
@@ -1168,6 +1172,9 @@ export function ReportsPage({
     // Width of one "Dates Used" slot: the longest range plus a gap. Sized
     // from the whole section so every department's columns line up.
     let sectionDateSlot = 0;
+    // Date ranges per line in "Dates Used": three, or fewer when three would
+    // push the table past the right margin (see addSection).
+    let sectionDateSlots = 3;
     const dateSlotWidth = (body: (string | number)[][], col: number) => {
       doc.setFontSize(8);
       const ranges = body.flatMap((row) => String(row[col] ?? "").split(/\n|, /));
@@ -1202,6 +1209,7 @@ export function ReportsPage({
         headerDrawnOnPage = doc.internal.getNumberOfPages();
       }
       sectionsDrawn += 1;
+      sectionDateSlots = 3;
 
       if (!options.byDepartment) {
         drawTable(head, body, startY, options);
@@ -1231,10 +1239,30 @@ export function ReportsPage({
         Math.max(headingWidth(label), ...body.map((row) => longestWord(row[col] ?? ""))),
       );
       minimum.forEach((width, col) => (natural[col] = Math.max(natural[col], width)));
-      // Room for three full date slots (see drawTable).
-      const datesCol = dateListColumn(head);
-      if (datesCol >= 0) natural[datesCol] = Math.max(natural[datesCol], dateSlotWidth(body, datesCol) * 3 + 2);
       const available = pageWidth - margin * 2;
+      // Room for full date slots (see drawTable): three per line, or two or
+      // one when the other columns need the space — so the table always ends
+      // at the right margin, same as the left.
+      const datesCol = dateListColumn(head);
+      if (datesCol >= 0) {
+        const slot = dateSlotWidth(body, datesCol);
+        const othersMinimum = minimum.reduce((sum, width, col) => (col === datesCol ? sum : sum + width), 0);
+        while (sectionDateSlots > 1 && othersMinimum + slot * sectionDateSlots + 2 > available) sectionDateSlots -= 1;
+        if (sectionDateSlots < 3) {
+          body = body.map((row) =>
+            row.map((value, col) => {
+              if (col !== datesCol || value === "—") return value;
+              const ranges = String(value).split(/\n|, /).filter(Boolean);
+              const lines: string[] = [];
+              for (let i = 0; i < ranges.length; i += sectionDateSlots) lines.push(ranges.slice(i, i + sectionDateSlots).join(", "));
+              return lines.join("\n");
+            }),
+          );
+          natural[datesCol] = Math.max(headingWidth(head[datesCol]), slot * sectionDateSlots + 2);
+        } else {
+          natural[datesCol] = Math.max(natural[datesCol], slot * 3 + 2);
+        }
+      }
       const naturalTotal = natural.reduce((sum, width) => sum + width, 0);
       // Spare room is shared out evenly. When it's too wide, each column
       // keeps its minimum and gives up part of the rest (long text then
@@ -1423,7 +1451,7 @@ export function ReportsPage({
           doc.setFontSize(8);
           doc.setTextColor(0, 0, 0);
           // The three-slot block is centered in the cell, like the other columns.
-          const blockLeft = cell.cell.x + Math.max(cell.cell.padding("left"), (cell.cell.width - dateSlot * 3) / 2);
+          const blockLeft = cell.cell.x + Math.max(cell.cell.padding("left"), (cell.cell.width - dateSlot * sectionDateSlots) / 2);
           String(cell.cell.raw).split("\n").forEach((line, lineIndex) => {
             line.split(", ").forEach((range, slot) => {
               doc.text(
@@ -1840,12 +1868,15 @@ export function ReportsPage({
                   <td className={merge.className}>{merge.show && formatEmploymentStatus(request.employee.employmentStatus)}</td>
                   <td>{request.leaveType.name}</td>
                   <td>{formatDate(request.startDate)} – {formatDate(request.endDate)}</td>
-                  <td>{leaveDayLabel(request, filters.to)}</td>
+                  <td style={{ whiteSpace: "pre-line" }}>{leaveDayLabel(request, filters.to)}</td>
                   <td>{request.totalDays}</td>
                   <td><Badge tone={statusTone(request.status)}>{leaveStatusText(request)}</Badge></td>
                 </tr>
               )} />}
             </tbody>
+            {/* Print only: a line Chrome repeats at the bottom of every page, closing
+                an employee's merged cells when their rows run onto the next page. */}
+            <tfoot className="reports-merge-foot" aria-hidden="true"><tr><td colSpan={8} /></tr></tfoot>
           </table>
         </section>
         </PrintFrame>
@@ -1998,6 +2029,9 @@ export function ReportsPage({
                 </tr>
               )} />}
             </tbody>
+            {/* Print only: a line Chrome repeats at the bottom of every page, closing
+                an employee's merged cells when their rows run onto the next page. */}
+            <tfoot className="reports-merge-foot" aria-hidden="true"><tr><td colSpan={8} /></tr></tfoot>
           </table>
         </section>
         </PrintFrame>

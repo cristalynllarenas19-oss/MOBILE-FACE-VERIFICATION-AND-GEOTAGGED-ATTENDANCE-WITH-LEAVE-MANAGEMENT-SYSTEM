@@ -882,3 +882,23 @@
 .reports-table-card td.reports-merge-continues {
   border-bottom-style: hidden;
 }
+
+/* The closing line for merged employee cells (see the tfoot in Leave and
+   Remaining Leave): hidden on screen; when printing, a zero-height footer
+   the browser repeats at the bottom of each page. */
+.reports-table-card tfoot.reports-merge-foot {
+  display: none;
+}
+
+@media print {
+  .reports-table-card tfoot.reports-merge-foot {
+    display: table-footer-group;
+  }
+
+  .reports-table-card tfoot.reports-merge-foot td {
+    height: 0;
+    padding: 0;
+    border: 0;
+    border-top: 0.75pt solid #000;
+  }
+}
