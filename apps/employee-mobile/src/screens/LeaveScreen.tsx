@@ -37,6 +37,9 @@ import {
   getLeaveRequestDetail,
   createLeaveRequest,
   createLeaveRequests,
+  createMaternityPlan,
+  previewMaternityPlan,
+  MaternityPlanPart,
   cancelLeaveRequest,
   requestLeaveExtension,
   resubmitLeaveRequest,
@@ -113,18 +116,18 @@ function isOneDayLeaveType(name?: string, isSingleDayOnly?: boolean) {
   return normalized.includes("adverse weather") || normalized === "sick leave" || normalized === "emergency leave";
 }
 
-// Leave types an employee is nudged to use first, in this order, before she
-// files Maternity Leave. Matched by name — they're GENERAL-kind types, so
-// there's no LeaveTypeKind to key on. Vacation keeps its usual blue (see
-// LeaveBalanceChart).
-const MATERNITY_ALTERNATIVES: { name: string; icon: keyof typeof Ionicons.glyphMap; color: string; bg: string }[] = [
-  { name: "vacation leave", icon: "airplane-outline", color: "#3B82F6", bg: "#EFF6FF" },
+// How each leave type that can cover the days before a Maternity Leave's
+// delivery date is shown in the suggestion popup (see deliveryPrompt).
+// Matched by name — they're GENERAL-kind types, so there's no LeaveTypeKind
+// to key on. Vacation keeps its usual blue (see LeaveBalanceChart).
+const PRE_DELIVERY_LEAVE_STYLES: { name: string; icon: keyof typeof Ionicons.glyphMap; color: string; bg: string }[] = [
   { name: "sick leave", icon: "medkit-outline", color: "#16A34A", bg: "#ECFDF3" },
+  { name: "vacation leave", icon: "airplane-outline", color: "#3B82F6", bg: "#EFF6FF" },
   { name: "leave without pay", icon: "wallet-outline", color: "#D97706", bg: "#FFFBEB" },
 ];
 
-function maternityAlternativeStyle(item: LeaveType) {
-  return MATERNITY_ALTERNATIVES.find((alt) => alt.name === item.name.trim().toLowerCase()) ?? MATERNITY_ALTERNATIVES[0];
+function preDeliveryLeaveStyle(name: string) {
+  return PRE_DELIVERY_LEAVE_STYLES.find((s) => s.name === name.trim().toLowerCase()) ?? PRE_DELIVERY_LEAVE_STYLES[0];
 }
 
 // The specific document HR expects for a leave type, shown as a note under
@@ -169,6 +172,37 @@ function pastDayTimes(request: { status: string; startDate: string; endDate: str
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   return new Set(leaveDaysOf(request).map((d) => d.getTime()).filter((t) => t < today));
+}
+
+// A leave filed with a Maternity Leave (before its delivery date) that's
+// still in step with it (same status) — it's resubmitted with the Maternity
+// Leave, never on its own (see resubmit in leave.service.ts).
+function isInMaternityPackage(
+  request: { maternityPlanOfId?: string | null; status: string },
+  all: Array<{ id: string; status: string }>,
+) {
+  if (!request.maternityPlanOfId) return false;
+  return all.find((m) => m.id === request.maternityPlanOfId)?.status === request.status;
+}
+
+// "Sick Leave (11/9/2026 – 11/27/2026)", or one date for a one-day leave.
+function namedLeaveRange(request: { startDate: string; endDate: string; leaveType: { name: string } }) {
+  const start = new Date(request.startDate).toLocaleDateString();
+  const end = new Date(request.endDate).toLocaleDateString();
+  return `${request.leaveType.name} (${start === end ? start : `${start} – ${end}`})`;
+}
+
+// The confirmation after filing a Maternity Leave with the leaves before its
+// delivery date (created = [Maternity Leave, ...those leaves]) — names each.
+// Mirrors admin-web's employee-portal LeavePage.
+function maternityPackageSubmittedMessage(created: Array<{ startDate: string; endDate: string; leaveType: { name: string } }>) {
+  const [maternity, ...before] = created;
+  const names = before.map(namedLeaveRange);
+  const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0];
+  return (
+    `Your ${namedLeaveRange(maternity)}, together with ${list} before your delivery date, was submitted. ` +
+    "They're reviewed together — you'll be notified once they're decided."
+  );
 }
 
 // A Maternity Leave extension is filed under the Maternity Leave type
@@ -396,6 +430,16 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
 
   const [isStartPickerVisible, setStartPickerVisibility] = useState(false);
   const [isEndPickerVisible, setEndPickerVisibility] = useState(false);
+
+  // Maternity Leave filed ahead: her last day of work before the delivery
+  // date (the start date). The working days in between are covered by Sick
+  // Leave, Vacation Leave or Leave Without Pay — worked out by the backend
+  // (maternityPlan) and filed together with the Maternity Leave.
+  const [lastWorkDate, setLastWorkDate] = useState<Date | null>(null);
+  const [isLastWorkPickerVisible, setLastWorkPickerVisibility] = useState(false);
+  const [maternityPlan, setMaternityPlan] = useState<MaternityPlanPart[] | null>(null);
+  const [maternityPlanError, setMaternityPlanError] = useState<string | null>(null);
+  const [isMaternityPlanLoading, setIsMaternityPlanLoading] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [dropdownLayout, setDropdownLayout] = useState({ x: 0, y: 0, width: 0 });
   const dropdownButtonRef = useRef<View>(null);
@@ -451,7 +495,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
   // A disabled Request tab falls back to Balance, even if it was already open.
   const shownTab = activeTab === "request" && !canRequestLeave ? "balance" : activeTab;
   const [resultModal, setResultModal] = useState<{ status: ResultModalStatus; title: string; message: string } | null>(null);
-  const [maternityPrompt, setMaternityPrompt] = useState<{ maternity: LeaveType; alternatives: LeaveType[] } | null>(null);
+  const [deliveryPrompt, setDeliveryPrompt] = useState<{ deliveryDate: Date; parts: MaternityPlanPart[] } | null>(null);
   // Viewing an already-submitted attachment (own or a resubmission) — fetched
   // on demand via getLeaveRequestDetail since the list poll above never
   // carries the base64 attachmentData.
@@ -636,7 +680,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
       });
       return;
     }
-    chooseLeaveType(type);
+    selectLeaveType(type);
     setActiveTab("request");
   }
 
@@ -766,48 +810,29 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
     return pendingRequests.some((r) => r.leaveType.id === item.id);
   }
 
-  // Same rules as the disabled dropdown entries.
-  function isLeaveTypeSelectable(item: LeaveType) {
-    return (
-      isLeaveTypeApplicable(item) &&
-      !isLeaveTypeExhausted(item) &&
-      !isLeaveTypeAlreadyPending(item) &&
-      !leaveTypeUnavailableTodayReason(item)
-    );
-  }
-
-  // The Vacation Leave, Sick Leave and Leave Without Pay she can still file
-  // right now — suggested before Maternity Leave.
-  function maternityAlternatives() {
-    return MATERNITY_ALTERNATIVES.flatMap(({ name }) =>
-      leaveTypes.filter(
-        (t) =>
-          t.name.trim().toLowerCase() === name &&
-          t.isActive !== false &&
-          (!t.requiresEhsActivation || t.ehsActivated) &&
-          isLeaveTypeSelectable(t),
-      ),
-    );
-  }
-
   function selectLeaveType(item: LeaveType) {
     setLeaveTypeId(item.id);
     if (isOneDayLeaveType(item.name, item.isSingleDayOnly)) preselectSingleDay(item);
   }
 
-  // Picking Maternity Leave first suggests any of its alternatives that are
-  // still available; she can switch to one or go ahead with Maternity Leave.
-  function chooseLeaveType(item: LeaveType, afterModalClose = false) {
-    const alternatives = item.kind === "MATERNITY" ? maternityAlternatives() : [];
-    if (alternatives.length === 0) {
-      selectLeaveType(item);
-      return;
-    }
-    const openPrompt = () => setMaternityPrompt({ maternity: item, alternatives });
-    // iOS silently drops a Modal presented while another one (the leave type
-    // dropdown) is still dismissing, so let that one close first.
-    if (afterModalClose) setTimeout(openPrompt, 350);
-    else openPrompt();
+  // Maternity Leave with a future delivery date: suggest filing the working
+  // days from tomorrow until then as Sick Leave, Vacation Leave or Leave
+  // Without Pay (whatever she has), together with it — shown only when there
+  // are such days to cover. deliveryPromptToken drops a preview that comes
+  // back after she has already picked another date.
+  const deliveryPromptToken = useRef(0);
+  function suggestCoveringDaysBefore(deliveryDate: Date) {
+    const token = ++deliveryPromptToken.current;
+    const tomorrow = new Date(todayStart.getFullYear(), todayStart.getMonth(), todayStart.getDate() + 1);
+    if (!employeeId || deliveryDate <= tomorrow) return;
+    previewMaternityPlan({ employeeId, startDate: deliveryDate.toISOString(), lastWorkDate: todayStart.toISOString() })
+      .then((parts) => {
+        if (token !== deliveryPromptToken.current || parts.length === 0) return;
+        // iOS silently drops a Modal presented while another one (the date
+        // picker) is still dismissing, so let that one close first.
+        setTimeout(() => setDeliveryPrompt({ deliveryDate, parts }), 350);
+      })
+      .catch(() => undefined);
   }
 
   // Re-fetches everything after a mutation (e.g. submitting a request);
@@ -953,6 +978,9 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
     setStartPickerVisibility(false);
     setStartDate(selectedDate);
     setStartDateSelected(true);
+    // A future delivery date: offer to cover the days before it (unless
+    // she's already picked her last day of work).
+    if (isMaternity && !lastWorkDate) suggestCoveringDaysBefore(selectedDate);
     if (isSingleDayLeave && !multiDate) {
       setEndDate(selectedDate);
       setEndDateSelected(true);
@@ -1037,6 +1065,15 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
     });
     if (!schedule) return undefined;
     return schedule.workingDays.includes(date.getDay()) ? undefined : "Day off / non-working day";
+  }
+
+  // Whether the selected type's start/end date may land on this day.
+  // Maternity Leave may start on any day — it's filed ahead of time to begin
+  // on the (expected) delivery date — and runs in calendar days, so its end
+  // date can be a day off too. Mirrors assertDatesFileable in leave.service.ts.
+  function isBoundaryNonWorking(date: Date) {
+    if (selectedLeaveType?.kind === "MATERNITY") return undefined;
+    return isDateNonWorking(date);
   }
 
   // A day the employee already timed in can't become a leave day — mirrors
@@ -1152,6 +1189,37 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
     if (!maxEndDate || !endDateSelected) return;
     if (endDate > maxEndDate) setEndDate(maxEndDate);
   }, [maxEndDate]);
+
+  const isMaternity = selectedLeaveType?.kind === "MATERNITY";
+  // The last work day has to come before the delivery date — dropped when
+  // the leave type or delivery date changes so it no longer fits.
+  useEffect(() => {
+    if (!lastWorkDate) return;
+    if (!isMaternity || (startDateSelected && lastWorkDate >= startDate)) setLastWorkDate(null);
+  }, [isMaternity, startDate, startDateSelected]);
+
+  // How the days between her last work day and the delivery date would be
+  // covered — same plan the backend files on submit.
+  useEffect(() => {
+    setMaternityPlan(null);
+    setMaternityPlanError(null);
+    if (!isMaternity || !employeeId || !startDateSelected || !lastWorkDate) return;
+    let cancelled = false;
+    setIsMaternityPlanLoading(true);
+    previewMaternityPlan({ employeeId, startDate: startDate.toISOString(), lastWorkDate: lastWorkDate.toISOString() })
+      .then((parts) => {
+        if (!cancelled) setMaternityPlan(parts);
+      })
+      .catch((err) => {
+        if (!cancelled) setMaternityPlanError(err instanceof Error ? err.message : "Unable to work out the days before your delivery date.");
+      })
+      .finally(() => {
+        if (!cancelled) setIsMaternityPlanLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isMaternity, employeeId, startDate, startDateSelected, lastWorkDate]);
 
   async function pickAttachment() {
     setAttachmentError(null);
@@ -1312,6 +1380,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
     setEndDateSelected(false);
     setStartDate(new Date());
     setEndDate(new Date());
+    setLastWorkDate(null);
     setAttachment(null);
     setAttachmentError(null);
   }
@@ -1365,7 +1434,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
       // Mirrors the backend's own-day-off check (leave.service.ts) — catches
       // dates set outside the calendar's disabled-day styling, e.g. the
       // "Request" shortcut from the Balance tab, which jumps straight to today.
-      const nonWorkingBoundary = isDateNonWorking(rangeStart) ? rangeStart : isDateNonWorking(rangeEnd) ? rangeEnd : null;
+      const nonWorkingBoundary = isBoundaryNonWorking(rangeStart) ? rangeStart : isBoundaryNonWorking(rangeEnd) ? rangeEnd : null;
       if (nonWorkingBoundary) {
         setResultModal({
           status: "info",
@@ -1456,6 +1525,18 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
       }
     }
 
+    // Maternity Leave with a last work day: the days before delivery must
+    // have been worked out (and be coverable) before it can be filed.
+    const withPlan = isMaternity && lastWorkDate !== null;
+    if (withPlan && (isMaternityPlanLoading || !maternityPlan)) {
+      setResultModal({
+        status: maternityPlanError ? "error" : "info",
+        title: maternityPlanError ? "Days Before Delivery" : "Please Wait",
+        message: maternityPlanError ?? "Still working out the days before your delivery date.",
+      });
+      return;
+    }
+
     // The checks above only mirror the backend using whatever is cached
     // locally (e.g. attendance history), so the server still has the final
     // say — wait for it before telling the employee it went through.
@@ -1472,14 +1553,22 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
     try {
       const created = multiDate
         ? await createLeaveRequests({ ...shared, dates: sickLeaveDays.map((d) => d.toISOString()) })
-        : [
-            await createLeaveRequest({
+        : withPlan && lastWorkDate
+          ? await createMaternityPlan({
               ...shared,
               startDate: leaveStartDate.toISOString(),
               endDate: leaveEndDate.toISOString(),
               totalDays: leaveTotalDays,
-            }),
-          ];
+              lastWorkDate: lastWorkDate.toISOString(),
+            })
+          : [
+              await createLeaveRequest({
+                ...shared,
+                startDate: leaveStartDate.toISOString(),
+                endDate: leaveEndDate.toISOString(),
+                totalDays: leaveTotalDays,
+              }),
+            ];
       // The POST already returns the created record(s) — write them straight
       // into the cache instead of following up with a second GET round-trip,
       // so they appear on "My Leave Requests" the moment submission succeeds.
@@ -1488,7 +1577,10 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
       setResultModal({
         status: "approved",
         title: "Leave Request Submitted",
-        message: "Your HR/Admin and supervisor have been notified. You'll be notified once it's reviewed.",
+        message:
+          created.length > 1
+            ? maternityPackageSubmittedMessage(created)
+            : "Your HR/Admin and supervisor have been notified. You'll be notified once it's reviewed.",
       });
     } catch (error) {
       // Form is left filled in so the employee can adjust and retry.
@@ -1892,7 +1984,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                           style={[styles.inlineItem, disabled && styles.inlineItemDisabled]}
                           disabled={disabled}
                           onPress={() => {
-                            chooseLeaveType(item, true);
+                            selectLeaveType(item);
                             setIsDropdownOpen(false);
                             setSearchLeave("");
                           }}
@@ -1948,7 +2040,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
               <View style={styles.dateRow}>
                 <Pressable style={styles.dateBox} onPress={() => setStartPickerVisibility(true)}>
                   <Text style={[styles.dateText, !startDateSelected && { color: "#94A3B8" }]}>
-                    {startDateSelected ? formatDate(startDate) : "Start Date"}
+                    {startDateSelected ? formatDate(startDate) : isMaternity ? "Delivery Date" : "Start Date"}
                   </Text>
                   <Ionicons name="calendar-outline" size={20} color="#64748B" />
                 </Pressable>
@@ -1987,9 +2079,89 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
               </Text>
             )}
 
+            {/* Maternity Leave filed ahead: it starts on the delivery date,
+                and the days between her last work day and then are covered
+                by other leave — shown here before she submits. */}
+            {isMaternity && (
+              <>
+                <Text style={styles.label}>Last Day of Work</Text>
+                <View style={styles.dateRow}>
+                  <Pressable
+                    style={styles.dateBox}
+                    onPress={() => {
+                      if (!startDateSelected) {
+                        setResultModal({ status: "info", title: "Pick Delivery Date", message: "Please pick your delivery date first." });
+                        return;
+                      }
+                      setLastWorkPickerVisibility(true);
+                    }}
+                  >
+                    <Text style={[styles.dateText, !lastWorkDate && { color: "#94A3B8" }]}>
+                      {lastWorkDate ? formatDate(lastWorkDate) : "Working until delivery"}
+                    </Text>
+                    {lastWorkDate ? (
+                      <Pressable onPress={() => setLastWorkDate(null)} hitSlop={10}>
+                        <Ionicons name="close-circle" size={20} color="#94A3B8" />
+                      </Pressable>
+                    ) : (
+                      <Ionicons name="calendar-outline" size={20} color="#64748B" />
+                    )}
+                  </Pressable>
+                </View>
+                <Text style={styles.planHintText}>
+                  Stopping work before your delivery date? Pick your last day — the working days in between are filed as Sick Leave, then Vacation Leave, then Leave Without Pay.
+                </Text>
+
+                {startDateSelected && endDateSelected && (
+                  <View style={styles.planCard}>
+                    <Text style={styles.planCardHeader}>FILED TODAY · {formatDate(todayStart)}</Text>
+                    {isMaternityPlanLoading && <ActivityIndicator size="small" color="#1680D8" style={{ marginVertical: 6 }} />}
+                    {maternityPlanError && <Text style={styles.nonWorkingWarningText}>{maternityPlanError}</Text>}
+                    {(maternityPlan ?? []).map((part) => (
+                      <View key={`${part.leaveTypeId}-${part.startDate}`} style={styles.planRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.planRowName}>{part.leaveTypeName}</Text>
+                          <Text style={styles.planRowDates}>
+                            {formatDate(new Date(part.startDate))} – {formatDate(new Date(part.endDate))}
+                          </Text>
+                        </View>
+                        <Text style={styles.planRowDays}>
+                          {part.totalDays} day{part.totalDays === 1 ? "" : "s"}
+                        </Text>
+                      </View>
+                    ))}
+                    <View style={[styles.planRow, styles.planRowMaternity]}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.planRowName, { color: "#BE185D" }]}>{selectedLeaveType?.name}</Text>
+                        <Text style={styles.planRowDates}>
+                          {formatDate(startDate)} – {formatDate(endDate)} · starts on your delivery date
+                        </Text>
+                      </View>
+                      <Text style={[styles.planRowDays, { color: "#BE185D" }]}>
+                        {totalDays} day{totalDays === 1 ? "" : "s"}
+                      </Text>
+                    </View>
+                  </View>
+                )}
+
+                <CalendarPickerModal
+                  visible={isLastWorkPickerVisible}
+                  title="Select Last Day of Work"
+                  selectedDate={lastWorkDate ?? undefined}
+                  minimumDate={todayStart}
+                  maximumDate={new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate() - 1)}
+                  onSelect={(date) => {
+                    setLastWorkPickerVisibility(false);
+                    setLastWorkDate(date);
+                  }}
+                  onClose={() => setLastWorkPickerVisibility(false)}
+                />
+              </>
+            )}
+
             <CalendarPickerModal
               visible={isStartPickerVisible}
-              title="Select Start Date"
+              title={isMaternity ? "Select Delivery Date" : "Select Start Date"}
               selectedDate={startDateSelected ? startDate : undefined}
               // A same-day-only type must be picked as exactly today, but a
               // multi-day "can't file in advance" type (e.g. a multi-day
@@ -2009,7 +2181,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
               }
               maximumDate={lockedToToday ? todayStart : undefined}
               isDateDisabled={isDateAlreadyFiled}
-              isDateNonWorking={isDateNonWorking}
+              isDateNonWorking={isBoundaryNonWorking}
               isDateWorked={isDateWorked}
               isDateOutOfRange={allowsPastAbsence ? isPastNonAbsence : undefined}
               onSelect={handleStartDateConfirm}
@@ -2024,7 +2196,7 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
               // Sick Leave's range can't run past today either.
               maximumDate={multiDate ? (maxEndDate && maxEndDate < todayStart ? maxEndDate : todayStart) : maxEndDate}
               isDateDisabled={isDateAlreadyFiled}
-              isDateNonWorking={isDateNonWorking}
+              isDateNonWorking={isBoundaryNonWorking}
               isDateWorked={isDateWorked}
               isDateOutOfRange={allowsPastAbsence ? isPastNonAbsence : undefined}
               onSelect={handleEndDateConfirm}
@@ -2153,6 +2325,28 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                         <Text style={[styles.pendingText, { color: tone.color, backgroundColor: tone.bg }]} numberOfLines={1}>
                           {statusLabel(request.status, request.lapseReason)}
                         </Text>
+                        {(() => {
+                          // Filed together with a Maternity Leave (the days
+                          // before delivery) — say so on both sides.
+                          const maternity = request.maternityPlanOfId
+                            ? requests.find((r) => r.id === request.maternityPlanOfId)
+                            : undefined;
+                          const filedWithIt = requests.filter((r) => r.maternityPlanOfId === request.id);
+                          if (!maternity && filedWithIt.length === 0) return null;
+                          return (
+                            <View style={styles.packageInfoBox}>
+                              <Ionicons name="link-outline" size={15} color="#64748B" />
+                              <Text style={styles.packageInfoText}>
+                                {maternity
+                                  ? `Filed with your ${namedLeaveRange(maternity)} to cover the working days before your delivery date. ` +
+                                    (isInMaternityPackage(request, requests)
+                                      ? "It's reviewed together with it."
+                                      : "It's now handled on its own.")
+                                  : `Filed with it to cover the days before your delivery date: ${filedWithIt.map(namedLeaveRange).join(", ")}.`}
+                              </Text>
+                            </View>
+                          );
+                        })()}
                         <LeaveTimeline
                           history={request.history}
                           status={request.status}
@@ -2164,7 +2358,13 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                             isLoading: loadingAttachmentId === `${request.id}:${doc.noteId ?? "current"}`,
                           }))}
                         />
-                        {request.status === "NEEDS_REVISION" && (
+                        {/* Filed with a Maternity Leave: resubmitted with it, not on its own. */}
+                        {request.status === "NEEDS_REVISION" && isInMaternityPackage(request, requests) && (
+                          <Text style={[styles.nonWorkingWarningText, { marginTop: 10 }]}>
+                            This was filed with your Maternity Leave — resubmit the Maternity Leave and it goes back for review too.
+                          </Text>
+                        )}
+                        {request.status === "NEEDS_REVISION" && !isInMaternityPackage(request, requests) && (
                             <View style={styles.resubmitSection}>
                               <Text style={styles.resubmitSectionLabel}>RESUBMIT YOUR REQUEST</Text>
 
@@ -2295,8 +2495,8 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
                             {request.extension.allowed ? (
                               <Text style={styles.extendHintText}>
                                 Without pay, for {new Date(request.extension.startDate).toLocaleDateString()} –{" "}
-                                {new Date(request.extension.endDate).toLocaleDateString()}. Must be requested by{" "}
-                                {new Date(request.extension.deadline).toLocaleDateString()} (45 days before your leave ends).
+                                {new Date(request.extension.endDate).toLocaleDateString()}. Can be requested until{" "}
+                                {new Date(request.extension.closesOn).toLocaleDateString()} (within the last 45 days of your leave).
                               </Text>
                             ) : request.extension.reason ? (
                               <View style={styles.cancelNote}>
@@ -3031,61 +3231,66 @@ export default function LeaveScreen({ employeeId, initialFocusRequestId, onFocus
         </View>
       </Modal>
 
-      <Modal visible={!!maternityPrompt} transparent animationType="fade" onRequestClose={() => setMaternityPrompt(null)}>
+      {/* Picked a future delivery date: suggest filing the working days
+          from tomorrow until then with the Maternity Leave. */}
+      <Modal visible={!!deliveryPrompt} transparent animationType="fade" onRequestClose={() => setDeliveryPrompt(null)}>
         <View style={styles.maternityOverlay}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={() => setMaternityPrompt(null)} />
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setDeliveryPrompt(null)} />
           <View style={styles.maternityCard}>
-            <Pressable style={styles.maternityClose} onPress={() => setMaternityPrompt(null)} hitSlop={10}>
+            <Pressable style={styles.maternityClose} onPress={() => setDeliveryPrompt(null)} hitSlop={10}>
               <Ionicons name="close" size={18} color="#64748B" />
             </Pressable>
             <View style={styles.maternityIconCircle}>
               <Ionicons name="bulb-outline" size={30} color="#D97706" />
             </View>
-            <Text style={styles.maternityTitle}>Before filing {maternityPrompt?.maternity.name}</Text>
+            <Text style={styles.maternityTitle}>File the days before your delivery?</Text>
             <Text style={styles.maternityMessage}>
-              You still have other leave you can file. Consider using it first — your {maternityPrompt?.maternity.name} will
-              still be available.
+              Your {selectedLeaveType?.name ?? "Maternity Leave"} starts on {deliveryPrompt ? formatDate(deliveryPrompt.deliveryDate) : ""}.
+              If you stop working after today, the working days in between can be filed with it as:
             </Text>
-            <Text style={styles.maternitySectionLabel}>FILE THIS INSTEAD</Text>
-            <View style={styles.maternityAltList}>
-              {maternityPrompt?.alternatives.map((item) => {
-                const remaining = remainingDaysFor(item);
-                const alt = maternityAlternativeStyle(item);
+            <View style={[styles.maternityAltList, { marginTop: 14 }]}>
+              {deliveryPrompt?.parts.map((part) => {
+                const look = preDeliveryLeaveStyle(part.leaveTypeName);
                 return (
-                  <Pressable
-                    key={item.id}
-                    style={({ pressed }) => [styles.maternityAltRow, pressed && { borderColor: alt.color, backgroundColor: alt.bg }]}
-                    onPress={() => {
-                      selectLeaveType(item);
-                      setMaternityPrompt(null);
-                    }}
-                  >
-                    <View style={[styles.maternityAltIcon, { backgroundColor: alt.bg }]}>
-                      <Ionicons name={alt.icon} size={20} color={alt.color} />
+                  <View key={`${part.leaveTypeId}-${part.startDate}`} style={styles.maternityAltRow}>
+                    <View style={[styles.maternityAltIcon, { backgroundColor: look.bg }]}>
+                      <Ionicons name={look.icon} size={20} color={look.color} />
                     </View>
                     <View style={{ flex: 1 }}>
-                      <Text style={styles.maternityAltName}>{item.name}</Text>
+                      <Text style={styles.maternityAltName}>{part.leaveTypeName}</Text>
                       <Text style={styles.maternityAltDays}>
-                        {item.isUnlimitedDays
-                          ? "No day limit"
-                          : remaining > 0
-                            ? `${remaining} day${remaining === 1 ? "" : "s"} remaining`
-                            : "Can be filed without pay"}
+                        {formatDate(new Date(part.startDate))} – {formatDate(new Date(part.endDate))} · {part.totalDays} day
+                        {part.totalDays === 1 ? "" : "s"}
                       </Text>
                     </View>
-                    <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
-                  </Pressable>
+                  </View>
                 );
               })}
             </View>
             <Pressable
-              style={({ pressed }) => [styles.maternityContinueButton, pressed && { backgroundColor: "#F1F5F9" }]}
+              style={({ pressed }) => [styles.maternityPrimaryButton, pressed && { opacity: 0.85 }]}
               onPress={() => {
-                if (maternityPrompt) selectLeaveType(maternityPrompt.maternity);
-                setMaternityPrompt(null);
+                setLastWorkDate(todayStart);
+                setDeliveryPrompt(null);
               }}
             >
-              <Text style={styles.maternityContinueText}>Continue with {maternityPrompt?.maternity.name}</Text>
+              <Text style={styles.maternityPrimaryText}>File these with my Maternity Leave</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.maternityContinueButton, pressed && { backgroundColor: "#F1F5F9" }]}
+              onPress={() => {
+                setDeliveryPrompt(null);
+                // Let this popup close before the date picker opens (iOS).
+                setTimeout(() => setLastWorkPickerVisibility(true), 350);
+              }}
+            >
+              <Text style={styles.maternityContinueText}>Pick a different last day of work</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.maternityContinueButton, pressed && { backgroundColor: "#F1F5F9" }]}
+              onPress={() => setDeliveryPrompt(null)}
+            >
+              <Text style={styles.maternityContinueText}>No, I'll work until my delivery date</Text>
             </Pressable>
           </View>
         </View>
@@ -3292,6 +3497,23 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#B45309",
   },
+  // Maternity Leave plan: the days before delivery + the leave itself.
+  planHintText: { marginTop: 4, fontSize: 11.5, lineHeight: 16, color: "#64748B" },
+  planCard: {
+    marginTop: 10,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    backgroundColor: "#F8FAFC",
+    gap: 8,
+  },
+  planCardHeader: { fontSize: 11, fontWeight: "700", color: "#64748B", letterSpacing: 0.5 },
+  planRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  planRowMaternity: { marginTop: 2, paddingTop: 8, borderTopWidth: 1, borderTopColor: "#E2E8F0" },
+  planRowName: { fontSize: 13.5, fontWeight: "700", color: "#062B59" },
+  planRowDates: { fontSize: 12, color: "#64748B", marginTop: 1 },
+  planRowDays: { fontSize: 13, fontWeight: "700", color: "#1680D8" },
 
   attachmentPicker: {
     height: SCREEN_HEIGHT < 700 ? 40 : 46,
@@ -3562,15 +3784,6 @@ const styles = StyleSheet.create({
   },
   maternityTitle: { fontSize: 18, fontWeight: "700", color: "#062B59", textAlign: "center", marginBottom: 6 },
   maternityMessage: { fontSize: 14, lineHeight: 20, color: "#475569", textAlign: "center" },
-  maternitySectionLabel: {
-    alignSelf: "flex-start",
-    marginTop: 18,
-    marginBottom: 8,
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 0.6,
-    color: "#94A3B8",
-  },
   maternityAltList: { alignSelf: "stretch", gap: 8 },
   maternityAltRow: {
     flexDirection: "row",
@@ -3586,9 +3799,17 @@ const styles = StyleSheet.create({
   maternityAltIcon: { width: 40, height: 40, borderRadius: 12, alignItems: "center", justifyContent: "center" },
   maternityAltName: { color: "#062B59", fontSize: 15, fontWeight: "700" },
   maternityAltDays: { color: "#64748B", fontSize: 12, marginTop: 2 },
-  maternityContinueButton: {
+  maternityPrimaryButton: {
     alignSelf: "stretch",
     marginTop: 18,
+    borderRadius: 14,
+    paddingVertical: 13,
+    backgroundColor: "#1680D8",
+  },
+  maternityPrimaryText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700", textAlign: "center" },
+  maternityContinueButton: {
+    alignSelf: "stretch",
+    marginTop: 10,
     borderWidth: 1,
     borderColor: "#CBD5E1",
     borderRadius: 14,
@@ -3737,6 +3958,20 @@ const styles = StyleSheet.create({
   requestDateRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   requestDateText: { fontSize: 13.5, color: "#64748B", fontWeight: "500" },
   pendingText: { fontWeight: "700", letterSpacing: 0.3, marginTop: 10, alignSelf: "flex-start", fontSize: 11, paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999, overflow: "hidden" },
+  // "Filed with your Maternity Leave…" on a leave filed before delivery
+  // (and the reverse on the Maternity Leave itself).
+  packageInfoBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    marginTop: 10,
+    padding: 10,
+    borderRadius: 10,
+    // Same gray border as the request card it sits in.
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  packageInfoText: { flex: 1, fontSize: 12, lineHeight: 17, color: "#475569", textAlign: "justify" },
   cancelLeaveButton: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7,
     borderWidth: 1, borderColor: "#FCA5A5", backgroundColor: "#FEF2F2",

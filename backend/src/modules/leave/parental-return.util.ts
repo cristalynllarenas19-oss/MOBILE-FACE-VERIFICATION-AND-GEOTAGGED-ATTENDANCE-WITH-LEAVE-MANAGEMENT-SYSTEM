@@ -23,12 +23,13 @@ export const EMPLOYEE_ENDING_NOTICE_DAYS_BEFORE = 1;
 // (LeaveType.extensionDays — 30 by default, per RA 11210). Also bounds how
 // far back ParentalReturnService looks for a leave still worth a notice.
 export const MATERNITY_EXTENSION_MAX_DAYS = 120;
-// The extension has to be asked for at least this many days before the
-// Maternity Leave ends (RA 11210) — see LeaveService.getExtensionEligibility.
+// The extension can only be asked for within this many days before the
+// Maternity Leave ends — from 45 days before its last day up to that last
+// day, never earlier — see LeaveService.getExtensionEligibility.
 export const MATERNITY_EXTENSION_NOTICE_DAYS = 45;
-// The employee is reminded twice that she can still ask for the extension:
-// this many days before the deadline (an early heads-up), and on the
-// deadline itself — 45 days before the leave ends, the last day she can ask.
+// The employee is reminded twice about the extension: this many days before
+// she can start asking for it (an early heads-up), and on the day she can —
+// 45 days before the leave ends.
 export const MATERNITY_EXTENSION_EARLY_REMINDER_DAYS = 7;
 
 // Far more than any run of rest days and back-to-back leaves — only stops a
@@ -138,26 +139,27 @@ export function employeeEndingNoticeDue(input: {
   return { windowStart, daysUntilEnd: Math.round((lastLeaveDay.getTime() - today) / 86_400_000) };
 }
 
-// The last day the employee may still ask to extend a Maternity Leave ending
-// on `endDate` — same rule as LeaveService.getExtensionEligibility.
-export function extensionDeadline(endDate: Date): Date {
+// The first day the employee may ask to extend a Maternity Leave ending on
+// `endDate` — 45 days before it ends. Same rule as
+// LeaveService.getExtensionEligibility.
+export function extensionOpensOn(endDate: Date): Date {
   return addDays(toLocalMidnight(endDate), -MATERNITY_EXTENSION_NOTICE_DAYS);
 }
 
-// Whether a "request your extension before the deadline" reminder is due,
-// and which one: the early one from MATERNITY_EXTENSION_EARLY_REMINDER_DAYS
-// before the deadline up to the day before it, or the final one on the
-// deadline itself. Each has its own windowStart, so the early one doesn't
-// count as the final one. daysLeft: days until the deadline (0 = today).
+// Whether a "you can request your extension" reminder is due, and which one:
+// the early heads-up from MATERNITY_EXTENSION_EARLY_REMINDER_DAYS before the
+// extension opens up to the day before, or the final one on the day it opens.
+// Each has its own windowStart, so the early one doesn't count as the final
+// one. daysLeft: days until it opens (0 = today).
 export function extensionReminderDue(input: {
   endDate: Date;
   now: Date;
-}): { deadline: Date; windowStart: Date; daysLeft: number } | null {
+}): { opensOn: Date; windowStart: Date; daysLeft: number } | null {
   const today = toLocalMidnight(input.now).getTime();
-  const deadline = extensionDeadline(input.endDate);
-  if (today > deadline.getTime()) return null;
-  const earlyFrom = addDays(deadline, -MATERNITY_EXTENSION_EARLY_REMINDER_DAYS);
+  const opensOn = extensionOpensOn(input.endDate);
+  if (today > opensOn.getTime()) return null;
+  const earlyFrom = addDays(opensOn, -MATERNITY_EXTENSION_EARLY_REMINDER_DAYS);
   if (today < earlyFrom.getTime()) return null;
-  const daysLeft = Math.round((deadline.getTime() - today) / 86_400_000);
-  return { deadline, windowStart: daysLeft === 0 ? deadline : earlyFrom, daysLeft };
+  const daysLeft = Math.round((opensOn.getTime() - today) / 86_400_000);
+  return { opensOn, windowStart: daysLeft === 0 ? opensOn : earlyFrom, daysLeft };
 }

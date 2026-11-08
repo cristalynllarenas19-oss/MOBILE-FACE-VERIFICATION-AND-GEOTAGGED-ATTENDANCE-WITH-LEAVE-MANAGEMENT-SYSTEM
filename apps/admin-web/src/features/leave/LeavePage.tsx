@@ -80,6 +80,10 @@ type LeaveRequest = {
   extensionApproved?: boolean | null;
   // Set on a Maternity Leave extension — the leave it extends.
   extensionOfId?: string | null;
+  // Set on a Sick/Vacation/Without Pay leave filed with a Maternity Leave to
+  // cover the days before the delivery date — the Maternity Leave it belongs
+  // to. Reviewed on the Maternity Leave (see isInMaternityPackage).
+  maternityPlanOfId?: string | null;
   // Only set while status is CANCELLATION_PENDING — the status to revert to
   // if this cancellation request is denied.
   preCancellationStatus?: string | null;
@@ -139,6 +143,23 @@ function isOpenLeaveRequest(r: { status: string; extensionRequested?: boolean; e
 // A Maternity Leave extension is filed under the Maternity Leave type
 // itself (see requestExtension in leave.service.ts) and reviewed like any
 // other request — titled so the reviewer knows what they're approving.
+// A leave filed with a Maternity Leave (before its delivery date) that's
+// still in step with it (same status) — the backend only lets the package be
+// decided on the Maternity Leave, so it's shown there instead of on its own
+// row. Once they part ways (e.g. the Maternity Leave was cancelled after this
+// one started) it's listed and reviewed like any other request.
+function isInMaternityPackage(r: LeaveRequest, all: LeaveRequest[]) {
+  if (!r.maternityPlanOfId) return false;
+  return all.find((m) => m.id === r.maternityPlanOfId)?.status === r.status;
+}
+
+// The leaves before the delivery date that move with this Maternity Leave.
+function maternityPackageParts(maternity: LeaveRequest, all: LeaveRequest[]) {
+  return all
+    .filter((r) => r.maternityPlanOfId === maternity.id && r.status === maternity.status)
+    .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+}
+
 function leaveRequestTitle(r: { extensionOfId?: string | null; leaveType: { name: string } }) {
   return r.extensionOfId ? `${r.leaveType.name} Extension` : r.leaveType.name;
 }
@@ -1544,8 +1565,10 @@ export function LeavePage({
   // Leave Requests = still open (HR's to-do list), Leave History = decided
   // (the record). Display only — a request moves tabs by itself the moment
   // its status changes; nothing about filing/approval is different.
-  const openRequests = useMemo(() => requests.filter(isOpenLeaveRequest), [requests]);
-  const decidedRequests = useMemo(() => requests.filter((r) => !isOpenLeaveRequest(r)), [requests]);
+  // Leaves filed with a Maternity Leave are shown inside it, not as rows.
+  const listedRequests = useMemo(() => requests.filter((r) => !isInMaternityPackage(r, requests)), [requests]);
+  const openRequests = useMemo(() => listedRequests.filter(isOpenLeaveRequest), [listedRequests]);
+  const decidedRequests = useMemo(() => listedRequests.filter((r) => !isOpenLeaveRequest(r)), [listedRequests]);
 
   const statusCounts = useMemo(() => {
     const counts = { ALL: openRequests.length, PENDING: 0, CANCELLATION: 0, REVISION: 0 };
@@ -1834,8 +1857,10 @@ export function LeavePage({
     const newStatus = action === "approve" ? "APPROVED" : requiresAdditionalRequirements ? "NEEDS_REVISION" : "REJECTED";
     const requirementDetailsTrimmed = requirementDetails.trim();
     const requiresAdditionalRequirementsSnapshot = requiresAdditionalRequirements;
+    // A Maternity Leave's leaves before delivery are decided with it.
+    const movingIds = new Set([targetId, ...maternityPackageParts(reviewRequest, requests).map((p) => p.id)]);
 
-    requestsCache.setData(requests.map((r) => (r.id === targetId ? { ...r, status: newStatus } : r)));
+    requestsCache.setData(requests.map((r) => (movingIds.has(r.id) ? { ...r, status: newStatus } : r)));
     setReviewRequest(null);
     setRemarks("");
     setRequiresAdditionalRequirements(false);
@@ -1987,8 +2012,9 @@ export function LeavePage({
     const targetId = reviewRequest.id;
     const revertStatus = reviewRequest.preCancellationStatus ?? "APPROVED";
     const newStatus = decision === "approve" ? "CANCELLED" : revertStatus;
+    const movingIds = new Set([targetId, ...maternityPackageParts(reviewRequest, requests).map((p) => p.id)]);
 
-    requestsCache.setData(requests.map((r) => (r.id === targetId ? { ...r, status: newStatus } : r)));
+    requestsCache.setData(requests.map((r) => (movingIds.has(r.id) ? { ...r, status: newStatus } : r)));
     setReviewRequest(null);
     setRemarks("");
     setNotification({
@@ -2147,7 +2173,14 @@ export function LeavePage({
                       <td data-label="Employee">{getEmployeeName(r)}</td>
                       <td data-label="Department">{r.employee.department?.name ?? "Unassigned"}</td>
                       <td data-label="Employee Type">{formatEmploymentStatus(r.employee.employmentStatus)}</td>
-                      <td data-label="Leave Type">{leaveRequestTitle(r)}</td>
+                      <td data-label="Leave Type">
+                        {leaveRequestTitle(r)}
+                        {maternityPackageParts(r, requests).length > 0 && (
+                          <span style={{ display: "block", fontSize: 11.5, color: "#64748B" }}>
+                            + {maternityPackageParts(r, requests).length} leave{maternityPackageParts(r, requests).length === 1 ? "" : "s"} before delivery
+                          </span>
+                        )}
+                      </td>
                       <td data-label="Dates">
                         {formatDate(r.startDate)} – {formatDate(r.endDate)}
                       </td>
@@ -2246,7 +2279,14 @@ export function LeavePage({
                       <td data-label="Employee">{getEmployeeName(r)}</td>
                       <td data-label="Department">{r.employee.department?.name ?? "Unassigned"}</td>
                       <td data-label="Employee Type">{formatEmploymentStatus(r.employee.employmentStatus)}</td>
-                      <td data-label="Leave Type">{leaveRequestTitle(r)}</td>
+                      <td data-label="Leave Type">
+                        {leaveRequestTitle(r)}
+                        {maternityPackageParts(r, requests).length > 0 && (
+                          <span style={{ display: "block", fontSize: 11.5, color: "#64748B" }}>
+                            + {maternityPackageParts(r, requests).length} leave{maternityPackageParts(r, requests).length === 1 ? "" : "s"} before delivery
+                          </span>
+                        )}
+                      </td>
                       <td data-label="Date Filed">{formatDate(r.createdAt)}</td>
                       <td data-label="Days">{r.totalDays}</td>
                       <td data-label="Status">
@@ -2587,6 +2627,20 @@ export function LeavePage({
               <div><span>Department</span><strong>{reviewRequest.employee.department?.name ?? "Unassigned"}</strong></div>
               <div><span>Employee Type</span><strong>{formatEmploymentStatus(reviewRequest.employee.employmentStatus)}</strong></div>
               <div><span>Leave Type</span><strong>{leaveRequestTitle(reviewRequest)}</strong></div>
+              {/* Filed with a Maternity Leave to cover the days before delivery. */}
+              {reviewRequest.maternityPlanOfId && (() => {
+                const maternity = requests.find((m) => m.id === reviewRequest.maternityPlanOfId);
+                return (
+                  <div>
+                    <span>Filed With</span>
+                    <strong>
+                      {maternity
+                        ? `${maternity.leaveType.name} (${formatDate(maternity.startDate)} – ${formatDate(maternity.endDate)}), for the days before delivery`
+                        : "Maternity Leave, for the days before delivery"}
+                    </strong>
+                  </div>
+                );
+              })()}
               <div><span>Date Filed</span><strong>{formatDate(reviewRequest.createdAt)}</strong></div>
               <div>
                 <span>Date Range</span>
@@ -2614,6 +2668,30 @@ export function LeavePage({
                 <div>
                   <span>Extension Allowance</span>
                   <strong>{Number(reviewRequest.totalDays)} days, separate from the Maternity Leave balance</strong>
+                </div>
+              )}
+
+              {/* Filed together with this Maternity Leave to cover the days
+                  before the delivery date — decided with it. */}
+              {maternityPackageParts(reviewRequest, requests).length > 0 && (
+                <div className="leave-package">
+                  <span>Filed With It — Days Before Delivery</span>
+                  <div className="leave-package-list">
+                    {maternityPackageParts(reviewRequest, requests).map((part) => (
+                      <div key={part.id} className="leave-package-row">
+                        <strong>{part.leaveType.name}</strong>
+                        <em>
+                          {formatDate(part.startDate)}
+                          {part.startDate !== part.endDate ? ` – ${formatDate(part.endDate)}` : ""} · {Number(part.totalDays)} day
+                          {Number(part.totalDays) === 1 ? "" : "s"}
+                        </em>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="leave-package-note">
+                    Approving, rejecting or returning this Maternity Leave does the same to these. Each is deducted from its own
+                    balance when approved.
+                  </p>
                 </div>
               )}
 

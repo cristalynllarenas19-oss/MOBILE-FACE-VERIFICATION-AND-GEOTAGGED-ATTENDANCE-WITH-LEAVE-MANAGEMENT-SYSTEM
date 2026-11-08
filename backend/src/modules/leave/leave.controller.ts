@@ -4,6 +4,7 @@ import { getAuditContext } from "../../common/utils/audit-context.util";
 import { getSupervisorDepartmentScope } from "../../common/utils/supervisor-scope.util";
 import { CreateLeaveRequestDto } from "./dto/create-leave-request.dto";
 import { CreateLeaveRequestsDto } from "./dto/create-leave-requests.dto";
+import { CreateMaternityPlanDto, PreviewMaternityPlanDto } from "./dto/maternity-plan.dto";
 import { CancelLeaveRequestDto } from "./dto/cancel-leave-request.dto";
 import { RejectLeaveRequestDto } from "./dto/reject-leave-request.dto";
 import { RequestLeaveExtensionDto } from "./dto/request-leave-extension.dto";
@@ -34,7 +35,11 @@ export class LeaveController {
     const departmentId = getSupervisorDepartmentScope(user);
     // Defaults to true (today's behavior) unless a caller explicitly opts out.
     const shouldIncludeAttachments = includeAttachments !== "false";
-    return this.leaveService.findAll(scopedEmployeeId, departmentId, shouldIncludeAttachments);
+    // A Supervisor's team view (no employeeId) leaves out their own requests —
+    // they can't review those anyway; they see them on their employee side,
+    // which always passes ?employeeId=<self>.
+    const excludeEmployeeId = !roles.includes("ADMIN") && !scopedEmployeeId ? user.employeeId : undefined;
+    return this.leaveService.findAll(scopedEmployeeId, departmentId, shouldIncludeAttachments, excludeEmployeeId);
   }
 
   @Get(":id")
@@ -59,6 +64,21 @@ export class LeaveController {
   @RequirePermissions("leave:write")
   createForDates(@Body() dto: CreateLeaveRequestsDto, @Req() request: Request) {
     return this.leaveService.createForDates(dto, getAuditContext(request));
+  }
+
+  // Maternity Leave filed ahead to start on the delivery date, with the
+  // working days before it (after her last day of work) covered by Sick
+  // Leave, Vacation Leave or Leave Without Pay. Preview only works it out.
+  @Post("maternity-plan/preview")
+  @RequirePermissions("leave:write")
+  previewMaternityPlan(@Body() dto: PreviewMaternityPlanDto) {
+    return this.leaveService.previewMaternityPlan(dto);
+  }
+
+  @Post("maternity-plan")
+  @RequirePermissions("leave:write")
+  createMaternityPlan(@Body() dto: CreateMaternityPlanDto, @Req() request: Request) {
+    return this.leaveService.createMaternityPlan(dto, getAuditContext(request));
   }
 
   @Patch(":id/approve")

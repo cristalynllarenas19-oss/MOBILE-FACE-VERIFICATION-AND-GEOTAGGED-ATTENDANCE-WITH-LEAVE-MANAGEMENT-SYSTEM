@@ -100,26 +100,26 @@ describe("parentalNoticeDue", () => {
 });
 
 describe("extensionReminderDue", () => {
-  // Maternity leave ending Thu Dec 31 2026 — the extension must be asked for
-  // by Mon Nov 16, 45 days earlier. Early reminder from Mon Nov 9, final one
-  // on Nov 16 itself.
+  // Maternity leave ending Thu Dec 31 2026 — the extension can be asked for
+  // from Mon Nov 16, 45 days earlier. Early heads-up from Mon Nov 9, final
+  // reminder on Nov 16 itself.
   const endDate = new Date(2026, 11, 31, 8);
 
-  it("sends nothing before the week leading up to the deadline", () => {
+  it("sends nothing before the week leading up to the day it opens", () => {
     expect(extensionReminderDue({ endDate, now: nov(8, 23) })).toBeNull();
   });
 
-  it("is due early from a week before the deadline, up to the day before", () => {
-    expect(extensionReminderDue({ endDate, now: nov(9, 0) })).toEqual({ deadline: nov(16), windowStart: nov(9), daysLeft: 7 });
-    expect(extensionReminderDue({ endDate, now: nov(15, 23) })).toEqual({ deadline: nov(16), windowStart: nov(9), daysLeft: 1 });
+  it("is due early from a week before it opens, up to the day before", () => {
+    expect(extensionReminderDue({ endDate, now: nov(9, 0) })).toEqual({ opensOn: nov(16), windowStart: nov(9), daysLeft: 7 });
+    expect(extensionReminderDue({ endDate, now: nov(15, 23) })).toEqual({ opensOn: nov(16), windowStart: nov(9), daysLeft: 1 });
   });
 
-  it("is due again, in its own window, on the deadline itself — 45 days before the leave ends", () => {
-    expect(extensionReminderDue({ endDate, now: nov(16, 0) })).toEqual({ deadline: nov(16), windowStart: nov(16), daysLeft: 0 });
-    expect(extensionReminderDue({ endDate, now: nov(16, 23) })).toEqual({ deadline: nov(16), windowStart: nov(16), daysLeft: 0 });
+  it("is due again, in its own window, on the day it opens — 45 days before the leave ends", () => {
+    expect(extensionReminderDue({ endDate, now: nov(16, 0) })).toEqual({ opensOn: nov(16), windowStart: nov(16), daysLeft: 0 });
+    expect(extensionReminderDue({ endDate, now: nov(16, 23) })).toEqual({ opensOn: nov(16), windowStart: nov(16), daysLeft: 0 });
   });
 
-  it("is no longer due once the deadline has passed", () => {
+  it("is no longer due once it has opened", () => {
     expect(extensionReminderDue({ endDate, now: nov(17, 0) })).toBeNull();
   });
 });

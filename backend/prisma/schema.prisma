@@ -787,6 +787,12 @@ model LeaveRequest {
   // It runs from the day after that leave ends, goes through the normal
   // Supervisor/Admin review, and never touches the maternity balance.
   extensionOfId      String?            @map("extension_of_id")
+  // Set on a Sick/Vacation/Without Pay leave filed together with a Maternity
+  // Leave to cover the working days before the delivery date — the Maternity
+  // Leave it belongs to (see LeaveService.createMaternityPlan). The package
+  // is reviewed as one: approving, rejecting or returning the Maternity Leave
+  // does the same to these, and they can't be decided on their own.
+  maternityPlanOfId  String?            @map("maternity_plan_of_id")
   employee           Employee           @relation(fields: [employeeId], references: [id])
   leaveType          LeaveType          @relation(fields: [leaveTypeId], references: [id])
   reviewer           User?              @relation(fields: [reviewedBy], references: [id])
@@ -794,6 +800,7 @@ model LeaveRequest {
 
   @@index([employeeId, status])
   @@index([startDate])
+  @@index([maternityPlanOfId])
   @@map("leave_requests")
 }
 

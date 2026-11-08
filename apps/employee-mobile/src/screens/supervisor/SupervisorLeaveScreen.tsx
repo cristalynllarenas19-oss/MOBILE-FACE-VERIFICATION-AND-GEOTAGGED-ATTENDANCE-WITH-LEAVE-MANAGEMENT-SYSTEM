@@ -51,6 +51,22 @@ function leaveRequestTitle(request: { extensionOfId?: string | null; leaveType: 
   return request.extensionOfId ? `${request.leaveType.name} Extension` : request.leaveType.name;
 }
 
+// A leave filed with a Maternity Leave (before its delivery date) that's
+// still in step with it (same status) — the backend only lets the package be
+// decided on the Maternity Leave, so it's shown inside it instead of on its
+// own card. Mirrors admin-web's LeavePage.
+function isInMaternityPackage(request: TeamLeaveRequest, all: TeamLeaveRequest[]) {
+  if (!request.maternityPlanOfId) return false;
+  return all.find((m) => m.id === request.maternityPlanOfId)?.status === request.status;
+}
+
+// The leaves before the delivery date that move with this Maternity Leave.
+function maternityPackageParts(maternity: TeamLeaveRequest, all: TeamLeaveRequest[]) {
+  return all
+    .filter((r) => r.maternityPlanOfId === maternity.id && r.status === maternity.status)
+    .sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
+}
+
 function lateMinutesLabel(minutes: number) {
   return `${minutes} minute${minutes === 1 ? "" : "s"} undertime`;
 }
@@ -136,7 +152,9 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
   }, [refresh, refreshUndertime]);
 
   const visibleRequests = requests.filter((r) =>
-    filter === "PENDING"
+    isInMaternityPackage(r, requests)
+      ? false
+      : filter === "PENDING"
       ? r.status === "PENDING" || r.status === "CANCELLATION_PENDING"
       : filter === "LAPSED"
         ? r.status === "LAPSED"
@@ -238,8 +256,10 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
     }
     const targetId = reviewRequest.id;
     const newStatus = decision === "approve" ? "CANCELLED" : "APPROVED";
+    // A Maternity Leave's leaves before delivery are decided with it.
+    const movingIds = new Set([targetId, ...maternityPackageParts(reviewRequest, requests).map((p) => p.id)]);
 
-    setData(requests.map((r) => (r.id === targetId ? { ...r, status: newStatus } : r)));
+    setData(requests.map((r) => (movingIds.has(r.id) ? { ...r, status: newStatus } : r)));
     setReviewRequest(null);
     setResultModal({
       status: "approved",
@@ -278,8 +298,9 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
     const remarksTrimmed = remarks.trim();
     const requirementDetailsTrimmed = requirementDetails.trim();
     const requestedResubmission = isRequestResubmission;
+    const movingIds = new Set([targetId, ...maternityPackageParts(reviewRequest, requests).map((p) => p.id)]);
 
-    setData(requests.map((r) => (r.id === targetId ? { ...r, status: newStatus } : r)));
+    setData(requests.map((r) => (movingIds.has(r.id) ? { ...r, status: newStatus } : r)));
     setReviewRequest(null);
     setResultModal({
       status: "approved",
@@ -372,6 +393,12 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
                       <StatusPill status={request.status} lapseReason={request.lapseReason} />
                     </View>
                     <Text style={styles.leaveType}>{leaveRequestTitle(request)}</Text>
+                    {maternityPackageParts(request, requests).length > 0 && (
+                      <Text style={styles.packageHint}>
+                        + {maternityPackageParts(request, requests).length} leave
+                        {maternityPackageParts(request, requests).length === 1 ? "" : "s"} before delivery
+                      </Text>
+                    )}
                     <Text style={styles.dateRange}>
                       {new Date(request.startDate).toLocaleDateString()} - {new Date(request.endDate).toLocaleDateString()} · {request.totalDays} day
                       {Number(request.totalDays) === 1 ? "" : "s"}
@@ -449,6 +476,39 @@ export default function SupervisorLeaveScreen({ currentEmployeeId, initialFocusR
                     {new Date(reviewRequest.startDate).toLocaleDateString()} - {new Date(reviewRequest.endDate).toLocaleDateString()}
                   </Text>
                   <Text style={styles.reasonText}>{reviewRequest.reason}</Text>
+                  {/* Filed with a Maternity Leave to cover the days before delivery. */}
+                  {reviewRequest.maternityPlanOfId && (() => {
+                    const maternity = requests.find((m) => m.id === reviewRequest.maternityPlanOfId);
+                    return (
+                      <Text style={styles.packageHint}>
+                        Filed with{" "}
+                        {maternity
+                          ? `${maternity.leaveType.name} (${new Date(maternity.startDate).toLocaleDateString()} - ${new Date(maternity.endDate).toLocaleDateString()})`
+                          : "a Maternity Leave"}
+                        , for the days before delivery.
+                      </Text>
+                    );
+                  })()}
+
+                  {/* Filed together with this Maternity Leave to cover the
+                      days before the delivery date — decided with it. */}
+                  {maternityPackageParts(reviewRequest, requests).length > 0 && (
+                    <View style={styles.packageBox}>
+                      <Text style={styles.packageLabel}>FILED WITH IT — DAYS BEFORE DELIVERY</Text>
+                      {maternityPackageParts(reviewRequest, requests).map((part) => (
+                        <View key={part.id} style={styles.packageRow}>
+                          <Text style={styles.packageName}>{part.leaveType.name}</Text>
+                          <Text style={styles.packageDates}>
+                            {new Date(part.startDate).toLocaleDateString()} - {new Date(part.endDate).toLocaleDateString()} · {Number(part.totalDays)} day
+                            {Number(part.totalDays) === 1 ? "" : "s"}
+                          </Text>
+                        </View>
+                      ))}
+                      <Text style={styles.packageNote}>
+                        Approving, rejecting or returning this Maternity Leave does the same to these.
+                      </Text>
+                    </View>
+                  )}
 
                   <LeaveTimeline
                     history={reviewRequest.history}
@@ -747,6 +807,14 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 17, fontWeight: "700", color: "#062B59" },
   modalSubtitle: { fontSize: 13, color: "#334155", marginTop: 2, fontWeight: "600" },
   modalMeta: { fontSize: 12, color: "#64748B", marginTop: 12 },
+  // A Maternity Leave's leaves before delivery, shown inside it.
+  packageHint: { fontSize: 11.5, color: "#64748B", marginTop: 1 },
+  packageBox: { marginTop: 12, padding: 10, borderRadius: 12, borderWidth: 1, borderColor: "#E2E8F0", backgroundColor: "#F8FAFC", gap: 6 },
+  packageLabel: { fontSize: 10.5, fontWeight: "700", color: "#64748B", letterSpacing: 0.4 },
+  packageRow: { flexDirection: "row", justifyContent: "space-between", gap: 8 },
+  packageName: { fontSize: 13, fontWeight: "700", color: "#062B59" },
+  packageDates: { fontSize: 12, color: "#475569" },
+  packageNote: { fontSize: 11.5, color: "#64748B" },
   reasonText: { fontSize: 13, color: "#334155", marginTop: 6, lineHeight: 18 },
   warningText: { fontSize: 12, color: "#B45309", backgroundColor: "#FEF3C7", padding: 10, borderRadius: 10, marginTop: 12 },
   label: { fontWeight: "600", color: "#475569", marginTop: 14, marginBottom: 4 },

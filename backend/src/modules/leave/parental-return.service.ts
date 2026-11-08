@@ -279,13 +279,13 @@ export class ParentalReturnService {
   }
 
   // Reminds the employee herself, twice per Maternity Leave, that the
-  // extension can only be requested up to MATERNITY_EXTENSION_NOTICE_DAYS
-  // (45) before the leave ends — MATERNITY_EXTENSION_EARLY_REMINDER_DAYS
-  // before that deadline, and again on the deadline itself — only while she
-  // hasn't requested one yet.
+  // extension can only be requested within the last
+  // MATERNITY_EXTENSION_NOTICE_DAYS (45) of the leave —
+  // MATERNITY_EXTENSION_EARLY_REMINDER_DAYS before that opens, and again on
+  // the day it opens — only while she hasn't requested one yet.
   async remindExtensionDeadlines(now = new Date()) {
     const today = toLocalMidnight(now);
-    // Leaves whose deadline (endDate − 45) falls within the reminder window;
+    // Leaves whose extension opens (endDate − 45) within the reminder window;
     // extensionReminderDue makes the exact call per request.
     const candidates = await this.prisma.leaveRequest.findMany({
       where: {
@@ -330,17 +330,17 @@ export class ParentalReturnService {
       if (alreadyNotified.some((n) => n.entityId === request.id && n.createdAt >= due.windowStart)) continue;
 
       const period = `${request.startDate.toLocaleDateString()} - ${request.endDate.toLocaleDateString()}`;
-      const deadline = due.deadline.toLocaleDateString();
+      const opensOn = due.opensOn.toLocaleDateString();
+      const endsOn = request.endDate.toLocaleDateString();
       await this.notifications.notifyUsers([userId], {
-        title: due.daysLeft === 0 ? "Maternity Leave Extension Deadline" : "Maternity Leave Extension Reminder",
+        title: due.daysLeft === 0 ? "Maternity Leave Extension Now Open" : "Maternity Leave Extension Reminder",
         message:
           due.daysLeft === 0
-            ? `Your ${request.leaveType.name} (${period}) ends in ${MATERNITY_EXTENSION_NOTICE_DAYS} days, on ${request.endDate.toLocaleDateString()}. ` +
-              `If you need the ${request.leaveType.extensionDays}-day extension, request it by today (${deadline}) — ` +
-              `after that it can no longer be requested.`
-            : `Your ${request.leaveType.name} (${period}) ends on ${request.endDate.toLocaleDateString()}. ` +
-              `If you need the ${request.leaveType.extensionDays}-day extension, request it by ${deadline} ` +
-              `(in ${due.daysLeft} day${due.daysLeft === 1 ? "" : "s"}) — at least ${MATERNITY_EXTENSION_NOTICE_DAYS} days before the leave ends.`,
+            ? `Your ${request.leaveType.name} (${period}) ends in ${MATERNITY_EXTENSION_NOTICE_DAYS} days, on ${endsOn}. ` +
+              `If you need the ${request.leaveType.extensionDays}-day extension, you can request it from today until ${endsOn}.`
+            : `Your ${request.leaveType.name} (${period}) ends on ${endsOn}. ` +
+              `If you need the ${request.leaveType.extensionDays}-day extension, you can request it starting ${opensOn} ` +
+              `(in ${due.daysLeft} day${due.daysLeft === 1 ? "" : "s"}) — within the last ${MATERNITY_EXTENSION_NOTICE_DAYS} days of the leave.`,
         type: EXTENSION_REMINDER_NOTIFICATION_TYPE,
         entityId: request.id,
       });

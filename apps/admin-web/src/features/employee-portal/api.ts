@@ -309,6 +309,10 @@ export type LeaveRequest = {
   cancellation?: { allowed: boolean; reason?: string; workedDates?: string[] };
   // Set on a Maternity Leave extension — the leave it extends.
   extensionOfId?: string | null;
+  // Set on a Sick/Vacation/Without Pay leave filed with a Maternity Leave to
+  // cover the days before the delivery date — the Maternity Leave it belongs
+  // to. Resubmitted with it, never on its own. Mirrors employee-mobile's api.ts.
+  maternityPlanOfId?: string | null;
   // Server-computed, only on an APPROVED Maternity Leave — whether its
   // extension (without pay) can be requested now, and why not if not. It must
   // be requested by `deadline` (45 days before the leave ends); startDate/
@@ -322,7 +326,9 @@ export type LeaveExtensionEligibility = {
   // How many days the extension covers — the leave type's configured
   // extension days (Utilities → Leave Types).
   days: number;
-  deadline: string;
+  // When it can be requested: only within the last 45 days of the leave.
+  opensOn: string;
+  closesOn: string;
   startDate: string;
   endDate: string;
   extensionId?: string;
@@ -411,6 +417,32 @@ export function createLeaveRequests(
   input: Omit<CreateLeaveRequestInput, "startDate" | "endDate" | "totalDays"> & { dates: string[] },
 ) {
   return apiRequest<LeaveRequest[]>("/leave-requests/batch", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+// Maternity Leave filed ahead to start on the delivery date (startDate):
+// the working days after lastWorkDate and before it are covered by Sick
+// Leave, then Vacation Leave, then Leave Without Pay, as available.
+// Mirrors employee-mobile's api.ts.
+export type MaternityPlanPart = {
+  leaveTypeId: string;
+  leaveTypeName: string;
+  startDate: string;
+  endDate: string;
+  totalDays: number;
+};
+
+export function previewMaternityPlan(input: { employeeId: string; startDate: string; lastWorkDate: string }) {
+  return apiRequest<MaternityPlanPart[]>("/leave-requests/maternity-plan/preview", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function createMaternityPlan(input: CreateLeaveRequestInput & { lastWorkDate: string }) {
+  return apiRequest<LeaveRequest[]>("/leave-requests/maternity-plan", {
     method: "POST",
     body: JSON.stringify(input),
   });

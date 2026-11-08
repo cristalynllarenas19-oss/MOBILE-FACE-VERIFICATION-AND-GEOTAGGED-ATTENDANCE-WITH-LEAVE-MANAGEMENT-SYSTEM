@@ -415,6 +415,10 @@ export type LeaveRequest = {
   cancellation?: { allowed: boolean; reason?: string; workedDates?: string[] };
   // Set on a Maternity Leave extension — the leave it extends.
   extensionOfId?: string | null;
+  // Set on a Sick/Vacation/Without Pay leave filed with a Maternity Leave to
+  // cover the days before the delivery date — the Maternity Leave it belongs
+  // to. The package is reviewed (and, while it's in step, shown) as one.
+  maternityPlanOfId?: string | null;
   // Server-computed, only on an APPROVED Maternity Leave — whether its
   // extension (without pay) can be requested now, and why not if not. It must
   // be requested by `deadline` (45 days before the leave ends); startDate/
@@ -428,7 +432,9 @@ export type LeaveExtensionEligibility = {
   // How many days the extension covers — the leave type's configured
   // extension days (Utilities → Leave Types).
   days: number;
-  deadline: string;
+  // When it can be requested: only within the last 45 days of the leave.
+  opensOn: string;
+  closesOn: string;
   startDate: string;
   endDate: string;
   extensionId?: string;
@@ -890,6 +896,31 @@ export async function createLeaveRequests(input: CreateLeaveRequestsInput) {
   });
 }
 
+// Maternity Leave filed ahead to start on the delivery date (startDate):
+// the working days after lastWorkDate and before it are covered by Sick
+// Leave, then Vacation Leave, then Leave Without Pay, as available.
+export type MaternityPlanPart = {
+  leaveTypeId: string;
+  leaveTypeName: string;
+  startDate: string;
+  endDate: string;
+  totalDays: number;
+};
+
+export async function previewMaternityPlan(input: { employeeId: string; startDate: string; lastWorkDate: string }) {
+  return apiRequest<MaternityPlanPart[]>("/leave-requests/maternity-plan/preview", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function createMaternityPlan(input: CreateLeaveRequestInput & { lastWorkDate: string; extensionRequested?: boolean }) {
+  return apiRequest<LeaveRequest[]>("/leave-requests/maternity-plan", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 export async function resubmitLeaveRequest(id: string, input: ResubmitLeaveRequestInput) {
   return apiRequest<LeaveRequest>(`/leave-requests/${id}/resubmit`, {
     method: "PATCH",
@@ -1237,6 +1268,10 @@ export type TeamLeaveRequest = {
   extensionApproved?: boolean | null;
   // Set on a Maternity Leave extension — the leave it extends.
   extensionOfId?: string | null;
+  // Set on a Sick/Vacation/Without Pay leave filed with a Maternity Leave to
+  // cover the days before the delivery date — the Maternity Leave it belongs
+  // to. The package is reviewed (and, while it's in step, shown) as one.
+  maternityPlanOfId?: string | null;
   history?: LeaveRequestHistoryEvent[];
   // The team list is fetched with attachments included, so a note's
   // document (e.g. one sent with a cancellation) can be opened directly.

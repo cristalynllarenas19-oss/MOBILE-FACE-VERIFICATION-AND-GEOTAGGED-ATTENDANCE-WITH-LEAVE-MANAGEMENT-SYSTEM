@@ -295,10 +295,10 @@ export class UndertimeService {
     return filing;
   }
 
-  async findAll(employeeId?: string, departmentId?: string) {
+  async findAll(employeeId?: string, departmentId?: string, excludeEmployeeId?: string) {
     return this.prisma.undertimeFiling.findMany({
       where: {
-        ...(employeeId ? { employeeId } : {}),
+        ...(employeeId ? { employeeId } : excludeEmployeeId ? { employeeId: { not: excludeEmployeeId } } : {}),
         ...(departmentId ? { employee: { departmentId } } : {}),
       },
       include: {

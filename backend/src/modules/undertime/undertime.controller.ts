@@ -24,7 +24,10 @@ export class UndertimeController {
     const hasElevatedRole = roles.includes("ADMIN") || roles.includes("SUPERVISOR");
     const scopedEmployeeId = hasElevatedRole ? employeeId : user.employeeId;
     const departmentId = getSupervisorDepartmentScope(user);
-    return this.undertimeService.findAll(scopedEmployeeId, departmentId);
+    // A Supervisor's team view (no employeeId) leaves out their own filings —
+    // those show on their employee side, which passes ?employeeId=<self>.
+    const excludeEmployeeId = !roles.includes("ADMIN") && !scopedEmployeeId ? user.employeeId : undefined;
+    return this.undertimeService.findAll(scopedEmployeeId, departmentId, excludeEmployeeId);
   }
 
   @Get("eligibility/:employeeId")

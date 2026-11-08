@@ -38,8 +38,10 @@ export function NotificationModal({
         <p id="notification-modal-message" className="notification-modal-message">
           {notification.message}
         </p>
+        {/* The button only ever closes the popup, so an error says "Close"
+            rather than promising to retry anything. */}
         <button type="button" className="notification-modal-button" onClick={onClose}>
-          {notification.buttonLabel ?? (notification.type === "success" ? "Done" : "Try Again")}
+          {notification.buttonLabel ?? (notification.type === "success" ? "Done" : "Close")}
         </button>
       </section>
     </div>

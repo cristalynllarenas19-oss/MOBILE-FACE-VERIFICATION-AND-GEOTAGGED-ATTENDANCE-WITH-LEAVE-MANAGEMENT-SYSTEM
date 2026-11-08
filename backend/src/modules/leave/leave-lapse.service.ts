@@ -196,7 +196,9 @@ export class LeaveLapseService {
     const { reviewReminderHours: defaultHours } = await this.getSettings();
 
     const awaiting = await this.prisma.leaveRequest.findMany({
-      where: { status: { in: [...AWAITING_REVIEW_STATUSES] }, overdueNotifiedAt: null },
+      // A leave filed with a Maternity Leave (before its delivery date) is
+      // decided on the Maternity Leave, whose own reminder covers it.
+      where: { status: { in: [...AWAITING_REVIEW_STATUSES] }, overdueNotifiedAt: null, maternityPlanOfId: null },
       include: {
         employee: {
           select: { userId: true, firstName: true, lastName: true, supervisor: { select: { userId: true } } },
