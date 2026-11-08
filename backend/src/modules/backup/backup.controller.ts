@@ -2,6 +2,7 @@ import { BadRequestException, Controller, Delete, Get, Param, Post, Req, Res, Up
 import { FileInterceptor } from "@nestjs/platform-express";
 import type { Response } from "express";
 import { RequirePermissions } from "../../common/decorators/permissions.decorator";
+import { getAuditContext } from "../../common/utils/audit-context.util";
 import { BackupService } from "./backup.service";
 
 // @types/multer isn't installed in this project; this covers just the
@@ -24,7 +25,7 @@ export class BackupController {
 
   @Post()
   create(@Req() request: Request) {
-    return this.backupService.createBackup((request as any).user?.userId);
+    return this.backupService.createBackup(getAuditContext(request));
   }
 
   @Get(":filename/download")
@@ -35,19 +36,19 @@ export class BackupController {
 
   @Delete(":filename")
   async remove(@Param("filename") filename: string, @Req() request: Request) {
-    await this.backupService.deleteBackup(filename, (request as any).user?.userId);
+    await this.backupService.deleteBackup(filename, getAuditContext(request));
     return { success: true };
   }
 
   @Post(":filename/restore")
   restoreExisting(@Param("filename") filename: string, @Req() request: Request) {
-    return this.backupService.restoreFromExisting(filename, (request as any).user?.userId);
+    return this.backupService.restoreFromExisting(filename, getAuditContext(request));
   }
 
   @Post("restore-upload")
   @UseInterceptors(FileInterceptor("file"))
   restoreUpload(@UploadedFile() file: UploadedFileLike, @Req() request: Request) {
     if (!file) throw new BadRequestException("No file was uploaded.");
-    return this.backupService.restoreFromUpload(file.buffer, file.originalname, (request as any).user?.userId);
+    return this.backupService.restoreFromUpload(file.buffer, file.originalname, getAuditContext(request));
   }
 }

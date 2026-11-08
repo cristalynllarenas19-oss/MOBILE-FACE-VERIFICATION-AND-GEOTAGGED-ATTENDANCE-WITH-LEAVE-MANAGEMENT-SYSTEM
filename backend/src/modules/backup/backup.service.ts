@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { promises as fs } from "fs";
 import * as path from "path";
 import { PrismaService, withPrismaRetry } from "../../prisma/prisma.service";
+import { AuditLogsService, type AuditLogContext } from "../audit-logs/audit-logs.service";
 
 const BACKUP_DIR = path.join(process.cwd(), "backups");
 // "Backup_2026-08-31_0142AM.sql", with an optional "-2"/"-3" disambiguator
@@ -150,7 +151,25 @@ type PrismaModelDelegate = { findMany: () => Promise<unknown[]>; deleteMany: () 
 
 @Injectable()
 export class BackupService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditLogs: AuditLogsService,
+  ) {}
+
+  // Goes through AuditLogsService like every other module, so the entry
+  // carries the role the user was acting as (shown in the Role column),
+  // their IP, and a description — without it the Audit Logs page falls back
+  // to listing every role on the account.
+  private audit(
+    ctx: AuditLogContext,
+    action: string,
+    entityId: string | undefined,
+    description: string,
+    values: { oldValues?: Record<string, unknown>; newValues?: Record<string, unknown> },
+  ) {
+    const module = action.startsWith("RESTORE_") ? "Restore" : "Backup";
+    return this.auditLogs.record({ ...ctx, action, module, entityType: "Backup", entityId, description, ...values });
+  }
 
   private modelNames(): string[] {
     return Prisma.dmmf.datamodel.models.map((model) => model.name);
@@ -238,11 +257,11 @@ export class BackupService {
   // attachments, since those live in table columns, not on disk — but it
   // would miss any table that exists in the live database outside
   // schema.prisma (the DB has had drift/untracked tables before).
-  async createBackup(actorUserId?: string, trigger: BackupTrigger = "manual"): Promise<BackupMeta> {
+  async createBackup(ctx: AuditLogContext = {}, trigger: BackupTrigger = "manual"): Promise<BackupMeta> {
     await this.ensureDir();
     const now = new Date();
     const name = await this.uniqueFilename(`Backup_${backupStamp(now)}`);
-    const createdBy = await this.actorLabel(actorUserId);
+    const createdBy = await this.actorLabel(ctx.actorUserId);
     const filePath = path.join(BACKUP_DIR, name);
 
     try {
@@ -303,32 +322,22 @@ export class BackupService {
         trigger,
       };
       await fs.writeFile(path.join(BACKUP_DIR, metaFilename(name)), JSON.stringify(meta), "utf-8");
-      await this.prisma.auditLog.create({
-        data: {
-          actorUserId,
-          action: "CREATE_BACKUP",
-          entityType: "Backup",
-          entityId: name,
-          newValues: { filename: name, sizeBytes: meta.sizeBytes, tableCount: modelNames.length, trigger },
-        },
-      });
+      await this.audit(
+        ctx,
+        "CREATE_BACKUP",
+        name,
+        trigger === "pre-restore" ? `Created safety backup "${name}" before restoring.` : `Created backup "${name}".`,
+        { newValues: { filename: name, sizeBytes: meta.sizeBytes, tableCount: modelNames.length, trigger } },
+      );
       return meta;
     } catch (error) {
       // Don't leave a half-written file that could be mistaken for a backup.
       await fs.unlink(filePath).catch(() => undefined);
       const meta: BackupMeta = { name, createdAt: now.toISOString(), sizeBytes: 0, createdBy, status: "FAILED", trigger };
       await fs.writeFile(path.join(BACKUP_DIR, metaFilename(name)), JSON.stringify(meta), "utf-8").catch(() => undefined);
-      await this.prisma.auditLog
-        .create({
-          data: {
-            actorUserId,
-            action: "CREATE_BACKUP_FAILED",
-            entityType: "Backup",
-            entityId: name,
-            newValues: { filename: name, error: error instanceof Error ? error.message : String(error) },
-          },
-        })
-        .catch(() => undefined);
+      await this.audit(ctx, "CREATE_BACKUP_FAILED", name, `Failed to create backup "${name}".`, {
+        newValues: { filename: name, error: error instanceof Error ? error.message : String(error) },
+      });
       throw new InternalServerErrorException("Backup failed. Check server logs for details.");
     }
   }
@@ -344,7 +353,7 @@ export class BackupService {
     return filePath;
   }
 
-  async deleteBackup(filename: string, actorUserId?: string) {
+  async deleteBackup(filename: string, ctx: AuditLogContext = {}) {
     this.assertValidFilename(filename);
     const filePath = path.join(BACKUP_DIR, filename);
     const metaPath = path.join(BACKUP_DIR, metaFilename(filename));
@@ -354,9 +363,7 @@ export class BackupService {
       throw new NotFoundException("Backup file not found.");
     }
     await fs.unlink(metaPath).catch(() => undefined);
-    await this.prisma.auditLog.create({
-      data: { actorUserId, action: "DELETE_BACKUP", entityType: "Backup", entityId: filename, oldValues: { filename } },
-    });
+    await this.audit(ctx, "DELETE_BACKUP", filename, `Deleted backup "${filename}".`, { oldValues: { filename } });
   }
 
   private validatePayload(payload: unknown): asserts payload is BackupPayload {
@@ -375,6 +382,37 @@ export class BackupService {
     }
   }
 
+  // Puts the stashed live audit rows back after a restore without losing any
+  // row from either side:
+  //  - same id and same entry in both → it's one entry; the live copy is kept.
+  //  - same id but different entries (possible from restores made before this
+  //    merge existed, which rewound the id sequence and let ids be reused) →
+  //    the backup's entry gets a fresh id so both survive.
+  private async mergeAuditLogs(tx: Prisma.TransactionClient) {
+    await tx.$executeRawUnsafe(
+      `DELETE FROM "audit_logs" a USING "_audit_logs_keep" k
+        WHERE a.id = k.id AND a.created_at = k.created_at AND a.action = k.action`,
+    );
+    // Move the id sequence past every id on both sides before handing out new ones.
+    await tx.$executeRawUnsafe(
+      `SELECT setval('public.audit_logs_id_seq', GREATEST(
+         (SELECT last_value FROM public.audit_logs_id_seq),
+         COALESCE((
+           SELECT max(substring(id from '([0-9]+)$')::bigint)
+             FROM (SELECT id FROM "audit_logs" UNION ALL SELECT id FROM "_audit_logs_keep") ids
+            WHERE id ~ '^[A-Z]+-[0-9]+$'
+         ), 0)
+       ), true)`,
+    );
+    await tx.$executeRawUnsafe(
+      `UPDATE "audit_logs" a SET id = 'AUD-' || nextval('public.audit_logs_id_seq')
+         FROM "_audit_logs_keep" k WHERE a.id = k.id`,
+    );
+    // No ON CONFLICT: if a live row somehow still can't go back in, the whole
+    // restore fails and rolls back rather than silently dropping it.
+    await tx.$executeRawUnsafe('INSERT INTO "audit_logs" SELECT * FROM "_audit_logs_keep"');
+  }
+
   // Replaces every row in every table with the backup's rows, inside one
   // database transaction — if anything fails partway, Postgres rolls the
   // whole thing back and the live data is left exactly as it was.
@@ -382,60 +420,67 @@ export class BackupService {
   // the transaction so tables can be cleared/reloaded in any order (SET
   // LOCAL auto-resets at transaction end either way). A fresh backup of the
   // *current* data is taken immediately before touching anything, so a
-  // restore that turns out to be wrong can itself be undone.
+  // restore that turns out to be wrong can itself be undone. Audit logs are
+  // the exception to "replaces every row": see mergeAuditLogs.
   private async runRestore(
     apply: (tx: Prisma.TransactionClient) => Promise<void>,
     tableCount: number,
-    actorUserId?: string,
+    ctx: AuditLogContext,
     sourceLabel?: string,
   ) {
-    const preRestoreSnapshot = await this.createBackup(actorUserId, "pre-restore");
+    const preRestoreSnapshot = await this.createBackup(ctx, "pre-restore");
 
     try {
       await this.prisma.$transaction(async (tx) => {
         await tx.$executeRawUnsafe("SET LOCAL session_replication_role = replica");
+        // The audit trail is append-only: a restore must never remove an entry.
+        // Without this, every entry written after the backup was taken —
+        // including that backup's own CREATE_BACKUP entry and the pre-restore
+        // snapshot's — is wiped by the restore. Stash the live rows, let the
+        // restore replace the table, then merge so the result holds every live
+        // entry plus every entry from the backup.
+        await tx.$executeRawUnsafe(
+          'CREATE TEMP TABLE "_audit_logs_keep" ON COMMIT DROP AS SELECT * FROM "audit_logs"',
+        );
         await apply(tx);
+        await this.mergeAuditLogs(tx);
         // A backup carries rows (with their ids) but not the positions of
         // the id sequences behind EMP-1001, LR-1001, ... — move each one past
         // the highest restored id so the next new record can't collide.
         await tx.$executeRawUnsafe("SELECT public.etala_sync_id_sequences()");
       }, RESTORE_TRANSACTION_OPTIONS);
     } catch (error) {
-      await this.prisma.auditLog
-        .create({
-          data: {
-            actorUserId,
-            action: "RESTORE_BACKUP_FAILED",
-            entityType: "Backup",
-            entityId: sourceLabel,
-            newValues: {
-              source: sourceLabel,
-              preRestoreSnapshot: preRestoreSnapshot.name,
-              error: error instanceof Error ? error.message : String(error),
-            },
+      await this.audit(
+        ctx,
+        "RESTORE_BACKUP_FAILED",
+        sourceLabel,
+        sourceLabel ? `Failed to restore backup "${sourceLabel}".` : "Failed to restore a backup.",
+        {
+          newValues: {
+            source: sourceLabel,
+            preRestoreSnapshot: preRestoreSnapshot.name,
+            error: error instanceof Error ? error.message : String(error),
           },
-        })
-        .catch(() => undefined);
+        },
+      );
       throw new InternalServerErrorException(
         `Restore failed — no changes were applied (the database transaction was rolled back). A safety backup of your data right before the attempt was saved as "${preRestoreSnapshot.name}".`,
       );
     }
 
-    await this.prisma.auditLog.create({
-      data: {
-        actorUserId,
-        action: "RESTORE_BACKUP",
-        entityType: "Backup",
-        entityId: sourceLabel,
-        newValues: { source: sourceLabel, preRestoreSnapshot: preRestoreSnapshot.name, tableCount },
-      },
-    });
+    await this.audit(
+      ctx,
+      "RESTORE_BACKUP",
+      sourceLabel,
+      sourceLabel ? `Restored the system from backup "${sourceLabel}".` : "Restored the system from a backup.",
+      { newValues: { source: sourceLabel, preRestoreSnapshot: preRestoreSnapshot.name, tableCount } },
+    );
 
     return { restoredTables: tableCount, preRestoreSnapshot: preRestoreSnapshot.name };
   }
 
   // The older .json format.
-  private async restoreFromPayload(payload: BackupPayload, actorUserId?: string, sourceLabel?: string) {
+  private async restoreFromPayload(payload: BackupPayload, ctx: AuditLogContext, sourceLabel?: string) {
     this.validatePayload(payload);
     const tableNames = Object.keys(payload.tables);
 
@@ -454,7 +499,7 @@ export class BackupService {
         }
       },
       tableNames.length,
-      actorUserId,
+      ctx,
       sourceLabel,
     );
   }
@@ -485,40 +530,40 @@ export class BackupService {
     return { statements, tableCount: tables.size };
   }
 
-  private restoreFromSql(raw: string, actorUserId?: string, sourceLabel?: string) {
+  private restoreFromSql(raw: string, ctx: AuditLogContext, sourceLabel?: string) {
     const { statements, tableCount } = this.parseSqlBackup(raw);
     return this.runRestore(
       async (tx) => {
         for (const statement of statements) await tx.$executeRawUnsafe(statement);
       },
       tableCount,
-      actorUserId,
+      ctx,
       sourceLabel,
     );
   }
 
-  async restoreFromExisting(filename: string, actorUserId?: string) {
+  async restoreFromExisting(filename: string, ctx: AuditLogContext = {}) {
     const filePath = await this.getBackupFilePath(filename);
     const raw = await fs.readFile(filePath, "utf-8");
-    if (filename.endsWith(".sql")) return this.restoreFromSql(raw, actorUserId, filename);
+    if (filename.endsWith(".sql")) return this.restoreFromSql(raw, ctx, filename);
     let payload: unknown;
     try {
       payload = JSON.parse(raw);
     } catch {
       throw new BadRequestException("This backup file is corrupted and can't be read.");
     }
-    return this.restoreFromPayload(payload as BackupPayload, actorUserId, filename);
+    return this.restoreFromPayload(payload as BackupPayload, ctx, filename);
   }
 
-  async restoreFromUpload(fileBuffer: Buffer, originalName: string, actorUserId?: string) {
+  async restoreFromUpload(fileBuffer: Buffer, originalName: string, ctx: AuditLogContext = {}) {
     const raw = fileBuffer.toString("utf-8");
-    if (raw.startsWith(SQL_HEADER)) return this.restoreFromSql(raw, actorUserId, originalName);
+    if (raw.startsWith(SQL_HEADER)) return this.restoreFromSql(raw, ctx, originalName);
     let payload: unknown;
     try {
       payload = JSON.parse(raw);
     } catch {
       throw new BadRequestException("This file doesn't look like a valid ETALA backup.");
     }
-    return this.restoreFromPayload(payload as BackupPayload, actorUserId, originalName);
+    return this.restoreFromPayload(payload as BackupPayload, ctx, originalName);
   }
 }

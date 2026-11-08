@@ -42,7 +42,9 @@ function formatAction(action: string) {
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function moduleLabel(entityType: string) {
+function moduleLabel(log: AuditLog) {
+  const { entityType } = log;
+  if (entityType === "Backup") return log.action.startsWith("RESTORE_") ? "Restore" : "Backup";
   if (entityType === "User" || entityType === "UserRole" || entityType === "RolePermission") return "Users";
   if (entityType === "LeaveType" || entityType === "LeaveRequest" || entityType === "LeaveBalance") return "Leave";
   if (entityType === "Shift" || entityType === "EmployeeSchedule") return "Schedules";
@@ -76,6 +78,9 @@ function fallbackDescription(log: AuditLog) {
   if (log.action === "RESTORE_BACKUP") {
     return log.entityId ? `Restored the system from backup "${log.entityId}".` : "Restored the system from a backup.";
   }
+  if (log.action === "CREATE_BACKUP") {
+    return log.entityId ? `Created backup "${log.entityId}".` : "Created a backup.";
+  }
   if (log.action === "RESTORE_BACKUP_FAILED") {
     return log.entityId ? `Failed to restore backup "${log.entityId}".` : "Failed to restore a backup.";
   }
@@ -89,6 +94,10 @@ function fallbackDescription(log: AuditLog) {
 function actorRoleLabel(log: AuditLog) {
   const metaRole = auditMeta(log).actorRole;
   if (metaRole) return formatAction(metaRole);
+  // Backup/restore is Admin-only (gated on audit:read, which only ADMIN has),
+  // and older Backup entries were logged without the acting role — so don't
+  // fall through to listing every role on the account.
+  if (log.entityType === "Backup") return "Admin";
   const roles = log.actor?.userRoles?.map((userRole) => userRole.role.name || formatAction(userRole.role.code)) ?? [];
   return roles.length > 0 ? roles.join(", ") : "N/A";
 }
@@ -257,7 +266,7 @@ export function AuditLogsTab({
                   <tr key={log.id}>
                     <td data-label="Date/Time">{formatDateTime(log.createdAt)}</td>
                     <td data-label="Role">{actorRoleLabel(log)}</td>
-                    <td data-label="Module">{moduleLabel(log.entityType)}</td>
+                    <td data-label="Module">{moduleLabel(log)}</td>
                     {/* What was done, spelled out right in the row — the
                         recorded description, or one built from the action
                         and item name for an entry logged without one. */}
