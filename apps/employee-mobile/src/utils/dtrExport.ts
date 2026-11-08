@@ -79,6 +79,54 @@ export function dtrTotalHoursLabel(dtr: MonthlyDtr) {
   return formatMinutes(dtrTotalMinutes(dtr));
 }
 
+function dayKey(value: string) {
+  const d = new Date(value);
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+// Day counts for the period, by calendar day, not by row, so a field
+// employee's several visits on one day still count as one day. The rows
+// already hold only working days: the server adds an absent/leave row for
+// each scheduled day without a record, up to today, and skips rest days.
+// So every distinct date in them is one working day. Each day goes in the
+// first bucket that matches: attended (Present, late or not) → approved leave →
+// leave awaiting approval → absent → under review.
+export type DtrDayCounts = {
+  workingDays: number;
+  present: number;
+  absent: number;
+  onLeave: number;
+  leavePending: number;
+  pendingReview: number;
+};
+
+export function dtrDayCounts(dtr: MonthlyDtr): DtrDayCounts {
+  const statusesByDay = new Map<string, Set<string>>();
+  for (const row of dtr.rows) {
+    const key = dayKey(row.attendanceDate);
+    const statuses = statusesByDay.get(key) ?? new Set<string>();
+    statuses.add(row.status);
+    statusesByDay.set(key, statuses);
+  }
+  const counts: DtrDayCounts = {
+    workingDays: statusesByDay.size,
+    present: 0,
+    absent: 0,
+    onLeave: 0,
+    leavePending: 0,
+    pendingReview: 0,
+  };
+  for (const statuses of statusesByDay.values()) {
+    if (statuses.has("PRESENT") || statuses.has("LATE")) {
+      counts.present += 1;
+    } else if (statuses.has("ON_LEAVE")) counts.onLeave += 1;
+    else if (statuses.has("LEAVE_PENDING")) counts.leavePending += 1;
+    else if (statuses.has("ABSENT")) counts.absent += 1;
+    else counts.pendingReview += 1;
+  }
+  return counts;
+}
+
 function isToday(value: string) {
   const d = new Date(value);
   const now = new Date();
@@ -161,6 +209,25 @@ function buildDtrHtml(dtr: DtrDocument, logoDataUri: string | null) {
     })
     .join("");
 
+  // Day counts for the period, in their own box under the time table
+  // (labels on top, numbers below), kept on the same page as the
+  // certification. Leave Pending and Pending Review only show up when
+  // they happen.
+  const days = dtrDayCounts(dtr);
+  const summary: [string, number][] = [
+    ["Working Days", days.workingDays],
+    ["Present", days.present],
+    ["Absent", days.absent],
+    ["On Leave", days.onLeave],
+  ];
+  if (days.leavePending) summary.push(["Leave Pending", days.leavePending]);
+  if (days.pendingReview) summary.push(["Pending Review", days.pendingReview]);
+  const summaryTable = `<table class="summary">
+      <tr>${summary.map(([label]) => `<th>${escapeHtml(label)}</th>`).join("")}</tr>
+      <tr>${summary.map(([, value]) => `<td>${escapeHtml(value)}</td>`).join("")}</tr>
+    </table>
+    <p class="summary-note">Each day is counted once.</p>`;
+
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -195,6 +262,11 @@ function buildDtrHtml(dtr: DtrDocument, logoDataUri: string | null) {
     .line { border-top: 0.75pt solid #000; margin-top: 30pt; padding-top: 3pt; }
     .cert { font-size: 8.5pt; margin: 12pt 0 0; }
     .prepared { margin: 8pt 0 0; font-size: 9pt; }
+    table.summary { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 12pt; }
+    table.summary th, table.summary td { border: 0.75pt solid #000; padding: 4pt; text-align: center; vertical-align: middle; }
+    table.summary th { background: #E5E5E5; font-size: 8.5pt; font-weight: 700; }
+    table.summary td { font-size: 11pt; font-weight: 700; }
+    .summary-note { font-size: 7.5pt; color: #2D4A65; margin: 3pt 0 0; }
   </style>
 </head>
 <body>
@@ -222,6 +294,7 @@ function buildDtrHtml(dtr: DtrDocument, logoDataUri: string | null) {
     </tbody>
   </table>
   <div class="closing">
+    ${summaryTable}
     <p class="cert">I certify on my honor that the above is a true and correct report of the hours of work performed, recorded through the e-TALA attendance system.</p>
     <p class="prepared"><strong>Date Prepared:</strong> ${escapeHtml(prepared)}</p>
     <table class="sign">
