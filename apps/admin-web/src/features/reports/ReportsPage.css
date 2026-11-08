@@ -871,3 +871,14 @@
   text-align: left;
   font-variant-numeric: tabular-nums;
 }
+
+/* Employee columns shown once per employee (Leave, Remaining Leave): no
+   line between that employee's rows, so the cells read as one merged block
+   while each row can still flow onto the next printed page. */
+.reports-table-card td.reports-merge-continued {
+  border-top-style: hidden;
+}
+
+.reports-table-card td.reports-merge-continues {
+  border-bottom-style: hidden;
+}

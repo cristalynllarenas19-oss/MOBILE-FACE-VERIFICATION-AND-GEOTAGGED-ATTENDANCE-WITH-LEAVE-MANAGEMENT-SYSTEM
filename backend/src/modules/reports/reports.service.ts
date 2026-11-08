@@ -218,6 +218,7 @@ export class ReportsService {
               firstName: employee.firstName,
               lastName: employee.lastName,
               sex: employee.sex,
+              employmentStatus: employee.employmentStatus,
               department: employee.department,
             },
             leaveTypeId: leaveType.id,
@@ -333,6 +334,22 @@ export class ReportsService {
     }
     const leaveAccruals = Array.from(accrualByEmployee.values());
 
+    // An extension (e.g. Maternity Leave Extension) is its own request; the
+    // report's Leave Day column keeps counting from the original leave, so
+    // attach that leave's dates. Read-only — display use only.
+    const parentIds = [...new Set(leaves.map((request) => request.extensionOfId).filter((id): id is string => !!id))];
+    const parents = parentIds.length
+      ? await this.prisma.leaveRequest.findMany({
+          where: { id: { in: parentIds } },
+          select: { id: true, startDate: true, endDate: true },
+        })
+      : [];
+    const parentById = new Map(parents.map((parent) => [parent.id, parent]));
+    const leavesWithParent = leaves.map((request) => {
+      const parent = request.extensionOfId ? parentById.get(request.extensionOfId) : undefined;
+      return { ...request, extensionOf: parent ? { startDate: parent.startDate, endDate: parent.endDate } : null };
+    });
+
     const leaveByStatus = leaves.reduce<Record<string, number>>((totals, request) => {
       totals[request.status] = (totals[request.status] ?? 0) + 1;
       return totals;
@@ -350,7 +367,7 @@ export class ReportsService {
         activeSchedules: schedules.filter((schedule) => !schedule.endsOn || schedule.endsOn >= today).length,
       },
       attendance,
-      leaves,
+      leaves: leavesWithParent,
       undertime,
       schedules,
       employees,

@@ -42,12 +42,16 @@ type ReportData = {
   }[];
   leaves: {
     id: string;
+    employeeId: string;
     startDate: string;
     endDate: string;
     totalDays: string;
     status: string;
     // Set only on a LAPSED request: "REPORTED_FOR_WORK" or "NOT_DECIDED".
     lapseReason?: string | null;
+    // Set on an extension: the original leave's dates, so Leave Day keeps
+    // counting from it instead of restarting at Day 1.
+    extensionOf?: { startDate: string; endDate: string } | null;
     employee: { firstName: string; lastName: string; employmentStatus?: string; department: { name: string } };
     leaveType: { name: string };
   }[];
@@ -74,12 +78,13 @@ type ReportData = {
     firstName: string;
     lastName: string;
     sex?: string | null;
+    employmentStatus?: string | null;
     hireDate: string;
     department: { name: string };
   }[];
   leaveBalances: {
     employeeId: string;
-    employee: { firstName: string; lastName: string; sex?: string | null; department: { name: string } };
+    employee: { firstName: string; lastName: string; sex?: string | null; employmentStatus?: string | null; department: { name: string } };
     leaveTypeId: string;
     leaveTypeName: string;
     year: number;
@@ -133,7 +138,7 @@ const REPORT_TYPE_LABELS: Record<ReportTab, string> = {
 };
 
 const VL_MONETIZATION_HEAD = ["Name", "Department", "Sex", "Leave Year", "Remaining", "Monetized", "Status"];
-const LEAVE_ACCRUAL_HEAD = ["Name", "Department", "Employee Type", "Qualifying Periods", "Attendance Status", "Sick Leave Earned", "Vacation Leave Earned"];
+const LEAVE_ACCRUAL_HEAD = ["Name", "Department", "Employee Type", "Qualifying Days", "Attendance Status", "Sick Leave Earned", "Vacation Leave Earned"];
 
 // All Reports' first page: the department counts only, under this title;
 // the DTR / Attendance records follow on the next page.
@@ -224,28 +229,58 @@ function groupByDepartment<T>(rows: T[], person: (row: T) => ReportPerson) {
   return groups;
 }
 
+// "(3 employees)" — distinct people, not rows (one employee can have many
+// attendance/leave rows).
+function employeeCountLabel(keys: string[]) {
+  const count = new Set(keys).size;
+  return `(${count} employee${count === 1 ? "" : "s"})`;
+}
+
+// Web table's merged employee columns (see DepartmentGroups).
+type EmployeeMerge = { show: boolean; className: string };
+
+// PDF merged employee columns: one per body row (null for heading rows).
+type MergeRowInfo = { continued: boolean; continues: boolean; cells: (string | number)[] };
+
 // A table body split into department sections, each under a heading row.
+// employeeKey tells rows of different people apart (an id when the row has
+// one); by default the name.
 function DepartmentGroups<T>({
   rows,
   person,
+  employeeKey,
   colSpan,
   renderRow,
 }: {
   rows: T[];
   person: (row: T) => ReportPerson;
+  employeeKey?: (row: T) => string;
   colSpan: number;
-  renderRow: (row: T) => React.ReactNode;
+  // merge: for employee columns shown once per employee — show the values
+  // only on their first row; className hides the lines between their rows.
+  // (Plain cells, not rowSpan: a rowSpan block can't continue onto the next
+  // printed page, so it would jump to a new page and leave a gap.)
+  renderRow: (row: T, merge: EmployeeMerge) => React.ReactNode;
 }) {
+  const keyOf = employeeKey ?? ((row: T) => `${person(row).firstName} ${person(row).lastName}`);
+  const mergeOf = (group: T[], index: number): EmployeeMerge => {
+    const continued = index > 0 && keyOf(group[index - 1]) === keyOf(group[index]);
+    const continues = index + 1 < group.length && keyOf(group[index + 1]) === keyOf(group[index]);
+    return {
+      show: !continued,
+      className: [continued && "reports-merge-continued", continues && "reports-merge-continues"].filter(Boolean).join(" "),
+    };
+  };
   return (
     <>
       {groupByDepartment(rows, person).map((group) => (
         <Fragment key={group.department}>
           <tr className="reports-department-row">
             <td colSpan={colSpan}>
-              {departmentHeading(group.department)} <span>({group.rows.length})</span>
+              {departmentHeading(group.department)} <span>{employeeCountLabel(group.rows.map(keyOf))}</span>
             </td>
           </tr>
-          {group.rows.map(renderRow)}
+          {group.rows.map((row, index) => renderRow(row, mergeOf(group.rows, index)))}
         </Fragment>
       ))}
     </>
@@ -362,6 +397,21 @@ function usedDateRanges(dates: { startDate: string; endDate: string }[]) {
     .map((d) => `${short(d.startDate)}-${short(d.endDate)}`);
 }
 
+// Distinct calendar days covered by the periods (overlaps counted once).
+function countQualifyingDays(periods: { startDate: string; endDate: string }[]) {
+  const days = new Set<string>();
+  for (const period of periods) {
+    const day = new Date(period.startDate);
+    day.setHours(0, 0, 0, 0);
+    const end = new Date(period.endDate);
+    while (day <= end) {
+      days.add(`${day.getFullYear()}-${day.getMonth()}-${day.getDate()}`);
+      day.setDate(day.getDate() + 1);
+    }
+  }
+  return days.size;
+}
+
 // Plain-text form for exports: three ranges per line.
 function formatUsedDates(dates: { startDate: string; endDate: string }[]) {
   const ranges = usedDateRanges(dates);
@@ -415,6 +465,32 @@ function parseLocalDateFilter(value: string, endOfDay = false): number {
   return endOfDay
     ? new Date(Number(year), Number(month) - 1, Number(day), 23, 59, 59, 999).getTime()
     : new Date(Number(year), Number(month) - 1, Number(day)).getTime();
+}
+
+// Leave Day column: which day of the leave the employee is on as of the
+// report's end date ("Day 3 of 54"), counting calendar days from the start
+// date — the same way the Dates column reads. Display only; nothing here
+// feeds filing, approval or balances.
+// An extension keeps counting from its original leave's start date
+// (e.g. the first extension day after a 105-day maternity leave is Day 106).
+function leaveDayLabel(
+  request: { status: string; startDate: string; endDate: string; extensionOf?: { startDate: string } | null },
+  asOf: string,
+) {
+  const bucket = leaveStatusBucket(request.status);
+  if (bucket === "CANCELLED" || bucket === "REJECTED" || bucket === "LAPSED") return "—";
+  const dayNumber = (value: string | number) => {
+    const d = new Date(value);
+    return Math.round(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86_400_000);
+  };
+  const start = dayNumber(request.startDate);
+  const end = dayNumber(request.endDate);
+  const asOfTime = asOf ? parseLocalDateFilter(asOf) : Date.now();
+  const today = dayNumber(Number.isFinite(asOfTime) ? asOfTime : Date.now());
+  const countFrom = request.extensionOf ? Math.min(start, dayNumber(request.extensionOf.startDate)) : start;
+  if (today < start) return "Not started";
+  if (today > end) return "Completed";
+  return `Day ${today - countFrom + 1} of ${end - countFrom + 1}`;
 }
 
 function isInDateRange(dateStr: string, from: string, to: string) {
@@ -647,8 +723,8 @@ export function ReportsPage({
   // One AttendanceRecord per employee per day, so a multi-day range counts
   // employee-days. Pending Review / Flagged only count toward Total.
   const departmentSummary = useMemo(() => {
-    type Counts = { present: number; late: number; absent: number; onLeave: number; total: number };
-    const empty = (): Counts => ({ present: 0, late: 0, absent: 0, onLeave: 0, total: 0 });
+    type Counts = { employees: number; present: number; late: number; absent: number; onLeave: number; total: number };
+    const empty = (): Counts => ({ employees: 0, present: 0, late: 0, absent: 0, onLeave: 0, total: 0 });
     const byDepartment = new Map<string, Counts>();
     // Every active department is listed, with 0s where it has no records —
     // just the chosen one when filtered, and only matching ones while
@@ -659,6 +735,15 @@ export function ReportsPage({
       }
     }
     const total = empty();
+    // Headcount per department (same list as the List of Employees report).
+    for (const employee of data?.employees ?? []) {
+      if (filters.department !== "ALL" && employee.department.name !== filters.department) continue;
+      if (!matchesEmployeeQuery(employee, search)) continue;
+      const row = byDepartment.get(employee.department.name) ?? empty();
+      byDepartment.set(employee.department.name, row);
+      row.employees += 1;
+      total.employees += 1;
+    }
     for (const record of data?.attendance ?? []) {
       if (filters.department !== "ALL" && record.employee.department.name !== filters.department) continue;
       if (!isInDateRange(record.attendanceDate, filters.from, filters.to)) continue;
@@ -713,6 +798,7 @@ export function ReportsPage({
       return deptMatch && typeMatch && inRange && matchesEmployeeQuery(request.employee, search);
     });
     // Latest dates first within each department, whoever filed them.
+    // (Back-to-back rows of the same employee share one merged name cell.)
     rows.sort(
       (a, b) =>
         new Date(b.endDate).getTime() - new Date(a.endDate).getTime() ||
@@ -792,7 +878,12 @@ export function ReportsPage({
         (leaveTypeFilter === "ALL" || b.leaveTypeName === leaveTypeFilter) &&
         matchesEmployeeQuery(b.employee, search),
     );
-    return sortByDepartment(rows, personOfRow);
+    // Each employee's leave types A–Z (and same-name employees kept apart);
+    // the stable department/name sort then keeps that order.
+    const byLeaveType = [...rows].sort(
+      (a, b) => compareText(a.employeeId, b.employeeId) || compareText(a.leaveTypeName, b.leaveTypeName),
+    );
+    return sortByDepartment(byLeaveType, personOfRow);
   }, [data, filters.department, search, leaveTypeFilter]);
 
   // Like Remaining Leave: the leave year of the "To" date, department filter
@@ -826,7 +917,7 @@ export function ReportsPage({
   }, [data, filters.department, search]);
   const leaveAccrualCells = (a: NonNullable<ReportData["leaveAccruals"]>[number]): (string | number)[] => [
     `${a.employee.firstName} ${a.employee.lastName}`, a.employee.department.name, formatEmploymentStatus(a.employee.employmentStatus),
-    formatUsedDates(a.periods),
+    countQualifyingDays(a.periods),
     a.absences === 0 ? "Perfect" : `${a.absences} absence${a.absences === 1 ? "" : "s"}`,
     a.sickLeaveEarned.toFixed(2), a.vacationLeaveEarned.toFixed(2),
   ];
@@ -883,10 +974,10 @@ export function ReportsPage({
       ]),
     ];
     const lRows = [
-      ["Employee", "Department", "Classification", "Leave Type", "Dates", "Days", "Status"],
+      ["Employee", "Department", "Classification", "Leave Type", "Dates", "Leave Day", "Days", "Status"],
       ...filteredLeaves.map((r) => [
         employeeName(r), r.employee.department.name, formatEmploymentStatus(r.employee.employmentStatus), r.leaveType.name,
-        `${formatDate(r.startDate)} - ${formatDate(r.endDate)}`, r.totalDays, leaveStatusText(r),
+        `${formatDate(r.startDate)} - ${formatDate(r.endDate)}`, leaveDayLabel(r, filters.to), r.totalDays, leaveStatusText(r),
       ]),
     ];
     const uRows = [UNDERTIME_HEAD, ...filteredUndertime.map(undertimeCells)];
@@ -898,14 +989,14 @@ export function ReportsPage({
       ]),
     ];
     const eRows = [
-      ["Name", "Department", "Sex", "Hired Date"],
-      ...filteredEmployeesList.map((e) => [`${e.firstName} ${e.lastName}`, e.department.name, formatSex(e.sex), formatDate(e.hireDate)]),
+      ["Name", "Department", "Sex", "Employee Type", "Hired Date"],
+      ...filteredEmployeesList.map((e) => [`${e.firstName} ${e.lastName}`, e.department.name, formatSex(e.sex), formatEmploymentStatus(e.employmentStatus), formatDate(e.hireDate)]),
     ];
     const rbRows = [
-      ["Name", "Department", "Sex", "Leave Type", "Remaining", "Used", "Dates Used"],
+      ["Name", "Department", "Sex", "Employee Type", "Leave Type", "Remaining", "Used", "Dates Used"],
       ...filteredLeaveBalances.map((b) => [
         `${b.employee.firstName} ${b.employee.lastName}`, b.employee.department.name, formatSex(b.employee.sex),
-        b.leaveTypeName, formatDays(b.remainingDays), formatDays(b.usedDays), formatUsedDates(b.usedDates),
+        formatEmploymentStatus(b.employee.employmentStatus), b.leaveTypeName, formatDays(b.remainingDays), formatDays(b.usedDays), formatUsedDates(b.usedDates),
       ]),
     ];
     // Signatures closing each part: Prepared By in the first column, Noted
@@ -931,9 +1022,9 @@ export function ReportsPage({
     // CSV file can only hold a single sheet.
     if (tab === "ALL") {
       const summaryRows: (string | number)[][] = [
-        ["Department", "Present", "Late", "Absent", "On Leave", "Total"],
-        ...departmentSummary.rows.map((row) => [row.department, row.present, row.late, row.absent, row.onLeave, row.total]),
-        ["Grand Total", departmentSummary.total.present, departmentSummary.total.late, departmentSummary.total.absent, departmentSummary.total.onLeave, departmentSummary.total.total],
+        ["Department", "Total Employees", "Present", "Late", "Absent", "On Leave", "Total"],
+        ...departmentSummary.rows.map((row) => [row.department, row.employees, row.present, row.late, row.absent, row.onLeave, row.total]),
+        ["Grand Total", departmentSummary.total.employees, departmentSummary.total.present, departmentSummary.total.late, departmentSummary.total.absent, departmentSummary.total.onLeave, departmentSummary.total.total],
       ];
       // Excel sheet names can't contain "/" and max out at 31 characters.
       const sheets: [string, (string | number)[][]][] = [
@@ -1072,7 +1163,7 @@ export function ReportsPage({
     };
 
     // The columns listing date ranges in three slots.
-    const dateListColumn = (head: string[]) => Math.max(head.indexOf("Dates Used"), head.indexOf("Qualifying Periods"));
+    const dateListColumn = (head: string[]) => head.indexOf("Dates Used");
 
     // Width of one "Dates Used" slot: the longest range plus a gap. Sized
     // from the whole section so every department's columns line up.
@@ -1090,7 +1181,11 @@ export function ReportsPage({
       // centerFrom: columns from this index on (counts) are centered.
       // byDepartment: body is sorted by department (column 1) — each
       // department is drawn as its own titled block.
-      options: { boldLastRow?: boolean; partTitle?: string; partSubtitle?: string; centerFrom?: number; byDepartment?: boolean } = {},
+      // employeeKeys: one per body row, telling different people apart in the
+      // department headings' counts (default: the name in column 0).
+      // mergeEmployeeColumns: the first N columns (name etc.) are shown once
+      // per employee, merged down their consecutive rows.
+      options: { boldLastRow?: boolean; partTitle?: string; partSubtitle?: string; centerFrom?: number; byDepartment?: boolean; employeeKeys?: string[]; mergeEmployeeColumns?: number } = {},
     ) => {
       if (body.length === 0) return;
       // A new part of All Reports: the previous part is signed off, then
@@ -1157,16 +1252,22 @@ export function ReportsPage({
                 : minimum[col] + (flexTotal > 0 ? ((width - minimum[col]) / flexTotal) * flexRoom : 0),
             );
       const columnStyles = Object.fromEntries(widths.map((cellWidth, col) => [col, { cellWidth }]));
-      const groups = groupByDepartment(body, (row) => ({
-        firstName: "",
-        lastName: "",
-        department: { name: String(row[1] ?? "") },
-      }));
+      const groups = groupByDepartment(
+        body.map((row, index) => ({ row, key: options.employeeKeys?.[index] ?? String(row[0] ?? "") })),
+        (entry) => ({ firstName: "", lastName: "", department: { name: String(entry.row[1] ?? "") } }),
+      );
+      // Merged employee columns (mergeEmployeeColumns): drawn as plain rows —
+      // the name etc. only on an employee's first row, the lines between
+      // their rows hidden in those columns (see drawTable). Real rowSpan
+      // cells can't continue onto the next page, so a long block would jump
+      // to a new page and leave a gap.
+      const merge = options.mergeEmployeeColumns ?? 0;
+      const mergeRows: (MergeRowInfo | null)[] = [];
       // Like the print: one table, each department opened by a shaded
       // full-width heading row.
       const rows = groups.flatMap((group) => [
         [{
-          content: `${departmentHeading(group.department)} (${group.rows.length})`,
+          content: `${departmentHeading(group.department)} ${employeeCountLabel(group.rows.map((entry) => entry.key))}`,
           colSpan: head.length,
           styles: {
             halign: "left" as const,
@@ -1174,9 +1275,19 @@ export function ReportsPage({
             fillColor: [242, 242, 242] as [number, number, number],
           },
         }],
-        ...group.rows,
+        ...group.rows.map((entry, index) => {
+          const continued = index > 0 && group.rows[index - 1].key === entry.key;
+          const continues = index + 1 < group.rows.length && group.rows[index + 1].key === entry.key;
+          mergeRows.push({ continued, continues, cells: entry.row.slice(0, merge) });
+          if (merge === 0 || !continued) return entry.row;
+          return [...entry.row.slice(0, merge).map(() => ""), ...entry.row.slice(merge)];
+        }),
       ]);
-      drawTable(head, rows, startY, { ...options, columnStyles });
+      // mergeRows has no entry for the heading rows — line them up with rows.
+      const mergeInfo: (MergeRowInfo | null)[] = [];
+      let entryIndex = 0;
+      for (const row of rows) mergeInfo.push(row.length === 1 ? null : mergeRows[entryIndex++]);
+      drawTable(head, rows, startY, { ...options, columnStyles, merge: merge > 0 ? { columns: merge, rows: mergeInfo } : undefined });
     };
 
     const drawTable = (
@@ -1184,10 +1295,24 @@ export function ReportsPage({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       body: any[][],
       tableStartY: number,
-      options: { boldLastRow?: boolean; centerFrom?: number; columnStyles?: Record<number, { cellWidth: number }> },
+      options: {
+        boldLastRow?: boolean;
+        centerFrom?: number;
+        columnStyles?: Record<number, { cellWidth: number }>;
+        merge?: { columns: number; rows: (MergeRowInfo | null)[] };
+      },
     ) => {
-      // Remaining Leave's "Dates Used" and the accrual report's "Qualifying
-      // Periods": the text keeps three ranges per line
+      // Merged employee columns: which body row is being drawn, and whether
+      // it's the first one on its page (a block carried over to a new page
+      // shows the name again there).
+      const merge = options.merge;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const mergeOf = (cell: any) =>
+        merge && cell.section === "body" && cell.column.index < merge.columns ? merge.rows[cell.row.index] ?? null : null;
+      let lastDrawnRow = -1;
+      let lastDrawnPage = 0;
+      let rowStartsPage = false;
+      // Remaining Leave's "Dates Used": the text keeps three ranges per line
       // (so the row gets the right height), but each range is drawn at a
       // fixed slot so the three columns line up from row to row.
       const datesCol = dateListColumn(head);
@@ -1226,7 +1351,17 @@ export function ReportsPage({
         // Pages a table flows onto start below the repeated header; its
         // column headings repeat there too (autoTable's default).
         margin: { left: 40, right: 40, top: headerBottom },
-        didDrawPage: () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        didDrawPage: (data: any) => {
+          // Merged employee columns: close a block cut off at the page bottom.
+          if (merge) {
+            const left = data.settings.margin.left;
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const width = data.table.columns.slice(0, merge.columns).reduce((sum: number, column: any) => sum + column.width, 0);
+            doc.setDrawColor(0, 0, 0);
+            doc.setLineWidth(0.75);
+            doc.line(left, data.cursor.y, left + width, data.cursor.y);
+          }
           const page = doc.internal.getNumberOfPages();
           if (page !== headerDrawnOnPage) {
             drawHeader();
@@ -1241,6 +1376,11 @@ export function ReportsPage({
           if (options.boldLastRow && cell.section === "body" && cell.row.index === body.length - 1) {
             cell.cell.styles.fontStyle = "bold";
           }
+          // Merged employee columns: no line between an employee's rows.
+          const mergeRow = mergeOf(cell);
+          if (mergeRow) {
+            cell.cell.styles.lineWidth = { left: 0.75, right: 0.75, top: mergeRow.continued ? 0 : 0.75, bottom: mergeRow.continues ? 0 : 0.75 };
+          }
           // An open-ended schedule's "Present", dark blue bold as on screen.
           if (cell.section === "body" && cell.cell.raw === "Present" && head[cell.column.index] === "Until") {
             cell.cell.styles.fontStyle = "bold";
@@ -1250,6 +1390,31 @@ export function ReportsPage({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         willDrawCell: (cell: any) => {
           if (isDatesCell(cell)) cell.cell.text = [];
+          if (merge && cell.section === "body" && cell.row.index !== lastDrawnRow) {
+            const page = doc.getCurrentPageInfo().pageNumber;
+            rowStartsPage = page !== lastDrawnPage;
+            lastDrawnRow = cell.row.index;
+            lastDrawnPage = page;
+          }
+          // A block carried over to a new page: name again, closed at the top.
+          const mergeRow = mergeOf(cell);
+          if (mergeRow?.continued && rowStartsPage) {
+            // The row was sized for an empty cell, so the text is shrunk
+            // (down to 5pt) until it fits the row instead of spilling out.
+            const text = String(mergeRow.cells[cell.column.index] ?? "");
+            const width = cell.cell.width - cell.cell.padding("left") - cell.cell.padding("right");
+            const height = cell.cell.height - cell.cell.padding("top") - cell.cell.padding("bottom");
+            let size = 8;
+            let lines: string[] = [];
+            for (; size >= 5; size -= 0.5) {
+              doc.setFontSize(size);
+              lines = doc.splitTextToSize(text, width);
+              if (lines.length * size * doc.getLineHeightFactor() <= height + 0.5) break;
+            }
+            doc.setFontSize(Math.max(size, 5));
+            cell.cell.text = lines;
+            cell.cell.styles.lineWidth = { ...cell.cell.styles.lineWidth, top: 0.75 };
+          }
         },
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         didDrawCell: (cell: any) => {
@@ -1276,12 +1441,12 @@ export function ReportsPage({
 
     if (tab === "ALL") {
       addSection(
-        ["Department", "Present", "Late", "Absent", "On Leave", "Total"],
+        ["Department", "Total Employees", "Present", "Late", "Absent", "On Leave", "Total"],
         departmentSummary.rows.length === 0
           ? []
           : [
-              ...departmentSummary.rows.map((row) => [row.department, row.present, row.late, row.absent, row.onLeave, row.total]),
-              ["Grand Total", departmentSummary.total.present, departmentSummary.total.late, departmentSummary.total.absent, departmentSummary.total.onLeave, departmentSummary.total.total],
+              ...departmentSummary.rows.map((row) => [row.department, row.employees, row.present, row.late, row.absent, row.onLeave, row.total]),
+              ["Grand Total", departmentSummary.total.employees, departmentSummary.total.present, departmentSummary.total.late, departmentSummary.total.absent, departmentSummary.total.onLeave, departmentSummary.total.total],
             ],
         { boldLastRow: true, centerFrom: 1 },
       );
@@ -1299,12 +1464,18 @@ export function ReportsPage({
     }
     if (tab === "ALL" || tab === "leave") {
       addSection(
-        ["Employee", "Department", "Classification", "Leave Type", "Start Date", "End Date", "Days", "Status"],
+        ["Employee", "Department", "Classification", "Leave Type", "Start Date", "End Date", "Leave Day", "Days", "Status"],
         filteredLeaves.map((r) => [
           employeeName(r), r.employee.department.name, formatEmploymentStatus(r.employee.employmentStatus), r.leaveType.name,
-          formatDate(r.startDate), formatDate(r.endDate), r.totalDays, leaveStatusText(r),
+          formatDate(r.startDate), formatDate(r.endDate), leaveDayLabel(r, filters.to), r.totalDays, leaveStatusText(r),
         ]),
-        { partTitle: partTitle("leave"), partSubtitle: leaveHistoryNote, byDepartment: true },
+        {
+          partTitle: partTitle("leave"),
+          partSubtitle: leaveHistoryNote,
+          byDepartment: true,
+          employeeKeys: filteredLeaves.map((r) => r.employeeId),
+          mergeEmployeeColumns: 3,
+        },
       );
     }
     if (tab === "ALL" || tab === "undertime") {
@@ -1323,19 +1494,19 @@ export function ReportsPage({
     }
     if (tab === "ALL" || tab === "employees") {
       addSection(
-        ["Name", "Department", "Sex", "Hired Date"],
-        filteredEmployeesList.map((e) => [`${e.firstName} ${e.lastName}`, e.department.name, formatSex(e.sex), formatDate(e.hireDate)]),
-        { partTitle: partTitle("employees"), byDepartment: true },
+        ["Name", "Department", "Sex", "Employee Type", "Hired Date"],
+        filteredEmployeesList.map((e) => [`${e.firstName} ${e.lastName}`, e.department.name, formatSex(e.sex), formatEmploymentStatus(e.employmentStatus), formatDate(e.hireDate)]),
+        { partTitle: partTitle("employees"), byDepartment: true, employeeKeys: filteredEmployeesList.map((e) => e.id) },
       );
     }
     if (tab === "ALL" || tab === "leaveBalances") {
       addSection(
-        ["Name", "Department", "Sex", "Leave Type", "Remaining", "Used", "Dates Used"],
+        ["Name", "Department", "Sex", "Employee Type", "Leave Type", "Remaining", "Used", "Dates Used"],
         filteredLeaveBalances.map((b) => [
           `${b.employee.firstName} ${b.employee.lastName}`, b.employee.department.name, formatSex(b.employee.sex),
-          b.leaveTypeName, formatDays(b.remainingDays), formatDays(b.usedDays), formatUsedDates(b.usedDates),
+          formatEmploymentStatus(b.employee.employmentStatus), b.leaveTypeName, formatDays(b.remainingDays), formatDays(b.usedDays), formatUsedDates(b.usedDates),
         ]),
-        { partTitle: partTitle("leaveBalances"), byDepartment: true },
+        { partTitle: partTitle("leaveBalances"), byDepartment: true, employeeKeys: filteredLeaveBalances.map((b) => b.employeeId), mergeEmployeeColumns: 4 },
       );
     }
 
@@ -1344,7 +1515,7 @@ export function ReportsPage({
     }
 
     if (tab === "ALL" || tab === "leaveAccrual") {
-      addSection(LEAVE_ACCRUAL_HEAD, filteredLeaveAccruals.map(leaveAccrualCells), { partTitle: partTitle("leaveAccrual"), partSubtitle: accrualHistoryNote, byDepartment: true });
+      addSection(LEAVE_ACCRUAL_HEAD, filteredLeaveAccruals.map(leaveAccrualCells), { partTitle: partTitle("leaveAccrual"), partSubtitle: accrualHistoryNote, byDepartment: true, employeeKeys: filteredLeaveAccruals.map((a) => a.employeeId) });
     }
 
     // The last part's signatures (earlier parts get theirs in addSection).
@@ -1557,17 +1728,18 @@ export function ReportsPage({
           <table>
             <thead>
               <tr>
-                <th>Department</th><th>Present</th><th>Late</th><th>Absent</th><th>On Leave</th><th>Total</th>
+                <th>Department</th><th>Total Employees</th><th>Present</th><th>Late</th><th>Absent</th><th>On Leave</th><th>Total</th>
               </tr>
             </thead>
             <tbody>
               {departmentSummary.rows.length === 0 ? (
-                <tr><td colSpan={6} className="reports-empty">No attendance records match the current filters.</td></tr>
+                <tr><td colSpan={7} className="reports-empty">No attendance records match the current filters.</td></tr>
               ) : (
                 <>
                   {departmentSummary.rows.map((row) => (
                     <tr key={row.department}>
                       <td>{row.department}</td>
+                      <td>{row.employees}</td>
                       <td>{row.present}</td>
                       <td>{row.late}</td>
                       <td>{row.absent}</td>
@@ -1577,6 +1749,7 @@ export function ReportsPage({
                   ))}
                   <tr className="reports-summary-total">
                     <td>Grand Total</td>
+                    <td>{departmentSummary.total.employees}</td>
                     <td>{departmentSummary.total.present}</td>
                     <td>{departmentSummary.total.late}</td>
                     <td>{departmentSummary.total.absent}</td>
@@ -1653,19 +1826,21 @@ export function ReportsPage({
             <thead>
               <tr>
                 <th>Employee</th><th>Department</th><th>Classification</th><th>Leave Type</th>
-                <th>Dates</th><th>Days</th><th>Status</th>
+                <th>Dates</th><th>Leave Day</th><th>Days</th><th>Status</th>
               </tr>
             </thead>
             <tbody>
               {filteredLeaves.length === 0 ? (
-                <tr><td colSpan={7} className="reports-empty">No leave records match the current filters.</td></tr>
-              ) : <DepartmentGroups rows={filteredLeaves} person={personOfRow} colSpan={7} renderRow={(request) => (
+                <tr><td colSpan={8} className="reports-empty">No leave records match the current filters.</td></tr>
+              ) : <DepartmentGroups rows={filteredLeaves} person={personOfRow} employeeKey={(request) => request.employeeId} colSpan={8} renderRow={(request, merge) => (
                 <tr key={request.id}>
-                  <td>{employeeName(request)}</td>
-                  <td>{request.employee.department.name}</td>
-                  <td>{formatEmploymentStatus(request.employee.employmentStatus)}</td>
+                  {/* Employee, Department and Classification once per employee, merged down their rows. */}
+                  <td className={merge.className}>{merge.show && employeeName(request)}</td>
+                  <td className={merge.className}>{merge.show && request.employee.department.name}</td>
+                  <td className={merge.className}>{merge.show && formatEmploymentStatus(request.employee.employmentStatus)}</td>
                   <td>{request.leaveType.name}</td>
                   <td>{formatDate(request.startDate)} – {formatDate(request.endDate)}</td>
+                  <td>{leaveDayLabel(request, filters.to)}</td>
                   <td>{request.totalDays}</td>
                   <td><Badge tone={statusTone(request.status)}>{leaveStatusText(request)}</Badge></td>
                 </tr>
@@ -1768,17 +1943,18 @@ export function ReportsPage({
           <table>
             <thead>
               <tr>
-                <th>Name</th><th>Department</th><th>Sex</th><th>Hired Date</th>
+                <th>Name</th><th>Department</th><th>Sex</th><th>Employee Type</th><th>Hired Date</th>
               </tr>
             </thead>
             <tbody>
               {filteredEmployeesList.length === 0 ? (
-                <tr><td colSpan={4} className="reports-empty">No employees match the current filters.</td></tr>
-              ) : <DepartmentGroups rows={filteredEmployeesList} person={personSelf} colSpan={4} renderRow={(e) => (
+                <tr><td colSpan={5} className="reports-empty">No employees match the current filters.</td></tr>
+              ) : <DepartmentGroups rows={filteredEmployeesList} person={personSelf} employeeKey={(e) => e.id} colSpan={5} renderRow={(e) => (
                 <tr key={e.id}>
                   <td>{e.firstName} {e.lastName}</td>
                   <td>{e.department.name}</td>
                   <td>{formatSex(e.sex)}</td>
+                  <td>{formatEmploymentStatus(e.employmentStatus)}</td>
                   <td>{formatDate(e.hireDate)}</td>
                 </tr>
               )} />}
@@ -1795,18 +1971,20 @@ export function ReportsPage({
           <table>
             <thead>
               <tr>
-                <th>Name</th><th>Department</th><th>Sex</th><th>Leave Type</th>
+                <th>Name</th><th>Department</th><th>Sex</th><th>Employee Type</th><th>Leave Type</th>
                 <th>Remaining</th><th>Used</th><th>Dates Used</th>
               </tr>
             </thead>
             <tbody>
               {filteredLeaveBalances.length === 0 ? (
-                <tr><td colSpan={7} className="reports-empty">No leave balance records match the current filters.</td></tr>
-              ) : <DepartmentGroups rows={filteredLeaveBalances} person={personOfRow} colSpan={7} renderRow={(b) => (
+                <tr><td colSpan={8} className="reports-empty">No leave balance records match the current filters.</td></tr>
+              ) : <DepartmentGroups rows={filteredLeaveBalances} person={personOfRow} employeeKey={(b) => b.employeeId} colSpan={8} renderRow={(b, merge) => (
                 <tr key={`${b.employeeId}-${b.leaveTypeId}`}>
-                  <td>{b.employee.firstName} {b.employee.lastName}</td>
-                  <td>{b.employee.department.name}</td>
-                  <td>{formatSex(b.employee.sex)}</td>
+                  {/* Name, Department, Sex and Employee Type once per employee, merged down their leave rows. */}
+                  <td className={merge.className}>{merge.show && `${b.employee.firstName} ${b.employee.lastName}`}</td>
+                  <td className={merge.className}>{merge.show && b.employee.department.name}</td>
+                  <td className={merge.className}>{merge.show && formatSex(b.employee.sex)}</td>
+                  <td className={merge.className}>{merge.show && formatEmploymentStatus(b.employee.employmentStatus)}</td>
                   <td>{b.leaveTypeName}</td>
                   <td>{formatDays(b.remainingDays)}</td>
                   <td>{formatDays(b.usedDays)}</td>
@@ -1862,15 +2040,9 @@ export function ReportsPage({
             <tbody>
               {filteredLeaveAccruals.length === 0 ? (
                 <tr><td colSpan={LEAVE_ACCRUAL_HEAD.length} className="reports-empty">No accrual records for Permanent Seasonal employees in this period.</td></tr>
-              ) : <DepartmentGroups rows={filteredLeaveAccruals} person={personOfRow} colSpan={LEAVE_ACCRUAL_HEAD.length} renderRow={(a) => (
+              ) : <DepartmentGroups rows={filteredLeaveAccruals} person={personOfRow} employeeKey={(a) => a.employeeId} colSpan={LEAVE_ACCRUAL_HEAD.length} renderRow={(a) => (
                 <tr key={a.employeeId}>
-                  {leaveAccrualCells(a).map((cell, index) => LEAVE_ACCRUAL_HEAD[index] === "Qualifying Periods" ? (
-                    <td key={index} className="reports-dates-used">
-                      <span className="reports-dates-grid">
-                        {usedDateRanges(a.periods).map((range, rangeIndex) => <span key={rangeIndex}>{range}</span>)}
-                      </span>
-                    </td>
-                  ) : <td key={index}>{cell}</td>)}
+                  {leaveAccrualCells(a).map((cell, index) => <td key={index}>{cell}</td>)}
                 </tr>
               )} />}
             </tbody>

@@ -206,7 +206,10 @@ export async function parseImportFile(file: File, maxRows: number): Promise<Pars
     const row: ImportRow = { rowNumber: rows.length + 1 };
     let hasValue = false;
     for (const [c, field] of columnFields) {
-      const value = readCell(r, c);
+      let value = readCell(r, c);
+      // The template's Supervisor dropdown reads "ULPI-26001 - Name"; only
+      // the Employee No is imported.
+      if (field === "supervisorEmployeeNo") value = value.split(SUPERVISOR_SEPARATOR)[0].trim();
       if (value) {
         row[field] = value;
         hasValue = true;
@@ -294,11 +297,13 @@ export async function downloadImportTemplate(fetchReference: () => Promise<Impor
     }
   }
 
-  let workbook: import("xlsx").WorkBook;
-  let XLSX: SheetJs;
+  let blob: Blob;
   try {
-    XLSX = await loadSheetJs();
-    workbook = buildImportTemplate(XLSX, await fetchReference());
+    const XLSX = await loadSheetJs();
+    const reference = await fetchReference();
+    const workbook = buildImportTemplate(XLSX, reference);
+    const data = new Uint8Array(XLSX.write(workbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer);
+    blob = new Blob([(await addTemplateDropdowns(XLSX, data, reference)) as Uint8Array<ArrayBuffer>], { type: XLSX_TYPE });
   } catch (error) {
     // The dialog already created an empty file at the chosen location.
     await handle?.remove?.().catch(() => undefined);
@@ -307,9 +312,8 @@ export async function downloadImportTemplate(fetchReference: () => Promise<Impor
 
   if (handle) {
     try {
-      const data = XLSX.write(workbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
       const writable = await handle.createWritable();
-      await writable.write(new Blob([data], { type: XLSX_TYPE }));
+      await writable.write(blob);
       await writable.close();
       return;
     } catch (error) {
@@ -317,13 +321,139 @@ export async function downloadImportTemplate(fetchReference: () => Promise<Impor
       console.warn("[EMPLOYEE IMPORT] Couldn't write to the chosen file; downloading instead.", error);
     }
   }
-  XLSX.writeFile(workbook, TEMPLATE_FILE_NAME);
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = TEMPLATE_FILE_NAME;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+// Hidden sheet holding the dropdown source values (one list per column).
+const DROPDOWN_SHEET = "DropdownLists";
+
+// The dropdown lists, built from the same reference data the server checks
+// against, so every pickable value is one the import accepts.
+function templateDropdowns(reference: ImportReference) {
+  const unique = (values: string[]) =>
+    Array.from(new Set(values.map((value) => value.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+  return [
+    { field: "sex" as ImportField, title: "Sex", values: ["Male", "Female"] },
+    { field: "department" as ImportField, title: "Department", values: unique(reference.departments.map((d) => d.name)) },
+    { field: "position" as ImportField, title: "Position", values: unique(reference.positions.map((p) => p.title)) },
+    { field: "employeeType" as ImportField, title: "Employee Type", values: unique(reference.employeeTypes.map((t) => t.name)) },
+    // "None" = no supervisor (blank still means the department's default).
+    // Shown as "ULPI-26001 - Name"; the import reads only the Employee No.
+    // Once a row has a Department, its dropdown lists only that
+    // department's supervisors (see supervisorsByDepartment).
+    {
+      field: "supervisorEmployeeNo" as ImportField,
+      title: "Supervisor Employee No",
+      values: [
+        "None",
+        ...[...reference.supervisors]
+          .sort((a, b) => a.employeeNo.localeCompare(b.employeeNo))
+          .map(supervisorOption),
+      ],
+    },
+    { field: "civilStatus" as ImportField, title: "Civil Status", values: ["Single", "Married", "Widowed", "Separated", "Annulled"] },
+    {
+      field: "spouseEmployment" as ImportField,
+      title: "Spouse Employment",
+      values: ["Not provided", "Other Company", "ULPI", "Unemployed"],
+    },
+  ];
+}
+
+// "ULPI-26001 - Juan Dela Cruz": the dropdown shows who the number is.
+const SUPERVISOR_SEPARATOR = " - ";
+function supervisorOption(supervisor: { employeeNo: string; name: string }) {
+  return `${supervisor.employeeNo}${SUPERVISOR_SEPARATOR}${supervisor.name}`;
+}
+
+// Hidden-sheet block behind the department-filtered Supervisor dropdown:
+// [department, option] pairs, grouped by department, each group starting
+// with "None" — every department, even one with no supervisors.
+function supervisorsByDepartment(reference: ImportReference) {
+  const departments = Array.from(new Set(reference.departments.map((d) => d.name.trim()).filter(Boolean))).sort((a, b) =>
+    a.localeCompare(b),
+  );
+  return departments.flatMap((department) => [
+    [department, "None"],
+    ...reference.supervisors
+      .filter((supervisor) => supervisor.department === department)
+      .sort((a, b) => a.employeeNo.localeCompare(b.employeeNo))
+      .map((supervisor) => [department, supervisorOption(supervisor)]),
+  ]);
+}
+
+function escapeXml(value: string) {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+// SheetJS (community) can't write Data Validation, so the dropdown rules are
+// added straight into the Employees sheet's XML inside the saved .xlsx. Each
+// rule covers the whole column below the header, so rows added later get the
+// dropdown too.
+async function addTemplateDropdowns(XLSX: SheetJs, data: Uint8Array, reference: ImportReference) {
+  const { unzipSync, zipSync, strToU8, strFromU8 } = await import("fflate");
+  const files = unzipSync(data);
+  // Employees is the first sheet in the workbook.
+  const sheetPath = "xl/worksheets/sheet1.xml";
+  const sheetXml = files[sheetPath] ? strFromU8(files[sheetPath]) : "";
+  if (!sheetXml.includes("</sheetData>")) return data;
+
+  const lists = templateDropdowns(reference);
+  const columnOf = (field: ImportField) => XLSX.utils.encode_col(IMPORT_COLUMNS.findIndex((c) => c.key === field));
+  // Supervisor by department: the block after the lists (see
+  // buildImportTemplate) — department names, then the options.
+  const byDepartment = supervisorsByDepartment(reference);
+  const deptColumn = XLSX.utils.encode_col(lists.length);
+  const optionColumn = XLSX.utils.encode_col(lists.length + 1);
+  const deptRange = `${DROPDOWN_SHEET}!$${deptColumn}$2:$${deptColumn}$${byDepartment.length + 1}`;
+
+  const rules = lists
+    .map((list, listIndex) => ({ ...list, listIndex }))
+    .filter((list) => list.values.length > 0)
+    .map((list) => {
+      const column = columnOf(list.field);
+      const sourceColumn = XLSX.utils.encode_col(list.listIndex);
+      let source = `${DROPDOWN_SHEET}!$${sourceColumn}$2:$${sourceColumn}$${list.values.length + 1}`;
+      const isSupervisor = list.field === "supervisorEmployeeNo";
+      if (isSupervisor && byDepartment.length > 0) {
+        // Row 2's formula; Excel shifts $F2 for every row below. No
+        // department yet → every supervisor.
+        const department = `$${columnOf("department")}2`;
+        source =
+          `IF(${department}="",${source},` +
+          `OFFSET(${DROPDOWN_SHEET}!$${optionColumn}$1,MATCH(${department},${deptRange},0),0,COUNTIF(${deptRange},${department}),1))`;
+      }
+      return (
+        // Supervisor: a warning, not a block, so a bare Employee No can
+        // still be typed in.
+        `<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="1" errorStyle="${isSupervisor ? "warning" : "stop"}"` +
+        ` errorTitle="${escapeXml(`Invalid ${list.title}`)}"` +
+        ` error="${escapeXml(`${list.title} must be one of the values in the dropdown list.`)}"` +
+        ` promptTitle="${escapeXml(list.title)}"` +
+        ` prompt="Choose from the dropdown list."` +
+        ` sqref="${column}2:${column}1048576"><formula1>${escapeXml(source)}</formula1></dataValidation>`
+      );
+    });
+  if (rules.length === 0) return data;
+
+  const validations = `<dataValidations count="${rules.length}">${rules.join("")}</dataValidations>`;
+  files[sheetPath] = strToU8(sheetXml.replace("</sheetData>", `</sheetData>${validations}`));
+  return zipSync(files);
 }
 
 function buildImportTemplate(XLSX: SheetJs, reference: ImportReference) {
   const workbook = XLSX.utils.book_new();
 
   // 1. Employees — the only sheet that's imported: header row, no data.
+  // Sex, Department, Position and Employee Type get dropdowns (see
+  // addTemplateDropdowns).
   const employeesSheet = XLSX.utils.aoa_to_sheet([IMPORT_COLUMNS.map((column) => column.header)]);
   employeesSheet["!cols"] = IMPORT_COLUMNS.map((column) => ({ wch: Math.max(16, column.header.length + 2) }));
   XLSX.utils.book_append_sheet(workbook, employeesSheet, EMPLOYEES_SHEET);
@@ -338,7 +468,7 @@ function buildImportTemplate(XLSX: SheetJs, reference: ImportReference) {
     [],
     ["How to use"],
     ["1. Enter one employee per row on the \"Employees\" sheet, starting on row 2. Keep the header row as it is."],
-    ["2. Use the exact names listed on the \"Lists\" sheet for Department, Position, Employee Type and Supervisor Employee No."],
+    ["2. Sex, Department, Position, Employee Type, Supervisor Employee No, Civil Status and Spouse Employment have dropdowns — pick from them. See the \"Lists\" sheet for supervisor names."],
     ["3. Save the file and upload it from Employee Management → Add Employee → Import Employees."],
     [`4. Up to ${reference.limits.maxRows} employees and ${MAX_FILE_BYTES / (1024 * 1024)} MB per file. .xlsx, .xls and .csv (same header row) are accepted.`],
     ["5. Every row is checked before anything is saved. Rows with errors are listed and skipped; you can fix them and import again."],
@@ -404,6 +534,24 @@ function buildImportTemplate(XLSX: SheetJs, reference: ImportReference) {
   const listsSheet = XLSX.utils.aoa_to_sheet(lists);
   listsSheet["!cols"] = columnWidths;
   XLSX.utils.book_append_sheet(workbook, listsSheet, "Lists");
+
+  // 4. DropdownLists (hidden) — the source values for the Employees sheet's
+  // dropdowns, one column per list with its title in row 1.
+  // The last two columns are the department-filtered Supervisor block.
+  const dropdowns = templateDropdowns(reference);
+  const byDepartment = supervisorsByDepartment(reference);
+  const dropdownRows: string[][] = [[...dropdowns.map((list) => list.title), "Supervisor Department", "Supervisor by Department"]];
+  const longest = Math.max(byDepartment.length, ...dropdowns.map((list) => list.values.length));
+  for (let r = 0; r < longest; r += 1) {
+    dropdownRows.push([...dropdowns.map((list) => list.values[r] ?? ""), byDepartment[r]?.[0] ?? "", byDepartment[r]?.[1] ?? ""]);
+  }
+  const dropdownSheet = XLSX.utils.aoa_to_sheet(dropdownRows);
+  dropdownSheet["!cols"] = dropdownRows[0].map(() => ({ wch: 28 }));
+  XLSX.utils.book_append_sheet(workbook, dropdownSheet, DROPDOWN_SHEET);
+  workbook.Workbook = {
+    ...workbook.Workbook,
+    Sheets: workbook.SheetNames.map((name) => ({ name, Hidden: name === DROPDOWN_SHEET ? 1 : 0 })),
+  };
 
   return workbook;
 }
