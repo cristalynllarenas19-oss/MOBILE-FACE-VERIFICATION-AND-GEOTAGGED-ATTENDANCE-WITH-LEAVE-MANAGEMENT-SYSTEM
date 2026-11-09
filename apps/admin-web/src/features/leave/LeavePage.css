@@ -1391,7 +1391,7 @@
   font-weight: 700;
   letter-spacing: 0.6px;
   text-transform: uppercase;
-  text-align: right;
+  text-align: center;
 }
 
 .employee-balance-row--head span:first-child {
@@ -1407,7 +1407,7 @@
   color: #52627a;
   font-size: 12.5px;
   font-weight: 500;
-  text-align: right;
+  text-align: center;
 }
 
 .employee-balance-num--strong {
@@ -1417,7 +1417,7 @@
 
 /* Icon-only "view used dates" button (tooltip carries the label). */
 .employee-balance-link {
-  justify-self: end;
+  justify-self: center;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1751,7 +1751,26 @@
 
 .used-dates-table {
   width: 100%;
+  min-width: 0;
+  table-layout: fixed;
   border-collapse: collapse;
+}
+
+.used-dates-table th:first-child,
+.used-dates-table td:first-child {
+  width: 60%;
+  overflow-wrap: anywhere;
+}
+
+.used-dates-table th:nth-child(2),
+.used-dates-table td:nth-child(2) {
+  width: 18%;
+  text-align: center;
+}
+
+.used-dates-table th:last-child,
+.used-dates-table td:last-child {
+  width: 22%;
 }
 
 .used-dates-table th {
@@ -1773,26 +1792,21 @@
   vertical-align: middle;
 }
 
+.used-dates-table .badge {
+  min-width: 0;
+  max-width: 100%;
+  padding: 5px 8px;
+  white-space: normal;
+}
+
 .used-dates-table tbody tr:last-child td {
   border-bottom: none;
 }
 
 .used-dates-table th:last-child,
 .used-dates-table td:last-child {
-  text-align: right;
+  text-align: center;
   padding-right: 0;
-}
-
-.used-dates-total {
-  margin-top: 14px;
-  text-align: right;
-  font-size: 12.5px;
-  color: #64748b;
-}
-
-.used-dates-total strong {
-  color: #062b59;
-  font-size: 13px;
 }
 
 @media (max-width: 640px) {

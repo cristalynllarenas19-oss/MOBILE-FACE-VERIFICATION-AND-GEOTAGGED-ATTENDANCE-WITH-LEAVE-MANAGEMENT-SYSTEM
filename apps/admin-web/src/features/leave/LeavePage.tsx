@@ -1029,12 +1029,6 @@ function EmployeeLeaveTypeRow({
                         ))}
                       </tbody>
                     </table>
-                    <div className="used-dates-total">
-                      {/* Same usedDays value as the "Used" figure on the row this
-                          button sits in — not re-derived from usedEntries — so the
-                          two can never disagree. */}
-                      Total Used: <strong>{formatDayCount(Math.round(usedDays))}</strong>
-                    </div>
                   </>
                 )}
               </div>

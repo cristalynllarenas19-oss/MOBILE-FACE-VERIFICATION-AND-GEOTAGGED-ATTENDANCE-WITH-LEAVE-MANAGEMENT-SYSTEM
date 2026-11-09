@@ -13,11 +13,12 @@ export type ImportField =
   | "position"
   | "employeeType"
   | "hireDate"
-  | "supervisorEmployeeNo"
+  | "supervisorName"
   | "civilStatus"
   | "spouseEmployment"
   | "spouseCompany"
-  | "spouseEmployeeNo";
+  | "spouseName"
+  | "geotaggedArea";
 
 export type ImportRow = { rowNumber: number } & Partial<Record<ImportField, string>>;
 
@@ -28,6 +29,8 @@ export type ImportReference = {
   positions: { department: string; title: string }[];
   employeeTypes: { name: string; employmentStatus: string }[];
   supervisors: { employeeNo: string; name: string; department: string }[];
+  spouses: { employeeNo: string; name: string }[];
+  geotaggedAreas: { name: string }[];
   limits: { maxRows: number; maxRowsPerRequest: number };
 };
 
@@ -53,16 +56,23 @@ export const IMPORT_COLUMNS: ImportColumn[] = [
   { key: "employeeType", header: "Employee Type", label: "Employee Type", required: true },
   { key: "hireDate", header: "Hire Date (Optional, YYYY-MM-DD)", label: "Hire Date", required: false },
   {
-    key: "supervisorEmployeeNo",
-    header: "Supervisor Employee No (Optional)",
-    label: "Supervisor Employee No",
+    key: "supervisorName",
+    header: "Name of Supervisor (Optional)",
+    label: "Name of Supervisor",
     required: false,
-    aliases: ["supervisor", "supervisorno"],
+    aliases: ["supervisor", "supervisorno", "supervisoremployeeno", "supervisoremployeenooptional"],
   },
   { key: "civilStatus", header: "Civil Status (Optional)", label: "Civil Status", required: false },
   { key: "spouseEmployment", header: "Spouse Employment (Optional)", label: "Spouse Employment", required: false },
   { key: "spouseCompany", header: "Spouse Company (Optional)", label: "Spouse Company", required: false },
-  { key: "spouseEmployeeNo", header: "Spouse Employee No (Optional)", label: "Spouse Employee No", required: false },
+  {
+    key: "spouseName",
+    header: "Name of Spouse (Optional)",
+    label: "Name of Spouse",
+    required: false,
+    aliases: ["spouse", "spouseno", "spouseemployeeno", "spouseemployeenooptional"],
+  },
+  { key: "geotaggedArea", header: "Geotagged Area (Optional)", label: "Geotagged Area", required: false },
 ];
 
 export const ACCEPTED_EXTENSIONS = [".xlsx", ".xls", ".csv"];
@@ -207,9 +217,6 @@ export async function parseImportFile(file: File, maxRows: number): Promise<Pars
     let hasValue = false;
     for (const [c, field] of columnFields) {
       let value = readCell(r, c);
-      // The template's Supervisor dropdown reads "ULPI-26001 - Name"; only
-      // the Employee No is imported.
-      if (field === "supervisorEmployeeNo") value = value.split(SUPERVISOR_SEPARATOR)[0].trim();
       if (value) {
         row[field] = value;
         hasValue = true;
@@ -345,18 +352,23 @@ function templateDropdowns(reference: ImportReference) {
     { field: "position" as ImportField, title: "Position", values: unique(reference.positions.map((p) => p.title)) },
     { field: "employeeType" as ImportField, title: "Employee Type", values: unique(reference.employeeTypes.map((t) => t.name)) },
     // "None" = no supervisor (blank still means the department's default).
-    // Shown as "ULPI-26001 - Name"; the import reads only the Employee No.
     // Once a row has a Department, its dropdown lists only that
     // department's supervisors (see supervisorsByDepartment).
     {
-      field: "supervisorEmployeeNo" as ImportField,
-      title: "Supervisor Employee No",
+      field: "supervisorName" as ImportField,
+      title: "Name of Supervisor",
       values: [
         "None",
         ...[...reference.supervisors]
-          .sort((a, b) => a.employeeNo.localeCompare(b.employeeNo))
-          .map(supervisorOption),
+          .sort((a, b) => a.name.localeCompare(b.name))
+          .map((supervisor) => supervisor.name),
       ],
+    },
+    { field: "spouseName" as ImportField, title: "Name of Spouse", values: unique(reference.spouses.map((spouse) => spouse.name)) },
+    {
+      field: "geotaggedArea" as ImportField,
+      title: "Geotagged Area",
+      values: unique(reference.geotaggedAreas.map((area) => area.name)),
     },
     { field: "civilStatus" as ImportField, title: "Civil Status", values: ["Single", "Married", "Widowed", "Separated", "Annulled"] },
     {
@@ -365,12 +377,6 @@ function templateDropdowns(reference: ImportReference) {
       values: ["Not provided", "Other Company", "ULPI", "Unemployed"],
     },
   ];
-}
-
-// "ULPI-26001 - Juan Dela Cruz": the dropdown shows who the number is.
-const SUPERVISOR_SEPARATOR = " - ";
-function supervisorOption(supervisor: { employeeNo: string; name: string }) {
-  return `${supervisor.employeeNo}${SUPERVISOR_SEPARATOR}${supervisor.name}`;
 }
 
 // Hidden-sheet block behind the department-filtered Supervisor dropdown:
@@ -384,8 +390,8 @@ function supervisorsByDepartment(reference: ImportReference) {
     [department, "None"],
     ...reference.supervisors
       .filter((supervisor) => supervisor.department === department)
-      .sort((a, b) => a.employeeNo.localeCompare(b.employeeNo))
-      .map((supervisor) => [department, supervisorOption(supervisor)]),
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((supervisor) => [department, supervisor.name]),
   ]);
 }
 
@@ -421,7 +427,7 @@ async function addTemplateDropdowns(XLSX: SheetJs, data: Uint8Array, reference: 
       const column = columnOf(list.field);
       const sourceColumn = XLSX.utils.encode_col(list.listIndex);
       let source = `${DROPDOWN_SHEET}!$${sourceColumn}$2:$${sourceColumn}$${list.values.length + 1}`;
-      const isSupervisor = list.field === "supervisorEmployeeNo";
+      const isSupervisor = list.field === "supervisorName";
       if (isSupervisor && byDepartment.length > 0) {
         // Row 2's formula; Excel shifts $F2 for every row below. No
         // department yet → every supervisor.
@@ -431,8 +437,8 @@ async function addTemplateDropdowns(XLSX: SheetJs, data: Uint8Array, reference: 
           `OFFSET(${DROPDOWN_SHEET}!$${optionColumn}$1,MATCH(${department},${deptRange},0),0,COUNTIF(${deptRange},${department}),1))`;
       }
       return (
-        // Supervisor: a warning, not a block, so a bare Employee No can
-        // still be typed in.
+        // Supervisor: a warning, not a block, so a value can be entered
+        // when there is no supervisor dropdown option.
         `<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="1" errorStyle="${isSupervisor ? "warning" : "stop"}"` +
         ` errorTitle="${escapeXml(`Invalid ${list.title}`)}"` +
         ` error="${escapeXml(`${list.title} must be one of the values in the dropdown list.`)}"` +
@@ -441,6 +447,13 @@ async function addTemplateDropdowns(XLSX: SheetJs, data: Uint8Array, reference: 
         ` sqref="${column}2:${column}1048576"><formula1>${escapeXml(source)}</formula1></dataValidation>`
       );
     });
+  const hireDateColumn = columnOf("hireDate");
+  rules.push(
+    `<dataValidation type="date" operator="between" allowBlank="1" showInputMessage="1" showErrorMessage="1" errorStyle="stop"` +
+      ` errorTitle="Invalid Hire Date" error="Enter a valid date." promptTitle="Hire Date"` +
+      ` prompt="Enter a valid date. Excel may not show a calendar popup for standard .xlsx files."` +
+      ` sqref="${hireDateColumn}2:${hireDateColumn}1048576"><formula1>DATE(1900,1,1)</formula1><formula2>DATE(9999,12,31)</formula2></dataValidation>`,
+  );
   if (rules.length === 0) return data;
 
   const validations = `<dataValidations count="${rules.length}">${rules.join("")}</dataValidations>`;
@@ -452,90 +465,13 @@ function buildImportTemplate(XLSX: SheetJs, reference: ImportReference) {
   const workbook = XLSX.utils.book_new();
 
   // 1. Employees — the only sheet that's imported: header row, no data.
-  // Sex, Department, Position and Employee Type get dropdowns (see
+  // Reference fields get dropdowns and Hire Date gets date validation (see
   // addTemplateDropdowns).
   const employeesSheet = XLSX.utils.aoa_to_sheet([IMPORT_COLUMNS.map((column) => column.header)]);
   employeesSheet["!cols"] = IMPORT_COLUMNS.map((column) => ({ wch: Math.max(16, column.header.length + 2) }));
   XLSX.utils.book_append_sheet(workbook, employeesSheet, EMPLOYEES_SHEET);
 
-  // 2. Instructions — column rules, plus the example rows (here, never on
-  // the Employees sheet, so they can't be imported by accident).
-  const exampleDepartment = reference.departments[0]?.name ?? "";
-  const examplePosition = reference.positions.find((p) => p.department === exampleDepartment)?.title ?? "";
-  const exampleType = reference.employeeTypes[0]?.name ?? "";
-  const instructions: (string | number)[][] = [
-    ["e-TALA Batch Employee Import — Instructions"],
-    [],
-    ["How to use"],
-    ["1. Enter one employee per row on the \"Employees\" sheet, starting on row 2. Keep the header row as it is."],
-    ["2. Sex, Department, Position, Employee Type, Supervisor Employee No, Civil Status and Spouse Employment have dropdowns — pick from them. See the \"Lists\" sheet for supervisor names."],
-    ["3. Save the file and upload it from Employee Management → Add Employee → Import Employees."],
-    [`4. Up to ${reference.limits.maxRows} employees and ${MAX_FILE_BYTES / (1024 * 1024)} MB per file. .xlsx, .xls and .csv (same header row) are accepted.`],
-    ["5. Every row is checked before anything is saved. Rows with errors are listed and skipped; you can fix them and import again."],
-    [],
-    ["Columns", "Required?", "Accepted values / notes"],
-    ["First Name", "Required", "Employee's given name."],
-    ["Middle Name (Optional)", "Optional", "Leave blank if the employee has none — do not type N/A or a dash."],
-    ["Last Name", "Required", "Employee's surname."],
-    ["Email", "Required", "Must be unique — not used by any existing account or another row. The employee's login email with a temporary password is sent here."],
-    ["Sex", "Required", "Male or Female."],
-    ["Department", "Required", "An active department (see Lists). Attendance Mode follows the department automatically."],
-    ["Position", "Required", "A position offered in that department (see Lists → Positions by Department)."],
-    ["Employee Type", "Required", "An active employee type (see Lists). Paternity/Maternity leave is allocated from Leave Types automatically when the type is entitled."],
-    ["Hire Date (Optional, YYYY-MM-DD)", "Optional", "Format YYYY-MM-DD, e.g. 2026-01-15 (Excel date cells are also accepted). Blank = today."],
-    ["Supervisor Employee No (Optional)", "Optional", "Employee No of an active supervisor in the same department. Blank = the department's default supervisor (same as Add Employee). Type None for no supervisor."],
-    ["Civil Status (Optional)", "Optional", "Single, Married, Widowed, Separated, or Annulled. Blank = Single."],
-    ["Spouse Employment (Optional)", "Optional", "Only when Married: Not provided, Other Company, ULPI, or Unemployed. Blank = Not provided."],
-    ["Spouse Company (Optional)", "Optional", "Required when Spouse Employment is Other Company."],
-    ["Spouse Employee No (Optional)", "Optional", "Required when Spouse Employment is ULPI — an active employee of the opposite sex."],
-    [],
-    ["Not set by import"],
-    ["• No passwords: each employee gets a temporary password by email and sets their own on first login."],
-    ["• No face data: each employee accepts the face-data consent on first login, then their face is registered in Face Registration."],
-    ["• Additional Leave Types (admin grants) and Solo Parent eligibility are granted afterward from Edit Employee."],
-    [],
-    ["EXAMPLES — for reference only. Do not copy these into the Employees sheet (example.com addresses are rejected)."],
-    IMPORT_COLUMNS.map((column) => column.header),
-    ["EXAMPLE Juan", "Santos", "Dela Cruz", "juan.delacruz@example.com", "Male", exampleDepartment, examplePosition, exampleType, "2026-01-15", "", "Married", "Other Company", "ABC Trading", ""],
-    ["EXAMPLE Maria", "", "Reyes", "maria.reyes@example.com", "Female", exampleDepartment, examplePosition, exampleType, "", "None", "Single", "", "", ""],
-  ];
-  const instructionsSheet = XLSX.utils.aoa_to_sheet(instructions);
-  instructionsSheet["!cols"] = [{ wch: 36 }, { wch: 14 }, { wch: 110 }];
-  XLSX.utils.book_append_sheet(workbook, instructionsSheet, "Instructions");
-
-  // 3. Lists — the accepted values, side by side.
-  const blocks: (string | number)[][][] = [
-    [["Department", "Attendance Mode"], ...reference.departments.map((d) => [d.name, d.attendanceMode])],
-    [["Positions by Department", ""], ["Department", "Position"], ...reference.positions.map((p) => [p.department, p.title])],
-    [["Employee Type"], ...reference.employeeTypes.map((t) => [t.name])],
-    [["Supervisor Employee No", "Name", "Department"], ...reference.supervisors.map((s) => [s.employeeNo, s.name, s.department])],
-    [["Sex"], ["Male"], ["Female"]],
-    [["Civil Status"], ["Single"], ["Married"], ["Widowed"], ["Separated"], ["Annulled"]],
-    [["Spouse Employment"], ["Not provided"], ["Other Company"], ["ULPI"], ["Unemployed"]],
-  ];
-  const lists: (string | number)[][] = [];
-  const columnWidths: { wch: number }[] = [];
-  let columnOffset = 0;
-  for (const block of blocks) {
-    const width = Math.max(...block.map((row) => row.length));
-    block.forEach((row, rowIndex) => {
-      lists[rowIndex] ??= [];
-      for (let c = 0; c < width; c += 1) lists[rowIndex][columnOffset + c] = row[c] ?? "";
-    });
-    for (let c = 0; c < width; c += 1) columnWidths[columnOffset + c] = { wch: 24 };
-    columnWidths[columnOffset + width] = { wch: 3 };
-    columnOffset += width + 1;
-  }
-  const height = lists.length;
-  for (let r = 0; r < height; r += 1) {
-    lists[r] ??= [];
-    for (let c = 0; c < columnOffset; c += 1) lists[r][c] ??= "";
-  }
-  const listsSheet = XLSX.utils.aoa_to_sheet(lists);
-  listsSheet["!cols"] = columnWidths;
-  XLSX.utils.book_append_sheet(workbook, listsSheet, "Lists");
-
-  // 4. DropdownLists (hidden) — the source values for the Employees sheet's
+  // 2. DropdownLists (hidden) — the source values for the Employees sheet's
   // dropdowns, one column per list with its title in row 1.
   // The last two columns are the department-filtered Supervisor block.
   const dropdowns = templateDropdowns(reference);

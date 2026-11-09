@@ -27,11 +27,12 @@ export class ImportEmployeeRowDto {
   @IsOptional() @IsString() @MaxLength(150) position?: string;
   @IsOptional() @IsString() @MaxLength(150) employeeType?: string;
   @IsOptional() @IsString() @MaxLength(30) hireDate?: string;
-  @IsOptional() @IsString() @MaxLength(50) supervisorEmployeeNo?: string;
+  @IsOptional() @IsString() @MaxLength(200) supervisorName?: string;
   @IsOptional() @IsString() @MaxLength(30) civilStatus?: string;
   @IsOptional() @IsString() @MaxLength(30) spouseEmployment?: string;
   @IsOptional() @IsString() @MaxLength(200) spouseCompany?: string;
-  @IsOptional() @IsString() @MaxLength(50) spouseEmployeeNo?: string;
+  @IsOptional() @IsString() @MaxLength(200) spouseName?: string;
+  @IsOptional() @IsString() @MaxLength(150) geotaggedArea?: string;
 }
 
 export class ValidateEmployeeImportDto {

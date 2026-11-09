@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { isEmail } from "class-validator";
 import { PrismaService } from "../../prisma/prisma.service";
 import { AuditLogContext } from "../audit-logs/audit-logs.service";
+import { GeolocationService } from "../geolocation/geolocation.service";
 import { isPositionAvailableIn } from "../positions/positions.service";
 import {
   CreateEmployeeDto,
@@ -25,6 +26,7 @@ type ValidatedRow = {
   // supervisor a blank Supervisor column defaulted to.
   resolved: { supervisor: string | null; attendanceMode: string | null };
   dto?: CreateEmployeeDto;
+  geotaggedAreaId?: string;
 };
 
 type ImportRowResult = {
@@ -52,11 +54,12 @@ const FIELD = {
   position: "Position",
   employeeType: "Employee Type",
   hireDate: "Hire Date",
-  supervisor: "Supervisor Employee No",
+  supervisor: "Name of Supervisor",
   civilStatus: "Civil Status",
   spouseEmployment: "Spouse Employment",
   spouseCompany: "Spouse Company",
-  spouseEmployeeNo: "Spouse Employee No",
+  spouseName: "Name of Spouse",
+  geotaggedArea: "Geotagged Area",
 } as const;
 
 const REQUIRED = "This field is required.";
@@ -88,7 +91,7 @@ const SPOUSE_EMPLOYMENT_VALUES: Record<string, SpouseEmployment> = {
   unemployed: "UNEMPLOYED",
 };
 
-// Typed in Supervisor Employee No to leave the employee without a supervisor
+// Type "None" to leave the employee without a supervisor
 // (blank instead picks the department's default, same as Add Employee).
 const NO_SUPERVISOR = "none";
 
@@ -110,8 +113,8 @@ function isValidIsoDate(value: string) {
   return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day;
 }
 
-function personName(person: { firstName: string; lastName: string }) {
-  return `${person.firstName} ${person.lastName}`;
+function personName(person: { firstName: string; middleName?: string | null; lastName: string }) {
+  return [person.firstName, person.middleName, person.lastName].filter(Boolean).join(" ");
 }
 
 // Batch Employee Import. Validates spreadsheet rows against the same rules
@@ -128,10 +131,11 @@ export class EmployeeImportService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly employees: EmployeesService,
+    private readonly geolocation: GeolocationService,
   ) {}
 
   private async loadReference(scopeDepartmentId?: string) {
-    const [departments, positions, employeeTypes, supervisors] = await Promise.all([
+    const [departments, positions, employeeTypes, supervisors, spouses, geotaggedAreas] = await Promise.all([
       this.prisma.department.findMany({
         where: { isActive: true, ...(scopeDepartmentId ? { id: scopeDepartmentId } : {}) },
         select: { id: true, name: true, attendanceMode: true, attendanceModeRef: { select: { label: true } } },
@@ -150,6 +154,27 @@ export class EmployeeImportService {
       // Same list (and order) the Add Employee Supervisor dropdown uses, so
       // a blank cell defaults to the same supervisor the form would preselect.
       this.employees.findSupervisors(scopeDepartmentId),
+      this.prisma.employee.findMany({
+        where: { employmentStatus: { not: "SEPARATED" } },
+        select: {
+          id: true,
+          employeeNo: true,
+          firstName: true,
+          middleName: true,
+          lastName: true,
+          sex: true,
+          employmentStatus: true,
+        },
+        orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+      }),
+      this.prisma.workLocation.findMany({
+        where: {
+          isActive: true,
+          ...(scopeDepartmentId ? { OR: [{ departmentId: null }, { departmentId: scopeDepartmentId }] } : {}),
+        },
+        select: { id: true, name: true, departmentId: true },
+        orderBy: { name: "asc" },
+      }),
     ]);
 
     return {
@@ -157,6 +182,8 @@ export class EmployeeImportService {
       positions,
       employeeTypes,
       supervisors,
+      spouses,
+      geotaggedAreas,
       departmentsByKey: new Map(departments.map((department) => [lookupKey(department.name), department])),
       positionsByKey: new Map(positions.map((position) => [lookupKey(position.title), position])),
       employeeTypesByKey: new Map(employeeTypes.map((type) => [lookupKey(type.name), type])),
@@ -185,6 +212,8 @@ export class EmployeeImportService {
         name: personName(supervisor),
         department: supervisor.department.name,
       })),
+      spouses: reference.spouses.map((spouse) => ({ employeeNo: spouse.employeeNo, name: personName(spouse) })),
+      geotaggedAreas: reference.geotaggedAreas.map((area) => ({ name: area.name })),
       limits: { maxRows: MAX_IMPORT_ROWS, maxRowsPerRequest: MAX_IMPORT_ROWS_PER_REQUEST },
     };
   }
@@ -194,7 +223,7 @@ export class EmployeeImportService {
   async validate(rows: ImportEmployeeRowDto[], scopeDepartmentId?: string) {
     const validated = await this.validateRows(rows, scopeDepartmentId);
     return {
-      rows: validated.map(({ dto: _dto, ...row }) => row),
+      rows: validated.map(({ dto: _dto, geotaggedAreaId: _geotaggedAreaId, ...row }) => row),
       summary: {
         total: validated.length,
         valid: validated.filter((row) => row.status === "VALID").length,
@@ -210,22 +239,12 @@ export class EmployeeImportService {
     // Emails are stored lowercased (CreateEmployeeDto's transform), and
     // create() checks them with an exact match — same rule here.
     const emails = Array.from(new Set(rows.map((row) => lookupKey(row.email)).filter(Boolean)));
-    const spouseNumbers = Array.from(
-      new Set(rows.map((row) => clean(row.spouseEmployeeNo).toUpperCase()).filter(Boolean)),
-    );
-    const [existingUsers, spouses] = await Promise.all([
+    const existingUsers =
       emails.length > 0
-        ? this.prisma.user.findMany({ where: { email: { in: emails } }, select: { email: true } })
-        : Promise.resolve([] as { email: string }[]),
-      spouseNumbers.length > 0
-        ? this.prisma.employee.findMany({
-            where: { employeeNo: { in: spouseNumbers } },
-            select: { id: true, employeeNo: true, sex: true, employmentStatus: true },
-          })
-        : Promise.resolve([] as { id: string; employeeNo: string; sex: string | null; employmentStatus: string }[]),
-    ]);
+        ? await this.prisma.user.findMany({ where: { email: { in: emails } }, select: { email: true } })
+        : [];
     const existingEmails = new Set(existingUsers.map((user) => user.email.toLowerCase()));
-    const spousesByNo = new Map(spouses.map((spouse) => [spouse.employeeNo.toUpperCase(), spouse]));
+    const spousesByNo = new Map(reference.spouses.map((spouse) => [spouse.employeeNo.toUpperCase(), spouse]));
     const firstRowByEmail = new Map<string, number>();
 
     return rows.map((row) => {
@@ -302,8 +321,9 @@ export class EmployeeImportService {
 
       // Blank = the department's default supervisor (what Add Employee
       // preselects); "None" = no supervisor; otherwise an active supervisor
-      // of the same department, by Employee No.
-      const supervisorValue = clean(row.supervisorEmployeeNo);
+      // of the same department, by name. Employee numbers remain accepted
+      // for older spreadsheets that used the previous template.
+      const supervisorValue = clean(row.supervisorName);
       let supervisorId: string | undefined;
       let supervisorLabel: string | null = null;
       if (department) {
@@ -314,9 +334,16 @@ export class EmployeeImportService {
             supervisorLabel = `${personName(fallback)} (department default)`;
           }
         } else if (supervisorValue.toLowerCase() !== NO_SUPERVISOR) {
-          const supervisor = reference.supervisorsByNo.get(supervisorValue.toUpperCase());
-          if (!supervisor) {
-            fail(FIELD.supervisor, "No active supervisor has this Employee No.");
+          const legacyNo = /^([A-Za-z0-9-]+)\s+-\s+.+$/.exec(supervisorValue)?.[1] ?? supervisorValue;
+          const byName = reference.supervisors.filter(
+            (candidate) => lookupKey(personName(candidate)) === lookupKey(supervisorValue),
+          );
+          const supervisor =
+            byName.length === 1 ? byName[0] : byName.length > 1 ? undefined : reference.supervisorsByNo.get(legacyNo.toUpperCase());
+          if (byName.length > 1) {
+            fail(FIELD.supervisor, "More than one active supervisor has this name. Ask HR to distinguish their names.");
+          } else if (!supervisor) {
+            fail(FIELD.supervisor, "No active supervisor has this name.");
           } else if (supervisor.department.name !== department.name) {
             fail(FIELD.supervisor, `${personName(supervisor)} belongs to ${supervisor.department.name}, not ${department.name}.`);
           } else {
@@ -336,12 +363,12 @@ export class EmployeeImportService {
       const spouseEmploymentKey = lookupKey(row.spouseEmployment);
       const spouseEmployment = spouseEmploymentKey ? SPOUSE_EMPLOYMENT_VALUES[spouseEmploymentKey] : "NONE";
       const spouseCompany = clean(row.spouseCompany);
-      const spouseNo = clean(row.spouseEmployeeNo).toUpperCase();
+      const spouseName = clean(row.spouseName);
       let spouseEmployeeId = "";
       if (!spouseEmployment) {
         fail(FIELD.spouseEmployment, "Use Not provided, Other Company, ULPI, or Unemployed.");
       } else if (civilStatus && civilStatus !== EmployeeCivilStatus.MARRIED) {
-        if (spouseEmployment !== "NONE" || spouseCompany || spouseNo) {
+        if (spouseEmployment !== "NONE" || spouseCompany || spouseName) {
           fail(FIELD.spouseEmployment, "Spouse details only apply when Civil Status is Married.");
         }
       } else if (civilStatus === EmployeeCivilStatus.MARRIED) {
@@ -351,18 +378,37 @@ export class EmployeeImportService {
           fail(FIELD.spouseCompany, "Only used when Spouse Employment is Other Company.");
         }
         if (spouseEmployment === "ULPI") {
-          const spouse = spouseNo ? spousesByNo.get(spouseNo) : undefined;
-          if (!spouseNo) {
-            fail(FIELD.spouseEmployeeNo, "Required when Spouse Employment is ULPI.");
+          const byName = reference.spouses.filter(
+            (candidate) => lookupKey(personName(candidate)) === lookupKey(spouseName),
+          );
+          const spouse = byName.length === 1 ? byName[0] : byName.length > 1 ? undefined : spousesByNo.get(spouseName.toUpperCase());
+          if (!spouseName) {
+            fail(FIELD.spouseName, "Required when Spouse Employment is ULPI.");
+          } else if (byName.length > 1) {
+            fail(FIELD.spouseName, "More than one active employee has this name. Ask HR to distinguish their names.");
           } else if (!spouse || spouse.employmentStatus === "SEPARATED") {
-            fail(FIELD.spouseEmployeeNo, "No active employee has this Employee No.");
+            fail(FIELD.spouseName, "No active employee has this name.");
           } else if (!spouse.sex || (sex && spouse.sex === sex)) {
-            fail(FIELD.spouseEmployeeNo, "The spouse must be an employee of the opposite sex.");
+            fail(FIELD.spouseName, "The spouse must be an employee of the opposite sex.");
           } else {
             spouseEmployeeId = spouse.id;
           }
-        } else if (spouseNo) {
-          fail(FIELD.spouseEmployeeNo, "Only used when Spouse Employment is ULPI.");
+        } else if (spouseName) {
+          fail(FIELD.spouseName, "Only used when Spouse Employment is ULPI.");
+        }
+      }
+
+      const geotaggedAreaName = lookupKey(row.geotaggedArea);
+      const matchingAreas = geotaggedAreaName
+        ? reference.geotaggedAreas.filter((area) => lookupKey(area.name) === geotaggedAreaName)
+        : [];
+      let geotaggedAreaId: string | undefined;
+      if (geotaggedAreaName) {
+        if (matchingAreas.length === 1) geotaggedAreaId = matchingAreas[0].id;
+        else if (matchingAreas.length > 1) {
+          fail(FIELD.geotaggedArea, "More than one active area has this name. Ask HR to distinguish the area names.");
+        } else {
+          fail(FIELD.geotaggedArea, "Active geotagged area not found.");
         }
       }
 
@@ -398,7 +444,7 @@ export class EmployeeImportService {
         ...(hireDate ? { hireDate } : {}),
         ...(supervisorId ? { supervisorId } : {}),
       });
-      return { rowNumber: row.rowNumber, status, errors, resolved, dto };
+      return { rowNumber: row.rowNumber, status, errors, resolved, dto, geotaggedAreaId };
     });
   }
 
@@ -424,10 +470,27 @@ export class EmployeeImportService {
         const created = await this.employees.create(row.dto, context, scopeDepartmentId, {
           onCredentialsEmail: (delivery) => deliveries.set(row.rowNumber, delivery),
         });
+        const assignmentIssues: ImportRowIssue[] = [];
+        if (row.geotaggedAreaId) {
+          try {
+            await this.geolocation.addEmployee(row.geotaggedAreaId, created.id, context, {
+              departmentId: scopeDepartmentId,
+            });
+          } catch (error) {
+            const message = error instanceof HttpException ? error.message : "The employee could not be assigned to this area.";
+            this.logger.error(
+              `[IMPORT] Row ${row.rowNumber} employee was created but geotagged area assignment failed: ${error instanceof Error ? error.message : String(error)}`,
+            );
+            assignmentIssues.push({
+              field: FIELD.geotaggedArea,
+              message: `Employee was created, but area assignment failed: ${message}`,
+            });
+          }
+        }
         results.push({
           rowNumber: row.rowNumber,
           outcome: "CREATED",
-          errors: [],
+          errors: assignmentIssues,
           employee: {
             id: created.id,
             employeeNo: created.employeeNo,

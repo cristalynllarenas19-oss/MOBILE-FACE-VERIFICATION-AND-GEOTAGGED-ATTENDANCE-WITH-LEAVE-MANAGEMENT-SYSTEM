@@ -326,10 +326,16 @@ export class GeolocationService implements OnApplicationBootstrap {
     await this.assertWithinDepartmentScope(locationId, employeeId, scope);
     const updated = await this.prisma.$transaction(async (tx) => {
       if (joinTableAvailable) {
-        await this.claimEmployeeForArea(tx, employeeId, locationId);
-        await tx.workLocationEmployee.create({
-          data: { workLocationId: locationId, employeeId },
+        const alreadyAssigned = await tx.workLocationEmployee.findFirst({
+          where: { workLocationId: locationId, employeeId },
+          select: { id: true },
         });
+        if (!alreadyAssigned) {
+          await this.claimEmployeeForArea(tx, employeeId, locationId);
+          await tx.workLocationEmployee.create({
+            data: { workLocationId: locationId, employeeId },
+          });
+        }
         await this.assertFieldAreaRoster(tx, locationId);
       } else {
         const existingAssignment = await tx.$queryRaw<Array<{ id: string }>>`

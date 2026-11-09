@@ -228,7 +228,14 @@ export class EmployeesService implements OnApplicationBootstrap {
         // Deactivated supervisors (User Management) aren't offered as supervisors.
         user: { status: "ACTIVE", userRoles: { some: { role: { code: "SUPERVISOR" } } } },
       },
-      select: { id: true, firstName: true, lastName: true, employeeNo: true, department: { select: { name: true } } },
+      select: {
+        id: true,
+        firstName: true,
+        middleName: true,
+        lastName: true,
+        employeeNo: true,
+        department: { select: { name: true } },
+      },
       orderBy: { lastName: "asc" },
     });
   }

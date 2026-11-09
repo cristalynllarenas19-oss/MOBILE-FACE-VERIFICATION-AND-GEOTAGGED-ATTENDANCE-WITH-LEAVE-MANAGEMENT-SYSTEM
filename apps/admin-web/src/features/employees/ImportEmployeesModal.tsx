@@ -177,7 +177,7 @@ export function ImportEmployeesModal({
     [results],
   );
   const problemResults = results.filter(
-    (r) => r.outcome !== "CREATED" || r.emailStatus === "FAILED" || r.emailStatus === "PENDING",
+    (r) => r.outcome !== "CREATED" || r.errors.length > 0 || r.emailStatus === "FAILED" || r.emailStatus === "PENDING",
   );
 
   const isBusy = isChecking || step === "importing";
