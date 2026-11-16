@@ -65,11 +65,20 @@ type Props = {
 // counted as both earned and used on top of the leave's own (98/98 + a
 // 30-day extension reads 128/128). remainingDays is unaffected.
 function withExtensionDays(balances: LeaveBalance[]): LeaveBalance[] {
-  return balances.map((balance) =>
-    balance.extensionDays
-      ? { ...balance, earnedDays: balance.earnedDays + balance.extensionDays, usedDays: balance.usedDays + balance.extensionDays }
-      : balance,
-  );
+  return balances.map((balance) => {
+    const extensionDays = Number(balance.extensionDays ?? 0);
+    // The approved extension is unpaid, so it increases both the leave shown
+    // as earned and used. Derive remaining from those displayed values so the
+    // card always satisfies earned = used + remaining.
+    const earnedDays = balance.earnedDays + extensionDays;
+    const usedDays = balance.usedDays + extensionDays;
+    return {
+      ...balance,
+      earnedDays,
+      usedDays,
+      remainingDays: Math.max(0, earnedDays - usedDays),
+    };
+  });
 }
 
 export default function LeaveBalanceChart({ balances: rawBalances, loading, pendingCount, onPressPending, onPressViewAll, onRequestLeave, needsRevisionCount }: Props) {

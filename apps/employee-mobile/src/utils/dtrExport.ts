@@ -209,10 +209,8 @@ function buildDtrHtml(dtr: DtrDocument, logoDataUri: string | null) {
     })
     .join("");
 
-  // Day counts for the period, in their own box under the time table
-  // (labels on top, numbers below), kept on the same page as the
-  // certification. Leave Pending and Pending Review only show up when
-  // they happen.
+  // Day counts for the period, displayed above the DTR table. Leave Pending
+  // and Pending Review only show up when they happen.
   const days = dtrDayCounts(dtr);
   const summary: [string, number][] = [
     ["Working Days", days.workingDays],
@@ -225,8 +223,7 @@ function buildDtrHtml(dtr: DtrDocument, logoDataUri: string | null) {
   const summaryTable = `<table class="summary">
       <tr>${summary.map(([label]) => `<th>${escapeHtml(label)}</th>`).join("")}</tr>
       <tr>${summary.map(([, value]) => `<td>${escapeHtml(value)}</td>`).join("")}</tr>
-    </table>
-    <p class="summary-note">Each day is counted once.</p>`;
+    </table>`;
 
   return `<!DOCTYPE html>
 <html>
@@ -262,11 +259,10 @@ function buildDtrHtml(dtr: DtrDocument, logoDataUri: string | null) {
     .line { border-top: 0.75pt solid #000; margin-top: 30pt; padding-top: 3pt; }
     .cert { font-size: 8.5pt; margin: 12pt 0 0; }
     .prepared { margin: 8pt 0 0; font-size: 9pt; }
-    table.summary { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 12pt; }
+    table.summary { width: 100%; border-collapse: collapse; table-layout: fixed; margin: 0 0 12pt; }
     table.summary th, table.summary td { border: 0.75pt solid #000; padding: 4pt; text-align: center; vertical-align: middle; }
     table.summary th { background: #E5E5E5; font-size: 8.5pt; font-weight: 700; }
     table.summary td { font-size: 11pt; font-weight: 700; }
-    .summary-note { font-size: 7.5pt; color: #2D4A65; margin: 3pt 0 0; }
   </style>
 </head>
 <body>
@@ -276,6 +272,7 @@ function buildDtrHtml(dtr: DtrDocument, logoDataUri: string | null) {
     <p class="meta">Universal Leaf Philippines Inc. &nbsp;·&nbsp; ${escapeHtml(period)}</p>
   </div>
   <table class="info">${infoRows}</table>
+  ${summaryTable}
   <table class="dtr">
     <colgroup>
       <col style="width:10%" /><col style="width:7%" /><col style="width:12%" /><col style="width:12%" />
@@ -294,7 +291,6 @@ function buildDtrHtml(dtr: DtrDocument, logoDataUri: string | null) {
     </tbody>
   </table>
   <div class="closing">
-    ${summaryTable}
     <p class="cert">I certify on my honor that the above is a true and correct report of the hours of work performed, recorded through the e-TALA attendance system.</p>
     <p class="prepared"><strong>Date Prepared:</strong> ${escapeHtml(prepared)}</p>
     <table class="sign">
